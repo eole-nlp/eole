@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en" dir="ltr" class="docs-wrapper plugin-docs plugin-id-default docs-version-current docs-doc-page docs-doc-id-reference/Core API/inference" data-has-hydrated="false">
+<head>
+<meta charset="UTF-8">
+<meta name="generator" content="Docusaurus v3.2.0">
+<title data-rh="true">Prediction | Eole - 👷‍♂️🚧 Work In Progress</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/reference/Core API/inference"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Prediction | Eole - 👷‍♂️🚧 Work In Progress"><meta data-rh="true" name="description" content="Predictions"><meta data-rh="true" property="og:description" content="Predictions"><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/reference/Core API/inference"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/reference/Core API/inference" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/reference/Core API/inference" hreflang="x-default"><link rel="stylesheet" href="/eole/assets/css/styles.0e100862.css">
+<script src="/eole/assets/js/runtime~main.418f06a0.js" defer="defer"></script>
+<script src="/eole/assets/js/main.782b1c90.js" defer="defer"></script>
+</head>
+<body class="navigation-with-keyboard">
+<script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"dark")}(),function(){try{const c=new URLSearchParams(window.location.search).entries();for(var[t,e]of c)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script><div id="__docusaurus"><div role="region" aria-label="Skip to main content"><a class="skipToContent_fXgn" href="#__docusaurus_skipToContent_fallback">Skip to main content</a></div><nav aria-label="Main" class="navbar navbar--fixed-top"><div class="navbar__inner"><div class="navbar__items"><button aria-label="Toggle navigation bar" aria-expanded="false" class="navbar__toggle clean-btn" type="button"><svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path stroke="currentColor" stroke-linecap="round" stroke-miterlimit="10" stroke-width="2" d="M4 7h22M4 15h22M4 23h22"></path></svg></button><a class="navbar__brand" href="/eole/"><div class="navbar__logo"><img src="/eole/img/eole-logo.png" alt="Eole Logo" class="themedComponent_mlkZ themedComponent--light_NVdE"><img src="/eole/img/eole-logo.png" alt="Eole Logo" class="themedComponent_mlkZ themedComponent--dark_xIcU"></div><b class="navbar__title text--truncate"></b></a><a class="navbar__item navbar__link" href="/eole/docs/">Docs</a><a aria-current="page" class="navbar__item navbar__link navbar__link--active" href="/eole/docs/reference/index">Reference</a></div><div class="navbar__items navbar__items--right"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="navbar__item navbar__link">GitHub<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a><div class="toggle_vylO colorModeToggle_DEke"><button class="clean-btn toggleButton_gllP toggleButtonDisabled_aARS" type="button" disabled="" title="Switch between dark and light mode (currently dark mode)" aria-label="Switch between dark and light mode (currently dark mode)" aria-live="polite"><svg viewBox="0 0 24 24" width="24" height="24" class="lightToggleIcon_pyhR"><path fill="currentColor" d="M12,9c1.65,0,3,1.35,3,3s-1.35,3-3,3s-3-1.35-3-3S10.35,9,12,9 M12,7c-2.76,0-5,2.24-5,5s2.24,5,5,5s5-2.24,5-5 S14.76,7,12,7L12,7z M2,13l2,0c0.55,0,1-0.45,1-1s-0.45-1-1-1l-2,0c-0.55,0-1,0.45-1,1S1.45,13,2,13z M20,13l2,0c0.55,0,1-0.45,1-1 s-0.45-1-1-1l-2,0c-0.55,0-1,0.45-1,1S19.45,13,20,13z M11,2v2c0,0.55,0.45,1,1,1s1-0.45,1-1V2c0-0.55-0.45-1-1-1S11,1.45,11,2z M11,20v2c0,0.55,0.45,1,1,1s1-0.45,1-1v-2c0-0.55-0.45-1-1-1C11.45,19,11,19.45,11,20z M5.99,4.58c-0.39-0.39-1.03-0.39-1.41,0 c-0.39,0.39-0.39,1.03,0,1.41l1.06,1.06c0.39,0.39,1.03,0.39,1.41,0s0.39-1.03,0-1.41L5.99,4.58z M18.36,16.95 c-0.39-0.39-1.03-0.39-1.41,0c-0.39,0.39-0.39,1.03,0,1.41l1.06,1.06c0.39,0.39,1.03,0.39,1.41,0c0.39-0.39,0.39-1.03,0-1.41 L18.36,16.95z M19.42,5.99c0.39-0.39,0.39-1.03,0-1.41c-0.39-0.39-1.03-0.39-1.41,0l-1.06,1.06c-0.39,0.39-0.39,1.03,0,1.41 s1.03,0.39,1.41,0L19.42,5.99z M7.05,18.36c0.39-0.39,0.39-1.03,0-1.41c-0.39-0.39-1.03-0.39-1.41,0l-1.06,1.06 c-0.39,0.39-0.39,1.03,0,1.41s1.03,0.39,1.41,0L7.05,18.36z"></path></svg><svg viewBox="0 0 24 24" width="24" height="24" class="darkToggleIcon_wfgR"><path fill="currentColor" d="M9.37,5.51C9.19,6.15,9.1,6.82,9.1,7.5c0,4.08,3.32,7.4,7.4,7.4c0.68,0,1.35-0.09,1.99-0.27C17.45,17.19,14.93,19,12,19 c-3.86,0-7-3.14-7-7C5,9.07,6.81,6.55,9.37,5.51z M12,3c-4.97,0-9,4.03-9,9s4.03,9,9,9s9-4.03,9-9c0-0.46-0.04-0.92-0.1-1.36 c-0.98,1.37-2.58,2.26-4.4,2.26c-2.98,0-5.4-2.42-5.4-5.4c0-1.81,0.89-3.42,2.26-4.4C12.92,3.04,12.46,3,12,3L12,3z"></path></svg></button></div><div class="navbarSearchContainer_Bca1"><div class="navbar__search"><span aria-label="expand searchbar" role="button" class="search-icon" tabindex="0"></span><input id="search_input_react" type="search" placeholder="Loading..." aria-label="Search" class="navbar__search-input search-bar" disabled=""></div></div></div></div><div role="presentation" class="navbar-sidebar__backdrop"></div></nav><div id="__docusaurus_skipToContent_fallback" class="main-wrapper mainWrapper_z2l0"><div class="docsWrapper_hBAB"><button aria-label="Scroll back to top" class="clean-btn theme-back-to-top-button backToTopButton_sjWU" type="button"></button><div class="docRoot_UBD9"><aside class="theme-doc-sidebar-container docSidebarContainer_YfHR"><div class="sidebarViewport_aRkj"><div class="sidebar_njMd"><nav aria-label="Docs sidebar" class="menu thin-scrollbar menu_SIkG"><ul class="theme-doc-sidebar-menu menu__list"><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/reference/index">Eole Core API</a></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="menu__link menu__link--sublist" href="/eole/docs/reference/Config/">Configuration</a><button aria-label="Expand sidebar category &#x27;Configuration&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item"><div class="menu__list-item-collapsible"><a class="menu__link menu__link--sublist menu__link--sublist-caret menu__link--active" role="button" aria-expanded="true" href="/eole/docs/reference/Core API/core">Core API</a></div><ul style="display:block;overflow:visible;height:auto" class="menu__list"><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/reference/Core API/core">Framework</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/reference/Core API/modules">Modules</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/reference/Core API/dataloaders">Data Loaders</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link menu__link--active" aria-current="page" tabindex="0" href="/eole/docs/reference/Core API/inference">Prediction</a></li></ul></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/reference/bibliography">Bibliography</a></li></ul></nav></div></div></aside><main class="docMainContainer_TBSr"><div class="container padding-top--md padding-bottom--lg"><div class="row"><div class="col docItemCol_VOVn"><div class="docItemContainer_Djhp"><article><nav class="theme-doc-breadcrumbs breadcrumbsContainer_Z_bl" aria-label="Breadcrumbs"><ul class="breadcrumbs" itemscope="" itemtype="https://schema.org/BreadcrumbList"><li class="breadcrumbs__item"><a aria-label="Home page" class="breadcrumbs__link" href="/eole/"><svg viewBox="0 0 24 24" class="breadcrumbHomeIcon_YNFT"><path d="M10 19v-5h4v5c0 .55.45 1 1 1h3c.55 0 1-.45 1-1v-7h1.7c.46 0 .68-.57.33-.87L12.67 3.6c-.38-.34-.96-.34-1.34 0l-8.36 7.53c-.34.3-.13.87.33.87H5v7c0 .55.45 1 1 1h3c.55 0 1-.45 1-1z" fill="currentColor"></path></svg></a></li><li class="breadcrumbs__item"><span class="breadcrumbs__link">Core API</span><meta itemprop="position" content="1"></li><li itemscope="" itemprop="itemListElement" itemtype="https://schema.org/ListItem" class="breadcrumbs__item breadcrumbs__item--active"><span class="breadcrumbs__link" itemprop="name">Prediction</span><meta itemprop="position" content="2"></li></ul></nav><div class="tocCollapsible_ETCw theme-doc-toc-mobile tocMobile_ITEo"><button type="button" class="clean-btn tocCollapsibleButton_TO0P">On this page</button></div><div class="theme-doc-markdown markdown"><h1>Prediction</h1>
+<h2 class="anchor anchorWithStickyNavbar_LWe7" id="predictions">Predictions<a href="#predictions" class="hash-link" aria-label="Direct link to Predictions" title="Direct link to Predictions">​</a></h2>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="class-eolepredictpredictionpredictionsrc-srclen-pred_sents-attn-pred_scores-estim-tgt_sent-gold_score-word_aligns-ind_in_bucketsource"><em>class</em> eole.predict.prediction.Prediction(src, srclen, pred_sents, attn, pred_scores, estim, tgt_sent, gold_score, word_aligns, ind_in_bucket)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/prediction.py#L139-L222" target="_blank" rel="noopener noreferrer">[source]</a><a href="#class-eolepredictpredictionpredictionsrc-srclen-pred_sents-attn-pred_scores-estim-tgt_sent-gold_score-word_aligns-ind_in_bucketsource" class="hash-link" aria-label="Direct link to class-eolepredictpredictionpredictionsrc-srclen-pred_sents-attn-pred_scores-estim-tgt_sent-gold_score-word_aligns-ind_in_bucketsource" title="Direct link to class-eolepredictpredictionpredictionsrc-srclen-pred_sents-attn-pred_scores-estim-tgt_sent-gold_score-word_aligns-ind_in_bucketsource">​</a></h3>
+<p>Bases: <code>object</code></p>
+<p>Container for a predicted sentence.</p>
+<ul>
+<li><strong>Variables:</strong>
+<ul>
+<li><strong>src</strong> (<em>LongTensor</em>) – Source word IDs.</li>
+<li><strong>srclen</strong> (<em>List</em> *[*<em>int</em> <em>]</em>) – Source lengths.</li>
+<li><strong>pred_sents</strong> (<em>List</em> *[*<em>List</em> *[*<em>str</em> <em>]</em> <em>]</em>) – Words from the n-best predictions.</li>
+<li><strong>pred_scores</strong> (<em>List</em> *[*<em>List</em> *[*<em>float</em> <em>]</em> <em>]</em>) – Log-probs of n-best predictions.</li>
+<li><strong>attns</strong> (<em>List</em> *[*<em>FloatTensor</em> <em>]</em>) – Attention distribution for each
+prediction.</li>
+<li><strong>gold_sent</strong> (<em>List</em> *[*<em>str</em> <em>]</em>) – Words from gold prediction.</li>
+<li><strong>gold_score</strong> (<em>List</em> *[*<em>float</em> <em>]</em>) – Log-prob of gold prediction.</li>
+<li><strong>word_aligns</strong> (<em>List</em> *[*<em>FloatTensor</em> <em>]</em>) – Words Alignment distribution for
+each prediction.</li>
+</ul>
+</li>
+</ul>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="logsent_number-src_rawsource">log(sent_number, src_raw=&#x27;&#x27;)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/prediction.py#L192-L222" target="_blank" rel="noopener noreferrer">[source]</a><a href="#logsent_number-src_rawsource" class="hash-link" aria-label="Direct link to logsent_number-src_rawsource" title="Direct link to logsent_number-src_rawsource">​</a></h4>
+<p>Log prediction.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="class-eolepredictpredictionpredictionbuildervocabs-n_best1-replace_unkfalse-phrase_tablesource"><em>class</em> eole.predict.prediction.PredictionBuilder(vocabs, n_best=1, replace_unk=False, phrase_table=&#x27;&#x27;)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/prediction.py#L7-L136" target="_blank" rel="noopener noreferrer">[source]</a><a href="#class-eolepredictpredictionpredictionbuildervocabs-n_best1-replace_unkfalse-phrase_tablesource" class="hash-link" aria-label="Direct link to class-eolepredictpredictionpredictionbuildervocabs-n_best1-replace_unkfalse-phrase_tablesource" title="Direct link to class-eolepredictpredictionpredictionbuildervocabs-n_best1-replace_unkfalse-phrase_tablesource">​</a></h3>
+<p>Bases: <code>object</code></p>
+<p>Build a word-based prediction from the batch output
+of predictor and the underlying dictionaries.</p>
+<p>Replacement based on “Addressing the Rare Word
+Problem in Neural Machine Translation” []</p>
+<ul>
+<li><strong>Parameters:</strong>
+<ul>
+<li><strong>(****)</strong> (<em>vocabs</em>)</li>
+<li><strong>(****)</strong></li>
+<li><strong>n_best</strong> (<em>int</em>) – number of predictions produced</li>
+<li><strong>replace_unk</strong> (<em>bool</em>) – replace unknown words using attention</li>
+</ul>
+</li>
+</ul>
+<h2 class="anchor anchorWithStickyNavbar_LWe7" id="predictor-classes">Predictor Classes<a href="#predictor-classes" class="hash-link" aria-label="Direct link to Predictor Classes" title="Direct link to Predictor Classes">​</a></h2>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="class-eolepredictinferenceinferencemodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource"><em>class</em> eole.predict.inference.Inference(model, vocabs, gpu=-1, n_best=1, min_length=0, max_length=100, max_length_ratio=1.5, ratio=0.0, beam_size=30, random_sampling_topk=0, random_sampling_topp=0.0, random_sampling_temp=1.0, stepwise_penalty=None, dump_beam=False, block_ngram_repeat=0, ignore_when_blocking=frozenset({}), replace_unk=False, ban_unk_token=False, tgt_file_prefix=False, phrase_table=&#x27;&#x27;, data_type=&#x27;text&#x27;, verbose=False, report_time=False, global_scorer=None, out_file=None, report_align=False, gold_align=False, report_score=True, logger=None, seed=-1, with_score=False, return_gold_log_probs=False, add_estimator=False)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/inference.py#L17-L741" target="_blank" rel="noopener noreferrer">[source]</a><a href="#class-eolepredictinferenceinferencemodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource" class="hash-link" aria-label="Direct link to class-eolepredictinferenceinferencemodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource" title="Direct link to class-eolepredictinferenceinferencemodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource">​</a></h3>
+<p>Bases: <code>object</code></p>
+<p>Predict a batch of sentences with a saved model.</p>
+<ul>
+<li><strong>Parameters:</strong>
+<ul>
+<li><strong>model</strong> (<em>eole.modules.BaseModel</em>) – Model to use for prediction</li>
+<li><strong>vocabs</strong> (<em>dict</em> *[*<em>str</em> <em>,</em> <em>Vocab</em> <em>]</em>) – A dict
+mapping each side’s Vocab.</li>
+<li><strong>gpu</strong> (<em>int</em>) – GPU device. Set to negative for no GPU.</li>
+<li><strong>n_best</strong> (<em>int</em>) – How many beams to wait for.</li>
+<li><strong>min_length</strong> (<em>int</em>) – See
+<a href="#eole.predict.DecodeStrategy"><code>eole.predict.decode_strategy.DecodeStrategy</code></a>.</li>
+<li><strong>max_length</strong> (<em>int</em>) – See
+<a href="#eole.predict.DecodeStrategy"><code>eole.predict.decode_strategy.DecodeStrategy</code></a>.</li>
+<li><strong>beam_size</strong> (<em>int</em>) – Number of beams.</li>
+<li><strong>random_sampling_topk</strong> (<em>int</em>) – See
+<a href="#eole.predict.GreedySearch"><code>eole.predict.greedy_search.GreedySearch</code></a>.</li>
+<li><strong>random_sampling_temp</strong> (<em>float</em>) – See
+<a href="#eole.predict.GreedySearch"><code>eole.predict.greedy_search.GreedySearch</code></a>.</li>
+<li><strong>stepwise_penalty</strong> (<em>bool</em>) – Whether coverage penalty is applied every step
+or not.</li>
+<li><strong>dump_beam</strong> (<em>bool</em>) – Debugging option.</li>
+<li><strong>block_ngram_repeat</strong> (<em>int</em>) – See
+<a href="#eole.predict.DecodeStrategy"><code>eole.predict.decode_strategy.DecodeStrategy</code></a>.</li>
+<li><strong>ignore_when_blocking</strong> (<em>set</em> <em>or</em> <em>frozenset</em>) – See
+<a href="#eole.predict.DecodeStrategy"><code>eole.predict.decode_strategy.DecodeStrategy</code></a>.</li>
+<li><strong>replace_unk</strong> (<em>bool</em>) – Replace unknown token.</li>
+<li><strong>tgt_file_prefix</strong> (<em>bool</em>) – Force the predictions begin with provided -tgt.</li>
+<li><strong>data_type</strong> (<em>str</em>) – Source data type.</li>
+<li><strong>verbose</strong> (<em>bool</em>) – Print/log every prediction.</li>
+<li><strong>report_time</strong> (<em>bool</em>) – Print/log total time/frequency.</li>
+<li><strong>global_scorer</strong> (<a href="#eole.predict.GNMTGlobalScorer"><em>eole.predict.GNMTGlobalScorer</em></a>) – Prediction
+scoring/reranking object.</li>
+<li><strong>out_file</strong> (<em>TextIO</em> <em>or</em> <em>codecs.StreamReaderWriter</em>) – Output file.</li>
+<li><strong>report_score</strong> (<em>bool</em>) – Whether to report scores</li>
+<li><strong>logger</strong> (<em>logging.Logger</em> <em>or</em> <em>NoneType</em>) – Logger.</li>
+</ul>
+</li>
+</ul>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="classmethod-from_configmodel-vocabs-config-model_config-global_scorernone-out_filenone-report_alignfalse-report_scoretrue-loggernonesource"><em>classmethod</em> from_config(model, vocabs, config, model_config, global_scorer=None, out_file=None, report_align=False, report_score=True, logger=None)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/inference.py#L162-L227" target="_blank" rel="noopener noreferrer">[source]</a><a href="#classmethod-from_configmodel-vocabs-config-model_config-global_scorernone-out_filenone-report_alignfalse-report_scoretrue-loggernonesource" class="hash-link" aria-label="Direct link to classmethod-from_configmodel-vocabs-config-model_config-global_scorernone-out_filenone-report_alignfalse-report_scoretrue-loggernonesource" title="Direct link to classmethod-from_configmodel-vocabs-config-model_config-global_scorernone-out_filenone-report_alignfalse-report_scoretrue-loggernonesource">​</a></h4>
+<p>Alternate constructor.</p>
+<ul>
+<li><strong>Parameters:</strong>
+<ul>
+<li><strong>model</strong> (<em>eole.modules.BaseModel</em>) – See <code>__init__()</code>.</li>
+<li><strong>vocabs</strong> (<em>dict</em> *[*<em>str</em> <em>,</em> <em>Vocab</em> <em>]</em>) – See
+<code>__init__()</code>.</li>
+<li><strong>opt</strong> (<em>argparse.Namespace</em>) – Command line options</li>
+<li><strong>model_opt</strong> (<em>argparse.Namespace</em>) – Command line options saved with
+the model checkpoint.</li>
+<li><strong>global_scorer</strong> (<a href="#eole.predict.GNMTGlobalScorer"><em>eole.predict.GNMTGlobalScorer</em></a>) – See
+<code>__init__()</code>..</li>
+<li><strong>out_file</strong> (<em>TextIO</em> <em>or</em> <em>codecs.StreamReaderWriter</em>) – See
+<code>__init__()</code>.</li>
+<li><strong>report_align</strong> (<em>bool</em>) – See <code>__init__()</code>.</li>
+<li><strong>report_score</strong> (<em>bool</em>) – See <code>__init__()</code>.</li>
+<li><strong>logger</strong> (<em>logging.Logger</em> <em>or</em> <em>NoneType</em>) – See <code>__init__()</code>.</li>
+</ul>
+</li>
+</ul>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="predict_batchbatch-attn_debugsource">predict_batch(batch, attn_debug)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/inference.py#L684-L686" target="_blank" rel="noopener noreferrer">[source]</a><a href="#predict_batchbatch-attn_debugsource" class="hash-link" aria-label="Direct link to predict_batchbatch-attn_debugsource" title="Direct link to predict_batchbatch-attn_debugsource">​</a></h4>
+<p>Predict a batch of sentences.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="class-eolepredicttranslatormodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource"><em>class</em> eole.predict.Translator(model, vocabs, gpu=-1, n_best=1, min_length=0, max_length=100, max_length_ratio=1.5, ratio=0.0, beam_size=30, random_sampling_topk=0, random_sampling_topp=0.0, random_sampling_temp=1.0, stepwise_penalty=None, dump_beam=False, block_ngram_repeat=0, ignore_when_blocking=frozenset({}), replace_unk=False, ban_unk_token=False, tgt_file_prefix=False, phrase_table=&#x27;&#x27;, data_type=&#x27;text&#x27;, verbose=False, report_time=False, global_scorer=None, out_file=None, report_align=False, gold_align=False, report_score=True, logger=None, seed=-1, with_score=False, return_gold_log_probs=False, add_estimator=False)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/translator.py#L12-L290" target="_blank" rel="noopener noreferrer">[source]</a><a href="#class-eolepredicttranslatormodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource" class="hash-link" aria-label="Direct link to class-eolepredicttranslatormodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource" title="Direct link to class-eolepredicttranslatormodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource">​</a></h3>
+<p>Bases: <a href="#eole.predict.inference.Inference"><code>Inference</code></a></p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="predict_batchbatch-attn_debugsource-1">predict_batch(batch, attn_debug)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/translator.py#L68-L121" target="_blank" rel="noopener noreferrer">[source]</a><a href="#predict_batchbatch-attn_debugsource-1" class="hash-link" aria-label="Direct link to predict_batchbatch-attn_debugsource-1" title="Direct link to predict_batchbatch-attn_debugsource-1">​</a></h4>
+<p>Translate a batch of sentences.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="class-eolepredictgeneratorlmmodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource"><em>class</em> eole.predict.GeneratorLM(model, vocabs, gpu=-1, n_best=1, min_length=0, max_length=100, max_length_ratio=1.5, ratio=0.0, beam_size=30, random_sampling_topk=0, random_sampling_topp=0.0, random_sampling_temp=1.0, stepwise_penalty=None, dump_beam=False, block_ngram_repeat=0, ignore_when_blocking=frozenset({}), replace_unk=False, ban_unk_token=False, tgt_file_prefix=False, phrase_table=&#x27;&#x27;, data_type=&#x27;text&#x27;, verbose=False, report_time=False, global_scorer=None, out_file=None, report_align=False, gold_align=False, report_score=True, logger=None, seed=-1, with_score=False, return_gold_log_probs=False, add_estimator=False)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/generator.py#L8-L195" target="_blank" rel="noopener noreferrer">[source]</a><a href="#class-eolepredictgeneratorlmmodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource" class="hash-link" aria-label="Direct link to class-eolepredictgeneratorlmmodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource" title="Direct link to class-eolepredictgeneratorlmmodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource">​</a></h3>
+<p>Bases: <a href="#eole.predict.inference.Inference"><code>Inference</code></a></p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="predict_batchbatch-attn_debug-scoringfalsesource">predict_batch(batch, attn_debug, scoring=False)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/generator.py#L24-L71" target="_blank" rel="noopener noreferrer">[source]</a><a href="#predict_batchbatch-attn_debug-scoringfalsesource" class="hash-link" aria-label="Direct link to predict_batchbatch-attn_debug-scoringfalsesource" title="Direct link to predict_batchbatch-attn_debug-scoringfalsesource">​</a></h4>
+<p>Predict a batch of sentences.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="class-eolepredictencodermodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource"><em>class</em> eole.predict.Encoder(model, vocabs, gpu=-1, n_best=1, min_length=0, max_length=100, max_length_ratio=1.5, ratio=0.0, beam_size=30, random_sampling_topk=0, random_sampling_topp=0.0, random_sampling_temp=1.0, stepwise_penalty=None, dump_beam=False, block_ngram_repeat=0, ignore_when_blocking=frozenset({}), replace_unk=False, ban_unk_token=False, tgt_file_prefix=False, phrase_table=&#x27;&#x27;, data_type=&#x27;text&#x27;, verbose=False, report_time=False, global_scorer=None, out_file=None, report_align=False, gold_align=False, report_score=True, logger=None, seed=-1, with_score=False, return_gold_log_probs=False, add_estimator=False)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/encoder.py#L9-L157" target="_blank" rel="noopener noreferrer">[source]</a><a href="#class-eolepredictencodermodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource" class="hash-link" aria-label="Direct link to class-eolepredictencodermodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource" title="Direct link to class-eolepredictencodermodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource">​</a></h3>
+<p>Bases: <a href="#eole.predict.inference.Inference"><code>Inference</code></a></p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="predict_batchbatch-attn_debugsource-2">predict_batch(batch, attn_debug)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/encoder.py#L18-L70" target="_blank" rel="noopener noreferrer">[source]</a><a href="#predict_batchbatch-attn_debugsource-2" class="hash-link" aria-label="Direct link to predict_batchbatch-attn_debugsource-2" title="Direct link to predict_batchbatch-attn_debugsource-2">​</a></h4>
+<p>Predict a batch of sentences.</p>
+<h2 class="anchor anchorWithStickyNavbar_LWe7" id="decoding-strategies">Decoding Strategies<a href="#decoding-strategies" class="hash-link" aria-label="Direct link to Decoding Strategies" title="Direct link to Decoding Strategies">​</a></h2>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="class-eolepredictdecodestrategypad-bos-eos-unk-start-batch_size-parallel_paths-global_scorer-min_length-block_ngram_repeat-exclusion_tokens-return_attention-max_length-ban_unk_token-add_estimatorsource"><em>class</em> eole.predict.DecodeStrategy(pad, bos, eos, unk, start, batch_size, parallel_paths, global_scorer, min_length, block_ngram_repeat, exclusion_tokens, return_attention, max_length, ban_unk_token, add_estimator)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/decode_strategy.py#L7-L336" target="_blank" rel="noopener noreferrer">[source]</a><a href="#class-eolepredictdecodestrategypad-bos-eos-unk-start-batch_size-parallel_paths-global_scorer-min_length-block_ngram_repeat-exclusion_tokens-return_attention-max_length-ban_unk_token-add_estimatorsource" class="hash-link" aria-label="Direct link to class-eolepredictdecodestrategypad-bos-eos-unk-start-batch_size-parallel_paths-global_scorer-min_length-block_ngram_repeat-exclusion_tokens-return_attention-max_length-ban_unk_token-add_estimatorsource" title="Direct link to class-eolepredictdecodestrategypad-bos-eos-unk-start-batch_size-parallel_paths-global_scorer-min_length-block_ngram_repeat-exclusion_tokens-return_attention-max_length-ban_unk_token-add_estimatorsource">​</a></h3>
+<p>Bases: <code>object</code></p>
+<p>Base class for generation strategies.</p>
+<ul>
+<li><strong>Parameters:</strong>
+<ul>
+<li><strong>pad</strong> (<em>int</em>) – Magic integer in output vocab.</li>
+<li><strong>bos</strong> (<em>int</em>) – Magic integer in output vocab.</li>
+<li><strong>eos</strong> (<em>int</em>) – Magic integer in output vocab.</li>
+<li><strong>unk</strong> (<em>int</em>) – Magic integer in output vocab.</li>
+<li><strong>start</strong> (<em>int</em>) – Magic integer in output vocab.</li>
+<li><strong>batch_size</strong> (<em>int</em>) – Current batch size.</li>
+<li><strong>parallel_paths</strong> (<em>int</em>) – Decoding strategies like beam search
+use parallel paths. Each batch is repeated <code>parallel_paths</code>
+times in relevant state tensors.</li>
+<li><strong>min_length</strong> (<em>int</em>) – Shortest acceptable generation, not counting
+begin-of-sentence or end-of-sentence.</li>
+<li><strong>max_length</strong> (<em>int</em>) – Longest acceptable sequence, not counting
+begin-of-sentence (presumably there has been no EOS
+yet if max_length is used as a cutoff).</li>
+<li><strong>ban_unk_token</strong> (<em>Boolean</em>) – Whether unk token is forbidden</li>
+<li><strong>block_ngram_repeat</strong> (<em>int</em>) – Block beams where
+<code>block_ngram_repeat</code>-grams repeat.</li>
+<li><strong>exclusion_tokens</strong> (<em>set</em> *[*<em>int</em> <em>]</em>) – If a gram contains any of these
+tokens, it may repeat.</li>
+<li><strong>return_attention</strong> (<em>bool</em>) – Whether to work with attention too. If this
+is true, it is assumed that the decoder is attentional.</li>
+</ul>
+</li>
+<li><strong>Variables:</strong>
+<ul>
+<li><strong>pad</strong> (<em>int</em>) – See above.</li>
+<li><strong>bos</strong> (<em>int</em>) – See above.</li>
+<li><strong>eos</strong> (<em>int</em>) – See above.</li>
+<li><strong>unk</strong> (<em>int</em>) – See above.</li>
+<li><strong>start</strong> (<em>int</em>) – See above.</li>
+<li><strong>predictions</strong> (<em>list</em> *[*<em>list</em> *[*<em>LongTensor</em> <em>]</em> <em>]</em>) – For each batch, holds a
+list of beam prediction sequences.
+scores (list[list[FloatTensor]]): For each batch, holds a
+list of scores.</li>
+<li><strong>attention</strong> (<em>list</em> *[*<em>list</em> *[*<em>FloatTensor</em> <em>or</em> <em>list</em> <em>[</em> <em>]</em> <em>]</em> <em>]</em>) – For each
+batch, holds a list of attention sequence tensors
+(or empty lists) having shape <code>(step, inp_seq_len)</code> where
+<code>inp_seq_len</code> is the length of the sample (not the max
+length of all inp seqs).</li>
+<li><strong>alive_seq</strong> (<em>LongTensor</em>) – Shape <code>(B x parallel_paths, step)</code>.
+This sequence grows in the <code>step</code> axis on each call to
+:func:<code>advance()</code>.</li>
+<li><strong>is_finished</strong> (<em>ByteTensor</em> <em>or</em> <em>NoneType</em>) – Shape <code>(B, parallel_paths)</code>.
+Initialized to <code>None</code>.</li>
+<li><strong>alive_attn</strong> (<em>FloatTensor</em> <em>or</em> <em>NoneType</em>) – If tensor, shape is
+<code>(B x parallel_paths, step, inp_seq_len)</code>, where <code>inp_seq_len</code>
+is the (max) length of the input sequence.</li>
+<li><strong>target_prefix</strong> (<em>LongTensor</em> <em>or</em> <em>NoneType</em>) – If tensor, shape is
+<code>(B x parallel_paths, prefix_seq_len)</code>, where <code>prefix_seq_len</code>
+is the (max) length of the pre-fixed prediction.</li>
+<li><strong>min_length</strong> (<em>int</em>) – See above.</li>
+<li><strong>max_length</strong> (<em>int</em>) – See above.</li>
+<li><strong>ban_unk_token</strong> (<em>Boolean</em>) – See above.</li>
+<li><strong>block_ngram_repeat</strong> (<em>int</em>) – See above.</li>
+<li><strong>exclusion_tokens</strong> (<em>set</em> *[*<em>int</em> <em>]</em>) – See above.</li>
+<li><strong>return_attention</strong> (<em>bool</em>) – See above.</li>
+<li><strong>done</strong> (<em>bool</em>) – See above.</li>
+</ul>
+</li>
+</ul>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="advancelog_probs-attnsource">advance(log_probs, attn)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/decode_strategy.py#L320-L327" target="_blank" rel="noopener noreferrer">[source]</a><a href="#advancelog_probs-attnsource" class="hash-link" aria-label="Direct link to advancelog_probs-attnsource" title="Direct link to advancelog_probs-attnsource">​</a></h4>
+<p>DecodeStrategy subclasses should override <a href="#eole.predict.DecodeStrategy.advance"><code>advance()</code></a>.</p>
+<p>Advance is used to update <code>self.alive_seq</code>, <code>self.is_finished</code>,
+and, when appropriate, <code>self.alive_attn</code>.</p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="block_ngram_repeatslog_probssource">block_ngram_repeats(log_probs)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/decode_strategy.py#L199-L232" target="_blank" rel="noopener noreferrer">[source]</a><a href="#block_ngram_repeatslog_probssource" class="hash-link" aria-label="Direct link to block_ngram_repeatslog_probssource" title="Direct link to block_ngram_repeatslog_probssource">​</a></h4>
+<p>We prevent the beam from going in any direction that would repeat
+any ngram of size &lt;block_ngram_repeat&gt; more thant once.</p>
+<p>The way we do it: we maintain a list of all ngrams of size
+&lt;block_ngram_repeat&gt; that is updated each time the beam advances, and
+manually put any token that would lead to a repeated ngram to 0.</p>
+<p>This improves on the previous version’s complexity:</p>
+<ul>
+<li>previous version’s complexity: batch_size * beam_size * len(self)</li>
+<li>current version’s complexity: batch_size * beam_size</li>
+</ul>
+<p>This improves on the previous version’s accuracy;</p>
+<ul>
+<li>Previous version blocks the whole beam, whereas here we only
+block specific tokens.</li>
+<li>Before the prediction would fail when all beams contained
+repeated ngrams. This is sure to never happen here.</li>
+</ul>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="initializedevicenone-target_prefixnonesource">initialize(device=None, target_prefix=None)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/decode_strategy.py#L140-L176" target="_blank" rel="noopener noreferrer">[source]</a><a href="#initializedevicenone-target_prefixnonesource" class="hash-link" aria-label="Direct link to initializedevicenone-target_prefixnonesource" title="Direct link to initializedevicenone-target_prefixnonesource">​</a></h4>
+<p>DecodeStrategy subclasses should override <a href="#eole.predict.DecodeStrategy.initialize"><code>initialize()</code></a>.</p>
+<p>initialize should be called before all actions.
+used to prepare necessary ingredients for decode.</p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="maybe_update_forbidden_tokenssource">maybe_update_forbidden_tokens()<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/decode_strategy.py#L234-L263" target="_blank" rel="noopener noreferrer">[source]</a><a href="#maybe_update_forbidden_tokenssource" class="hash-link" aria-label="Direct link to maybe_update_forbidden_tokenssource" title="Direct link to maybe_update_forbidden_tokenssource">​</a></h4>
+<p>We complete and reorder the list of forbidden_tokens</p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="maybe_update_target_prefixselect_indexsource">maybe_update_target_prefix(select_index)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/decode_strategy.py#L310-L318" target="_blank" rel="noopener noreferrer">[source]</a><a href="#maybe_update_target_prefixselect_indexsource" class="hash-link" aria-label="Direct link to maybe_update_target_prefixselect_indexsource" title="Direct link to maybe_update_target_prefixselect_indexsource">​</a></h4>
+<p>We update / reorder target_prefix for alive path.</p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="target_prefixinglog_probssource">target_prefixing(log_probs)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/decode_strategy.py#L265-L308" target="_blank" rel="noopener noreferrer">[source]</a><a href="#target_prefixinglog_probssource" class="hash-link" aria-label="Direct link to target_prefixinglog_probssource" title="Direct link to target_prefixinglog_probssource">​</a></h4>
+<p>Fix the first part of predictions with self.target_prefix.</p>
+<p>Args:
+log_probs (FloatTensor): logits of size <code>(B, vocab_size)</code>.</p>
+<p>Returns:
+log_probs (FloatTensor): modified logits in <code>(B, vocab_size)</code>.</p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="update_finishedsource">update_finished()<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/decode_strategy.py#L329-L336" target="_blank" rel="noopener noreferrer">[source]</a><a href="#update_finishedsource" class="hash-link" aria-label="Direct link to update_finishedsource" title="Direct link to update_finishedsource">​</a></h4>
+<p>DecodeStrategy subclasses should override <a href="#eole.predict.DecodeStrategy.update_finished"><code>update_finished()</code></a>.</p>
+<p><code>update_finished</code> is used to update <code>self.predictions</code>,
+<code>self.scores</code>, and other “output” attributes.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="class-eolepredictbeamsearchbeam_size-batch_size-pad-bos-eos-unk-start-n_best-global_scorer-min_length-max_length-return_attention-block_ngram_repeat-exclusion_tokens-stepwise_penalty-ratio-ban_unk_token-add_estimatorfalsesource"><em>class</em> eole.predict.BeamSearch(beam_size, batch_size, pad, bos, eos, unk, start, n_best, global_scorer, min_length, max_length, return_attention, block_ngram_repeat, exclusion_tokens, stepwise_penalty, ratio, ban_unk_token, add_estimator=False)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/beam_search.py#L390-L408" target="_blank" rel="noopener noreferrer">[source]</a><a href="#class-eolepredictbeamsearchbeam_size-batch_size-pad-bos-eos-unk-start-n_best-global_scorer-min_length-max_length-return_attention-block_ngram_repeat-exclusion_tokens-stepwise_penalty-ratio-ban_unk_token-add_estimatorfalsesource" class="hash-link" aria-label="Direct link to class-eolepredictbeamsearchbeam_size-batch_size-pad-bos-eos-unk-start-n_best-global_scorer-min_length-max_length-return_attention-block_ngram_repeat-exclusion_tokens-stepwise_penalty-ratio-ban_unk_token-add_estimatorfalsesource" title="Direct link to class-eolepredictbeamsearchbeam_size-batch_size-pad-bos-eos-unk-start-n_best-global_scorer-min_length-max_length-return_attention-block_ngram_repeat-exclusion_tokens-stepwise_penalty-ratio-ban_unk_token-add_estimatorfalsesource">​</a></h3>
+<p>Bases: <code>BeamSearchBase</code></p>
+<p>Beam search for seq2seq/encoder-decoder models</p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="initializeenc_out-src_len-devicenone-target_prefixnonesource">initialize(enc_out, src_len, device=None, target_prefix=None)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/beam_search.py#L395-L408" target="_blank" rel="noopener noreferrer">[source]</a><a href="#initializeenc_out-src_len-devicenone-target_prefixnonesource" class="hash-link" aria-label="Direct link to initializeenc_out-src_len-devicenone-target_prefixnonesource" title="Direct link to initializeenc_out-src_len-devicenone-target_prefixnonesource">​</a></h4>
+<p>Initialize for decoding.
+Repeat src objects beam_size times.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="eolepredictgreedy_searchsample_with_temperaturelogits-sampling_temp-keep_topk-keep_toppsource">eole.predict.greedy_search.sample_with_temperature(logits, sampling_temp, keep_topk, keep_topp)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/greedy_search.py#L39-L84" target="_blank" rel="noopener noreferrer">[source]</a><a href="#eolepredictgreedy_searchsample_with_temperaturelogits-sampling_temp-keep_topk-keep_toppsource" class="hash-link" aria-label="Direct link to eolepredictgreedy_searchsample_with_temperaturelogits-sampling_temp-keep_topk-keep_toppsource" title="Direct link to eolepredictgreedy_searchsample_with_temperaturelogits-sampling_temp-keep_topk-keep_toppsource">​</a></h3>
+<p>Select next tokens randomly from the top k possible next tokens.</p>
+<p>Samples from a categorical distribution over the <code>keep_topk</code> words using
+the category probabilities <code>logits / sampling_temp</code>.</p>
+<ul>
+<li><strong>Parameters:</strong>
+<ul>
+<li><strong>logits</strong> (<em>FloatTensor</em>) – Shaped <code>(batch_size, vocab_size)</code>.
+These can be logits (<code>(-inf, inf)</code>) or log-probs (<code>(-inf, 0]</code>).
+(The distribution actually uses the log-probabilities
+<code>logits - logits.logsumexp(-1)</code>, which equals the logits if
+they are log-probabilities summing to 1.)</li>
+<li><strong>sampling_temp</strong> (<em>float</em>) – Used to scale down logits. The higher the
+value, the more likely it is that a non-max word will be
+sampled.</li>
+<li><strong>keep_topk</strong> (<em>int</em>) – This many words could potentially be chosen. The
+other logits are set to have probability 0.</li>
+<li><strong>keep_topp</strong> (<em>float</em>) – Keep most likely words until the cumulated
+probability is greater than p. If used with keep_topk: both
+conditions will be applied</li>
+</ul>
+</li>
+<li><strong>Returns:</strong>
+<ul>
+<li>topk_ids: Shaped <code>(batch_size, 1)</code>. These are
+the sampled word indices in the output vocab.</li>
+<li>topk_scores: Shaped <code>(batch_size, 1)</code>. These
+are essentially <code>(logits / sampling_temp)[topk_ids]</code>.</li>
+</ul>
+</li>
+<li><strong>Return type:</strong>
+(LongTensor, FloatTensor)</li>
+</ul>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="class-eolepredictgreedysearchpad-bos-eos-unk-start-n_best-batch_size-global_scorer-min_length-block_ngram_repeat-exclusion_tokens-return_attention-max_length-sampling_temp-keep_topk-keep_topp-beam_size-ban_unk_token-add_estimatorfalsesource"><em>class</em> eole.predict.GreedySearch(pad, bos, eos, unk, start, n_best, batch_size, global_scorer, min_length, block_ngram_repeat, exclusion_tokens, return_attention, max_length, sampling_temp, keep_topk, keep_topp, beam_size, ban_unk_token, add_estimator=False)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/greedy_search.py#L87-L292" target="_blank" rel="noopener noreferrer">[source]</a><a href="#class-eolepredictgreedysearchpad-bos-eos-unk-start-n_best-batch_size-global_scorer-min_length-block_ngram_repeat-exclusion_tokens-return_attention-max_length-sampling_temp-keep_topk-keep_topp-beam_size-ban_unk_token-add_estimatorfalsesource" class="hash-link" aria-label="Direct link to class-eolepredictgreedysearchpad-bos-eos-unk-start-n_best-batch_size-global_scorer-min_length-block_ngram_repeat-exclusion_tokens-return_attention-max_length-sampling_temp-keep_topk-keep_topp-beam_size-ban_unk_token-add_estimatorfalsesource" title="Direct link to class-eolepredictgreedysearchpad-bos-eos-unk-start-n_best-batch_size-global_scorer-min_length-block_ngram_repeat-exclusion_tokens-return_attention-max_length-sampling_temp-keep_topk-keep_topp-beam_size-ban_unk_token-add_estimatorfalsesource">​</a></h3>
+<p>Bases: <a href="#eole.predict.DecodeStrategy"><code>DecodeStrategy</code></a></p>
+<p>Select next tokens randomly from the top k possible next tokens.</p>
+<p>The <code>scores</code> attribute’s lists are the score, after applying temperature,
+of the final prediction (either EOS or the final token in the event
+that <code>max_length</code> is reached)</p>
+<ul>
+<li><strong>Parameters:</strong>
+<ul>
+<li><strong>pad</strong> (<em>int</em>) – See base.</li>
+<li><strong>bos</strong> (<em>int</em>) – See base.</li>
+<li><strong>eos</strong> (<em>int</em>) – See base.</li>
+<li><strong>unk</strong> (<em>int</em>) – See base.</li>
+<li><strong>start</strong> (<em>int</em>) – See base.</li>
+<li><strong>n_best</strong> (<em>int</em>) – Don’t stop until at least this many beams have
+reached EOS.</li>
+<li><strong>batch_size</strong> (<em>int</em>) – See base.</li>
+<li><strong>global_scorer</strong> (<a href="#eole.predict.GNMTGlobalScorer"><em>eole.predict.GNMTGlobalScorer</em></a>) – Scorer instance.</li>
+<li><strong>min_length</strong> (<em>int</em>) – See base.</li>
+<li><strong>max_length</strong> (<em>int</em>) – See base.</li>
+<li><strong>ban_unk_token</strong> (<em>Boolean</em>) – See base.</li>
+<li><strong>block_ngram_repeat</strong> (<em>int</em>) – See base.</li>
+<li><strong>exclusion_tokens</strong> (<em>set</em> *[*<em>int</em> <em>]</em>) – See base.</li>
+<li><strong>return_attention</strong> (<em>bool</em>) – See base.</li>
+<li><strong>max_length</strong> – See base.</li>
+<li><strong>sampling_temp</strong> (<em>float</em>) – See
+<a href="#eole.predict.greedy_search.sample_with_temperature"><code>sample_with_temperature()</code></a>.</li>
+<li><strong>keep_topk</strong> (<em>int</em>) – See
+<a href="#eole.predict.greedy_search.sample_with_temperature"><code>sample_with_temperature()</code></a>.</li>
+<li><strong>keep_topp</strong> (<em>float</em>) – See
+<a href="#eole.predict.greedy_search.sample_with_temperature"><code>sample_with_temperature()</code></a>.</li>
+<li><strong>beam_size</strong> (<em>int</em>) – Number of beams to use.</li>
+</ul>
+</li>
+</ul>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="advancelog_probs-attnsource-1">advance(log_probs, attn)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/greedy_search.py#L217-L246" target="_blank" rel="noopener noreferrer">[source]</a><a href="#advancelog_probs-attnsource-1" class="hash-link" aria-label="Direct link to advancelog_probs-attnsource-1" title="Direct link to advancelog_probs-attnsource-1">​</a></h4>
+<p>Select next tokens randomly from the top k possible next tokens.</p>
+<ul>
+<li><strong>Parameters:</strong>
+<ul>
+<li><strong>log_probs</strong> (<em>FloatTensor</em>) – Shaped <code>(batch_size, vocab_size)</code>.
+These can be logits (<code>(-inf, inf)</code>) or log-probs
+(<code>(-inf, 0]</code>). (The distribution actually uses the
+log-probabilities <code>logits - logits.logsumexp(-1)</code>,
+which equals the logits if they are log-probabilities summing
+to 1.)</li>
+<li><strong>attn</strong> (<em>FloatTensor</em>) – Shaped <code>(1, B, inp_seq_len)</code>.</li>
+</ul>
+</li>
+</ul>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="initializeenc_out-src_len-devicenone-target_prefixnonesource-1">initialize(enc_out, src_len, device=None, target_prefix=None)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/greedy_search.py#L166-L184" target="_blank" rel="noopener noreferrer">[source]</a><a href="#initializeenc_out-src_len-devicenone-target_prefixnonesource-1" class="hash-link" aria-label="Direct link to initializeenc_out-src_len-devicenone-target_prefixnonesource-1" title="Direct link to initializeenc_out-src_len-devicenone-target_prefixnonesource-1">​</a></h4>
+<p>Initialize for decoding.</p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="update_finishedsource-1">update_finished()<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/greedy_search.py#L248-L292" target="_blank" rel="noopener noreferrer">[source]</a><a href="#update_finishedsource-1" class="hash-link" aria-label="Direct link to update_finishedsource-1" title="Direct link to update_finishedsource-1">​</a></h4>
+<p>Finalize scores and predictions.</p>
+<h2 class="anchor anchorWithStickyNavbar_LWe7" id="scoring">Scoring<a href="#scoring" class="hash-link" aria-label="Direct link to Scoring" title="Direct link to Scoring">​</a></h2>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="class-eolepredictpenaltiespenaltybuildercov_pen-length_pensource"><em>class</em> eole.predict.penalties.PenaltyBuilder(cov_pen, length_pen)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/penalties.py#L4-L98" target="_blank" rel="noopener noreferrer">[source]</a><a href="#class-eolepredictpenaltiespenaltybuildercov_pen-length_pensource" class="hash-link" aria-label="Direct link to class-eolepredictpenaltiespenaltybuildercov_pen-length_pensource" title="Direct link to class-eolepredictpenaltiespenaltybuildercov_pen-length_pensource">​</a></h3>
+<p>Bases: <code>object</code></p>
+<p>Returns the Length and Coverage Penalty function for Beam Search.</p>
+<ul>
+<li><strong>Parameters:</strong>
+<ul>
+<li><strong>length_pen</strong> (<em>str</em>) – option name of length pen</li>
+<li><strong>cov_pen</strong> (<em>str</em>) – option name of cov pen</li>
+</ul>
+</li>
+<li><strong>Variables:</strong>
+<ul>
+<li><strong>has_cov_pen</strong> (<em>bool</em>) – Whether coverage penalty is None (applying it
+is a no-op). Note that the converse isn’t true. Setting beta
+to 0 should force coverage length to be a no-op.</li>
+<li><strong>has_len_pen</strong> (<em>bool</em>) – Whether length penalty is None (applying it
+is a no-op). Note that the converse isn’t true. Setting alpha
+to 1 should force length penalty to be a no-op.</li>
+<li><strong>coverage_penalty</strong> (<em>callable</em> <em>[</em> *[*<em>FloatTensor</em> <em>,</em> <em>float</em> <em>]</em> <em>,</em> <em>FloatTensor</em> <em>]</em>) – Calculates the coverage penalty.</li>
+<li><strong>length_penalty</strong> (<em>callable</em> <em>[</em> *[*<em>int</em> <em>,</em> <em>float</em> <em>]</em> <em>,</em> <em>float</em> <em>]</em>) – Calculates
+the length penalty.</li>
+</ul>
+</li>
+</ul>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="coverage_nonecov-beta00source">coverage_none(cov, beta=0.0)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/penalties.py#L77-L82" target="_blank" rel="noopener noreferrer">[source]</a><a href="#coverage_nonecov-beta00source" class="hash-link" aria-label="Direct link to coverage_nonecov-beta00source" title="Direct link to coverage_nonecov-beta00source">​</a></h4>
+<p>Returns zero as penalty</p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="coverage_summarycov-beta00source">coverage_summary(cov, beta=0.0)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/penalties.py#L71-L75" target="_blank" rel="noopener noreferrer">[source]</a><a href="#coverage_summarycov-beta00source" class="hash-link" aria-label="Direct link to coverage_summarycov-beta00source" title="Direct link to coverage_summarycov-beta00source">​</a></h4>
+<p>Our summary penalty.</p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="coverage_wucov-beta00source">coverage_wu(cov, beta=0.0)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/penalties.py#L58-L69" target="_blank" rel="noopener noreferrer">[source]</a><a href="#coverage_wucov-beta00source" class="hash-link" aria-label="Direct link to coverage_wucov-beta00source" title="Direct link to coverage_wucov-beta00source">​</a></h4>
+<p>GNMT coverage re-ranking score.</p>
+<p>See “Google’s Neural Machine Translation System” [].
+<code>cov</code> is expected to be sized <code>(*, seq_len)</code>, where <code>*</code> is
+probably <code>batch_size x beam_size</code> but could be several
+dimensions like <code>(batch_size, beam_size)</code>. If <code>cov</code> is attention,
+then the <code>seq_len</code> axis probably sums to (almost) 1.</p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="length_averagecur_len-alpha10source">length_average(cur_len, alpha=1.0)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/penalties.py#L92-L94" target="_blank" rel="noopener noreferrer">[source]</a><a href="#length_averagecur_len-alpha10source" class="hash-link" aria-label="Direct link to length_averagecur_len-alpha10source" title="Direct link to length_averagecur_len-alpha10source">​</a></h4>
+<p>Returns the current sequence length.</p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="length_nonecur_len-alpha00source">length_none(cur_len, alpha=0.0)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/penalties.py#L96-L98" target="_blank" rel="noopener noreferrer">[source]</a><a href="#length_nonecur_len-alpha00source" class="hash-link" aria-label="Direct link to length_nonecur_len-alpha00source" title="Direct link to length_nonecur_len-alpha00source">​</a></h4>
+<p>Returns unmodified scores.</p>
+<h4 class="anchor anchorWithStickyNavbar_LWe7" id="length_wucur_len-alpha00source">length_wu(cur_len, alpha=0.0)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/penalties.py#L84-L90" target="_blank" rel="noopener noreferrer">[source]</a><a href="#length_wucur_len-alpha00source" class="hash-link" aria-label="Direct link to length_wucur_len-alpha00source" title="Direct link to length_wucur_len-alpha00source">​</a></h4>
+<p>GNMT length re-ranking score.</p>
+<p>See “Google’s Neural Machine Translation System” [].</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="class-eolepredictgnmtglobalscoreralpha-beta-length_penalty-coverage_penaltysource"><em>class</em> eole.predict.GNMTGlobalScorer(alpha, beta, length_penalty, coverage_penalty)<a href="https://github.com/eole-nlp/eole/blob/master/eole/predict/beam_search.py#L442-L501" target="_blank" rel="noopener noreferrer">[source]</a><a href="#class-eolepredictgnmtglobalscoreralpha-beta-length_penalty-coverage_penaltysource" class="hash-link" aria-label="Direct link to class-eolepredictgnmtglobalscoreralpha-beta-length_penalty-coverage_penaltysource" title="Direct link to class-eolepredictgnmtglobalscoreralpha-beta-length_penalty-coverage_penaltysource">​</a></h3>
+<p>Bases: <code>object</code></p>
+<p>NMT re-ranking.</p>
+<ul>
+<li><strong>Parameters:</strong>
+<ul>
+<li><strong>alpha</strong> (<em>float</em>) – Length parameter.</li>
+<li><strong>beta</strong> (<em>float</em>) – Coverage parameter.</li>
+<li><strong>length_penalty</strong> (<em>str</em>) – Length penalty strategy.</li>
+<li><strong>coverage_penalty</strong> (<em>str</em>) – Coverage penalty strategy.</li>
+</ul>
+</li>
+<li><strong>Variables:</strong>
+<ul>
+<li><strong>alpha</strong> (<em>float</em>) – See above.</li>
+<li><strong>beta</strong> (<em>float</em>) – See above.</li>
+<li><strong>length_penalty</strong> (<em>callable</em>) – See <a href="#eole.predict.penalties.PenaltyBuilder"><code>penalties.PenaltyBuilder</code></a>.</li>
+<li><strong>coverage_penalty</strong> (<em>callable</em>) – See <a href="#eole.predict.penalties.PenaltyBuilder"><code>penalties.PenaltyBuilder</code></a>.</li>
+<li><strong>has_cov_pen</strong> (<em>bool</em>) – See <a href="#eole.predict.penalties.PenaltyBuilder"><code>penalties.PenaltyBuilder</code></a>.</li>
+<li><strong>has_len_pen</strong> (<em>bool</em>) – See <a href="#eole.predict.penalties.PenaltyBuilder"><code>penalties.PenaltyBuilder</code></a>.</li>
+</ul>
+</li>
+</ul></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col"><a href="https://github.com/eole-nlp/eole/tree/main/docs/docs/reference/Core API/2_inference.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="pagination-nav docusaurus-mt-lg" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/eole/docs/reference/Core API/dataloaders"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Data Loaders</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/reference/bibliography"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Bibliography</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#predictions" class="table-of-contents__link toc-highlight">Predictions</a><ul><li><a href="#class-eolepredictpredictionpredictionsrc-srclen-pred_sents-attn-pred_scores-estim-tgt_sent-gold_score-word_aligns-ind_in_bucketsource" class="table-of-contents__link toc-highlight"><em>class</em> eole.predict.prediction.Prediction(src, srclen, pred_sents, attn, pred_scores, estim, tgt_sent, gold_score, word_aligns, ind_in_bucket)[source]</a></li><li><a href="#class-eolepredictpredictionpredictionbuildervocabs-n_best1-replace_unkfalse-phrase_tablesource" class="table-of-contents__link toc-highlight"><em>class</em> eole.predict.prediction.PredictionBuilder(vocabs, n_best=1, replace_unk=False, phrase_table=&#39;&#39;)[source]</a></li></ul></li><li><a href="#predictor-classes" class="table-of-contents__link toc-highlight">Predictor Classes</a><ul><li><a href="#class-eolepredictinferenceinferencemodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource" class="table-of-contents__link toc-highlight"><em>class</em> eole.predict.inference.Inference(model, vocabs, gpu=-1, n_best=1, min_length=0, max_length=100, max_length_ratio=1.5, ratio=0.0, beam_size=30, random_sampling_topk=0, random_sampling_topp=0.0, random_sampling_temp=1.0, stepwise_penalty=None, dump_beam=False, block_ngram_repeat=0, ignore_when_blocking=frozenset({}), replace_unk=False, ban_unk_token=False, tgt_file_prefix=False, phrase_table=&#39;&#39;, data_type=&#39;text&#39;, verbose=False, report_time=False, global_scorer=None, out_file=None, report_align=False, gold_align=False, report_score=True, logger=None, seed=-1, with_score=False, return_gold_log_probs=False, add_estimator=False)[source]</a></li><li><a href="#class-eolepredicttranslatormodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource" class="table-of-contents__link toc-highlight"><em>class</em> eole.predict.Translator(model, vocabs, gpu=-1, n_best=1, min_length=0, max_length=100, max_length_ratio=1.5, ratio=0.0, beam_size=30, random_sampling_topk=0, random_sampling_topp=0.0, random_sampling_temp=1.0, stepwise_penalty=None, dump_beam=False, block_ngram_repeat=0, ignore_when_blocking=frozenset({}), replace_unk=False, ban_unk_token=False, tgt_file_prefix=False, phrase_table=&#39;&#39;, data_type=&#39;text&#39;, verbose=False, report_time=False, global_scorer=None, out_file=None, report_align=False, gold_align=False, report_score=True, logger=None, seed=-1, with_score=False, return_gold_log_probs=False, add_estimator=False)[source]</a></li><li><a href="#class-eolepredictgeneratorlmmodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource" class="table-of-contents__link toc-highlight"><em>class</em> eole.predict.GeneratorLM(model, vocabs, gpu=-1, n_best=1, min_length=0, max_length=100, max_length_ratio=1.5, ratio=0.0, beam_size=30, random_sampling_topk=0, random_sampling_topp=0.0, random_sampling_temp=1.0, stepwise_penalty=None, dump_beam=False, block_ngram_repeat=0, ignore_when_blocking=frozenset({}), replace_unk=False, ban_unk_token=False, tgt_file_prefix=False, phrase_table=&#39;&#39;, data_type=&#39;text&#39;, verbose=False, report_time=False, global_scorer=None, out_file=None, report_align=False, gold_align=False, report_score=True, logger=None, seed=-1, with_score=False, return_gold_log_probs=False, add_estimator=False)[source]</a></li><li><a href="#class-eolepredictencodermodel-vocabs-gpu-1-n_best1-min_length0-max_length100-max_length_ratio15-ratio00-beam_size30-random_sampling_topk0-random_sampling_topp00-random_sampling_temp10-stepwise_penaltynone-dump_beamfalse-block_ngram_repeat0-ignore_when_blockingfrozenset-replace_unkfalse-ban_unk_tokenfalse-tgt_file_prefixfalse-phrase_table-data_typetext-verbosefalse-report_timefalse-global_scorernone-out_filenone-report_alignfalse-gold_alignfalse-report_scoretrue-loggernone-seed-1-with_scorefalse-return_gold_log_probsfalse-add_estimatorfalsesource" class="table-of-contents__link toc-highlight"><em>class</em> eole.predict.Encoder(model, vocabs, gpu=-1, n_best=1, min_length=0, max_length=100, max_length_ratio=1.5, ratio=0.0, beam_size=30, random_sampling_topk=0, random_sampling_topp=0.0, random_sampling_temp=1.0, stepwise_penalty=None, dump_beam=False, block_ngram_repeat=0, ignore_when_blocking=frozenset({}), replace_unk=False, ban_unk_token=False, tgt_file_prefix=False, phrase_table=&#39;&#39;, data_type=&#39;text&#39;, verbose=False, report_time=False, global_scorer=None, out_file=None, report_align=False, gold_align=False, report_score=True, logger=None, seed=-1, with_score=False, return_gold_log_probs=False, add_estimator=False)[source]</a></li></ul></li><li><a href="#decoding-strategies" class="table-of-contents__link toc-highlight">Decoding Strategies</a><ul><li><a href="#class-eolepredictdecodestrategypad-bos-eos-unk-start-batch_size-parallel_paths-global_scorer-min_length-block_ngram_repeat-exclusion_tokens-return_attention-max_length-ban_unk_token-add_estimatorsource" class="table-of-contents__link toc-highlight"><em>class</em> eole.predict.DecodeStrategy(pad, bos, eos, unk, start, batch_size, parallel_paths, global_scorer, min_length, block_ngram_repeat, exclusion_tokens, return_attention, max_length, ban_unk_token, add_estimator)[source]</a></li><li><a href="#class-eolepredictbeamsearchbeam_size-batch_size-pad-bos-eos-unk-start-n_best-global_scorer-min_length-max_length-return_attention-block_ngram_repeat-exclusion_tokens-stepwise_penalty-ratio-ban_unk_token-add_estimatorfalsesource" class="table-of-contents__link toc-highlight"><em>class</em> eole.predict.BeamSearch(beam_size, batch_size, pad, bos, eos, unk, start, n_best, global_scorer, min_length, max_length, return_attention, block_ngram_repeat, exclusion_tokens, stepwise_penalty, ratio, ban_unk_token, add_estimator=False)[source]</a></li><li><a href="#eolepredictgreedy_searchsample_with_temperaturelogits-sampling_temp-keep_topk-keep_toppsource" class="table-of-contents__link toc-highlight">eole.predict.greedy_search.sample_with_temperature(logits, sampling_temp, keep_topk, keep_topp)[source]</a></li><li><a href="#class-eolepredictgreedysearchpad-bos-eos-unk-start-n_best-batch_size-global_scorer-min_length-block_ngram_repeat-exclusion_tokens-return_attention-max_length-sampling_temp-keep_topk-keep_topp-beam_size-ban_unk_token-add_estimatorfalsesource" class="table-of-contents__link toc-highlight"><em>class</em> eole.predict.GreedySearch(pad, bos, eos, unk, start, n_best, batch_size, global_scorer, min_length, block_ngram_repeat, exclusion_tokens, return_attention, max_length, sampling_temp, keep_topk, keep_topp, beam_size, ban_unk_token, add_estimator=False)[source]</a></li></ul></li><li><a href="#scoring" class="table-of-contents__link toc-highlight">Scoring</a><ul><li><a href="#class-eolepredictpenaltiespenaltybuildercov_pen-length_pensource" class="table-of-contents__link toc-highlight"><em>class</em> eole.predict.penalties.PenaltyBuilder(cov_pen, length_pen)[source]</a></li><li><a href="#class-eolepredictgnmtglobalscoreralpha-beta-length_penalty-coverage_penaltysource" class="table-of-contents__link toc-highlight"><em>class</em> eole.predict.GNMTGlobalScorer(alpha, beta, length_penalty, coverage_penalty)[source]</a></li></ul></li></ul></div></div></div></div></main></div></div></div><footer class="footer"><div class="container container-fluid"><div class="row footer__links"><div class="col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div><div class="col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
+</body>
+</html>
