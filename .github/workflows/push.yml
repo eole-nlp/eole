@@ -1,0 +1,395 @@
+name: Lint & Tests
+
+on: [push, pull_request]
+
+jobs:
+  lint-and-tests:
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10']
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install --upgrade setuptools
+        pip install -e .
+        pip install -r requirements.opt.txt
+        pip install sacrebleu
+        pip install flake8
+        pip install rich
+        python -m pip install black==22.* flake8==3.8.*
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - name: Check code with Black
+      run: |
+        black --check .
+    - name: Lint with flake8
+      run: |
+        flake8 .
+    - name: Unit tests
+      run: |
+        python -m unittest discover
+    - name: Test vocabulary build
+      run: |
+        python eole/bin/main.py build_vocab \
+          -config eole/tests/data/data.yaml \
+          -save_data /tmp/eole \
+          -n_sample 5000 \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.tgt \
+          && rm -rf /tmp/sample
+    - name: Test field/transform dump
+      run: |
+        # The dumped fields are used later when testing tools
+        python eole/bin/main.py train \
+          -config eole/tests/data/data.yaml \
+          -save_data /tmp/eole.train.check \
+          -n_sample 30 \
+          -training '{"num_workers": 0, "bucket_size": 1024}' \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.tgt \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000
+    - name: Test RNN training
+      run: |
+        python eole/bin/main.py train \
+          -config eole/tests/data/data.yaml \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.tgt \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000 \
+          -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
+          -report_every 5\
+          -tensorboard \
+          -tensorboard_log_dir /tmp/logs_train
+        python eole/tests/test_events.py --logdir /tmp/logs_train -tensorboard_checks train
+    - name: Test RNN training and validation
+      run: |
+        python eole/bin/main.py train \
+          -config eole/tests/data/data.yaml \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.tgt \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000 \
+          -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder":{"decoder_type": "rnn"}}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
+          -report_every 5 \
+          -tensorboard \
+          -tensorboard_log_dir /tmp/logs_train_and_valid
+        python eole/tests/test_events.py --logdir /tmp/logs_train_and_valid -tensorboard_checks train
+                python eole/tests/test_events.py --logdir /tmp/logs_train_and_valid -tensorboard_checks valid
+    - name: Test RNN training with coverage
+      run: |
+        python eole/bin/main.py train \
+          -config eole/tests/data/data.yaml \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.tgt \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000 \
+          -report_every 5 \
+          -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder": {"decoder_type": "rnn", "coverage_attn": True, "lambda_coverage": 0.1}}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}'
+    - name: Test Transformer training with align
+      run: |
+        python eole/bin/main.py train \
+          -config eole/tests/data/align_data.yaml \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.tgt \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000 \
+          -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "lambda_align": 0.05, "alignment_layer": 2, "alignment_heads": 0, "heads": 2}}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "dropout_steps": [0, 3, 7], "dropout": [0.3, 0.2, 0.1], "attention_dropout": [0.2, 0.2, 0.1]}' \
+          -report_every 5 \
+    - name : Test Transformer training and validation with dynamic scoring
+      run: |
+        python3 eole/bin/main.py train \
+          -config eole/tests/data/data.yaml \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.tgt \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000 \
+          -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 16, "embeddings": {"word_vec_size": 16, "position_encoding": True}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "heads": 2}}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5, "accum_count": [2, 4, 8], "accum_steps": [0, 3, 7], "model_path": "/tmp/eole.model"}' \
+          -report_every 2 \
+          -valid_metrics "BLEU" "TER" \
+          -tensorboard \
+          -scoring_debug \
+          -tensorboard_log_dir /tmp/logs_dynamic-scoring \
+          -dump_preds /tmp/dump_preds
+        python eole/tests/test_events.py --logdir /tmp/logs_dynamic-scoring -tensorboard_checks valid_metrics 
+    - name : Test Transformer training and validation with dynamic scoring and maxrelative
+      run: |
+        python3 eole/bin/main.py train \
+          -config eole/tests/data/data.yaml \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.tgt \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000 \
+          -model '{"architecture": "transformer", "layers": 4, "heads": 2, "hidden_size": 16, "transformer_ff": 64, "max_relative_positions": 8, "embeddings": {"word_vec_size": 16}}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
+          -report_every 2 \
+          -valid_metrics "BLEU" "TER" \
+          -tensorboard \
+          -scoring_debug \
+          -tensorboard_log_dir /tmp/logs_dynamic-scoring_and_relative \
+          -dump_preds /tmp/dump_preds
+        python eole/tests/test_events.py --logdir /tmp/logs_dynamic-scoring_and_relative -tensorboard_checks valid_metrics 
+    - name : Test Transformer training and validation with dynamic scoring and rotary
+      run: |
+        python3 eole/bin/main.py train \
+          -config eole/tests/data/data.yaml \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.tgt \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000 \
+          -model '{"architecture": "transformer", "layers": 4, "heads": 2, "hidden_size": 16, "transformer_ff": 64, "max_relative_positions": -1, "embeddings": {"word_vec_size": 16}}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
+          -report_every 2 \
+          -valid_metrics "BLEU" "TER" \
+          -tensorboard \
+          -scoring_debug \
+          -tensorboard_log_dir /tmp/logs_dynamic-scoring_and_rotary \
+          -dump_preds /tmp/dump_preds
+        python eole/tests/test_events.py --logdir /tmp/logs_dynamic-scoring_and_rotary -tensorboard_checks valid_metrics 
+    - name : Test Transformer training and validation with dynamic scoring and alibi
+      run: |
+        python3 eole/bin/main.py train \
+          -config eole/tests/data/data.yaml \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.tgt \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000 \
+          -model '{"architecture": "transformer", "layers": 4, "heads": 2, "hidden_size": 16, "transformer_ff": 64, "max_relative_positions": -2, "embeddings": {"word_vec_size": 16}}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
+          -report_every 2 \
+          -valid_metrics "BLEU" "TER" \
+          -tensorboard \
+          -scoring_debug \
+          -tensorboard_log_dir /tmp/logs_dynamic-scoring_and_alibi \
+          -dump_preds /tmp/dump_preds
+        python eole/tests/test_events.py --logdir /tmp/logs_dynamic-scoring_and_alibi -tensorboard_checks valid_metrics 
+    - name: Test LM training
+      run: |
+        python eole/bin/main.py train \
+            -config eole/tests/data/lm_data.yaml \
+            -src_vocab /tmp/eole.vocab.src \
+            -tgt_vocab /tmp/eole.vocab.src \
+            -model '{"hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "layers": 2, "heads": 4}}' \
+            -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
+            -src_vocab_size 1000 \
+            -tgt_vocab_size 1000 \
+            -report_every 5
+    - name: Test RNN translation
+      run: |
+        head eole/tests/data/src-test.txt > /tmp/src-test.txt
+        python eole/bin/main.py predict \
+          -model_path eole/tests/test_model \
+          -src /tmp/src-test.txt \
+          -verbose
+    - name: Test RNN ensemble translation
+      run: |
+        head eole/tests/data/src-test.txt > /tmp/src-test.txt
+        python eole/bin/main.py predict \
+          -model_path eole/tests/test_model \
+          eole/tests/test_model \
+          -src /tmp/src-test.txt \
+          -verbose
+    - name: Test RNN translation with beam search
+      run: |
+        python eole/bin/main.py predict \
+          -model_path eole/tests/test_model2 \
+          -src eole/tests/data/morph/src.valid \
+          -verbose \
+          -batch_size 10 \
+          -beam_size 10 \
+          -tgt eole/tests/data/morph/tgt.valid \
+          -out /tmp/trans
+        diff eole/tests/data/morph/tgt.valid /tmp/trans && rm /tmp/trans
+    - name: Test RNN translation with random sampling
+      run: |
+        python eole/bin/main.py predict \
+          -model_path eole/tests/test_model2 \
+          -src eole/tests/data/morph/src.valid \
+          -verbose \
+          -batch_size 10 \
+          -beam_size 1 \
+          -seed 1 \
+          -random_sampling_topk "-1" \
+          -random_sampling_temp 0.0001 \
+          -tgt eole/tests/data/morph/tgt.valid \
+          -out /tmp/trans
+        diff eole/tests/data/morph/tgt.valid /tmp/trans && rm /tmp/trans
+    - name: Test LM generation
+      run: |
+        head eole/tests/data/src-test.txt > /tmp/src-test.txt
+        python eole/bin/main.py predict \
+          -model_path eole/tests/test_model_lm \
+          -src /tmp/src-test.txt \
+          -verbose
+    - name: Test LM generation with beam search
+      run: |
+        python eole/bin/main.py predict \
+          -model_path eole/tests/test_model_lm \
+          -src eole/tests/data/data_lm/src-gen.txt \
+          -verbose -batch_size 1 \
+          -beam_size 10 \
+          -ban_unk_token \
+          -length_penalty none \
+          -out /tmp/gen
+        diff eole/tests/data/data_lm/gen-beam-sol.txt /tmp/gen && rm /tmp/gen
+    - name: Test LM generation with random sampling
+      run: |
+        python eole/bin/main.py predict -model_path eole/tests/test_model_lm \
+          -src eole/tests/data/data_lm/src-gen.txt \
+          -verbose -batch_size 1 \
+          -beam_size 1 \
+          -seed 1 \
+          -random_sampling_topk -1 \
+          -random_sampling_temp 0.0001 \
+          -ban_unk_token \
+          -length_penalty none \
+          -out /tmp/gen
+        diff eole/tests/data/data_lm/gen-sampling-sol.txt /tmp/gen && rm /tmp/gen
+    - name: Test LM generation with random top-k/nucleus sampling
+      run: |
+        python eole/bin/main.py predict -model_path eole/tests/test_model_lm \
+          -src eole/tests/data/data_lm/src-gen.txt \
+          -verbose -batch_size 1 \
+          -beam_size 1 \
+          -seed 3 \
+          -random_sampling_topk -1 \
+          -random_sampling_topp 0.95 \
+          -random_sampling_temp 1 \
+          -ban_unk_token \
+          -length_penalty none \
+          -out /tmp/gen
+        diff eole/tests/data/data_lm/gen-nucleus-sampling-sol$(python -c "import torch; print(torch.__version__[0])").txt /tmp/gen && rm /tmp/gen
+    - name: Test LM generation with random sampling multi-beams
+      run: |
+        python eole/bin/main.py predict -model_path eole/tests/test_model_lm \
+          -src eole/tests/data/data_lm/src-gen.txt \
+          -verbose -batch_size 1 \
+          -beam_size 10 \
+          -seed 2 \
+          -random_sampling_topk 50 \
+          -random_sampling_topp 0.95 \
+          -random_sampling_temp 1 \
+          -length_penalty avg \
+          -ban_unk_token \
+          -min_length 5 \
+          -out /tmp/gen
+        diff eole/tests/data/data_lm/gen-sampling-beams-sol$(python -c "import torch; print(torch.__version__[0])").txt /tmp/gen && rm /tmp/gen
+    - name: Test py-LM inference engine
+      run: |
+        head eole/tests/data/src-test.txt > /tmp/src-test.txt
+        python eole/tests/test_inference_engines.py \
+          -model eole/tests/test_model_lm \
+          -model_task lm \
+          -input_file /tmp/src-test.txt \
+          -inference_config_file eole/tests/data/inference-engine_py.yaml \
+          -inference_mode py \
+          -out /tmp/inference_engine_lm_py_outputs
+    - name: Test ct2-LM inference engine
+      run: |
+        head eole/tests/data/src-test.txt > /tmp/src-test.txt
+        python eole/tests/test_inference_engines.py \
+          -model eole/tests/test_model_lm_ct2 \
+          -model_task lm \
+          -input_file /tmp/src-test.txt \
+          -inference_config_file eole/tests/data/inference-engine_py.yaml \
+          -inference_mode ct2 \
+          -out /tmp/inference_engine_lm_py_outputs
+    - name: Test py-SEQ2SEQ inference engine
+      run: |
+        head eole/tests/data/src-test.txt > /tmp/src-test.txt
+        python eole/tests/test_inference_engines.py \
+          -model eole/tests/test_model \
+          -model_task seq2seq \
+          -input_file /tmp/src-test.txt \
+          -inference_config_file eole/tests/data/inference-engine_py.yaml \
+          -inference_mode py \
+          -out /tmp/inference_engine_lm_py_outputs
+    - name: Test embeddings_to_torch tool
+      run: |
+        python eole/bin/main.py tools embeddings_to_torch \
+          -emb_file_enc eole/tests/sample_glove.txt \
+          -emb_file_dec eole/tests/sample_glove.txt \
+          -model_path eole/tests/test_model \
+          -output_file /tmp/q_gloveembeddings \
+          && rm /tmp/q_gloveembeddings*
+    - name: Test extract_embeddings tool
+      run: |
+        python eole/bin/main.py model extract_embeddings \
+          -model eole/tests/test_model
+    - name: Test checkpoint vocabulary update
+      run: |
+        python eole/bin/main.py train \
+          -config eole/tests/data/data.yaml \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.tgt \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000 \
+          -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "model_path": "/tmp/eole.model", "save_checkpoint_steps": 10}' \
+          -report_every 5
+        sed -i '1s/^/new_tok\t100000000\n/' /tmp/eole.vocab.src
+        python eole/bin/main.py train \
+          -config eole/tests/data/data.yaml \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.tgt \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000 \
+          -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 20, "train_from": "/tmp/eole.model/step_10", "save_checkpoint_steps": 10, "update_vocab": True, "reset_optim": "states"}' \
+          -report_every 5
+    - name: Test checkpoint vocabulary update with LM
+      run: |
+        python eole/bin/main.py train \
+          -config eole/tests/data/lm_data.yaml \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.src \
+          -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "heads": 4}}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "model_path": "/tmp/lm.eole.model", "save_checkpoint_steps": 10}' \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000 \
+          -report_every 5
+        sed -i '1s/^/new_tok2\t100000000\n/' /tmp/eole.vocab.src
+        python eole/bin/main.py train \
+          -config eole/tests/data/lm_data.yaml \
+          -src_vocab /tmp/eole.vocab.src \
+          -tgt_vocab /tmp/eole.vocab.src \
+          -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "heads": 4}}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 20, "train_from": "/tmp/lm.eole.model/step_10", "save_checkpoint_steps": 10, "update_vocab": True, "reset_optim": "states"}' \
+          -src_vocab_size 1000 \
+          -tgt_vocab_size 1000 \
+          -report_every 5
+
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.10'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install --upgrade setuptools
+        pip install -e .
+        pip install -r docs/requirements.txt
+        pip install -r requirements.opt.txt
+        pip install rich
+    - name: Build docs
+      run: |
+        set -e
+        # Check that docs are built without errors
+        cd docs/ && make html && cd ..

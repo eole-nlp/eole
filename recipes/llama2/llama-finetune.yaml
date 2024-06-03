@@ -1,0 +1,99 @@
+# General settings
+seed: 1234
+share_vocab: true
+save_data: "./finetune/llama2-7b-chat-hf-finetune"
+src_vocab: "${EOLE_MODEL_DIR}/llama2-7b-chat-hf/vocab.txt"
+src_vocab_size: 32000
+tgt_vocab_size: 32000
+
+overwrite: true
+
+report_every: 10
+
+# transforms config
+transforms: [sentencepiece, filtertoolong]
+transforms_configs:
+  sentencepiece:
+    src_subword_model: "${EOLE_MODEL_DIR}/llama2-7b-chat-hf/tokenizer.model"
+    tgt_subword_model: "${EOLE_MODEL_DIR}/llama2-7b-chat-hf/tokenizer.model"
+  filtertoolong:
+    src_seq_length: 896
+    tgt_seq_length: 896
+
+# datasets
+data:
+    alpaca:
+        path_src: "./data/alpaca_clean.txt"
+        weight: 10
+    sharegpt:
+        path_src: "./data/sharegpt.txt"
+        weight: 10
+    osst1:
+        path_src: "./data/osst1.flattened.txt"
+        weight: 10
+
+    # valid:
+    #     path_src: "./data/valid.txt"
+
+skip_empty_level: silent
+
+training:
+    # GPU dispatching
+    world_size: 1
+    gpu_ranks: [0]
+    # 2 GPU
+    # world_size: 2
+    # gpu_ranks: [0, 1]
+    # parallel_mode: tensor_parallel
+    dropout_steps: [0]
+    dropout: [0.0]
+    attention_dropout: [0.0]
+    # Batching
+    bucket_size: 32768
+    num_workers: 1
+    batch_type: "tokens"
+    batch_size: 896
+    valid_batch_size: 512
+    batch_size_multiple: 1
+    
+    # Optimization
+    model_dtype: "fp16"
+    apex_opt_level: ""
+    optim: "fusedadam"
+    learning_rate: 0.0001
+    warmup_steps: 100
+    decay_method: "none"
+    #learning_rate_decay: 0.98
+    #start_decay_steps: 100
+    #decay_steps: 10
+    adam_beta2: 0.998
+    accum_count: [8]
+    accum_steps: [0]
+    max_grad_norm: 0
+    label_smoothing: 0.0
+    param_init: 0
+    param_init_glorot: true
+    normalization: "tokens"  
+    
+    # folders
+    train_from: "${EOLE_MODEL_DIR}/llama2-7b-chat-hf"
+    model_path: "./finetune/llama2-7b-chat-hf-finetune"
+    keep_checkpoint: 10
+    save_checkpoint_steps: 100
+    
+    train_steps: 1000
+    valid_steps: 100
+
+    # 4/8bit
+    quant_layers: ['w_1', 'w_2', 'w_3', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
+    quant_type: "bnb_NF4"
+
+    # LoRa
+    lora_layers: ['linear_values', 'linear_query', 'linear_keys', 'final_linear']
+    lora_rank: 2
+    lora_dropout: 0.05
+    lora_alpha: 8
+    lora_embedding: false
+
+    # Chekpointing
+    #use_ckpting: ['ffn', 'lora']

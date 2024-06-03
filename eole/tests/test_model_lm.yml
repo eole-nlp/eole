@@ -1,0 +1,220 @@
+src_vocab: /work/eole/tests/data/vocab-train.src
+tgt_vocab: /work/eole/tests/data/vocab-train.tgt
+model:
+  architecture: transformer_lm
+  embeddings:
+    position_encoding: true
+    word_vec_size: 64
+    tgt_word_vec_size: 64
+    src_word_vec_size: 64
+  decoder:
+    layers: 2
+    heads: 2
+    add_ffnbias: true
+    add_qkvbias: true
+    transformer_ff: 256
+    hidden_size: 64
+data:
+  corpus_1:
+    weight: 1
+    transforms: []
+    path_src: /work/eole/tests/data/src-train.txt
+  valid:
+    path_src: /work/eole/tests/data/src-val.txt
+training:
+  batch_size: 256
+  train_steps: 10000
+  save_checkpoint_steps: 5000
+  valid_steps: 10000
+  dropout: [0.3]
+  dropout_steps: [0]
+  learning_rate: 2.0
+  adam_beta1: 0.9
+  adam_beta2: 0.998
+  label_smoothing: 0.1
+  save_model: test_model.rebuild
+  optim: adam
+  decay_method: noam
+  warmup_steps: 100
+  param_init_glorot: true
+  param_init: 0.0
+  # distributed
+  gpu_ranks: [0]
+  world_size: 1
+  # dataloading
+  bucket_size: 100000
+  prefetch_factor: 50000
+  bucket_size_init: 20000
+  bucket_size_increment: 20000
+# vocab
+share_vocab: true
+
+# Legacy opts Namespace
+# Namespace(config='data/lm_data.yaml',
+# save_config=None,
+# data={'corpus_1': {'path_src': 'data/src-train.txt', 'transforms': [], 'path_tgt': 
+# 'data/src-train.txt', 'path_align': None, 'weight': 1}, 'valid': {'path_src': 'data/src-val.txt', 'transforms': [], 'path_tgt': 'data/src-val.txt', 
+# 'path_align': None,
+# 'weight': 1}}, skip_empty_level='warning',
+# transforms=[],
+# save_data=None,
+# overwrite=False,
+# n_sample=0,
+# dump_fields=False, 
+# dump_transforms=False,
+# src_vocab='data/data_lm/data.vocab.src',
+# tgt_vocab=None,
+# share_vocab=True,
+# src_vocab_size=50000,
+# tgt_vocab_size=50000, 
+# vocab_size_multiple=1,
+# src_words_min_frequency=0,
+# tgt_words_min_frequency=0,
+# src_seq_length_trunc=None,
+# tgt_seq_length_trunc=None,
+# both_embeddings=None, 
+# src_embeddings=None,
+# tgt_embeddings=None,
+# embeddings_type=None,
+# permute_sent_ratio=0.0,
+# rotate_ratio=0.0,
+# insert_ratio=0.0,
+# random_ratio=0.0, 
+# mask_ratio=0.0,
+# mask_length='subword',
+# poisson_lambda=3.0,
+# replace_length=-1,
+# src_seq_length=200,
+# tgt_seq_length=200,
+# switchout_temperature=1.0, 
+# tokendrop_temperature=1.0,
+# tokenmask_temperature=1.0,
+# src_subword_model=None,
+# tgt_subword_model=None,
+# src_subword_nbest=1,
+# tgt_subword_nbest=1, 
+# src_subword_alpha=0,
+# tgt_subword_alpha=0,
+# src_subword_vocab='',
+# tgt_subword_vocab='',
+# src_vocab_threshold=0,
+# tgt_vocab_threshold=0, 
+# src_subword_type='none',
+# tgt_subword_type='none',
+# src_eoletok_kwargs="{'mode': 'none'}",
+# tgt_eoletok_kwargs="{'mode': 'none'}",
+# src_word_vec_size=64, 
+# tgt_word_vec_size=64,
+# word_vec_size=64,
+# share_decoder_embeddings=False,
+# share_embeddings=True,
+# position_encoding=True,
+# feat_merge='concat', 
+# feat_vec_size=-1,
+# feat_vec_exponent=0.7,
+# model_task='lm',
+# model_type='text',
+# model_dtype='fp32',
+# encoder_type='transformer_lm', 
+# decoder_type='transformer_lm',
+# layers=-1,
+# enc_layers=2,
+# dec_layers=2,
+# cnn_kernel_width=3,
+# pos_ffn_activation_fn='relu',
+# input_feed=1,
+# bridge=False, 
+# rnn_type='LSTM',
+# brnn=False,
+# context_gate=None,
+# bridge_extra_node=True,
+# bidir_edges=True,
+# state_dim=512,
+# n_edge_types=2,
+# n_node=2,
+# n_steps=2, 
+# global_attention='general',
+# global_attention_function='softmax',
+# self_attn_type='scaled-dot',
+# max_relative_positions=0,
+# heads=2,
+# transformer_ff=256, 
+# aan_useffn=False,
+# lambda_align=0.0,
+# alignment_layer=-3,
+# alignment_heads=0,
+# full_context_alignment=False,
+# generator_function='softmax',
+# coverage_attn=False,
+# lambda_coverage=0.0, 
+# loss_scale=0,
+# apex_opt_level='O1',
+# data_type='text',
+# save_model='/tmp/tmp',
+# save_checkpoint_steps=5000,
+# keep_checkpoint=-1,
+# gpuid=[],
+# gpu_ranks=[0], 
+# world_size=1,
+# gpu_backend='nccl',
+# gpu_verbose_level=0,
+# master_ip='localhost',
+# master_port=10000,
+# queue_size=40,
+# seed=-1,
+# param_init=0.0, 
+# param_init_glorot=True,
+# train_from='',
+# reset_optim='none',
+# pre_word_vecs_enc=None,
+# pre_word_vecs_dec=None,
+# freeze_word_vecs_enc=False, 
+# freeze_word_vecs_dec=False,
+# batch_size=256,
+# batch_size_multiple=None,
+# batch_type='sents',
+# pool_factor=8192,
+# normalization='tokens',
+# accum_count=[2], 
+# accum_steps=[0],
+# valid_steps=10000,
+# valid_batch_size=32,
+# max_generator_batches=4,
+# train_steps=2000,
+# single_pass=False,
+# epochs=0,
+# early_stopping=0, 
+# early_stopping_criteria=None,
+# optim='adam',
+# adagrad_accumulator_init=0,
+# max_grad_norm=0.0,
+# dropout=[0.1],
+# attention_dropout=[0.1],
+# dropout_steps=[0], 
+# truncated_decoder=0,
+# adam_beta1=0.9,
+# adam_beta2=0.998,
+# label_smoothing=0.1,
+# average_decay=0,
+# average_every=1,
+# learning_rate=2.0,
+# learning_rate_decay=0.5, 
+# start_decay_steps=50000,
+# decay_steps=10000,
+# decay_method='noam',
+# warmup_steps=100,
+# log_file='',
+# log_file_level='0',
+# report_every=50,
+# exp_host='',
+# exp='', 
+# tensorboard=False,
+# tensorboard_log_dir='runs/eole',
+# bucket_size=2048,
+# data_task='lm',
+# _all_transform=set(),
+# hidden_size=64,
+# enc_hid_size=64, 
+# dec_hid_size=64,
+# add_qkvbias=True,
+# layer_norm='standard')

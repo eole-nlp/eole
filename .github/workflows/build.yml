@@ -1,0 +1,38 @@
+name: Build Docker Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      eole_version:
+        description: "EOLE version"
+        required: true
+        type: string
+  # to facilitate initial tests in PR
+  push:
+    branches:
+      - "docker"
+
+run-name: ${{ github.workflow }} -- ${{ inputs.eole_version || 'test' }}
+
+env:
+  EOLE_VERSION: ${{ inputs.eole_version || 'test' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        cuda_version: [11.8.0, 12.1.0]
+    permissions: write-all
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+    - name: Login to ghcr
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Build
+      run: |
+        docker/build.sh ${{ env.EOLE_VERSION }} ${{ matrix.cuda_version}}

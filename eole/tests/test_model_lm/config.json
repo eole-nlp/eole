@@ -1,0 +1,38 @@
+{
+  "model": {
+    "decoder": {
+      "hidden_size": 64,
+      "decoder_type": "transformer_lm",
+      "add_ffnbias": true,
+      "transformer_ff": 256,
+      "tgt_word_vec_size": 64,
+      "add_qkvbias": true,
+      "layers": 2,
+      "heads": 2
+    },
+    "architecture": "transformer_lm",
+    "encoder": null,
+    "embeddings": {
+      "tgt_word_vec_size": 64,
+      "position_encoding": true,
+      "src_word_vec_size": 64,
+      "word_vec_size": 64
+    }
+  },
+  "src_vocab": "dummy",
+  "share_vocab": true,
+  "data": {
+    "dummy": {
+      "name": null,
+      "weight": 1,
+      "transforms": [],
+      "path_src": "/work/eole/tests/data/src-train.txt",
+      "path_tgt": "/work/eole/tests/data/src-train.txt",
+      "path_align": null,
+      "src_prefix": null,
+      "tgt_prefix": null,
+      "src_suffix": null,
+      "tgt_suffix": null
+    }
+  }
+}

@@ -1,0 +1,6 @@
+# Corpus opts:
+data:
+    corpus_1:
+        path_src: eole/tests/data/src-train.txt
+    valid:
+        path_src: eole/tests/data/src-val.txt

@@ -1,0 +1,161 @@
+src_vocab: /work/eole/tests/data/vocab-train.src
+tgt_vocab: /work/eole/tests/data/vocab-train.tgt
+model:
+  input_feed: 1
+  embeddings:
+    word_vec_size: 100
+    tgt_word_vec_size: 100
+    src_word_vec_size: 100
+  encoder:
+    encoder_type: rnn
+    layers: 1
+    hidden_size: 400
+  decoder:
+    hidden_size: 400
+    decoder_type: rnn
+    layers: 1
+data:
+  corpus_1:
+    weight: 1
+    transforms: []
+    path_src: /work/eole/tests/data/src-train.txt
+    path_tgt: /work/eole/tests/data/tgt-train.txt
+  valid:
+    path_src: /work/eole/tests/data/src-val.txt
+    path_tgt: /work/eole/tests/data/tgt-val.txt
+training:
+  train_steps: 8000
+  save_checkpoint_steps: 4000
+  valid_steps: 8000
+  dropout: [0.3]
+  dropout_steps: [0]
+  learning_rate: 0.001
+  save_model: test_model.rebuild
+  optim: adam
+  # distributed
+  gpu_ranks: [0]
+  world_size: 1
+  # dataloading
+  bucket_size: 100000
+  prefetch_factor: 50000
+  bucket_size_init: 20000
+  bucket_size_increment: 20000
+# vocab
+src_vocab_size: 1000
+tgt_vocab_size: 1000
+
+# Legacy opts Namespace
+# Namespace(config=None,
+# save_config=None,
+# src_word_vec_size=100,
+# tgt_word_vec_size=100,
+# word_vec_size=100,
+# share_decoder_embeddings=False, 
+# share_embeddings=False,
+# position_encoding=False,
+# feat_merge='concat',
+# feat_vec_size=-1,
+# feat_vec_exponent=0.7,
+# model_type='text',
+# model_dtype='fp32', 
+# encoder_type='rnn',
+# decoder_type='rnn',
+# layers=1,
+# enc_layers=1,
+# dec_layers=1,
+# cnn_kernel_width=3,
+# input_feed=1,
+# bridge=False,
+# rnn_type='LSTM',
+# brnn=False,
+# context_gate=None,
+# bridge_extra_node=True,
+# bidir_edges=True,
+# state_dim=512,
+# n_edge_types=2,
+# n_node=2,
+# n_steps=2,
+# global_attention='general', 
+# global_attention_function='softmax',
+# self_attn_type='scaled-dot',
+# max_relative_positions=0,
+# heads=8,
+# transformer_ff=2048,
+# aan_useffn=False, 
+# lambda_align=0.0,
+# alignment_layer=-3,
+# alignment_heads=0,
+# full_context_alignment=False,
+# generator_function='softmax',
+# coverage_attn=False,
+# lambda_coverage=0.0, 
+# loss_scale=0,
+# apex_opt_level='O1',
+# data='data/morph/data',
+# data_ids=[None],
+# data_weights=[1],
+# data_type='text',
+# save_model='tmp', 
+# save_checkpoint_steps=5000,
+# keep_checkpoint=-1,
+# gpuid=[],
+# gpu_ranks=[0],
+# world_size=1,
+# gpu_backend='nccl',
+# gpu_verbose_level=0,
+# master_ip='localhost', 
+# master_port=10000,
+# queue_size=40,
+# seed=-1,
+# param_init=0.1,
+# param_init_glorot=False,
+# train_from='',
+# reset_optim='none',
+# pre_word_vecs_enc=None, 
+# pre_word_vecs_dec=None,
+# fix_word_vecs_enc=False,
+# fix_word_vecs_dec=False,
+# batch_size=64,
+# batch_size_multiple=None,
+# batch_type='sents',
+# pool_factor=8192, 
+# normalization='sents',
+# accum_count=[1],
+# accum_steps=[0],
+# valid_steps=10000,
+# valid_batch_size=32,
+# max_generator_batches=32,
+# train_steps=8000, 
+# single_pass=False,
+# epochs=0,
+# early_stopping=0,
+# early_stopping_criteria=None,
+# optim='adam',
+# adagrad_accumulator_init=0,
+# max_grad_norm=5,
+# dropout=[0.3], 
+# attention_dropout=[0.1],
+# dropout_steps=[0],
+# truncated_decoder=0,
+# adam_beta1=0.9,
+# adam_beta2=0.999,
+# label_smoothing=0.0,
+# average_decay=0,
+# average_every=1, 
+# learning_rate=0.001,
+# learning_rate_decay=0.5,
+# start_decay_steps=50000,
+# decay_steps=10000,
+# decay_method='none',
+# warmup_steps=4000,
+# report_every=50, 
+# log_file='',
+# log_file_level='0',
+# exp_host='',
+# exp='',
+# tensorboard=False,
+# tensorboard_log_dir='runs/eole',
+# hidden_size=400,
+# enc_hid_size=400, 
+# dec_hid_size=400,
+# add_qkvbias=True)

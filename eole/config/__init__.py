@@ -1,0 +1,76 @@
+import os
+from pydantic import Field
+from eole.config.config import Config
+from eole.utils.logging import logger
+
+
+# default EOLE_MODEL_DIR
+if os.environ.get("EOLE_MODEL_DIR", None) is None:
+    os.environ["EOLE_MODEL_DIR"] = os.getcwd()
+
+
+def recursive_model_fields_set(model):
+    fields = {}
+    if isinstance(model, dict):
+        fields_to_check = model.keys()
+    else:
+        # we need to explicitly handle "architecture" related fields for now
+        # to properly handle discriminated config instanciation
+        discriminator_fields = {
+            "architecture",
+            "encoder_type",
+            "decoder_type",
+        }.intersection(set(model.__fields__.keys()))
+        nested_models = {
+            key for key, value in model.__dict__.items() if isinstance(value, Config)
+        }
+        fields_to_check = model.model_fields_set | discriminator_fields | nested_models
+    for field in fields_to_check:
+        if isinstance(model, dict):
+            field_value = model.get(field, None)
+        else:
+            field_value = getattr(model, field, None)
+        if isinstance(field_value, Config) or isinstance(field_value, dict):
+            fields[field] = recursive_model_fields_set(field_value)
+        else:
+            fields[field] = field_value
+    return fields
+
+
+def recursive_update_dict(_dict, new_dict, defaults):
+    # patch to allow populating previously none keys
+    # (e.g. data in finetuned HF converted model)
+    if _dict is None:
+        _dict = {}
+
+    for k, v in new_dict.items():
+        if k == "architecture":
+            # keep info from checkpoint
+            continue
+        if isinstance(v, dict):
+            _dict[k] = recursive_update_dict(_dict.get(k, {}), v, defaults.get(k, {}))
+        else:
+            previous_v = _dict.get(k, defaults.get(k, None))
+            if v != previous_v:
+                logger.info(f"Option: {k}, value: {v}, overriding model: {previous_v}")
+            _dict[k] = v
+    return _dict
+
+
+def get_non_default_values(parsed_args, defaults):
+    non_default_values = {}
+    # defaults = vars(parse_args())
+    for key, value in vars(parsed_args).items():
+        if value != defaults.get(key, None):
+            non_default_values[key] = value
+    return non_default_values
+
+
+# tentative wrapper functions to lighten definitions below
+def field_with_default(default, description, **kwargs):
+    return Field(default=default, description=description, **kwargs)
+
+
+def required_field(description, **kwargs):
+    # no default
+    return Field(description=description, **kwargs)

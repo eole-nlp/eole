@@ -1,0 +1,39 @@
+{
+  "model": {
+    "input_feed": 0,
+    "decoder": {
+      "tgt_word_vec_size": 256,
+      "hidden_size": 256,
+      "decoder_type": "rnn",
+      "layers": 1
+    },
+    "architecture": "custom",
+    "encoder": {
+      "encoder_type": "rnn",
+      "src_word_vec_size": 256,
+      "hidden_size": 256,
+      "layers": 1
+    },
+    "embeddings": {
+      "tgt_word_vec_size": 256,
+      "src_word_vec_size": 256,
+      "word_vec_size": 256
+    }
+  },
+  "src_vocab": "dummy",
+  "tgt_vocab": "dummmy",
+  "data": {
+    "dummy": {
+      "name": null,
+      "weight": 1,
+      "transforms": [],
+      "path_src": "/work/eole/tests/data/src-train.txt",
+      "path_tgt": "/work/eole/tests/data/tgt-train.txt",
+      "path_align": null,
+      "src_prefix": null,
+      "tgt_prefix": null,
+      "src_suffix": null,
+      "tgt_suffix": null
+    }
+  }
+}

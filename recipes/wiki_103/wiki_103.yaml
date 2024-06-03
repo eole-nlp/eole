@@ -1,0 +1,80 @@
+seed: 42
+share_vocab: true
+# save_data: data/wikitext/wikitext-103-raw-v1/run/example
+src_vocab_size: 60000
+tgt_vocab_size: 60000
+
+# Prevent/allow overwriting existing files in the folder
+overwrite: True
+
+# Vocabulary file(s) created/used
+src_vocab: data/wikitext/wikitext-103-raw-v1/run/example.vocab.src
+
+# tensorboard/logging stuff
+tensorboard: true
+tensorboard_log_dir: data/wikitext/wikitext-103-raw-v1/run/tensorboard
+report_every: 100
+
+# transforms related stuff
+transforms: [onmt_tokenize, filtertoolong]
+transforms_configs:
+  onmt_tokenize:
+    src_subword_type: bpe
+    src_subword_model: data/wikitext/wikitext-103-raw-v1/subwords.bpe
+    src_onmttok_kwargs: {"mode": "aggressive", "joiner_annotate": True, "preserve_placeholders":
+    True, "case_markup": True, "soft_case_regions": True, "preserve_segmented_tokens":
+    True}
+  filtertoolong:
+    src_seq_length: 512
+    tgt_seq_length: 512
+
+# Corpus opts:
+data:
+    corpus_1:
+        path_src: data/wikitext/wikitext-103-raw-v1/train.txt
+    valid:
+        path_src: data/wikitext/wikitext-103-raw-v1/validation.txt
+
+training:
+    # Train on a single GPU
+    world_size: 1
+    gpu_ranks: [0]
+    # Train on 2 gpus
+    # world_size: 2
+    # gpu_ranks: [0, 1]
+    # parallel_mode: tensor_parallel
+    dropout_steps: [0]
+    dropout: [0.1]
+    attention_dropout: [0.1]
+    batch_size: 2048
+    batch_type: tokens
+
+    model_dtype: "fp32"
+    optim: "adam"
+    # model_dtype: "fp16"
+    # optim: "fusedadam"
+    learning_rate: 2
+    warmup_steps: 8000
+    decay_method: "noam"
+    adam_beta2: 0.998
+    max_grad_norm: 0
+    label_smoothing: 0.1
+    param_init: 0
+    param_init_glorot: true
+    normalization: "tokens"
+    # Where to save the checkpoints
+    model_path: data/wikitext/wikitext-103-raw-v1/run/model-lm
+    save_checkpoint_steps: 5000
+    train_steps: 100000
+    valid_steps: 5000
+
+model:
+    # Model
+    architecture: "transformer_lm"
+    layers: 6
+    heads: 8
+    hidden_size: 512
+    transformer_ff: 2048
+    embeddings:
+        word_vec_size: 512
+        position_encoding: true

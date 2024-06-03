@@ -1,0 +1,6 @@
+pyrouge
+rapidfuzz
+scipy
+bitsandbytes>=0.41.2
+spacy
+gradio
