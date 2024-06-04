@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# Build and push version X of EOLE with torch Y and CUDA Z:
-# ./build.sh X Y Z
+# Build and push base image with torch version X and CUDA version Y:
+# ./build.sh X Y
 
 set -e
 
@@ -15,15 +15,14 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 ROOT_DIR=$DIR/..
 cd $ROOT_DIR
 
+TORCH_VERSION="$1"
+CUDA_VERSION="$2"
+[ -z "$CUDA_VERSION" ] && CUDA_VERSION="12.1.0"
 
-EOLE_VERSION="$1"
-TORCH_VERSION="$2"
-CUDA_VERSION="$3"
-
-IMAGE="ghcr.io/eole-nlp/eole"
-TAG="$EOLE_VERSION-torch$TORCH_VERSION-ubuntu22.04-cuda${CUDA_VERSION%.*}"
+IMAGE="ghcr.io/eole-nlp/eole-base"
+TAG="torch$TORCH_VERSION-ubuntu22.04-cuda$CUDA_VERSION"
 
 echo "Building $IMAGE:$TAG with TORCH_VERSION=$TORCH_VERSION,CUDA_VERSION=$CUDA_VERSION"
 
-docker build -t $IMAGE:$TAG --progress=plain -f docker/Dockerfile --build-arg TORCH_VERSION=$TORCH_VERSION --build-arg CUDA_VERSION=$CUDA_VERSION --no-cache .
+docker build -t $IMAGE:$TAG --progress=plain -f docker/Dockerfile-base --build-arg TORCH_VERSION=$TORCH_VERSION --build-arg CUDA_VERSION=$CUDA_VERSION --no-cache .
 docker push $IMAGE:$TAG

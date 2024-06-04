@@ -2,7 +2,6 @@ from eole.utils.logging import logger
 from eole.transforms import register_transform
 from .transform import Transform, TransformConfig
 from pydantic import Field
-from rapidfuzz import fuzz, process
 import numpy as np
 import time
 
@@ -79,6 +78,8 @@ class FuzzyMatcher(object):
         return [src_segments, tgt_segments]
 
     def _get_batch_matches(self, batch):
+        from rapidfuzz import fuzz, process
+
         logger.debug(f"Starting fuzzy matching on {len(batch)} examples")
         fuzzy_count = 0
         start = time.time()

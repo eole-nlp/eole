@@ -1,12 +1,8 @@
-name: Build Docker Images
+name: Build Base Docker Image
 
 on:
   workflow_dispatch:
     inputs:
-      eole_version:
-        description: "EOLE version"
-        required: true
-        type: string
       torch_version:
         description: "PyTorch version"
         required: true
@@ -16,10 +12,9 @@ on:
         required: true
         type: string
 
-run-name: ${{ github.workflow }} -- ${{ inputs.eole_version }} torch:${{ inputs.torch_version }}, cuda:${{ inputs.cuda_version }}
+run-name: ${{ github.workflow }} -- torch:${{ inputs.torch_version }} -- cuda:${{ inputs.cuda_version }}
 
 env:
-  EOLE_VERSION: ${{ inputs.eole_version }}
   TORCH_VERSION: ${{ inputs.torch_version }}
   CUDA_VERSION: ${{ inputs.cuda_version }}
 
@@ -31,15 +26,6 @@ jobs:
     #     cuda_version: [11.8.0, 12.1.0]
     permissions: write-all
     steps:
-    - name: Maximize build space
-      uses: easimon/maximize-build-space@master
-      with:
-        root-reserve-mb: 512
-        swap-size-mb: 10
-        remove-dotnet: 'true'
-        remove-android: 'true'
-        remove-haskell: 'true'
-        overprovision-lvm: 'true'
     - name: Checkout repo
       uses: actions/checkout@v4
     - name: Login to ghcr
@@ -50,4 +36,4 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     - name: Build
       run: |
-        docker/build.sh ${{ env.EOLE_VERSION }} ${{ env.TORCH_VERSION}} ${{ env.CUDA_VERSION}}
+        docker/build_base.sh ${{ env.TORCH_VERSION }} ${{ env.CUDA_VERSION }}

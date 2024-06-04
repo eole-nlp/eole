@@ -3,7 +3,6 @@ from eole.transforms import register_transform
 from .transform import Transform, TransformConfig
 from pydantic import Field
 import random
-import ahocorasick
 import string
 
 
@@ -89,6 +88,8 @@ class InlineTagger(object):
         return dictionary
 
     def _create_automaton(self):
+        import ahocorasick
+
         automaton = ahocorasick.Automaton()
         for entry in self.internal_dictionary:
             automaton.add_word(entry[0], (entry[0], entry[1]))

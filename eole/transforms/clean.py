@@ -3,7 +3,6 @@ from .transform import Transform, TransformConfig
 from pydantic import Field
 from typing import List
 from eole.utils.logging import logger
-import fasttext
 import os
 import urllib.request
 import regex as re
@@ -87,6 +86,8 @@ class CleanTransform(Transform):
 
     def warm_up(self, vocabs=None):
         super().warm_up(None)
+        import fasttext
+
         self.src_eq_tgt_dict = self.get_config_dict(self.config, "src_eq_tgt", True)
         self.same_char_dict = self.get_config_dict(self.config, "same_char", True)
         self.same_word_dict = self.get_config_dict(self.config, "same_word", True)

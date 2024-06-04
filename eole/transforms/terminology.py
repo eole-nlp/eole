@@ -2,9 +2,6 @@ from eole.utils.logging import logger
 from eole.transforms import register_transform
 from .transform import Transform, TransformConfig
 from pydantic import Field
-
-import spacy
-import ahocorasick
 import re
 
 
@@ -56,6 +53,8 @@ class TermMatcher(object):
         delimiter,
         term_corpus_ratio=0.2,
     ):
+        import spacy
+
         self.term_example_ratio = term_example_ratio
         self.src_nlp = spacy.load(src_spacy_language_model, disable=["parser", "ner"])
         self.tgt_nlp = spacy.load(tgt_spacy_language_model, disable=["parser", "ner"])
@@ -110,6 +109,8 @@ class TermMatcher(object):
         return termbase
 
     def _create_automaton(self):
+        import ahocorasick
+
         automaton = ahocorasick.Automaton()
         for term in self.internal_termbase:
             automaton.add_word(term[0], (term[0], term[1]))

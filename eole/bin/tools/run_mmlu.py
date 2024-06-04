@@ -6,7 +6,6 @@ import json
 import yaml
 import os
 import time
-import pandas as pd
 from argparse import ArgumentParser
 from eole.utils.logging import init_logger
 from eole.inference_engine import InferenceEnginePY
@@ -134,6 +133,8 @@ def gen_prompt(train_df, subject, k=-1):
 
 
 def evaluate(opt):
+    import pandas as pd
+
     logger = init_logger(opt.log_file)
     set_random_seed(opt.seed, use_gpu(opt))
 
