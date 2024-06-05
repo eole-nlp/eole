@@ -31,11 +31,11 @@ key_maps["LlamaForCausalLM"] = {
     ".self_attn.linear_keys.": ".self_attn.k_proj.",
     ".self_attn.linear_values.": ".self_attn.v_proj.",
     ".self_attn.final_linear.": ".self_attn.o_proj.",
-    ".feed_forward.w_1.": ".mlp.gate_proj.",
-    ".feed_forward.w_2.": ".mlp.down_proj.",
-    ".feed_forward.w_3.": ".mlp.up_proj.",
-    ".layer_norm_1.weight": ".input_layernorm.weight",
-    ".feed_forward.layer_norm.weight": ".post_attention_layernorm.weight",
+    ".mlp.gate_up_proj.": ".mlp.gate_proj.",
+    ".mlp.down_proj.": ".mlp.down_proj.",
+    ".mlp.up_proj.": ".mlp.up_proj.",
+    ".input_layernorm.weight": ".input_layernorm.weight",
+    ".post_attention_layernorm.weight": ".post_attention_layernorm.weight",
 }
 key_maps["MistralForCausalLM"] = key_maps["LlamaForCausalLM"]
 key_maps["MixtralForCausalLM"] = {
@@ -47,40 +47,40 @@ key_maps["MixtralForCausalLM"] = {
     ".self_attn.linear_keys.": ".self_attn.k_proj.",
     ".self_attn.linear_values.": ".self_attn.v_proj.",
     ".self_attn.final_linear.": ".self_attn.o_proj.",
-    ".layer_norm_1.weight": ".input_layernorm.weight",
-    ".feed_forward.gate.weight": ".block_sparse_moe.gate.weight",
-    ".feed_forward.experts.0.w_1.": ".block_sparse_moe.experts.0.w1.",
-    ".feed_forward.experts.0.w_2.": ".block_sparse_moe.experts.0.w2.",
-    ".feed_forward.experts.0.w_3.": ".block_sparse_moe.experts.0.w3.",
-    ".feed_forward.experts.0.layer_norm.weight": ".post_attention_layernorm.weight",
-    ".feed_forward.experts.1.w_1.": ".block_sparse_moe.experts.1.w1.",
-    ".feed_forward.experts.1.w_2.": ".block_sparse_moe.experts.1.w2.",
-    ".feed_forward.experts.1.w_3.": ".block_sparse_moe.experts.1.w3.",
-    ".feed_forward.experts.1.layer_norm.weight": ".post_attention_layernorm.weight",
-    ".feed_forward.experts.2.w_1.": ".block_sparse_moe.experts.2.w1.",
-    ".feed_forward.experts.2.w_2.": ".block_sparse_moe.experts.2.w2.",
-    ".feed_forward.experts.2.w_3.": ".block_sparse_moe.experts.2.w3.",
-    ".feed_forward.experts.2.layer_norm.weight": ".post_attention_layernorm.weight",
-    ".feed_forward.experts.3.w_1.": ".block_sparse_moe.experts.3.w1.",
-    ".feed_forward.experts.3.w_2.": ".block_sparse_moe.experts.3.w2.",
-    ".feed_forward.experts.3.w_3.": ".block_sparse_moe.experts.3.w3.",
-    ".feed_forward.experts.3.layer_norm.weight": ".post_attention_layernorm.weight",
-    ".feed_forward.experts.4.w_1.": ".block_sparse_moe.experts.4.w1.",
-    ".feed_forward.experts.4.w_2.": ".block_sparse_moe.experts.4.w2.",
-    ".feed_forward.experts.4.w_3.": ".block_sparse_moe.experts.4.w3.",
-    ".feed_forward.experts.4.layer_norm.weight": ".post_attention_layernorm.weight",
-    ".feed_forward.experts.5.w_1.": ".block_sparse_moe.experts.5.w1.",
-    ".feed_forward.experts.5.w_2.": ".block_sparse_moe.experts.5.w2.",
-    ".feed_forward.experts.5.w_3.": ".block_sparse_moe.experts.5.w3.",
-    ".feed_forward.experts.5.layer_norm.weight": ".post_attention_layernorm.weight",
-    ".feed_forward.experts.6.w_1.": ".block_sparse_moe.experts.6.w1.",
-    ".feed_forward.experts.6.w_2.": ".block_sparse_moe.experts.6.w2.",
-    ".feed_forward.experts.6.w_3.": ".block_sparse_moe.experts.6.w3.",
-    ".feed_forward.experts.6.layer_norm.weight": ".post_attention_layernorm.weight",
-    ".feed_forward.experts.7.w_1.": ".block_sparse_moe.experts.7.w1.",
-    ".feed_forward.experts.7.w_2.": ".block_sparse_moe.experts.7.w2.",
-    ".feed_forward.experts.7.w_3.": ".block_sparse_moe.experts.7.w3.",
-    ".feed_forward.experts.7.layer_norm.weight": ".post_attention_layernorm.weight",
+    ".input_layernorm.weight": ".input_layernorm.weight",
+    ".mlp.gate.weight": ".block_sparse_moe.gate.weight",
+    ".mlp.experts.0.gate_up_proj.": ".block_sparse_moe.experts.0.w1.",
+    ".mlp.experts.0.down_proj.": ".block_sparse_moe.experts.0.w2.",
+    ".mlp.experts.0.up_proj.": ".block_sparse_moe.experts.0.w3.",
+    ".mlp.experts.0.layer_norm.weight": ".post_attention_layernorm.weight",
+    ".mlp.experts.1.gate_up_proj.": ".block_sparse_moe.experts.1.w1.",
+    ".mlp.experts.1.down_proj.": ".block_sparse_moe.experts.1.w2.",
+    ".mlp.experts.1.up_proj.": ".block_sparse_moe.experts.1.w3.",
+    ".mlp.experts.1.layer_norm.weight": ".post_attention_layernorm.weight",
+    ".mlp.experts.2.gate_up_proj.": ".block_sparse_moe.experts.2.w1.",
+    ".mlp.experts.2.down_proj.": ".block_sparse_moe.experts.2.w2.",
+    ".mlp.experts.2.up_proj.": ".block_sparse_moe.experts.2.w3.",
+    ".mlp.experts.2.layer_norm.weight": ".post_attention_layernorm.weight",
+    ".mlp.experts.3.gate_up_proj.": ".block_sparse_moe.experts.3.w1.",
+    ".mlp.experts.3.down_proj.": ".block_sparse_moe.experts.3.w2.",
+    ".mlp.experts.3.up_proj.": ".block_sparse_moe.experts.3.w3.",
+    ".mlp.experts.3.layer_norm.weight": ".post_attention_layernorm.weight",
+    ".mlp.experts.4.gate_up_proj.": ".block_sparse_moe.experts.4.w1.",
+    ".mlp.experts.4.down_proj.": ".block_sparse_moe.experts.4.w2.",
+    ".mlp.experts.4.up_proj.": ".block_sparse_moe.experts.4.w3.",
+    ".mlp.experts.4.layer_norm.weight": ".post_attention_layernorm.weight",
+    ".mlp.experts.5.gate_up_proj.": ".block_sparse_moe.experts.5.w1.",
+    ".mlp.experts.5.down_proj.": ".block_sparse_moe.experts.5.w2.",
+    ".mlp.experts.5.up_proj.": ".block_sparse_moe.experts.5.w3.",
+    ".mlp.experts.5.layer_norm.weight": ".post_attention_layernorm.weight",
+    ".mlp.experts.6.gate_up_proj.": ".block_sparse_moe.experts.6.w1.",
+    ".mlp.experts.6.down_proj.": ".block_sparse_moe.experts.6.w2.",
+    ".mlp.experts.6.up_proj.": ".block_sparse_moe.experts.6.w3.",
+    ".mlp.experts.6.layer_norm.weight": ".post_attention_layernorm.weight",
+    ".mlp.experts.7.gate_up_proj.": ".block_sparse_moe.experts.7.w1.",
+    ".mlp.experts.7.down_proj.": ".block_sparse_moe.experts.7.w2.",
+    ".mlp.experts.7.up_proj.": ".block_sparse_moe.experts.7.w3.",
+    ".mlp.experts.7.layer_norm.weight": ".post_attention_layernorm.weight",
 }
 key_maps["PhiForCausalLM"] = {
     "layer_prefix": "model.layers.",
@@ -93,10 +93,10 @@ key_maps["PhiForCausalLM"] = {
     ".self_attn.linear_keys.": ".self_attn.k_proj.",
     ".self_attn.linear_values.": ".self_attn.v_proj.",
     ".self_attn.final_linear.": ".self_attn.dense.",
-    ".feed_forward.w_1.": ".mlp.fc1.",
-    ".feed_forward.w_2.": ".mlp.fc2.",
-    ".layer_norm_1.weight": (".input_layernorm.weight", ""),
-    ".layer_norm_1.bias": (".input_layernorm.bias", ""),
+    ".mlp.gate_up_proj.": ".mlp.fc1.",
+    ".mlp.down_proj.": ".mlp.fc2.",
+    ".input_layernorm.weight": (".input_layernorm.weight", ""),
+    ".input_layernorm.bias": (".input_layernorm.bias", ""),
 }
 key_maps["Phi3ForCausalLM"] = {
     "layer_prefix": "model.layers.",
@@ -110,11 +110,11 @@ key_maps["Phi3ForCausalLM"] = {
     ),
     ".self_attn.linear_values.": (".self_attn.qkv_proj.", "[-hidden_size:, :]"),
     ".self_attn.final_linear.": ".self_attn.o_proj.",
-    ".feed_forward.w_1.": (".mlp.gate_up_proj.", "[:transformer_ff, :]"),
-    ".feed_forward.w_2.": ".mlp.down_proj.",
-    ".feed_forward.w_3.": (".mlp.gate_up_proj.", "[transformer_ff:, :]"),
-    ".layer_norm_1.weight": ".input_layernorm.weight",
-    ".feed_forward.layer_norm.weight": ".post_attention_layernorm.weight",
+    ".mlp.gate_up_proj.": (".mlp.gate_up_proj.", "[:transformer_ff, :]"),
+    ".mlp.down_proj.": ".mlp.down_proj.",
+    ".mlp.up_proj.": (".mlp.gate_up_proj.", "[transformer_ff:, :]"),
+    ".input_layernorm.weight": ".input_layernorm.weight",
+    ".post_attention_layernorm.weight": ".post_attention_layernorm.weight",
 }
 ln_table = {
     "LlamaForCausalLM": "rms",
@@ -124,11 +124,11 @@ ln_table = {
     "Phi3ForCausalLM": "rms",
 }
 act_table = {
-    "LlamaForCausalLM": "silu",
-    "MistralForCausalLM": "silu",
-    "MixtralForCausalLM": "silu",
+    "LlamaForCausalLM": "gated-silu",
+    "MistralForCausalLM": "gated-silu",
+    "MixtralForCausalLM": "gated-silu",
     "PhiForCausalLM": "gelu",
-    "Phi3ForCausalLM": "silu",
+    "Phi3ForCausalLM": "gated-silu",
 }
 decoder_start_table = {
     "LlamaForCausalLM": "<s>",
@@ -432,9 +432,9 @@ class LlamaHFConverter(BaseBin):
                 group_size = config["quantization_config"]["q_group_size"]
 
             quant_layers = [
-                "w_1",
-                "w_2",
-                "w_3",
+                "gate_up_proj",
+                "down_proj",
+                "up_proj",
                 "linear_values",
                 "linear_query",
                 "linear_keys",
@@ -571,33 +571,33 @@ class LlamaHFConverter(BaseBin):
                             ".self_attn.linear_keys.",
                             ".self_attn.linear_values.",
                             ".self_attn.final_linear.",
-                            ".feed_forward.w_1.",
-                            ".feed_forward.w_2.",
-                            ".feed_forward.w_3.",
-                            ".feed_forward.experts.0.w_1.",
-                            ".feed_forward.experts.0.w_2.",
-                            ".feed_forward.experts.0.w_3.",
-                            ".feed_forward.experts.1.w_1.",
-                            ".feed_forward.experts.1.w_2.",
-                            ".feed_forward.experts.1.w_3.",
-                            ".feed_forward.experts.2.w_1.",
-                            ".feed_forward.experts.2.w_2.",
-                            ".feed_forward.experts.2.w_3.",
-                            ".feed_forward.experts.3.w_1.",
-                            ".feed_forward.experts.3.w_2.",
-                            ".feed_forward.experts.3.w_3.",
-                            ".feed_forward.experts.4.w_1.",
-                            ".feed_forward.experts.4.w_2.",
-                            ".feed_forward.experts.4.w_3.",
-                            ".feed_forward.experts.5.w_1.",
-                            ".feed_forward.experts.5.w_2.",
-                            ".feed_forward.experts.5.w_3.",
-                            ".feed_forward.experts.6.w_1.",
-                            ".feed_forward.experts.6.w_2.",
-                            ".feed_forward.experts.6.w_3.",
-                            ".feed_forward.experts.7.w_1.",
-                            ".feed_forward.experts.7.w_2.",
-                            ".feed_forward.experts.7.w_3.",
+                            ".mlp.gate_up_proj.",
+                            ".mlp.down_proj.",
+                            ".mlp.up_proj.",
+                            ".mlp.experts.0.gate_up_proj.",
+                            ".mlp.experts.0.down_proj.",
+                            ".mlp.experts.0.up_proj.",
+                            ".mlp.experts.1.gate_up_proj.",
+                            ".mlp.experts.1.down_proj.",
+                            ".mlp.experts.1.up_proj.",
+                            ".mlp.experts.2.gate_up_proj.",
+                            ".mlp.experts.2.down_proj.",
+                            ".mlp.experts.2.up_proj.",
+                            ".mlp.experts.3.gate_up_proj.",
+                            ".mlp.experts.3.down_proj.",
+                            ".mlp.experts.3.up_proj.",
+                            ".mlp.experts.4.gate_up_proj.",
+                            ".mlp.experts.4.down_proj.",
+                            ".mlp.experts.4.up_proj.",
+                            ".mlp.experts.5.gate_up_proj.",
+                            ".mlp.experts.5.down_proj.",
+                            ".mlp.experts.5.up_proj.",
+                            ".mlp.experts.6.gate_up_proj.",
+                            ".mlp.experts.6.down_proj.",
+                            ".mlp.experts.6.up_proj.",
+                            ".mlp.experts.7.gate_up_proj.",
+                            ".mlp.experts.7.down_proj.",
+                            ".mlp.experts.7.up_proj.",
                         ]
                         for target in targetlist:
                             if target in key_maps[arch].keys():
@@ -632,26 +632,26 @@ class LlamaHFConverter(BaseBin):
                     else:
                         idx = 1
                     for p in ["weight", "bias"]:
-                        if ".layer_norm_1." + p in key_maps[arch].keys():
-                            if type(key_maps[arch][".layer_norm_1." + p]) == tuple:
+                        if ".input_layernorm." + p in key_maps[arch].keys():
+                            if type(key_maps[arch][".input_layernorm." + p]) == tuple:
                                 w = get_weight(
                                     checkpoint,
                                     key_maps[arch]["layer_prefix"]
                                     + str(i)
-                                    + key_maps[arch][".layer_norm_1." + p][idx],
+                                    + key_maps[arch][".input_layernorm." + p][idx],
                                 )
                             else:
                                 w = get_weight(
                                     checkpoint,
                                     key_maps[arch]["layer_prefix"]
                                     + str(i)
-                                    + key_maps[arch][".layer_norm_1." + p],
+                                    + key_maps[arch][".input_layernorm." + p],
                                 )
                             if w is not None:
                                 eole_safetensor[
                                     "decoder.transformer_layers."
                                     + str(i)
-                                    + ".layer_norm_1."
+                                    + ".input_layernorm."
                                     + p
                                 ] = w
                         if ".layer_norm_res." + p in key_maps[arch].keys():
@@ -668,39 +668,39 @@ class LlamaHFConverter(BaseBin):
                                     + ".layer_norm_res."
                                     + p
                                 ] = w
-                        if ".feed_forward.layer_norm." + p in key_maps[arch].keys():
+                        if ".post_attention_layernorm." + p in key_maps[arch].keys():
                             w = get_weight(
                                 checkpoint,
                                 key_maps[arch]["layer_prefix"]
                                 + str(i)
-                                + key_maps[arch][".feed_forward.layer_norm." + p],
+                                + key_maps[arch][".post_attention_layernorm." + p],
                             )
                             if w is not None:
                                 eole_safetensor[
                                     "decoder.transformer_layers."
                                     + str(i)
-                                    + ".feed_forward.layer_norm."
+                                    + ".post_attention_layernorm."
                                     + p
                                 ] = w
 
-                        if ".feed_forward.gate." + p in key_maps[arch].keys():
+                        if ".mlp.gate." + p in key_maps[arch].keys():
                             w = get_weight(
                                 checkpoint,
                                 key_maps[arch]["layer_prefix"]
                                 + str(i)
-                                + key_maps[arch][".feed_forward.gate." + p],
+                                + key_maps[arch][".mlp.gate." + p],
                             )
                             if w is not None:
                                 eole_safetensor[
                                     "decoder.transformer_layers."
                                     + str(i)
-                                    + ".feed_forward.gate."
+                                    + ".mlp.gate."
                                     + p
                                 ] = w
 
                         for j in range(num_experts):
                             if (
-                                f".feed_forward.experts.{j}.layer_norm." + p
+                                f".mlp.experts.{j}.layer_norm." + p
                                 in key_maps[arch].keys()
                             ):
                                 w = get_weight(
@@ -708,14 +708,14 @@ class LlamaHFConverter(BaseBin):
                                     key_maps[arch]["layer_prefix"]
                                     + str(i)
                                     + key_maps[arch][
-                                        f".feed_forward.experts.{j}.layer_norm." + p
+                                        f".mlp.experts.{j}.layer_norm." + p
                                     ],
                                 )
                                 if w is not None:
                                     eole_safetensor[
                                         "decoder.transformer_layers."
                                         + str(i)
-                                        + f".feed_forward.experts.{j}.layer_norm."
+                                        + f".mlp.experts.{j}.layer_norm."
                                         + p
                                     ] = w
 
