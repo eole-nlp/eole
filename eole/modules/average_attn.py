@@ -80,6 +80,7 @@ class AverageAttention(nn.Module):
         model_dim,
         dropout=0.1,
         aan_useffn=False,
+        mlp_activation_fn=ActivationFunction.relu,
     ):
         self.model_dim = model_dim
         self.aan_useffn = aan_useffn
