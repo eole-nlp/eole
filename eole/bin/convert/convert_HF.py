@@ -334,7 +334,7 @@ class LlamaHFConverter(BaseBin):
             transformer_ff = config["intermediate_size"]
         else:
             transformer_ff = hidden_size * 4
-        pos_ffn_activation_fn = act_table[arch]
+        mlp_activation_fn = act_table[arch]
         layer_norm = ln_table[arch]
 
         multiquery = False
@@ -850,7 +850,7 @@ class LlamaHFConverter(BaseBin):
                 model_type="text",
                 layer_norm=layer_norm,
                 norm_eps=norm_eps,
-                pos_ffn_activation_fn=pos_ffn_activation_fn,
+                mlp_activation_fn=mlp_activation_fn,
                 self_attn_type="scaled-dot-flash",
                 max_relative_positions=-1,
                 rotary_interleave=rotary_interleave,
