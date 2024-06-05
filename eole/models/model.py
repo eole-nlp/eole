@@ -544,9 +544,6 @@ class BaseModel(nn.Module):
     def update_dropout(self, dropout, attention_dropout):
         raise NotImplementedError
 
-    def count_parameters(self, log=print):
-        raise NotImplementedError
-
     def _load_param(self, name, module, param_name, param, buf_list, ckpt_t, offset):
         if module.__class__.__name__ == "WQLinear_GEMM":
             # ugly patch because in_feat and out_feat are reversed in WQLinear_GEMM
@@ -731,6 +728,35 @@ class BaseModel(nn.Module):
                     % key
                 )
 
+    def count_parameters(self, log=print):
+        """Count number of parameters in model (& print with `log` callback).
+
+        Returns: (int, int)
+            encoder side parameter count
+            decoder side parameter count"""
+
+        emb, enc, dec, gen, other = 0, 0, 0, 0, 0
+        for name, param in self.named_parameters():
+            if "encoder" in name:
+                enc += param.nelement()
+            elif "decoder" in name:
+                dec += param.nelement()
+            elif "embeddings" in name:
+                emb += param.nelement()
+            elif "generator" in name:
+                gen += param.nelement()
+            else:
+                # mostly zero, but might be useful to grab edge cases
+                other += param.nelement()
+
+        if callable(log):
+            log("embeddings: {}".format(emb))
+            log("encoder: {}".format(enc))
+            log("decoder: {}".format(dec))
+            log("generator: {}".format(gen))
+            log("other: {}".format(other))
+            log("* number of parameters: {}".format(emb + enc + dec + gen + other))
+
 
 class EncoderDecoderModel(BaseModel):
     """EncoderDecoderModel Class
@@ -815,26 +841,6 @@ class EncoderDecoderModel(BaseModel):
         self.decoder.update_dropout(dropout, attention_dropout)
         self.tgt_emb.update_dropout(dropout)
 
-    def count_parameters(self, log=print):
-        """Count number of parameters in model (& print with `log` callback).
-
-        Returns:
-            (int, int):
-            * encoder side parameter count
-            * decoder side parameter count"""
-
-        enc, dec = 0, 0
-        for name, param in self.named_parameters():
-            if "encoder" in name:
-                enc += param.nelement()
-            else:
-                dec += param.nelement()
-        if callable(log):
-            log("encoder: {}".format(enc))
-            log("decoder: {}".format(dec))
-            log("* number of parameters: {}".format(enc + dec))
-        return enc, dec
-
 
 class DecoderModel(BaseModel):
     """DecoderModel Class
@@ -879,25 +885,6 @@ class DecoderModel(BaseModel):
     def update_dropout(self, dropout, attention_dropout):
         self.decoder.update_dropout(dropout, attention_dropout)
         self.tgt_emb.update_dropout(dropout)
-
-    def count_parameters(self, log=print):
-        """Count number of parameters in model (& print with `log` callback).
-
-        Returns: (int, int)
-            encoder side parameter count
-            decoder side parameter count"""
-
-        enc, dec = 0, 0
-        for name, param in self.named_parameters():
-            if "decoder" in name:
-                dec += param.nelement()
-
-        if callable(log):
-            # No encoder in LM, seq2seq count formatting kept
-            log("encoder: {}".format(enc))
-            log("decoder: {}".format(dec))
-            log("* number of parameters: {}".format(enc + dec))
-        return enc, dec
 
 
 class EncoderModel(BaseModel):
@@ -948,27 +935,6 @@ class EncoderModel(BaseModel):
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
-
-    def count_parameters(self, log=print):
-        """Count number of parameters in model (& print with `log` callback).
-
-        Returns: (int, int)
-            encoder side parameter count
-            decoder side parameter count"""
-
-        enc, dec = 0, 0
-        for name, param in self.named_parameters():
-            if "encoder" in name:
-                enc += param.nelement()
-            else:
-                dec += param.nelement()
-
-        if callable(log):
-            # No encoder in LM, seq2seq count formatting kept
-            log("encoder: {}".format(enc))
-            log("decoder: {}".format(dec))
-            log("* number of parameters: {}".format(enc + dec))
-        return enc, dec
 
 
 def get_model_class(model_config):
