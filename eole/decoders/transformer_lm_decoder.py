@@ -10,6 +10,7 @@ from eole.decoders.transformer_base import (
     TransformerDecoderLayerBase,
     TransformerDecoderBase,
 )
+from eole.modules.rmsnorm import RMSNorm
 
 
 class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
@@ -50,7 +51,7 @@ class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
             # mask now are (batch x 1 x tlen x tlen)
             # 1 = heads to be expanded in MHA
 
-        norm_layer_in = self.layer_norm_1(layer_in)
+        norm_layer_in = self.input_layernorm(layer_in)
 
         attn_output, attns = self._forward_self_attn(
             norm_layer_in, dec_mask, step, return_attn=return_attn
@@ -58,16 +59,16 @@ class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
         if self.dropout_p > 0:
             attn_output = self.dropout(attn_output)
         if self.parallel_residual:
-            # feed_forward applies residual, so we remove and apply residual with un-normed
+            # we apply residual with un-normed
             if not self.shared_layer_norm:
-                norm_res_layer_in = self.layer_norm_res(layer_in)
+                norm_res_layer_in = self.residual_layernorm(layer_in)
                 ff_in = norm_res_layer_in
             else:
                 ff_in = norm_layer_in
-            layer_out = self.feed_forward(ff_in) - ff_in + layer_in + attn_output
         else:
-            layer_out = attn_output + layer_in
-            layer_out = self.feed_forward(layer_out)
+            ff_in = self.post_attention_layernorm(attn_output + layer_in)
+        # add residual to mlp output
+        layer_out = self.mlp(ff_in) + layer_in + attn_output
 
         return layer_out, attns
 
@@ -85,6 +86,14 @@ class TransformerLMDecoder(TransformerDecoderBase):
         running_config=None,
     ):
         super(TransformerLMDecoder, self).__init__(model_config)
+        if model_config.layer_norm == "standard":
+            layernorm = nn.LayerNorm
+        elif model_config.layer_norm == "rms":
+            layernorm = RMSNorm
+        else:
+            raise ValueError(
+                f"{model_config.layer_norm} layer norm type is not supported"
+            )
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerLMDecoderLayer(
@@ -94,6 +103,8 @@ class TransformerLMDecoder(TransformerDecoderBase):
                 for i in range(model_config.layers)
             ]
         )
+        # This is the Decoder out layer norm
+        self.layer_norm = layernorm(model_config.hidden_size, eps=model_config.norm_eps)
 
     def forward(self, emb, **kwargs):
         """Decode, possibly stepwise."""

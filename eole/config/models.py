@@ -2,7 +2,7 @@ from typing import Dict, Union, Literal, Any, Annotated
 from pydantic import Field, field_validator, model_validator  # , TypeAdapter
 
 from eole import constants
-from eole.modules.position_ffn import (
+from eole.modules.transformer_mlp import (
     ActivationFunction,
 )  # might be better defined elsewhere
 from eole.config.config import Config
@@ -164,9 +164,9 @@ class TransformerConfig(Config):
         description="Enable relative position bias "
         "(https://github.com/google-research/text-to-text-transfer-transformer).",
     )
-    pos_ffn_activation_fn: ActivationFunction = Field(
+    mlp_activation_fn: ActivationFunction = Field(
         default=ActivationFunction.relu,
-        description="The activation function to use in PositionwiseFeedForward layer.",
+        description="The activation function to use in MLP layer.",
     )
     rotary_interleave: bool = Field(
         default=True,
@@ -210,7 +210,7 @@ class TransformerConfig(Config):
         "(e.g. Falcon 40B)",
     )
     add_ffnbias: bool = Field(
-        default=False, description="Add bias to nn.Linear of Positionwise FFN."
+        default=False, description="Add bias to nn.Linear of MLP FFN."
     )
     parallel_residual: bool = Field(
         default=False,

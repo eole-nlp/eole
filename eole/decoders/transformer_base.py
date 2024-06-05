@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from eole.decoders.decoder import DecoderBase
 from eole.modules import MultiHeadedAttention, AverageAttention
-from eole.modules.position_ffn import PositionwiseFeedForward
+from eole.modules.transformer_mlp import MLP
 from eole.modules.moe import MoE
 from eole.modules.rmsnorm import RMSNorm
 
@@ -23,56 +23,52 @@ class TransformerDecoderLayerBase(nn.Module):
             model_config (eole.config.TransformerDecoderConfig): full decoder config
         """
         super(TransformerDecoderLayerBase, self).__init__()
+        if model_config.layer_norm == "standard":
+            layernorm = nn.LayerNorm
+        elif model_config.layer_norm == "rms":
+            layernorm = RMSNorm
+        else:
+            raise ValueError(
+                f"{model_config.layer_norm} layer norm type is not supported"
+            )
+        self.parallel_residual = model_config.parallel_residual
+        self.shared_layer_norm = model_config.shared_layer_norm
+        self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
+        self.full_context_alignment = model_config.full_context_alignment
+        self.alignment_heads = model_config.alignment_heads
+        self.sliding_window = model_config.sliding_window
+        self.self_attn_type = model_config.self_attn_type
 
-        if model_config.self_attn_type in ["scaled-dot", "scaled-dot-flash"]:
+        self.input_layernorm = layernorm(
+            model_config.hidden_size, eps=model_config.norm_eps
+        )
+        if self.self_attn_type in ["scaled-dot", "scaled-dot-flash"]:
             self.self_attn = MultiHeadedAttention(
                 model_config,
                 running_config=running_config,
                 attn_type="self",
             )
-        elif model_config.self_attn_type == "average":
+        elif self.self_attn_type == "average":
             self.self_attn = AverageAttention(
                 model_config.hidden_size,
                 dropout=getattr(running_config, "attention_dropout", [0.0])[0],
                 aan_useffn=model_config.aan_useffn,
             )
-
+        self.dropout = nn.Dropout(self.dropout_p)
+        self.post_attention_layernorm = layernorm(
+            model_config.hidden_size, eps=model_config.norm_eps
+        )
+        if model_config.parallel_residual and not model_config.shared_layer_norm:
+            self.residual_layernorm = layernorm(
+                model_config.hidden_size, eps=model_config.norm_eps
+            )
         if model_config.num_experts > 0:
-            self.feed_forward = MoE(model_config, running_config)
+            self.mlp = MoE(model_config, running_config)
         else:
-            self.feed_forward = PositionwiseFeedForward(
+            self.mlp = MLP(
                 model_config,
                 running_config=running_config,
             )
-        self.parallel_residual = model_config.parallel_residual
-        self.shared_layer_norm = model_config.shared_layer_norm
-        if model_config.layer_norm == "standard":
-            self.layer_norm_1 = nn.LayerNorm(
-                model_config.hidden_size, eps=model_config.norm_eps
-            )
-            if model_config.parallel_residual and not model_config.shared_layer_norm:
-                self.layer_norm_res = nn.LayerNorm(
-                    model_config.hidden_size, eps=model_config.norm_eps
-                )
-        elif model_config.layer_norm == "rms":
-            self.layer_norm_1 = RMSNorm(
-                model_config.hidden_size, eps=model_config.norm_eps
-            )
-            if model_config.parallel_residual and not model_config.shared_layer_norm:
-                self.layer_norm_res = RMSNorm(
-                    model_config.hidden_size, eps=model_config.norm_eps
-                )
-        else:
-            raise ValueError(
-                f"{model_config.layer_norm} layer norm type is not supported"
-            )
-
-        self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
-        self.dropout = nn.Dropout(self.dropout_p)
-        self.full_context_alignment = model_config.full_context_alignment
-        self.alignment_heads = model_config.alignment_heads
-        self.sliding_window = model_config.sliding_window
-        self.self_attn_type = model_config.self_attn_type
 
     def forward(self, *args, **kwargs):
         """Extend `_forward` for (possibly) multiple decoder pass:
@@ -112,7 +108,7 @@ class TransformerDecoderLayerBase(nn.Module):
 
     def update_dropout(self, dropout, attention_dropout):
         self.self_attn.update_dropout(attention_dropout)
-        self.feed_forward.update_dropout(dropout)
+        self.mlp.update_dropout(dropout)
         self.dropout.p = dropout
 
     def _forward(self, *args, **kwargs):
@@ -167,19 +163,6 @@ class TransformerDecoderBase(DecoderBase):
         running_config=None,
     ):
         super(TransformerDecoderBase, self).__init__()
-
-        if model_config.layer_norm == "standard":
-            self.layer_norm = nn.LayerNorm(
-                model_config.hidden_size, eps=model_config.norm_eps
-            )
-        elif model_config.layer_norm == "rms":
-            self.layer_norm = RMSNorm(
-                model_config.hidden_size, eps=model_config.norm_eps
-            )
-        else:
-            raise ValueError(
-                f"{model_config.layer_norm} layer norm type is not supported"
-            )
 
         self.alignment_layer = model_config.alignment_layer
 

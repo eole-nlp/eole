@@ -1,7 +1,7 @@
 """MoE mixture of experts"."""
 import torch
 import torch.nn as nn
-from eole.modules.position_ffn import PositionwiseFeedForward
+from eole.modules.transformer_mlp import MLP
 from torch.distributed import all_reduce
 
 
@@ -14,7 +14,7 @@ class MoE(nn.Module):
         super().__init__()
         self.experts = nn.ModuleList(
             [
-                PositionwiseFeedForward(
+                MLP(
                     model_config,
                     running_config,
                 )

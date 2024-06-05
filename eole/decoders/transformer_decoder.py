@@ -35,23 +35,22 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
             model_config,
             running_config=running_config,
         )
+        if model_config.layer_norm == "standard":
+            layernorm = nn.LayerNorm
+        elif model_config.layer_norm == "rms":
+            layernorm = RMSNorm
+        else:
+            raise ValueError(
+                f"{model_config.layer_norm} layer norm type is not supported"
+            )
+        self.precontext_layernorm = layernorm(
+            model_config.hidden_size, eps=model_config.norm_eps
+        )
         self.context_attn = MultiHeadedAttention(
             model_config,
             running_config=running_config,
             attn_type="context",
         )
-        if model_config.layer_norm == "standard":
-            self.layer_norm_2 = nn.LayerNorm(
-                model_config.hidden_size, eps=model_config.norm_eps
-            )
-        elif model_config.layer_norm == "rms":
-            self.layer_norm_2 = RMSNorm(
-                model_config.hidden_size, eps=model_config.norm_eps
-            )
-        else:
-            raise ValueError(
-                f"{model_config.layer_norm} layer norm type is not supported"
-            )
 
     def update_dropout(self, dropout, attention_dropout):
         super(TransformerDecoderLayer, self).update_dropout(dropout, attention_dropout)
@@ -99,13 +98,14 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
             # mask now are (batch x 1 x tlen x s or t len)
             # 1 = heads to be expanded in MHA
 
-        norm_layer_in = self.layer_norm_1(layer_in)
+        norm_layer_in = self.input_layernorm(layer_in)
 
         self_attn, _ = self._forward_self_attn(
             norm_layer_in, dec_mask, step, return_attn=return_attn
         )
         if self.dropout_p > 0:
             self_attn = self.dropout(self_attn)
+
         if self.parallel_residual:
             ctx_attn, attns = self.context_attn(
                 enc_out,
@@ -114,24 +114,17 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
                 mask=src_pad_mask,
                 return_attn=return_attn,
             )
-            # feed_forward applies residual, so we remove and apply residual with un-normed
-            layer_out = (
-                self.feed_forward(norm_layer_in)
-                - norm_layer_in
-                + layer_in
-                + self_attn
-                + ctx_attn
-            )
+            ff_in = norm_layer_in
         else:
-            query = self_attn + layer_in
-            norm_query = self.layer_norm_2(query)
+            norm_query = self.precontext_layernorm(self_attn + layer_in)
             ctx_attn, attns = self.context_attn(
                 enc_out, enc_out, norm_query, mask=src_pad_mask, return_attn=return_attn
             )
             if self.dropout_p > 0:
                 ctx_attn = self.dropout(ctx_attn)
-            layer_out = self.feed_forward(ctx_attn + query)
-
+            ff_in = self.post_attention_layernorm(ctx_attn + self_attn + layer_in)
+        # we apply residual with un-normed
+        layer_out = self.mlp(ff_in) + layer_in + self_attn + ctx_attn
         return layer_out, attns
 
 
@@ -154,6 +147,14 @@ class TransformerDecoder(TransformerDecoderBase):
         super(TransformerDecoder, self).__init__(
             model_config, running_config=running_config
         )
+        if model_config.layer_norm == "standard":
+            layernorm = nn.LayerNorm
+        elif model_config.layer_norm == "rms":
+            layernorm = RMSNorm
+        else:
+            raise ValueError(
+                f"{model_config.layer_norm} layer norm type is not supported"
+            )
 
         self.transformer_layers = nn.ModuleList(
             [
@@ -164,6 +165,8 @@ class TransformerDecoder(TransformerDecoderBase):
                 for i in range(model_config.layers)
             ]
         )
+        # This is the Decoder out layer norm
+        self.layer_norm = layernorm(model_config.hidden_size, eps=model_config.norm_eps)
 
     def forward(self, emb, **kwargs):
         """Decode, possibly stepwise."""
