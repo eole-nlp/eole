@@ -85,9 +85,7 @@ class AverageAttention(nn.Module):
         self.aan_useffn = aan_useffn
         super(AverageAttention, self).__init__()
         if aan_useffn:
-            self.average_layer = MLP(
-                model_dim, model_dim, dropout, mlp_activation_fn
-            )
+            self.average_layer = MLP(model_dim, model_dim, dropout, mlp_activation_fn)
         self.gating_layer = nn.Linear(model_dim * 2, model_dim * 2)
         self.layer_cache = False, {"prev_g": torch.tensor([])}
 
