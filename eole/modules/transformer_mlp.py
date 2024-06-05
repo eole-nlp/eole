@@ -3,7 +3,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
-from eole.modules.rmsnorm import RMSNorm
 from torch.nn.utils import skip_init
 from torch.distributed import all_reduce
 from enum import Enum

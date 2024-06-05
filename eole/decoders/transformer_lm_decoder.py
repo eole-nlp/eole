@@ -10,6 +10,7 @@ from eole.decoders.transformer_base import (
     TransformerDecoderLayerBase,
     TransformerDecoderBase,
 )
+from eole.modules.rmsnorm import RMSNorm
 
 
 class TransformerLMDecoderLayer(TransformerDecoderLayerBase):

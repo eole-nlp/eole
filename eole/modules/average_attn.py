@@ -71,8 +71,8 @@ class AverageAttention(nn.Module):
        model_dim (int): the dimension of keys/values/queries,
            must be divisible by head_count
        dropout (float): dropout parameter
-       pos_ffn_activation_fn (ActivationFunction):
-           activation function choice for PositionwiseFeedForward layer
+       mlp_activation_fn (ActivationFunction):
+           activation function choice for MLP layer
     """
 
     def __init__(
@@ -80,14 +80,13 @@ class AverageAttention(nn.Module):
         model_dim,
         dropout=0.1,
         aan_useffn=False,
-        pos_ffn_activation_fn=ActivationFunction.relu,
     ):
         self.model_dim = model_dim
         self.aan_useffn = aan_useffn
         super(AverageAttention, self).__init__()
         if aan_useffn:
-            self.average_layer = PositionwiseFeedForward(
-                model_dim, model_dim, dropout, pos_ffn_activation_fn
+            self.average_layer = MLP(
+                model_dim, model_dim, dropout, mlp_activation_fn
             )
         self.gating_layer = nn.Linear(model_dim * 2, model_dim * 2)
         self.layer_cache = False, {"prev_g": torch.tensor([])}

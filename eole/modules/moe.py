@@ -14,7 +14,7 @@ class MoE(nn.Module):
         super().__init__()
         self.experts = nn.ModuleList(
             [
-                PositionwiseFeedForward(
+                MLP(
                     model_config,
                     running_config,
                 )
