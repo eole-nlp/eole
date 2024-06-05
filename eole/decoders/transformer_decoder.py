@@ -114,19 +114,17 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
                 mask=src_pad_mask,
                 return_attn=return_attn,
             )
-            # we apply residual with un-normed
-            layer_out = self.mlp(norm_layer_in) + layer_in + self_attn + ctx_attn
+            ff_in = norm_layer_in
         else:
-            query = self_attn + layer_in
-            norm_query = self.precontext_layernorm(query)
+            norm_query = self.precontext_layernorm(self_attn + layer_in)
             ctx_attn, attns = self.context_attn(
                 enc_out, enc_out, norm_query, mask=src_pad_mask, return_attn=return_attn
             )
             if self.dropout_p > 0:
                 ctx_attn = self.dropout(ctx_attn)
-            layer_out = self.post_attention_layernorm(ctx_attn + query)
-            layer_out = self.mlp(layer_out) + layer_out
-
+            ff_in = self.post_attention_layernorm(ctx_attn + self_attn + layer_in)
+        # we apply residual with un-normed
+        layer_out = self.mlp(norm_layer_in) + layer_in + self_attn + ctx_attn
         return layer_out, attns
 
 

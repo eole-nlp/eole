@@ -65,10 +65,10 @@ class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
                 ff_in = norm_res_layer_in
             else:
                 ff_in = norm_layer_in
-            layer_out = self.mlp(ff_in) + layer_in + attn_output
         else:
-            layer_out = self.post_attention_layernorm(attn_output + layer_in)
-            layer_out = self.mlp(layer_out) + layer_out
+            ff_in = self.post_attention_layernorm(attn_output + layer_in)
+        # add residual to mlp output
+        layer_out = self.mlp(ff_in) + layer_in + attn_output
 
         return layer_out, attns
 
