@@ -10,7 +10,7 @@ Embeddings
 .. autoclass:: eole.modules.PositionalEncoding
     :members:
 
-.. autoclass:: eole.modules.position_ffn.PositionwiseFeedForward
+.. autoclass:: eole.modules.transformer_mlp.MLP
     :members:
 
 Encoders

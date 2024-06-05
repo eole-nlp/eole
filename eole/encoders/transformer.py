@@ -6,7 +6,7 @@ import torch.nn as nn
 
 from eole.encoders.encoder import EncoderBase
 from eole.modules import MultiHeadedAttention
-from eole.modules.position_ffn import PositionwiseFeedForward
+from eole.modules.transformer_mlp import MLP
 
 from eole.modules.rmsnorm import RMSNorm
 
@@ -26,32 +26,34 @@ class TransformerEncoderLayer(nn.Module):
         running_config=None,
     ):
         super(TransformerEncoderLayer, self).__init__()
+        if model_config.layer_norm == "standard":
+            layernorm = nn.LayerNorm
+        elif model_config.layer_norm == "rms":
+            layernorm = RMSNorm
+        else:
+            raise ValueError(
+                f"{model_config.layer_norm} layer norm type is not supported"
+            )
+        self.parallel_residual = model_config.parallel_residual
+        self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
 
+        self.input_layernorm = layernorm(
+            model_config.hidden_size, eps=model_config.norm_eps
+        )
         self.self_attn = MultiHeadedAttention(
             model_config,
             running_config=running_config,
             is_decoder=False,
             attn_type="self",
         )
-        self.feed_forward = PositionwiseFeedForward(
+        self.dropout = nn.Dropout(self.dropout_p)
+        self.post_attention_layernorm = layernorm(
+            model_config.hidden_size, eps=model_config.norm_eps
+        )
+        self.mlp = MLP(
             model_config,
             running_config=running_config,
         )
-        self.parallel_residual = model_config.parallel_residual
-        if model_config.layer_norm == "standard":
-            self.layer_norm = nn.LayerNorm(
-                model_config.hidden_size, eps=model_config.norm_eps
-            )
-        elif model_config.layer_norm == "rms":
-            self.layer_norm = RMSNorm(
-                model_config.hidden_size, eps=model_config.norm_eps
-            )
-        else:
-            raise ValueError(
-                f"{model_config.layer_norm} layer norm type is not supported"
-            )
-        self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
-        self.dropout = nn.Dropout(self.dropout_p)
 
     def forward(self, layer_in, mask):
         """
@@ -63,26 +65,25 @@ class TransformerEncoderLayer(nn.Module):
             (FloatTensor):
             * layer_out ``(batch_size, src_len, model_dim)``
         """
-        norm_layer_in = self.layer_norm(layer_in)
+        norm_layer_in = self.input_layernorm(layer_in)
         context, _ = self.self_attn(
             norm_layer_in, norm_layer_in, norm_layer_in, mask=mask
         )
         if self.dropout_p > 0:
             context = self.dropout(context)
         if self.parallel_residual:
-            # feed_forward applies residual, so we remove and apply residual with un-normed
-            layer_out = (
-                self.feed_forward(norm_layer_in) - norm_layer_in + layer_in + context
-            )
+            # apply mlp and add residual with un-normed
+            layer_out = self.mlp(norm_layer_in) + layer_in + context
         else:
-            layer_out = context + layer_in
-            layer_out = self.feed_forward(layer_out)
+            # apply post attention norm and add residual after mlp
+            layer_out = self.post_attention_layernorm(context + layer_in)
+            layer_out = self.mlp(layer_out) + layer_out
 
         return layer_out
 
     def update_dropout(self, dropout, attention_dropout):
         self.self_attn.update_dropout(attention_dropout)
-        self.feed_forward.update_dropout(dropout)
+        self.mlp.update_dropout(dropout)
         self.dropout.p = dropout
 
 
@@ -119,6 +120,7 @@ class TransformerEncoder(EncoderBase):
                 for i in range(model_config.layers)
             ]
         )
+        # This is the Encoder out layer norm
         if model_config.layer_norm == "standard":
             self.layer_norm = nn.LayerNorm(
                 model_config.hidden_size, eps=model_config.norm_eps

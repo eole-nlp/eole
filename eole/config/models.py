@@ -2,7 +2,7 @@ from typing import Dict, Union, Literal, Any, Annotated
 from pydantic import Field, field_validator, model_validator  # , TypeAdapter
 
 from eole import constants
-from eole.modules.position_ffn import (
+from eole.modules.transformer_mlp import (
     ActivationFunction,
 )  # might be better defined elsewhere
 from eole.config.config import Config

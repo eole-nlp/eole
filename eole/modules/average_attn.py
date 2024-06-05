@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from typing import Optional
-from eole.modules.position_ffn import PositionwiseFeedForward
-from eole.modules.position_ffn import ActivationFunction
+from eole.modules.transformer_mlp import MLP
+from eole.modules.transformer_mlp import ActivationFunction
 
 
 def cumulative_average_mask(
