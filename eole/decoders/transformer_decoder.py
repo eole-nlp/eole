@@ -114,7 +114,11 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
                 mask=src_pad_mask,
                 return_attn=return_attn,
             )
-            ff_in = norm_layer_in
+            if not self.shared_layer_norm:
+                norm_res_layer_in = self.residual_layernorm(layer_in)
+                ff_in = norm_res_layer_in
+            else:
+                ff_in = norm_layer_in
         else:
             norm_query = self.precontext_layernorm(self_attn + layer_in)
             ctx_attn, attns = self.context_attn(
