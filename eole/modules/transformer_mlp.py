@@ -60,10 +60,10 @@ class MLP(nn.Module):
         self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
         self.dropout_1 = nn.Dropout(self.dropout_p)
         self.dropout_2 = nn.Dropout(self.dropout_p)
-        self.activation = ACTIVATION_FUNCTIONS[model_config.pos_ffn_activation_fn]
+        self.activation = ACTIVATION_FUNCTIONS[model_config.mlp_activation_fn]
         if (
-            model_config.pos_ffn_activation_fn == "gated-silu"
-            or model_config.pos_ffn_activation_fn == "gated-gelu"
+            model_config.mlp_activation_fn == "gated-silu"
+            or model_config.mlp_activation_fn == "gated-gelu"
         ):
             self.up_proj = skip_init(
                 nn.Linear,
