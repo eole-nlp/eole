@@ -124,7 +124,7 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
                 ctx_attn = self.dropout(ctx_attn)
             ff_in = self.post_attention_layernorm(ctx_attn + self_attn + layer_in)
         # we apply residual with un-normed
-        layer_out = self.mlp(norm_layer_in) + layer_in + self_attn + ctx_attn
+        layer_out = self.mlp(ff_in) + layer_in + self_attn + ctx_attn
         return layer_out, attns
 
 
