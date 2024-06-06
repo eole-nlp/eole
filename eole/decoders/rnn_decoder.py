@@ -3,7 +3,8 @@ import torch.nn as nn
 
 from eole.decoders.decoder import DecoderBase
 from eole.modules.stacked_rnn import StackedLSTM, StackedGRU
-from eole.modules import context_gate_factory, GlobalAttention
+from eole.modules.gate import context_gate_factory
+from eole.modules.global_attention import GlobalAttention
 
 
 class RNNDecoderBase(DecoderBase):

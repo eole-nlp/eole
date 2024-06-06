@@ -1,10 +1,7 @@
 from typing import Dict, Union, Literal, Any, Annotated
 from pydantic import Field, field_validator, model_validator  # , TypeAdapter
 
-from eole import constants
-from eole.modules.transformer_mlp import (
-    ActivationFunction,
-)  # might be better defined elsewhere
+from eole.constants import PositionEncodingType, ActivationFunction
 from eole.config.config import Config
 
 
@@ -30,8 +27,8 @@ class EmbeddingsConfig(Config):
         description="Use a sin to mark relative words positions. "
         "Necessary for non-RNN style models.",
     )
-    position_encoding_type: constants.PositionEncodingType = Field(
-        default=constants.PositionEncodingType.SinusoidalInterleaved,
+    position_encoding_type: PositionEncodingType = Field(
+        default=PositionEncodingType.SinusoidalInterleaved,
         description="Type of positional encoding.",
     )
 

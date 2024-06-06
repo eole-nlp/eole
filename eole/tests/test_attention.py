@@ -23,7 +23,7 @@ class TestAttention(unittest.TestCase):
         enc_out = Variable(torch.randn(batch_size, src_len.max(), dim))
         enc_final_hs = Variable(torch.randn(batch_size, dim))
 
-        attn = eole.modules.GlobalAttention(dim)
+        attn = eole.modules.global_attention.GlobalAttention(dim)
 
         _, alignments = attn(enc_final_hs, enc_out, src_len=src_len)
         # TODO: fix for pytorch 0.3

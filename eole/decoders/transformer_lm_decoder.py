@@ -10,7 +10,7 @@ from eole.decoders.transformer_base import (
     TransformerDecoderLayerBase,
     TransformerDecoderBase,
 )
-from eole.modules.rmsnorm import RMSNorm
+from eole.constants import LayerNorm
 
 
 class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
@@ -86,14 +86,7 @@ class TransformerLMDecoder(TransformerDecoderBase):
         running_config=None,
     ):
         super(TransformerLMDecoder, self).__init__(model_config)
-        if model_config.layer_norm == "standard":
-            layernorm = nn.LayerNorm
-        elif model_config.layer_norm == "rms":
-            layernorm = RMSNorm
-        else:
-            raise ValueError(
-                f"{model_config.layer_norm} layer norm type is not supported"
-            )
+
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerLMDecoderLayer(
@@ -104,7 +97,9 @@ class TransformerLMDecoder(TransformerDecoderBase):
             ]
         )
         # This is the Decoder out layer norm
-        self.layer_norm = layernorm(model_config.hidden_size, eps=model_config.norm_eps)
+        self.layer_norm = LayerNorm[model_config.layer_norm](
+            model_config.hidden_size, eps=model_config.norm_eps
+        )
 
     def forward(self, emb, **kwargs):
         """Decode, possibly stepwise."""

@@ -4,7 +4,7 @@
 import torch
 import torch.nn as nn
 
-from eole.modules import ConvMultiStepAttention
+from eole.modules.conv_multi_step_attention import ConvMultiStepAttention
 from eole.utils.cnn_factory import shape_transform, GatedConv
 from eole.decoders.decoder import DecoderBase
 

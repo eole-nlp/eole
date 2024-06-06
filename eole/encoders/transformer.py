@@ -5,10 +5,9 @@ Implementation of "Attention is All You Need"
 import torch.nn as nn
 
 from eole.encoders.encoder import EncoderBase
-from eole.modules import MultiHeadedAttention
+from eole.modules.multi_headed_attn import MultiHeadedAttention
 from eole.modules.transformer_mlp import MLP
-
-from eole.modules.rmsnorm import RMSNorm
+from eole.constants import LayerNorm
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -26,18 +25,10 @@ class TransformerEncoderLayer(nn.Module):
         running_config=None,
     ):
         super(TransformerEncoderLayer, self).__init__()
-        if model_config.layer_norm == "standard":
-            layernorm = nn.LayerNorm
-        elif model_config.layer_norm == "rms":
-            layernorm = RMSNorm
-        else:
-            raise ValueError(
-                f"{model_config.layer_norm} layer norm type is not supported"
-            )
+
         self.parallel_residual = model_config.parallel_residual
         self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
-
-        self.input_layernorm = layernorm(
+        self.input_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
         self.self_attn = MultiHeadedAttention(
@@ -47,7 +38,7 @@ class TransformerEncoderLayer(nn.Module):
             attn_type="self",
         )
         self.dropout = nn.Dropout(self.dropout_p)
-        self.post_attention_layernorm = layernorm(
+        self.post_attention_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
         self.mlp = MLP(
@@ -120,18 +111,9 @@ class TransformerEncoder(EncoderBase):
             ]
         )
         # This is the Encoder out layer norm
-        if model_config.layer_norm == "standard":
-            self.layer_norm = nn.LayerNorm(
-                model_config.hidden_size, eps=model_config.norm_eps
-            )
-        elif model_config.layer_norm == "rms":
-            self.layer_norm = RMSNorm(
-                model_config.hidden_size, eps=model_config.norm_eps
-            )
-        else:
-            raise ValueError(
-                f"{model_config.layer_norm} layer norm type is not supported"
-            )
+        self.layer_norm = LayerNorm[model_config.layer_norm](
+            model_config.hidden_size, eps=model_config.norm_eps
+        )
 
     @classmethod
     def from_config(cls, model_config, running_config=None):
