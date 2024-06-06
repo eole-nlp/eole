@@ -9,8 +9,9 @@ from eole.decoders.transformer_base import (
     TransformerDecoderLayerBase,
     TransformerDecoderBase,
 )
-from eole.modules import MultiHeadedAttention, AverageAttention
-from eole.modules.rmsnorm import RMSNorm
+from eole.modules.multi_headed_attn import MultiHeadedAttention
+from eole.modules.average_attn import AverageAttention
+from eole.constants import LayerNorm
 
 
 class TransformerDecoderLayer(TransformerDecoderLayerBase):
@@ -35,15 +36,8 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
             model_config,
             running_config=running_config,
         )
-        if model_config.layer_norm == "standard":
-            layernorm = nn.LayerNorm
-        elif model_config.layer_norm == "rms":
-            layernorm = RMSNorm
-        else:
-            raise ValueError(
-                f"{model_config.layer_norm} layer norm type is not supported"
-            )
-        self.precontext_layernorm = layernorm(
+
+        self.precontext_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
         self.context_attn = MultiHeadedAttention(
@@ -151,14 +145,6 @@ class TransformerDecoder(TransformerDecoderBase):
         super(TransformerDecoder, self).__init__(
             model_config, running_config=running_config
         )
-        if model_config.layer_norm == "standard":
-            layernorm = nn.LayerNorm
-        elif model_config.layer_norm == "rms":
-            layernorm = RMSNorm
-        else:
-            raise ValueError(
-                f"{model_config.layer_norm} layer norm type is not supported"
-            )
 
         self.transformer_layers = nn.ModuleList(
             [
@@ -170,7 +156,9 @@ class TransformerDecoder(TransformerDecoderBase):
             ]
         )
         # This is the Decoder out layer norm
-        self.layer_norm = layernorm(model_config.hidden_size, eps=model_config.norm_eps)
+        self.layer_norm = LayerNorm[model_config.layer_norm](
+            model_config.hidden_size, eps=model_config.norm_eps
+        )
 
     def forward(self, emb, **kwargs):
         """Decode, possibly stepwise."""

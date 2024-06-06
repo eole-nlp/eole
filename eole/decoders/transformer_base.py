@@ -6,10 +6,11 @@ subsequent transformer based architectures
 import torch
 import torch.nn as nn
 from eole.decoders.decoder import DecoderBase
-from eole.modules import MultiHeadedAttention, AverageAttention
+from eole.modules.multi_headed_attn import MultiHeadedAttention
+from eole.modules.average_attn import AverageAttention
 from eole.modules.transformer_mlp import MLP
 from eole.modules.moe import MoE
-from eole.modules.rmsnorm import RMSNorm
+from eole.constants import LayerNorm
 
 
 class TransformerDecoderLayerBase(nn.Module):
@@ -23,14 +24,7 @@ class TransformerDecoderLayerBase(nn.Module):
             model_config (eole.config.TransformerDecoderConfig): full decoder config
         """
         super(TransformerDecoderLayerBase, self).__init__()
-        if model_config.layer_norm == "standard":
-            layernorm = nn.LayerNorm
-        elif model_config.layer_norm == "rms":
-            layernorm = RMSNorm
-        else:
-            raise ValueError(
-                f"{model_config.layer_norm} layer norm type is not supported"
-            )
+
         self.parallel_residual = model_config.parallel_residual
         self.shared_layer_norm = model_config.shared_layer_norm
         self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
@@ -39,7 +33,7 @@ class TransformerDecoderLayerBase(nn.Module):
         self.sliding_window = model_config.sliding_window
         self.self_attn_type = model_config.self_attn_type
 
-        self.input_layernorm = layernorm(
+        self.input_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
         if self.self_attn_type in ["scaled-dot", "scaled-dot-flash"]:
@@ -55,11 +49,11 @@ class TransformerDecoderLayerBase(nn.Module):
                 aan_useffn=model_config.aan_useffn,
             )
         self.dropout = nn.Dropout(self.dropout_p)
-        self.post_attention_layernorm = layernorm(
+        self.post_attention_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
         if model_config.parallel_residual and not model_config.shared_layer_norm:
-            self.residual_layernorm = layernorm(
+            self.residual_layernorm = LayerNorm[model_config.layer_norm](
                 model_config.hidden_size, eps=model_config.norm_eps
             )
         if model_config.num_experts > 0:

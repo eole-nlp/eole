@@ -1,5 +1,8 @@
 """Define constant values used across the project."""
 from enum import Enum
+import torch
+from eole.modules.rmsnorm import RMSNorm
+import torch.nn.functional as F
 
 
 class DefaultTokens(object):
@@ -46,3 +49,23 @@ class ModelTask(str, Enum):
 class PositionEncodingType(str, Enum):
     SinusoidalInterleaved = "SinusoidalInterleaved"
     SinusoidalConcat = "SinusoidalConcat"
+
+
+class ActivationFunction(str, Enum):
+    relu = "relu"
+    gelu = "gelu"
+    silu = "silu"
+    gated_gelu = "gated-gelu"
+    gated_silu = "gated-silu"
+
+
+ACTIVATION_FUNCTIONS = {
+    ActivationFunction.relu: F.relu,
+    ActivationFunction.gelu: F.gelu,
+    ActivationFunction.silu: F.silu,
+    ActivationFunction.gated_gelu: F.gelu,
+    ActivationFunction.gated_silu: F.silu,
+}
+
+
+LayerNorm = {"standard": torch.nn.LayerNorm, "rms": RMSNorm}

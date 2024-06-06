@@ -20,7 +20,7 @@ from eole.inputters.inputter import dict_to_vocabs
 from eole.encoders import str2enc
 from eole.decoders import str2dec
 from eole.constants import DefaultTokens
-from eole.modules import Embeddings
+from eole.modules.embeddings import Embeddings
 
 from eole.models.model_saver import load_checkpoint
 from eole.modules.estimator import FeedForward

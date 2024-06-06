@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch import Tensor
 from typing import Optional
 from eole.modules.transformer_mlp import MLP
-from eole.modules.transformer_mlp import ActivationFunction
+from eole.constants import ActivationFunction
 
 
 def cumulative_average_mask(

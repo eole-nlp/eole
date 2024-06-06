@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 
-import eole.modules
+from eole.modules.weight_norm import WeightNormConv2d
 
 SCALE_WEIGHT = 0.5**0.5
 
@@ -20,7 +20,7 @@ class GatedConv(nn.Module):
 
     def __init__(self, input_size, width=3, dropout=0.2, nopad=False):
         super(GatedConv, self).__init__()
-        self.conv = eole.modules.WeightNormConv2d(
+        self.conv = WeightNormConv2d(
             input_size,
             2 * input_size,
             kernel_size=(width, 1),

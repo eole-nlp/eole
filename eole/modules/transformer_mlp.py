@@ -1,29 +1,12 @@
 """MLP network from "Attention is All You Need"."""
 
 import torch.nn as nn
-import torch.nn.functional as F
+
 from torch.utils.checkpoint import checkpoint
 from torch.nn.utils import skip_init
 from torch.distributed import all_reduce
 from enum import Enum
-
-
-class ActivationFunction(str, Enum):
-    relu = "relu"
-    gelu = "gelu"
-    silu = "silu"
-    gated_gelu = "gated-gelu"
-    gated_silu = "gated-silu"
-
-
-# for silu, see: https://arxiv.org/pdf/2002.05202.pdf
-ACTIVATION_FUNCTIONS = {
-    ActivationFunction.relu: F.relu,
-    ActivationFunction.gelu: F.gelu,
-    ActivationFunction.silu: F.silu,
-    ActivationFunction.gated_gelu: F.gelu,
-    ActivationFunction.gated_silu: F.silu,
-}
+from eole.constants import ACTIVATION_FUNCTIONS
 
 
 class MLP(nn.Module):
