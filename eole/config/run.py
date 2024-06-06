@@ -30,7 +30,7 @@ class TrainConfig(
         description="Print data loading and statistics for all process "
         "(default only logs the first process shard).",
     )  # not sure this still works
-    model: ModelConfig  # TypeAdapter handling discrimination directly
+    model: ModelConfig | None = None  # TypeAdapter handling discrimination directly
     training: TrainingConfig | None = Field(default_factory=TrainingConfig)
 
     def get_model_path(self):

@@ -192,20 +192,19 @@ TEST PARAMETERS
 """
 # opt.brnn = False # deprecated and not used here
 
-test_embeddings = [[], [("model", {"architecture": "transformer"})]]
+test_embeddings = [[("model", {"architecture": "transformer"})]]
 
 for p in test_embeddings:
     _add_test(p, "embeddings_forward")
 
 tests_encoder = [
-    [],
-    [
-        # ("encoder_type", "mean"),
-        ("model", {"architecture": "custom", "encoder": {"encoder_type": "mean"}})
-    ],
+    # not supported anymore
+    # [
+    #     # ("encoder_type", "mean"),
+    #     ("model", {"architecture": "custom", "encoder": {"encoder_type": "mean"}})
+    # ],
     # [('encoder_type', 'transformer'),
     # ('word_vec_size', 16), ('hidden_size', 16)],
-    [],
 ]
 
 for p in tests_encoder:
@@ -223,8 +222,8 @@ tests_model = [
             },
         )
     ],
-    [("model", {"layers": 10})],
-    [("model", {"input_feed": 0})],
+    [("model", {"architecture": "rnn", "layers": 10})],
+    [("model", {"architecture": "rnn", "input_feed": 0})],
     [
         (
             "model",
@@ -274,7 +273,7 @@ tests_model = [
     # [("encoder_type", "brnn"), ("brnn_merge", "sum")],
     # not sure about this one, brnn_merge does not seem to exist in the codebase
     [
-        ("model", {"architecture": "custom", "encoder": {"encoder_type": "brnn"}})
+        ("model", {"architecture": "rnn", "encoder": {"encoder_type": "brnn"}})
         # ("encoder_type", "brnn"),
     ],
     [
@@ -317,7 +316,6 @@ tests_model = [
         # ("encoder_type", "rnn"),
         # ("global_attention", "mlp"),
     ],
-    [],
 ]
 
 

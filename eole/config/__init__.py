@@ -50,7 +50,8 @@ def recursive_update_dict(_dict, new_dict, defaults):
         if isinstance(v, dict):
             _dict[k] = recursive_update_dict(_dict.get(k, {}), v, defaults.get(k, {}))
         else:
-            previous_v = _dict.get(k, defaults.get(k, None))
+            default = defaults.get(k, None) if isinstance(defaults, dict) else None
+            previous_v = _dict.get(k, default)
             if v != previous_v:
                 logger.info(f"Option: {k}, value: {v}, overriding model: {previous_v}")
             _dict[k] = v

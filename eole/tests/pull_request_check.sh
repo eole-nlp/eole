@@ -109,7 +109,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -report_every 5 \
             -tensorboard \
@@ -126,7 +126,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder":{"decoder_type": "rnn"}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
             -report_every 2 \
             -tensorboard \
@@ -159,7 +159,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder": {"decoder_type": "rnn", "coverage_attn": True, "lambda_coverage": 0.1}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder": {"coverage_attn": True, "lambda_coverage": 0.1}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -report_every 5 \
             >> ${LOG_FILE} 2>&1
