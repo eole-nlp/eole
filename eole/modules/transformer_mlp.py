@@ -5,7 +5,6 @@ import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
 from torch.nn.utils import skip_init
 from torch.distributed import all_reduce
-from enum import Enum
 from eole.constants import ACTIVATION_FUNCTIONS
 
 
