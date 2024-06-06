@@ -1,7 +1,6 @@
 # import torch
 from typing import List, Literal
-from pydantic import Field, computed_field, model_validator
-from functools import cached_property
+from pydantic import Field, model_validator
 from eole.config.config import Config
 
 # from eole.utils.logging import logger
@@ -33,8 +32,7 @@ class DistributedConfig(Config):
         default=60, description="Timeout for one GPU to wait for the others."
     )
 
-    @computed_field
-    @cached_property
+    @property
     def parallel_gpu(self) -> int:  # converted to a `property` by `computed_field`
         return self.world_size if self.parallel_mode == "tensor_parallel" else 1
 

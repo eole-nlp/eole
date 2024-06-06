@@ -14,6 +14,7 @@ from eole.transforms import (
 from eole.transforms.bart import BARTNoising
 from eole.config.run import TrainConfig, PredictConfig
 from eole.config.data import Dataset
+from eole.config.models import CustomModelConfig
 
 
 class TestTransform(unittest.TestCase):
@@ -43,6 +44,7 @@ class TestTransform(unittest.TestCase):
             share_vocab=True,
             seed=-1,
             transforms_configs={"switchout": {"switchout_temperature": 1.0}},
+            model=CustomModelConfig(),
         )
         # transforms that require vocab will not create if not provide vocab
         transforms = make_transforms(opt, transforms_cls, vocabs=None)
@@ -67,7 +69,9 @@ class TestTransform(unittest.TestCase):
         """
         )
         # opt = Namespace(data=corpora)
-        opt = TrainConfig(data=corpora, src_vocab="dummy", share_vocab=True)
+        opt = TrainConfig(
+            data=corpora, src_vocab="dummy", share_vocab=True, model=CustomModelConfig()
+        )
         specials = get_specials(opt, transforms_cls)
         specials_expected = {"src": ["｟_pf_src｠"], "tgt": ["｟_pf_tgt｠"]}
         self.assertEqual(specials, specials_expected)
@@ -87,7 +91,13 @@ class TestTransform(unittest.TestCase):
         """
         )
         # opt = Namespace(data=corpora, seed=-1)
-        opt = TrainConfig(data=corpora, seed=-1, src_vocab="dummy", share_vocab=True)
+        opt = TrainConfig(
+            data=corpora,
+            seed=-1,
+            src_vocab="dummy",
+            share_vocab=True,
+            model=CustomModelConfig(),
+        )
         prefix_transform = prefix_cls(opt)
         prefix_transform.warm_up()
         # 2. Init second transform in the pipe
@@ -102,6 +112,7 @@ class TestTransform(unittest.TestCase):
             transforms_configs={
                 "filtertoolong": {"src_seq_length": 4, "tgt_seq_length": 4}
             },
+            model=CustomModelConfig(),
         )
         filter_transform = filter_cls(opt)
         # 3. Sequential combine them into a transform pipe
@@ -137,7 +148,13 @@ class TestMiscTransform(unittest.TestCase):
         """
         )
         # opt = Namespace(data=corpora, seed=-1)
-        opt = TrainConfig(data=corpora, seed=-1, src_vocab="dummy", share_vocab=True)
+        opt = TrainConfig(
+            data=corpora,
+            seed=-1,
+            src_vocab="dummy",
+            share_vocab=True,
+            model=CustomModelConfig(),
+        )
         prefix_transform = prefix_cls(opt)
         prefix_transform.warm_up()
         self.assertIn("trainset", prefix_transform.prefix_dict)
@@ -498,6 +515,7 @@ class TestSamplingTransform(unittest.TestCase):
             share_vocab=True,
             seed=3434,
             transforms_configs={"tokendrop": {"tokendrop_temperature": 0.1}},
+            model=CustomModelConfig(),
         )
         tokendrop_transform = tokendrop_cls(opt)
         tokendrop_transform.warm_up()
@@ -523,6 +541,7 @@ class TestSamplingTransform(unittest.TestCase):
             share_vocab=True,
             seed=3434,
             transforms_configs={"tokenmask": {"tokenmask_temperature": 0.1}},
+            model=CustomModelConfig(),
         )
         tokenmask_transform = tokenmask_cls(opt)
         tokenmask_transform.warm_up()
@@ -548,6 +567,7 @@ class TestSamplingTransform(unittest.TestCase):
             share_vocab=True,
             seed=3434,
             transforms_configs={"switchout": {"switchout_temperature": 0.1}},
+            model=CustomModelConfig(),
         )
         switchout_transform = switchout_cls(opt)
         with self.assertRaises(ValueError):

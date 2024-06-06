@@ -9,7 +9,7 @@ from eole.predict.decode_strategy import DecodeStrategy
 from eole.predict.greedy_search import GreedySearch, GreedySearchLM
 from eole.predict.penalties import PenaltyBuilder
 from eole.decoders.ensemble import load_test_model as ensemble_load_test_model
-from eole.models import get_model_class
+from eole.models import BaseModel
 import codecs
 
 
@@ -44,7 +44,7 @@ def build_predictor(config, device_id=0, report_score=True, logger=None, out_fil
     load_test_model = (
         ensemble_load_test_model
         if len(config.model_path) > 1
-        else get_model_class(config.model).load_test_model
+        else BaseModel.load_test_model
     )
 
     vocabs, model, model_config = load_test_model(config, device_id)

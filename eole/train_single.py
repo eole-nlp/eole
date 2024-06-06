@@ -109,7 +109,9 @@ def configure_process(config, device_id):
 
 def update_config_with_checkpoint(config, checkpoint=None):
     if checkpoint is not None:
-        defaults = TrainConfig.get_defaults()
+        defaults = TrainConfig.get_defaults(
+            architecture=checkpoint["config"].model.architecture
+        )
         checkpoint_non_defaults = recursive_model_fields_set(checkpoint["config"])
         new_config = recursive_model_fields_set(config)
         # override data explicitly,
