@@ -67,6 +67,12 @@ class TrainConfig(
 
     @model_validator(mode="after")
     def _validate_train_config(self):
+        if self.model is None and self.training.train_from is None:
+            raise ValueError(
+                "No model architecture is configured. "
+                "You should either finetune from an existing model, "
+                "or specify a model configuration."
+            )
         return self
 
 
