@@ -308,7 +308,7 @@ class BaseModelConfig(Config):
         CnnEncoderConfig,
         MeanEncoderConfig,
     ] | None = Field(
-        default_factory=RnnEncoderConfig,
+        default=None,
         discriminator="encoder_type",
         description="Major parameters of an encoder.",
     )  # we shall use discriminators here
@@ -318,7 +318,7 @@ class BaseModelConfig(Config):
         RnnDecoderConfig,
         CnnDecoderConfig,
     ] | None = Field(
-        default_factory=RnnDecoderConfig,
+        default=None,
         discriminator="decoder_type",
         description="Major parameters of a decoder.",
     )  # we shall use discriminators here
@@ -417,7 +417,8 @@ class BaseModelConfig(Config):
 
         if self.encoder is not None:
             self.encoder.src_word_vec_size = self.embeddings.src_word_vec_size
-        self.decoder.tgt_word_vec_size = self.embeddings.tgt_word_vec_size
+        if self.decoder is not None:
+            self.decoder.tgt_word_vec_size = self.embeddings.tgt_word_vec_size
 
         # causing some weird recursion issue in unit test, to investigate
         # if self.encoder is not None:

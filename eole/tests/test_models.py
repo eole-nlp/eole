@@ -11,6 +11,7 @@ from eole.models.model import build_src_emb, build_tgt_emb, build_encoder, build
 from eole.utils.misc import sequence_mask
 from eole.config.run import TrainConfig
 from eole.config.data import Dataset
+from eole.config.models import CustomModelConfig
 
 # In theory we should probably call ModelConfig here,
 # but we can't because model building relies on some params
@@ -22,6 +23,7 @@ opt = TrainConfig(
     },  # actual file path (tested in validate)
     src_vocab="dummy",
     share_vocab=True,
+    model=CustomModelConfig(),
 )  # now required by validation
 
 
@@ -113,7 +115,7 @@ class TestModel(unittest.TestCase):
 
         # Initialize vectors to compare size with
         test_hid = torch.zeros(
-            self.opt.model.encoder.layers, bsize, opt.model.encoder.hidden_size
+            opt.model.encoder.layers, bsize, opt.model.encoder.hidden_size
         )
         test_out = torch.zeros(bsize, source_l, opt.model.decoder.hidden_size)
 
@@ -192,20 +194,28 @@ TEST PARAMETERS
 """
 # opt.brnn = False # deprecated and not used here
 
-test_embeddings = [[], [("model", {"architecture": "transformer"})]]
+test_embeddings = [
+    [("model", {"architecture": "rnn"})],
+    [("model", {"architecture": "transformer"})],
+]
 
 for p in test_embeddings:
     _add_test(p, "embeddings_forward")
 
 tests_encoder = [
-    [],
     [
         # ("encoder_type", "mean"),
-        ("model", {"architecture": "custom", "encoder": {"encoder_type": "mean"}})
+        (
+            "model",
+            {
+                "architecture": "custom",
+                "encoder": {"encoder_type": "mean"},
+                "decoder": {"decoder_type": "rnn"},
+            },
+        )
     ],
     # [('encoder_type', 'transformer'),
     # ('word_vec_size', 16), ('hidden_size', 16)],
-    [],
 ]
 
 for p in tests_encoder:
@@ -223,8 +233,8 @@ tests_model = [
             },
         )
     ],
-    [("model", {"layers": 10})],
-    [("model", {"input_feed": 0})],
+    [("model", {"architecture": "rnn", "layers": 10})],
+    [("model", {"architecture": "rnn", "input_feed": 0})],
     [
         (
             "model",
@@ -274,7 +284,7 @@ tests_model = [
     # [("encoder_type", "brnn"), ("brnn_merge", "sum")],
     # not sure about this one, brnn_merge does not seem to exist in the codebase
     [
-        ("model", {"architecture": "custom", "encoder": {"encoder_type": "brnn"}})
+        ("model", {"architecture": "rnn", "encoder": {"encoder_type": "brnn"}})
         # ("encoder_type", "brnn"),
     ],
     [
@@ -317,7 +327,6 @@ tests_model = [
         # ("encoder_type", "rnn"),
         # ("global_attention", "mlp"),
     ],
-    [],
 ]
 
 

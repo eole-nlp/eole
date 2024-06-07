@@ -52,6 +52,7 @@ jobs:
           -config eole/tests/data/data.yaml \
           -save_data /tmp/eole.train.check \
           -n_sample 30 \
+          -model '{"architecture": "rnn"}' \
           -training '{"num_workers": 0, "bucket_size": 1024}' \
           -src_vocab /tmp/eole.vocab.src \
           -tgt_vocab /tmp/eole.vocab.tgt \
@@ -65,7 +66,7 @@ jobs:
           -tgt_vocab /tmp/eole.vocab.tgt \
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
-          -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+          -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
           -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
           -report_every 5\
           -tensorboard \
@@ -79,7 +80,7 @@ jobs:
           -tgt_vocab /tmp/eole.vocab.tgt \
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
-          -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder":{"decoder_type": "rnn"}}' \
+          -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
           -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
           -report_every 5 \
           -tensorboard \
@@ -95,7 +96,7 @@ jobs:
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
           -report_every 5 \
-          -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder": {"decoder_type": "rnn", "coverage_attn": True, "lambda_coverage": 0.1}}' \
+          -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder": {"coverage_attn": True, "lambda_coverage": 0.1}}' \
           -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}'
     - name: Test Transformer training with align
       run: |
@@ -337,7 +338,7 @@ jobs:
           -tgt_vocab /tmp/eole.vocab.tgt \
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
-          -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+          -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
           -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "model_path": "/tmp/eole.model", "save_checkpoint_steps": 10}' \
           -report_every 5
         sed -i '1s/^/new_tok\t100000000\n/' /tmp/eole.vocab.src
@@ -347,7 +348,6 @@ jobs:
           -tgt_vocab /tmp/eole.vocab.tgt \
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
-          -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
           -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 20, "train_from": "/tmp/eole.model/step_10", "save_checkpoint_steps": 10, "update_vocab": True, "reset_optim": "states"}' \
           -report_every 5
     - name: Test checkpoint vocabulary update with LM
@@ -366,7 +366,6 @@ jobs:
           -config eole/tests/data/lm_data.yaml \
           -src_vocab /tmp/eole.vocab.src \
           -tgt_vocab /tmp/eole.vocab.src \
-          -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "heads": 4}}' \
           -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 20, "train_from": "/tmp/lm.eole.model/step_10", "save_checkpoint_steps": 10, "update_vocab": True, "reset_optim": "states"}' \
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \

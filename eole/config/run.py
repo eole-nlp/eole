@@ -30,15 +30,20 @@ class TrainConfig(
         description="Print data loading and statistics for all process "
         "(default only logs the first process shard).",
     )  # not sure this still works
-    model: ModelConfig  # TypeAdapter handling discrimination directly
+    model: ModelConfig | None = None  # TypeAdapter handling discrimination directly
     training: TrainingConfig | None = Field(default_factory=TrainingConfig)
 
     def get_model_path(self):
         return self.training.get_model_path()
 
     @classmethod
-    def get_defaults(cls):
-        return cls(src_vocab="dummy", tgt_vocab="dummy", data={}).model_dump()
+    def get_defaults(cls, architecture):
+        return cls(
+            src_vocab="dummy",
+            tgt_vocab="dummy",
+            data={},
+            model={"architecture": architecture},
+        ).model_dump()
 
     @field_validator("model", "training", mode="before")
     @classmethod
@@ -53,20 +58,22 @@ class TrainConfig(
     @model_validator(mode="before")
     @classmethod
     def default_architecture(cls, data: Any) -> Any:
-        # somewhat dirty patch to make test_models pass, might do better later
-        # this explicit call to the field_validator should not be necessary
+        # only enforce default "custom" if some model settings are passed
         if "model" in data.keys():
             data["model"] = cls.str_to_dict(data["model"])
-        if isinstance(data.get("model", {}), dict):
-            if data.get("model", {}).get("architecture", None) is None:
-                if "model" not in data.keys():
-                    data["model"] = {"architecture": "custom"}
-                else:
+            if isinstance(data.get("model", {}), dict):
+                if data.get("model", {}).get("architecture", None) is None:
                     data["model"]["architecture"] = "custom"
         return data
 
     @model_validator(mode="after")
     def _validate_train_config(self):
+        if self.model is None and self.training.train_from is None:
+            raise ValueError(
+                "No model architecture is configured. "
+                "You should either finetune from an existing model, "
+                "or specify a model configuration."
+            )
         return self
 
 
@@ -85,7 +92,7 @@ class PredictConfig(
     src_subword_vocab: str | None = (
         None  # patch for CT2 inference engine (to improve later)
     )
-    model: ModelConfig
+    model: ModelConfig | None = None
 
     @model_validator(mode="after")
     def _validate_predict_config(self):

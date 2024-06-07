@@ -10,7 +10,7 @@ import torch.nn as nn
 import copy
 from eole.encoders.encoder import EncoderBase
 from eole.decoders.decoder import DecoderBase
-from eole.models import EncoderDecoderModel, get_model_class
+from eole.models import EncoderDecoderModel, BaseModel
 
 
 class EnsembleDecoderOutput(object):
@@ -191,7 +191,7 @@ def load_test_model(config, device_id=0):
     for i, model_path in enumerate(config.model_path):
         config2.model_path = [config.model_path[i]]
         print(config2.model)
-        vocabs, model, model_config = get_model_class(config2.model).load_test_model(
+        vocabs, model, model_config = BaseModel.load_test_model(
             config2, device_id, model_path=model_path
         )
         if shared_vocabs is None:

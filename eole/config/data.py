@@ -198,7 +198,7 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
                     all_transforms.update(_transforms)
         if (
             hasattr(self, "model")
-            and getattr(self.model.decoder, "lambda_align", 0.0) > 0.0
+            and getattr(getattr(self.model, "decoder", None), "lambda_align", 0.0) > 0.0
         ):
             if not all_transforms.isdisjoint({"sentencepiece", "bpe", "onmt_tokenize"}):
                 raise ValueError(
@@ -296,7 +296,10 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
             if corpus.path_align is None:
                 if (
                     hasattr(self, "model")
-                    and getattr(self.model.decoder, "lambda_align", 0.0) > 0.0
+                    and getattr(
+                        getattr(self.model, "decoder", None), "lambda_align", 0.0
+                    )
+                    > 0.0
                 ):
                     raise ValueError(
                         f"Corpus {cname} alignment file path are "

@@ -89,6 +89,7 @@ rm -f -r $TMP_OUT_DIR/sample
 echo -n "[+] Testing NMT vocab? /transforms prepare..."
 ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/data.yaml \
+            -model '{"architecture": "rnn"}' \
             -save_data $TMP_OUT_DIR/eole.train.check \
             -n_sample 30 \
             -overwrite \
@@ -109,7 +110,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -report_every 5 \
             -tensorboard \
@@ -126,7 +127,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder":{"decoder_type": "rnn"}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
             -report_every 2 \
             -tensorboard \
@@ -159,7 +160,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder": {"decoder_type": "rnn", "coverage_attn": True, "lambda_coverage": 0.1}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder": {"coverage_attn": True, "lambda_coverage": 0.1}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -report_every 5 \
             >> ${LOG_FILE} 2>&1
@@ -271,7 +272,7 @@ ${PYTHON} eole/bin/main.py train \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 -tgt_vocab_size 1000 \
-            -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "model_path": "'"$TMP_OUT_DIR"'/eole.model", "save_checkpoint_steps": 10}' \
             -report_every 5 \
             >> ${LOG_FILE} 2>&1
@@ -281,7 +282,6 @@ ${PYTHON} eole/bin/main.py train \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 -tgt_vocab_size 1000 \
-            -model '{"hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 20, "train_from": "'"$TMP_OUT_DIR"'/eole.model/step_10", "save_checkpoint_steps": 10, "update_vocab": True, "reset_optim": "states"}' \
             -report_every 5 \
             >> ${LOG_FILE} 2>&1
