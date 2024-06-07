@@ -337,25 +337,19 @@ class LlamaHFConverter(BaseBin):
         mlp_activation_fn = act_table[arch]
         layer_norm = ln_table[arch]
 
-        multiquery = False
-        if "multi_query" in config.keys():
-            multiquery = config["multi_query"]
-            num_kv = 1
+        if "multi_query" in config.keys() and config["multi_query"]:
+            heads_kv = 1  # might be usefull for old config
         elif (
             "num_key_value_heads" in config.keys()
             and config["num_key_value_heads"] != heads
         ):
-            num_kv = config["num_key_value_heads"]
+            heads_kv = config["num_key_value_heads"]
         elif "num_kv_heads" in config.keys() and config["num_kv_heads"] != heads:
-            num_kv = config["num_kv_heads"]
+            heads_kv = config["num_kv_heads"]
         elif "n_head_kv" in config.keys() and config["n_head_kv"] != heads:
-            num_kv = config["n_head_kv"]
+            heads_kv = config["n_head_kv"]
         else:
-            num_kv = 0
-        if num_kv is None:
-            num_kv = 0
-
-        shared_layer = num_kv == 1
+            heads_kv = heads
 
         if "parallel_attn" in config.keys():
             parallel_residual = config["parallel_attn"]
@@ -453,7 +447,7 @@ class LlamaHFConverter(BaseBin):
         rotary_interleave = False
         if arch == "PhiForCausalLM":
             parallel_residual = True
-            shared_layer = True
+            shared_layer_norm = True
             add_qkvbias = True
             add_ffnbias = True
             rotary_interleave = False
@@ -627,7 +621,7 @@ class LlamaHFConverter(BaseBin):
                                         + param
                                     ] = w
 
-                    if shared_layer:
+                    if shared_layer_norm:
                         idx = 0
                     else:
                         idx = 1
@@ -857,10 +851,9 @@ class LlamaHFConverter(BaseBin):
                 rotary_theta=rope_theta,
                 rotary_dim=rotary_dim,
                 sliding_window=sliding_window,
-                multiquery=multiquery,
-                num_kv=num_kv,
+                heads_kv=heads_kv,
                 parallel_residual=parallel_residual,
-                shared_layer_norm=shared_layer,
+                shared_layer_norm=shared_layer_norm,
                 add_qkvbias=add_qkvbias,
                 add_ffnbias=add_ffnbias,
                 num_experts=num_experts,

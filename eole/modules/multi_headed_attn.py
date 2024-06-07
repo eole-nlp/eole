@@ -270,49 +270,33 @@ class MultiHeadedAttention(torch.nn.Module):
         is_decoder: bool = True,
         attn_type: str = None,
     ) -> None:
-        assert (
-            model_config.hidden_size % model_config.heads == 0
-        ), "Model dimension must be divisible by the number of heads"
         self.dim_per_head = model_config.hidden_size // model_config.heads
         super(MultiHeadedAttention, self).__init__()
         self.heads = model_config.heads
-        self.num_kv = model_config.num_kv
+        self.heads_kv = (
+            model_config.heads_kv
+            if model_config.heads_kv is not None
+            else model_config.heads
+        )
         self.parallel_gpu = running_config.parallel_gpu
 
-        if model_config.num_kv == 0:
-            assert (
-                model_config.hidden_size % self.parallel_gpu == 0
-            ), "Model dimension must be divisible by the number of partitions"
-            self.linear_keys = skip_init(
-                nn.Linear,
-                in_features=model_config.hidden_size,
-                out_features=model_config.hidden_size // self.parallel_gpu,
-                bias=model_config.add_qkvbias,
-            )
-            self.linear_values = skip_init(
-                nn.Linear,
-                in_features=model_config.hidden_size,
-                out_features=model_config.hidden_size // self.parallel_gpu,
-                bias=model_config.add_qkvbias,
-            )
-        else:
-            assert (
-                self.dim_per_head * self.num_kv
-            ) % self.parallel_gpu == 0, (
-                "Model dimension must be divisible by the number of partitions"
-            )
-            self.linear_keys = skip_init(
-                nn.Linear,
-                in_features=model_config.hidden_size,
-                out_features=self.dim_per_head * self.num_kv // self.parallel_gpu,
-                bias=model_config.add_qkvbias,
-            )
-            self.linear_values = skip_init(
-                nn.Linear,
-                in_features=model_config.hidden_size,
-                out_features=self.dim_per_head * self.num_kv // self.parallel_gpu,
-                bias=model_config.add_qkvbias,
-            )
+        assert (
+            self.dim_per_head * self.heads_kv
+        ) % self.parallel_gpu == 0, (
+            "Model dimension must be divisible by the number of partitions"
+        )
+        self.linear_keys = skip_init(
+            nn.Linear,
+            in_features=model_config.hidden_size,
+            out_features=self.dim_per_head * self.heads_kv // self.parallel_gpu,
+            bias=model_config.add_qkvbias,
+        )
+        self.linear_values = skip_init(
+            nn.Linear,
+            in_features=model_config.hidden_size,
+            out_features=self.dim_per_head * self.heads_kv // self.parallel_gpu,
+            bias=model_config.add_qkvbias,
+        )
         self.linear_query = skip_init(
             nn.Linear,
             in_features=model_config.hidden_size,
@@ -601,7 +585,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 )
 
         b, h, l, d = key.size()
-        if self.num_kv > 0:
+        if self.heads_kv < self.heads:
             qh = query.size(1)
             # expand key on heads dimension when it's less than query heads (multi-query variant)
             key = key.view(b, -1, 1, l, d).repeat(1, 1, qh // h, 1, 1)
