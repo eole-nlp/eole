@@ -131,7 +131,9 @@ class TrainingModelSaver(ModelSaverBase):
     def cleanup(self):
         if self.keep_checkpoint > 0:
             if len(self.checkpoint_queue) == self.checkpoint_queue.maxlen:
-                step_dir_to_delete = self.checkpoint_queue.popleft()
+                step_dir_to_delete = os.path.join(
+                    self.model_path, self.checkpoint_queue.popleft()
+                )
                 shutil.rmtree(step_dir_to_delete)
             self.checkpoint_queue.append(self.step_dir)
 
