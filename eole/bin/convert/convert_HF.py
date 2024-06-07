@@ -609,8 +609,6 @@ class LlamaHFConverter(BaseBin):
                                     + param,
                                 )
 
-                                if num_kv == 0:
-                                    num_kv = heads
                                 if w is not None:
                                     if type(source) == tuple:
                                         w = eval("w" + srcmap)
