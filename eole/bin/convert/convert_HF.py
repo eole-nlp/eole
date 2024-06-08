@@ -445,6 +445,8 @@ class LlamaHFConverter(BaseBin):
         add_qkvbias = False
         add_ffnbias = False
         rotary_interleave = False
+        shared_layer_norm = False
+
         if arch == "PhiForCausalLM":
             parallel_residual = True
             shared_layer_norm = True
