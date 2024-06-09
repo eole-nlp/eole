@@ -7,10 +7,10 @@ from eole.config.config import Config
 
 class EmbeddingsConfig(Config):
     src_word_vec_size: int = Field(
-        default=500, description="Word embedding size for src."
+        default=512, description="Word embedding size for src."
     )
     tgt_word_vec_size: int = Field(
-        default=500, description="Word embedding size for tgt."
+        default=512, description="Word embedding size for tgt."
     )
     word_vec_size: int = Field(
         default=-1, description="Word embedding size for src and tgt."
@@ -40,12 +40,12 @@ class EncoderConfig(Config):
         default="rnn", description="Type of encoder layer(s) to use."
     )
     layers: int = Field(default=2, description="Number of layers in the encoder.")
-    hidden_size: int = Field(default=500, description="Size of encoder hidden states.")
+    hidden_size: int = Field(default=512, description="Size of encoder hidden states.")
 
     # This field should be set at EmbeddingsConfig level but will be copied here for cases
     # where input size to the rnn is different to the hidden size
     src_word_vec_size: int = Field(
-        default=500, description="Word embedding size for src."
+        default=512, description="Word embedding size for src."
     )
 
 
@@ -56,12 +56,12 @@ class DecoderConfig(Config):
         default="rnn", description="Type of decoder layer(s) to use."
     )
     layers: int = Field(default=2, description="Number of layers in the decoder.")
-    hidden_size: int = Field(default=500, description="Size of decoder hidden states.")
+    hidden_size: int = Field(default=512, description="Size of decoder hidden states.")
 
     # This field should be set at EmbeddingsConfig level but will be copied here for cases
     # where input size to the rnn is different to the hidden size
     tgt_word_vec_size: int = Field(
-        default=500, description="Word embedding size for tgt."
+        default=512, description="Word embedding size for tgt."
     )
     coverage_attn: bool = Field(
         default=False, description="Train a coverage attention layer."
@@ -197,13 +197,9 @@ class TransformerConfig(Config):
         description="Add bias to nn.Linear of Query/Key/Value in MHA. "
         "Note: this will add bias to output projection layer too.",
     )
-    multiquery: bool = Field(
-        default=False,
-        description="Use MultiQuery attention (https://arxiv.org/pdf/1911.02150.pdf)",
-    )
-    num_kv: int = Field(
-        default=0,
-        description="Number of heads for KV in the variant of MultiQuery attention "
+    heads_kv: int | None = Field(
+        default=None,
+        description="Number of heads for KV. heads_kv=heads if None, else number of heads for KV"
         "(e.g. Falcon 40B)",
     )
     add_ffnbias: bool = Field(
@@ -277,9 +273,11 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
         #         )
         #     )
 
-        # multiquery is mostly a decoder thing, but we should make this cleaner at some point
-        if self.multiquery and self.num_kv == 0:
-            self.num_kv = 1
+        assert (
+            self.hidden_size % self.heads == 0
+        ), "Transformer Model dimension {} must be divisible by the number of heads {}".format(
+            self.hidden_size, self.heads
+        )
         return self
 
 
