@@ -175,7 +175,7 @@ class TransformerDecoder(TransformerDecoderBase):
         if enc_out is None:
             enc_out = emb
         if step == 0:
-            self._init_cache(enc_out)
+            self._init_cache(enc_out.device)
         elif step is None:
             for layer in self.transformer_layers:
                 layer.self_attn.layer_cache = (
@@ -215,9 +215,7 @@ class TransformerDecoder(TransformerDecoderBase):
         # TODO change the way attns is returned dict => list or tuple (onnx)
         return emb, attns
 
-    def _init_cache(self, enc_out):
-        batch_size = enc_out.size(0)
-        depth = enc_out.size(-1)
+    def _init_cache(self, device):
 
         for layer in self.transformer_layers:
             # first value set to True triggered by the beginning of decoding
@@ -225,18 +223,18 @@ class TransformerDecoder(TransformerDecoderBase):
             layer.context_attn.layer_cache = (
                 True,
                 {
-                    "keys": torch.tensor([], device=enc_out.device),
-                    "values": torch.tensor([], device=enc_out.device),
+                    "keys": torch.tensor([], device=device),
+                    "values": torch.tensor([], device=device),
                 },
             )
             layer.self_attn.layer_cache = (
                 True,
                 {
-                    "keys": torch.tensor([], device=enc_out.device),
-                    "values": torch.tensor([], device=enc_out.device),
+                    "keys": torch.tensor([], device=device),
+                    "values": torch.tensor([], device=device),
                 },
             )
             if hasattr(layer.self_attn, "rope"):
-                layer.self_attn.rope = layer.self_attn.rope.to(enc_out.device)
-                layer.self_attn.cos = layer.self_attn.cos.to(enc_out.device)
-                layer.self_attn.sin = layer.self_attn.sin.to(enc_out.device)
+                layer.self_attn.rope = layer.self_attn.rope.to(device)
+                layer.self_attn.cos = layer.self_attn.cos.to(device)
+                layer.self_attn.sin = layer.self_attn.sin.to(device)
