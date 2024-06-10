@@ -221,6 +221,15 @@ class RunMMLU(BaseBin):
         defaults = vars(_parser.parse_args([]))
         stuff_to_update = get_non_default_values(args, defaults)
         config.update(stuff_to_update)
+
+        # pop extra fields added by argparse, not supported in pydantic configs
+        if "bin" in config.keys():
+            config.pop("bin")
+        if "sub_bin" in config.keys():
+            config.pop("sub_bin")
+        if "config" in config.keys():
+            config.pop("config")
+
         config = PredictConfig(**config)
 
         evaluate(config)
