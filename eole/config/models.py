@@ -135,7 +135,7 @@ class TransformerConfig(Config):
     encoder/decoder values with model values if relevant.
     """
 
-    self_attn_type: Literal["scaled-dot-flash", "scaled-dot", "average"] = Field(
+    self_attn_type: Literal["scaled-dot-flash", "scaled-dot"] = Field(
         default="scaled-dot-flash",
         description="Self attention type in Transformer decoder layer.",
     )
