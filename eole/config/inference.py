@@ -149,7 +149,7 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
         "Otherwise, the log probabilities will be averaged directly. "
         "Necessary for models whose output layers can assign zero probability.",
     )
-    self_attn_type: Literal["scaled-dot-flash", "scaled-dot", "average"] = Field(
+    self_attn_type: Literal["scaled-dot-flash", "scaled-dot"] = Field(
         default="scaled-dot-flash",
         description="Self-attention type in Transformer decoder.",
     )  # duplicate from the model one (current conflict in legacy code), better solution?

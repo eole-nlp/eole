@@ -10,7 +10,6 @@ from eole.decoders.transformer_base import (
     TransformerDecoderBase,
 )
 from eole.modules.multi_headed_attn import MultiHeadedAttention
-from eole.modules.average_attn import AverageAttention
 from eole.constants import LayerNorm
 
 
@@ -179,13 +178,10 @@ class TransformerDecoder(TransformerDecoderBase):
             self._init_cache(enc_out)
         elif step is None:
             for layer in self.transformer_layers:
-                if isinstance(layer.self_attn, AverageAttention):
-                    layer.self_attn.layer_cache = False, {"prev_g": torch.tensor([])}
-                else:
-                    layer.self_attn.layer_cache = (
-                        False,
-                        {"keys": torch.tensor([]), "values": torch.tensor([])},
-                    )
+                layer.self_attn.layer_cache = (
+                    False,
+                    {"keys": torch.tensor([]), "values": torch.tensor([])},
+                )
                 layer.context_attn.layer_cache = (
                     False,
                     {"keys": torch.tensor([]), "values": torch.tensor([])},
@@ -233,21 +229,14 @@ class TransformerDecoder(TransformerDecoderBase):
                     "values": torch.tensor([], device=enc_out.device),
                 },
             )
-            if isinstance(layer.self_attn, AverageAttention):
-                layer.self_attn.layer_cache = True, {
-                    "prev_g": torch.zeros(
-                        (batch_size, 1, depth), device=enc_out.device
-                    ).to(enc_out.dtype)
-                }
-            else:
-                layer.self_attn.layer_cache = (
-                    True,
-                    {
-                        "keys": torch.tensor([], device=enc_out.device),
-                        "values": torch.tensor([], device=enc_out.device),
-                    },
-                )
-                if hasattr(layer.self_attn, "rope"):
-                    layer.self_attn.rope = layer.self_attn.rope.to(enc_out.device)
-                    layer.self_attn.cos = layer.self_attn.cos.to(enc_out.device)
-                    layer.self_attn.sin = layer.self_attn.sin.to(enc_out.device)
+            layer.self_attn.layer_cache = (
+                True,
+                {
+                    "keys": torch.tensor([], device=enc_out.device),
+                    "values": torch.tensor([], device=enc_out.device),
+                },
+            )
+            if hasattr(layer.self_attn, "rope"):
+                layer.self_attn.rope = layer.self_attn.rope.to(enc_out.device)
+                layer.self_attn.cos = layer.self_attn.cos.to(enc_out.device)
+                layer.self_attn.sin = layer.self_attn.sin.to(enc_out.device)

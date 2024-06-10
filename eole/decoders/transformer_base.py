@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 from eole.decoders.decoder import DecoderBase
 from eole.modules.multi_headed_attn import MultiHeadedAttention
-from eole.modules.average_attn import AverageAttention
 from eole.modules.transformer_mlp import MLP
 from eole.modules.moe import MoE
 from eole.constants import LayerNorm
@@ -36,18 +35,11 @@ class TransformerDecoderLayerBase(nn.Module):
         self.input_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
-        if self.self_attn_type in ["scaled-dot", "scaled-dot-flash"]:
-            self.self_attn = MultiHeadedAttention(
-                model_config,
-                running_config=running_config,
-                attn_type="self",
-            )
-        elif self.self_attn_type == "average":
-            self.self_attn = AverageAttention(
-                model_config.hidden_size,
-                dropout=getattr(running_config, "attention_dropout", [0.0])[0],
-                aan_useffn=model_config.aan_useffn,
-            )
+        self.self_attn = MultiHeadedAttention(
+            model_config,
+            running_config=running_config,
+            attn_type="self",
+        )
         self.dropout = nn.Dropout(self.dropout_p)
         self.post_attention_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
@@ -181,26 +173,18 @@ class TransformerDecoderBase(DecoderBase):
                     x = fn(layer.context_attn.layer_cache[1]["keys"], 0)
                     y = fn(layer.context_attn.layer_cache[1]["values"], 0)
                     layer.context_attn.layer_cache = True, {"keys": x, "values": y}
-            if isinstance(layer.self_attn, AverageAttention):
-                if layer.self_attn.layer_cache[1]["prev_g"].numel() != 0:
-                    x = fn(layer.self_attn.layer_cache[1]["prev_g"], 0)
-                    layer.self_attn.layer_cache = True, {"prev_g": x}
-            else:
-                if layer.self_attn.layer_cache[1]["keys"].numel() != 0:
-                    x = fn(layer.self_attn.layer_cache[1]["keys"], 0)
-                    y = fn(layer.self_attn.layer_cache[1]["values"], 0)
-                    if (
-                        layer.self_attn.layer_cache[1].get("key_pad_mask", None)
-                        is not None
-                    ):
-                        z = fn(layer.self_attn.layer_cache[1]["key_pad_mask"], 0)
-                    else:
-                        z = None
-                    layer.self_attn.layer_cache = True, {
-                        "keys": x,
-                        "values": y,
-                        "key_pad_mask": z,
-                    }
+            if layer.self_attn.layer_cache[1]["keys"].numel() != 0:
+                x = fn(layer.self_attn.layer_cache[1]["keys"], 0)
+                y = fn(layer.self_attn.layer_cache[1]["values"], 0)
+                if layer.self_attn.layer_cache[1].get("key_pad_mask", None) is not None:
+                    z = fn(layer.self_attn.layer_cache[1]["key_pad_mask"], 0)
+                else:
+                    z = None
+                layer.self_attn.layer_cache = True, {
+                    "keys": x,
+                    "values": y,
+                    "key_pad_mask": z,
+                }
 
     def detach_state(self):
         raise NotImplementedError
