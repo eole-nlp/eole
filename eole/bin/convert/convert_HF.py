@@ -234,6 +234,7 @@ class LlamaHFConverter(BaseBin):
                     repo_id=args.model_dir,
                     filename="tokenizer.model",
                     token=args.token,
+                    local_dir=args.output,
                 )
             except huggingface_hub.utils.EntryNotFoundError:
                 try:
@@ -241,6 +242,7 @@ class LlamaHFConverter(BaseBin):
                         repo_id=args.model_dir,
                         filename="tokenizer.json",
                         token=args.token,
+                        local_dir=args.output,
                     )
                     tokenizer_model = None
                 except huggingface_hub.utils.EntryNotFoundError:
