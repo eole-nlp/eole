@@ -93,17 +93,21 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
 
         norm_layer_in = self.input_layernorm(layer_in)
 
-        self_attn, _ = self._forward_self_attn(
-            norm_layer_in, dec_mask, step, return_attn=return_attn
+        self_attn, _ = self.self_attn(
+            norm_layer_in,
+            mask=dec_mask,
+            sliding_window=self.sliding_window,
+            step=step,
+            return_attn=return_attn,
         )
         if self.dropout_p > 0:
             self_attn = self.dropout(self_attn)
 
         if self.parallel_residual:
             ctx_attn, attns = self.context_attn(
-                enc_out,
-                enc_out,
                 norm_layer_in,
+                key=enc_out,
+                value=enc_out,
                 mask=src_pad_mask,
                 return_attn=return_attn,
             )
@@ -115,7 +119,11 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
         else:
             norm_query = self.precontext_layernorm(self_attn + layer_in)
             ctx_attn, attns = self.context_attn(
-                enc_out, enc_out, norm_query, mask=src_pad_mask, return_attn=return_attn
+                norm_query,
+                key=enc_out,
+                value=enc_out,
+                mask=src_pad_mask,
+                return_attn=return_attn,
             )
             if self.dropout_p > 0:
                 ctx_attn = self.dropout(ctx_attn)
@@ -234,7 +242,6 @@ class TransformerDecoder(TransformerDecoderBase):
                     "values": torch.tensor([], device=device),
                 },
             )
-            if hasattr(layer.self_attn, "rope"):
-                layer.self_attn.rope = layer.self_attn.rope.to(device)
+            if hasattr(layer.self_attn, "cos") and layer.self_attn.cos is not None:
                 layer.self_attn.cos = layer.self_attn.cos.to(device)
                 layer.self_attn.sin = layer.self_attn.sin.to(device)

@@ -57,9 +57,7 @@ class TransformerEncoderLayer(nn.Module):
             * layer_out ``(batch_size, src_len, model_dim)``
         """
         norm_layer_in = self.input_layernorm(layer_in)
-        context, _ = self.self_attn(
-            norm_layer_in, norm_layer_in, norm_layer_in, mask=mask
-        )
+        context, _ = self.self_attn(norm_layer_in, mask=mask)
         if self.dropout_p > 0:
             context = self.dropout(context)
         if self.parallel_residual:
