@@ -21,8 +21,8 @@ from eole.config import recursive_model_fields_set
 from eole.bin import BaseBin, register_bin
 
 
-key_maps = {}
-key_maps["LlamaForCausalLM"] = {
+KEY_MAPS = {}
+KEY_MAPS["LlamaForCausalLM"] = {
     "layer_prefix": "model.layers.",
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.norm.weight",
@@ -37,8 +37,8 @@ key_maps["LlamaForCausalLM"] = {
     ".input_layernorm.weight": ".input_layernorm.weight",
     ".post_attention_layernorm.weight": ".post_attention_layernorm.weight",
 }
-key_maps["MistralForCausalLM"] = key_maps["LlamaForCausalLM"]
-key_maps["MixtralForCausalLM"] = {
+KEY_MAPS["MistralForCausalLM"] = KEY_MAPS["LlamaForCausalLM"]
+KEY_MAPS["MixtralForCausalLM"] = {
     "layer_prefix": "model.layers.",
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.norm.weight",
@@ -82,7 +82,7 @@ key_maps["MixtralForCausalLM"] = {
     ".mlp.experts.7.up_proj.": ".block_sparse_moe.experts.7.w3.",
     ".mlp.experts.7.layer_norm.weight": ".post_attention_layernorm.weight",
 }
-key_maps["PhiForCausalLM"] = {
+KEY_MAPS["PhiForCausalLM"] = {
     "layer_prefix": "model.layers.",
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.final_layernorm.weight",
@@ -98,7 +98,7 @@ key_maps["PhiForCausalLM"] = {
     ".input_layernorm.weight": (".input_layernorm.weight", ""),
     ".input_layernorm.bias": (".input_layernorm.bias", ""),
 }
-key_maps["Phi3ForCausalLM"] = {
+KEY_MAPS["Phi3ForCausalLM"] = {
     "layer_prefix": "model.layers.",
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.norm.weight",
@@ -116,21 +116,21 @@ key_maps["Phi3ForCausalLM"] = {
     ".input_layernorm.weight": ".input_layernorm.weight",
     ".post_attention_layernorm.weight": ".post_attention_layernorm.weight",
 }
-ln_table = {
+LN_TABLE = {
     "LlamaForCausalLM": "rms",
     "MistralForCausalLM": "rms",
     "MixtralForCausalLM": "rms",
     "PhiForCausalLM": "standard",
     "Phi3ForCausalLM": "rms",
 }
-act_table = {
+ACT_TABLE = {
     "LlamaForCausalLM": "gated-silu",
     "MistralForCausalLM": "gated-silu",
     "MixtralForCausalLM": "gated-silu",
     "PhiForCausalLM": "gelu",
     "Phi3ForCausalLM": "gated-silu",
 }
-decoder_start_table = {
+DECODER_START_TABLE = {
     "LlamaForCausalLM": "<s>",
     "MistralForCausalLM": "<s>",
     "MixtralForCausalLM": "<s>",
@@ -182,324 +182,150 @@ class LlamaHFConverter(BaseBin):
         )
 
     @classmethod
-    def run(cls, args):
-        os.makedirs(args.output, exist_ok=True)
-        if os.path.exists(args.model_dir):
-            if os.path.exists(os.path.join(args.model_dir, "config.json")):
-                config_path = os.path.join(args.model_dir, "config.json")
-            else:
-                raise ValueError(
-                    "You used a local directory but config.json is missing"
-                )
-            if os.path.exists(
-                os.path.join(args.model_dir, "model.safetensors.index.json")
-            ):
-                wmap_path = os.path.join(args.model_dir, "model.safetensors.index.json")
-            elif os.path.exists(
-                os.path.join(args.model_dir, "pytorch_model.bin.index.json")
-            ):
-                wmap_path = os.path.join(args.model_dir, "pytorch_model.bin.index.json")
-            elif os.path.exists(os.path.join(args.model_dir, "model.safetensors")):
-                wmap_path = None
-                model_path = os.path.join(args.model_dir, "model.safetensors")
-            elif os.path.exists(os.path.join(args.model_dir, "pytorch_model.bin")):
-                wmap_path = None
-                model_path = os.path.join(args.model_dir, "pytorch_model.bin")
-            else:
-                raise ValueError(
-                    "Could not find any proper model configuration, please check your files"
-                )
-            if os.path.exists(os.path.join(args.model_dir, "tokenizer.model")):
-                tokenizer_model = os.path.join(args.model_dir, "tokenizer.model")
-            else:
-                if os.path.exists(os.path.join(args.model_dir, "tokenizer.json")):
-                    tokenizer_json = os.path.join(args.model_dir, "tokenizer.json")
-                    tokenizer_model = None
-                else:
-                    raise ValueError(
-                        "You used a local directory but tokenizer.model",
-                        " and/or tokenizer.json are missing",
-                    )
-            if os.path.exists(os.path.join(args.model_dir, "tokenizer_config.json")):
-                tokenizer_config_json = os.path.join(
-                    args.model_dir, "tokenizer_config.json"
-                )
-            else:
-                tokenizer_config_json = None
+    def load_data_from_local_directory(cls, args):
+        model_path = None
+        if os.path.exists(os.path.join(args.model_dir, "config.json")):
+            config_path = os.path.join(args.model_dir, "config.json")
         else:
-            directory_path = args.output
-            os.makedirs(directory_path, exist_ok=True)
+            raise ValueError("You used a local directory but config.json is missing")
+        if os.path.exists(os.path.join(args.model_dir, "model.safetensors.index.json")):
+            wmap_path = os.path.join(args.model_dir, "model.safetensors.index.json")
+        elif os.path.exists(
+            os.path.join(args.model_dir, "pytorch_model.bin.index.json")
+        ):
+            wmap_path = os.path.join(args.model_dir, "pytorch_model.bin.index.json")
+        elif os.path.exists(os.path.join(args.model_dir, "model.safetensors")):
+            wmap_path = None
+            model_path = os.path.join(args.model_dir, "model.safetensors")
+        elif os.path.exists(os.path.join(args.model_dir, "pytorch_model.bin")):
+            wmap_path = None
+            model_path = os.path.join(args.model_dir, "pytorch_model.bin")
+        else:
+            raise ValueError(
+                "Could not find any proper model configuration, please check your files"
+            )
+        if os.path.exists(os.path.join(args.model_dir, "tokenizer.model")):
+            tokenizer_model = os.path.join(args.model_dir, "tokenizer.model")
+        else:
+            if os.path.exists(os.path.join(args.model_dir, "tokenizer.json")):
+                tokenizer_json = os.path.join(args.model_dir, "tokenizer.json")
+                tokenizer_model = None
+            else:
+                raise ValueError(
+                    "You used a local directory but tokenizer.model",
+                    " and/or tokenizer.json are missing",
+                )
+        if os.path.exists(os.path.join(args.model_dir, "tokenizer_config.json")):
+            tokenizer_config_json = os.path.join(
+                args.model_dir, "tokenizer_config.json"
+            )
+        else:
+            tokenizer_config_json = None
+
+        return (
+            config_path,
+            wmap_path,
+            tokenizer_model,
+            tokenizer_config_json,
+            tokenizer_json,
+            model_path,
+        )
+
+    @classmethod
+    def download_data_from_hub(cls, args):
+        model_path = None
+        directory_path = args.output
+        os.makedirs(directory_path, exist_ok=True)
+        try:
+            tokenizer_model = huggingface_hub.hf_hub_download(
+                repo_id=args.model_dir,
+                filename="tokenizer.model",
+                token=args.token,
+                local_dir=args.output,
+            )
+        except huggingface_hub.utils.EntryNotFoundError:
             try:
-                tokenizer_model = huggingface_hub.hf_hub_download(
+                tokenizer_json = huggingface_hub.hf_hub_download(
                     repo_id=args.model_dir,
-                    filename="tokenizer.model",
+                    filename="tokenizer.json",
                     token=args.token,
                     local_dir=args.output,
                 )
-            except huggingface_hub.utils.EntryNotFoundError:
-                try:
-                    tokenizer_json = huggingface_hub.hf_hub_download(
-                        repo_id=args.model_dir,
-                        filename="tokenizer.json",
-                        token=args.token,
-                        local_dir=args.output,
-                    )
-                    tokenizer_model = None
-                except huggingface_hub.utils.EntryNotFoundError:
-                    raise huggingface_hub.utils.EntryNotFoundError(
-                        "Make sure the repo contains tokenizer.model or tokenizer.json"
-                    )
-            try:
-                config_path = huggingface_hub.hf_hub_download(
-                    repo_id=args.model_dir,
-                    filename="config.json",
-                    token=args.token,
-                )
+                tokenizer_model = None
             except huggingface_hub.utils.EntryNotFoundError:
                 raise huggingface_hub.utils.EntryNotFoundError(
-                    "Something went wrong the repo does not contain any config.json file"
+                    "Make sure the repo contains tokenizer.model or tokenizer.json"
                 )
-            try:
-                tokenizer_config_json = huggingface_hub.hf_hub_download(
-                    repo_id=args.model_dir,
-                    filename="tokenizer_config.json",
-                    token=args.token,
-                )
-            except huggingface_hub.utils.EntryNotFoundError:
-                raise huggingface_hub.utils.EntryNotFoundError(
-                    "Something went wrong the repo does not contain any tokenizer_config.json file"
-                )
+        try:
+            config_path = huggingface_hub.hf_hub_download(
+                repo_id=args.model_dir,
+                filename="config.json",
+                token=args.token,
+            )
+        except huggingface_hub.utils.EntryNotFoundError:
+            raise huggingface_hub.utils.EntryNotFoundError(
+                "Something went wrong the repo does not contain any config.json file"
+            )
+        try:
+            tokenizer_config_json = huggingface_hub.hf_hub_download(
+                repo_id=args.model_dir,
+                filename="tokenizer_config.json",
+                token=args.token,
+            )
+        except huggingface_hub.utils.EntryNotFoundError:
+            raise huggingface_hub.utils.EntryNotFoundError(
+                "Something went wrong the repo does not contain any tokenizer_config.json file"
+            )
+        try:
+            wmap_path = huggingface_hub.hf_hub_download(
+                repo_id=args.model_dir,
+                filename="model.safetensors.index.json",
+                token=args.token,
+            )
+        except huggingface_hub.utils.EntryNotFoundError:
             try:
                 wmap_path = huggingface_hub.hf_hub_download(
                     repo_id=args.model_dir,
-                    filename="model.safetensors.index.json",
+                    filename="pytorch_model.bin.index.json",
                     token=args.token,
                 )
             except huggingface_hub.utils.EntryNotFoundError:
                 try:
-                    wmap_path = huggingface_hub.hf_hub_download(
+                    model_path = huggingface_hub.hf_hub_download(
                         repo_id=args.model_dir,
-                        filename="pytorch_model.bin.index.json",
+                        filename="model.safetensors",
                         token=args.token,
                     )
+                    wmap_path = None
                 except huggingface_hub.utils.EntryNotFoundError:
                     try:
                         model_path = huggingface_hub.hf_hub_download(
                             repo_id=args.model_dir,
-                            filename="model.safetensors",
+                            filename="pytorch_model.bin",
                             token=args.token,
                         )
                         wmap_path = None
                     except huggingface_hub.utils.EntryNotFoundError:
-                        try:
-                            model_path = huggingface_hub.hf_hub_download(
-                                repo_id=args.model_dir,
-                                filename="pytorch_model.bin",
-                                token=args.token,
-                            )
-                            wmap_path = None
-                        except huggingface_hub.utils.EntryNotFoundError:
-                            raise huggingface_hub.utils.EntryNotFoundError(
-                                "No valid model files found"
-                            )
+                        raise huggingface_hub.utils.EntryNotFoundError(
+                            "No valid model files found"
+                        )
 
-        with open(config_path, encoding="utf-8") as fconfig:
-            config = json.load(fconfig)
+        return (
+            config_path,
+            wmap_path,
+            tokenizer_model,
+            tokenizer_config_json,
+            tokenizer_json,
+            model_path,
+        )
 
+    @classmethod
+    def convert_and_save_model(
+        cls, args, config, wmap, wmap_path, model_path, model_params
+    ):
         arch = config["architectures"][0]
-
-        if "num_hidden_layers" in config.keys():
-            decoder_layers = config["num_hidden_layers"]
-        elif "n_layer" in config.keys():
-            decoder_layers = config["n_layer"]
-        else:
-            raise ValueError("Can't find the number of layers in the config.json file")
-        if "hidden_size" in config.keys():
-            src_word_vec_size = config["hidden_size"]
-            tgt_word_vec_size = config["hidden_size"]
-            hidden_size = config["hidden_size"]
-        elif "n_embd" in config.keys():
-            src_word_vec_size = config["n_embd"]
-            tgt_word_vec_size = config["n_embd"]
-            hidden_size = config["n_embd"]
-        else:
-            raise ValueError("can't find the model hidden size in the config.json file")
-        if "num_attention_heads" in config.keys():
-            heads = config["num_attention_heads"]
-        elif "n_head" in config.keys():
-            heads = config["n_head"]
-        else:
-            raise ValueError("can't find the number of heads in the config.json file")
-
-        vocab_size = config["vocab_size"]
-        if "intermediate_size" in config.keys():
-            transformer_ff = config["intermediate_size"]
-        else:
-            transformer_ff = hidden_size * 4
-        mlp_activation_fn = act_table[arch]
-        layer_norm = ln_table[arch]
-
-        if "multi_query" in config.keys() and config["multi_query"]:
-            heads_kv = 1  # might be usefull for old config
-        elif (
-            "num_key_value_heads" in config.keys()
-            and config["num_key_value_heads"] != heads
-        ):
-            heads_kv = config["num_key_value_heads"]
-        elif "num_kv_heads" in config.keys() and config["num_kv_heads"] != heads:
-            heads_kv = config["num_kv_heads"]
-        elif "n_head_kv" in config.keys() and config["n_head_kv"] != heads:
-            heads_kv = config["n_head_kv"]
-        else:
-            heads_kv = heads
-
-        if "parallel_attn" in config.keys():
-            parallel_residual = config["parallel_attn"]
-        else:
-            parallel_residual = False
-
-        if "rms_norm_eps" in config.keys():
-            norm_eps = config["rms_norm_eps"]
-        elif "layer_norm_epsilon" in config.keys():
-            norm_eps = config["layer_norm_epsilon"]
-        elif "layer_norm_eps" in config.keys():
-            norm_eps = config["layer_norm_eps"]
-        else:
-            norm_eps = 1e-6
-        if "rope_theta" in config.keys():
-            rope_theta = config["rope_theta"]
-        else:
-            rope_theta = 1e4
-        if "rotary_dim" in config.keys():
-            rotary_dim = config["rotary_dim"]
-        elif "partial_rotary_factor" in config.keys():
-            rotary_dim = int(config["partial_rotary_factor"] * (hidden_size // heads))
-        else:
-            rotary_dim = 0
-        if "sliding_window" in config.keys():
-            sliding_window = config["sliding_window"]
-            if sliding_window is None:
-                sliding_window = 4096
-        else:
-            sliding_window = 0
-        if "num_local_experts" in config.keys():
-            num_experts = config["num_local_experts"]
-        else:
-            num_experts = 0
-        if "num_experts_per_tok" in config.keys():
-            num_experts_per_tok = config["num_experts_per_tok"]
-        else:
-            num_experts_per_tok = 0
-        if "quantization_config" in config.keys():
-            if (
-                "quant_method" in config["quantization_config"].keys()
-                and config["quantization_config"]["quant_method"] == "awq"
-            ):
-                if "backend" in config["quantization_config"].keys():
-                    backend = config["quantization_config"]["backend"]
-                    if backend == "llm-awq":
-                        quant_type = "awq_gemv"
-                    elif backend == "autoawq":
-                        if config["quantization_config"]["version"].lower() == "gemm":
-                            quant_type = "awq_gemm"
-                        elif config["quantization_config"]["version"].lower() == "gemv":
-                            quant_type = "awq_gemv"
-                        else:
-                            raise ValueError("Unknown quantization config")
-                    else:
-                        raise ValueError("Unknown backend config")
-                else:
-                    print("Backend not specified in config, using Autoawq")
-                    if config["quantization_config"]["version"].lower() == "gemm":
-                        quant_type = "awq_gemm"
-                    elif config["quantization_config"]["version"].lower() == "gemv":
-                        quant_type = "awq_gemv"
-                    else:
-                        raise ValueError("Unknown quantization config")
-            else:
-                raise ValueError("Can convert only awq models for now")
-            if "bits" in config["quantization_config"].keys():
-                w_bit = config["quantization_config"]["bits"]
-            else:
-                w_bit = config["quantization_config"]["w_bit"]
-            if "group_size" in config["quantization_config"].keys():
-                group_size = config["quantization_config"]["group_size"]
-            else:
-                group_size = config["quantization_config"]["q_group_size"]
-
-            quant_layers = [
-                "gate_up_proj",
-                "down_proj",
-                "up_proj",
-                "linear_values",
-                "linear_query",
-                "linear_keys",
-                "final_linear",
-            ]
-            params = ["qweight", "qzeros", "scales"]
-        else:
-            quant_type = ""
-            w_bit = 0
-            group_size = 0
-            quant_layers = []
-            params = ["weight", "bias"]
-
-        add_qkvbias = False
-        add_ffnbias = False
-        rotary_interleave = False
-        shared_layer_norm = False
-
-        if arch == "PhiForCausalLM":
-            parallel_residual = True
-            shared_layer_norm = True
-            add_qkvbias = True
-            add_ffnbias = True
-            rotary_interleave = False
-
-        if wmap_path:
-            with open(wmap_path, encoding="utf-8") as fweights:
-                wmap = json.load(fweights)
-
-        def get_load_ckpt(dir_path, file_path):
-            if os.path.exists(os.path.join(dir_path, file_path)):
-                ckpt_path = os.path.join(dir_path, file_path)
-            else:
-                try:
-                    ckpt_path = huggingface_hub.hf_hub_download(
-                        repo_id=args.model_dir,
-                        filename=file_path,
-                        token=args.token,
-                    )
-                except huggingface_hub.utils.EntryNotFoundError:
-                    raise huggingface_hub.utils.EntryNotFoundError(
-                        "Checkpoint not found on the hub"
-                    )
-                except PermissionError:
-                    ckpt_path = os.path.join(dir_path, file_path)
-            if ckpt_path[-4:] == ".bin":
-                checkpoint = torch.load(ckpt_path, map_location=torch.device("cpu"))
-            else:
-                checkpoint = ckpt_path
-
-            return checkpoint
-
-        def get_weight(checkpoint, tensor_name):
-            if isinstance(checkpoint, dict):
-                if tensor_name in checkpoint.keys():
-                    return checkpoint[tensor_name]
-                else:
-                    return None
-            else:
-                with safetensors.safe_open(
-                    checkpoint, framework="pt", device="cpu"
-                ) as f:
-                    if tensor_name in f.keys():
-                        return f.get_tensor(tensor_name)
-                    else:
-                        return None
-
+        mapping = KEY_MAPS[arch]
         for shard in range(args.nshards):
-
             print("starting output shard: %d/%d" % (shard + 1, args.nshards))
             eole_safetensor = {}
 
@@ -511,15 +337,19 @@ class LlamaHFConverter(BaseBin):
                     "generator.weight",
                 ]
                 for target in targetlist:
-                    if target in key_maps[arch].keys():
-                        source = key_maps[arch][target]
+                    if target in mapping.keys():
+                        source = mapping[target]
                         if wmap_path:
-                            checkpoint = get_load_ckpt(
-                                os.path.split(wmap_path)[0], wmap["weight_map"][source]
+                            checkpoint = cls.get_load_ckpt(
+                                args,
+                                os.path.split(wmap_path)[0],
+                                wmap["weight_map"][source],
                             )
                         else:
-                            checkpoint = get_load_ckpt(*os.path.split(model_path))
-                        w = get_weight(checkpoint, source)
+                            checkpoint = cls.get_load_ckpt(
+                                args, *os.path.split(model_path)
+                            )
+                        w = cls.get_weight(checkpoint, source)
                         if w is not None:
                             eole_safetensor[target] = w
 
@@ -532,13 +362,14 @@ class LlamaHFConverter(BaseBin):
                 ckpt_list = []
                 for key in weightmap.keys():
                     if (
-                        key.startswith(key_maps[arch]["layer_prefix"])
+                        key.startswith(mapping["layer_prefix"])
                         and int(key.split(".")[2])
                         in range(
-                            -(decoder_layers // -args.nshards) * shard,
+                            -(model_params["decoder_layers"] // -args.nshards) * shard,
                             min(
-                                -(decoder_layers // -args.nshards) * (shard + 1),
-                                decoder_layers,
+                                -(model_params["decoder_layers"] // -args.nshards)
+                                * (shard + 1),
+                                model_params["decoder_layers"],
                             ),
                             1,
                         )
@@ -552,18 +383,21 @@ class LlamaHFConverter(BaseBin):
             for ckpt in ckpt_list:
                 print("Loading %s" % ckpt)
                 if wmap_path:
-                    checkpoint = get_load_ckpt(os.path.split(wmap_path)[0], ckpt)
+                    checkpoint = cls.get_load_ckpt(
+                        args, os.path.split(wmap_path)[0], ckpt
+                    )
                 else:
-                    checkpoint = get_load_ckpt(*os.path.split(model_path))
+                    checkpoint = cls.get_load_ckpt(args, *os.path.split(model_path))
                 for i in range(
-                    -(decoder_layers // -args.nshards) * shard,
+                    -(model_params["decoder_layers"] // -args.nshards) * shard,
                     min(
-                        -(decoder_layers // -args.nshards) * (shard + 1), decoder_layers
+                        -(model_params["decoder_layers"] // -args.nshards)
+                        * (shard + 1),
+                        model_params["decoder_layers"],
                     ),
                     1,
                 ):
-
-                    for param in params:
+                    for param in model_params["params"]:
                         targetlist = [
                             ".self_attn.linear_query.",
                             ".self_attn.linear_keys.",
@@ -598,19 +432,16 @@ class LlamaHFConverter(BaseBin):
                             ".mlp.experts.7.up_proj.",
                         ]
                         for target in targetlist:
-                            if target in key_maps[arch].keys():
-                                source = key_maps[arch][target]
+                            if target in mapping.keys():
+                                source = mapping[target]
                                 if type(source) == tuple:
                                     srckey = source[0]
                                     srcmap = source[1]
                                 else:
                                     srckey = source
-                                w = get_weight(
+                                w = cls.get_weight(
                                     checkpoint,
-                                    key_maps[arch]["layer_prefix"]
-                                    + str(i)
-                                    + srckey
-                                    + param,
+                                    mapping["layer_prefix"] + str(i) + srckey + param,
                                 )
 
                                 if w is not None:
@@ -623,25 +454,25 @@ class LlamaHFConverter(BaseBin):
                                         + param
                                     ] = w
 
-                    if shared_layer_norm:
+                    if model_params["shared_layer_norm"]:
                         idx = 0
                     else:
                         idx = 1
                     for p in ["weight", "bias"]:
-                        if ".input_layernorm." + p in key_maps[arch].keys():
-                            if type(key_maps[arch][".input_layernorm." + p]) == tuple:
-                                w = get_weight(
+                        if ".input_layernorm." + p in mapping.keys():
+                            if type(mapping[".input_layernorm." + p]) == tuple:
+                                w = cls.get_weight(
                                     checkpoint,
-                                    key_maps[arch]["layer_prefix"]
+                                    mapping["layer_prefix"]
                                     + str(i)
-                                    + key_maps[arch][".input_layernorm." + p][idx],
+                                    + mapping[".input_layernorm." + p][idx],
                                 )
                             else:
-                                w = get_weight(
+                                w = cls.get_weight(
                                     checkpoint,
-                                    key_maps[arch]["layer_prefix"]
+                                    mapping["layer_prefix"]
                                     + str(i)
-                                    + key_maps[arch][".input_layernorm." + p],
+                                    + mapping[".input_layernorm." + p],
                                 )
                             if w is not None:
                                 eole_safetensor[
@@ -650,12 +481,12 @@ class LlamaHFConverter(BaseBin):
                                     + ".input_layernorm."
                                     + p
                                 ] = w
-                        if ".layer_norm_res." + p in key_maps[arch].keys():
-                            w = get_weight(
+                        if ".layer_norm_res." + p in mapping.keys():
+                            w = cls.get_weight(
                                 checkpoint,
-                                key_maps[arch]["layer_prefix"]
+                                mapping["layer_prefix"]
                                 + str(i)
-                                + key_maps[arch][".layer_norm_res." + p],
+                                + mapping[".layer_norm_res." + p],
                             )
                             if w is not None:
                                 eole_safetensor[
@@ -664,12 +495,12 @@ class LlamaHFConverter(BaseBin):
                                     + ".layer_norm_res."
                                     + p
                                 ] = w
-                        if ".post_attention_layernorm." + p in key_maps[arch].keys():
-                            w = get_weight(
+                        if ".post_attention_layernorm." + p in mapping.keys():
+                            w = cls.get_weight(
                                 checkpoint,
-                                key_maps[arch]["layer_prefix"]
+                                mapping["layer_prefix"]
                                 + str(i)
-                                + key_maps[arch][".post_attention_layernorm." + p],
+                                + mapping[".post_attention_layernorm." + p],
                             )
                             if w is not None:
                                 eole_safetensor[
@@ -679,12 +510,12 @@ class LlamaHFConverter(BaseBin):
                                     + p
                                 ] = w
 
-                        if ".mlp.gate." + p in key_maps[arch].keys():
-                            w = get_weight(
+                        if ".mlp.gate." + p in mapping.keys():
+                            w = cls.get_weight(
                                 checkpoint,
-                                key_maps[arch]["layer_prefix"]
+                                mapping["layer_prefix"]
                                 + str(i)
-                                + key_maps[arch][".mlp.gate." + p],
+                                + mapping[".mlp.gate." + p],
                             )
                             if w is not None:
                                 eole_safetensor[
@@ -694,18 +525,13 @@ class LlamaHFConverter(BaseBin):
                                     + p
                                 ] = w
 
-                        for j in range(num_experts):
-                            if (
-                                f".mlp.experts.{j}.layer_norm." + p
-                                in key_maps[arch].keys()
-                            ):
-                                w = get_weight(
+                        for j in range(model_params["num_experts"]):
+                            if f".mlp.experts.{j}.layer_norm." + p in mapping.keys():
+                                w = cls.get_weight(
                                     checkpoint,
-                                    key_maps[arch]["layer_prefix"]
+                                    mapping["layer_prefix"]
                                     + str(i)
-                                    + key_maps[arch][
-                                        f".mlp.experts.{j}.layer_norm." + p
-                                    ],
+                                    + mapping[f".mlp.experts.{j}.layer_norm." + p],
                                 )
                                 if w is not None:
                                     eole_safetensor[
@@ -722,6 +548,42 @@ class LlamaHFConverter(BaseBin):
                 eole_safetensor,
                 os.path.join(args.output, "model.{:02d}.safetensors".format(shard)),
             )
+
+    @classmethod
+    def get_load_ckpt(cls, args, dir_path, file_path):
+        if os.path.exists(os.path.join(dir_path, file_path)):
+            ckpt_path = os.path.join(dir_path, file_path)
+        else:
+            try:
+                ckpt_path = huggingface_hub.hf_hub_download(
+                    repo_id=args.model_dir,
+                    filename=file_path,
+                    token=args.token,
+                )
+            except huggingface_hub.utils.EntryNotFoundError:
+                raise huggingface_hub.utils.EntryNotFoundError(
+                    "Checkpoint not found on the hub"
+                )
+            except PermissionError:
+                ckpt_path = os.path.join(dir_path, file_path)
+        if ckpt_path[-4:] == ".bin":
+            checkpoint = torch.load(ckpt_path, map_location=torch.device("cpu"))
+        else:
+            checkpoint = ckpt_path
+
+        return checkpoint
+
+    @classmethod
+    def save_vocab(
+        cls,
+        args,
+        config,
+        tokenizer_model,
+        tokenizer_json,
+        tokenizer_config_json,
+        model_params,
+    ):
+        arch = config["architectures"][0]
 
         directory_path = args.output
         if directory_path != "":
@@ -769,8 +631,8 @@ class LlamaHFConverter(BaseBin):
                 for tok in data["model"]["vocab"]
             ]
             voc_size = len(vocab)
-            if vocab_size > voc_size:
-                for i in range(vocab_size - voc_size):
+            if model_params["vocab_size"] > voc_size:
+                for i in range(model_params["vocab_size"] - voc_size):
                     vocab.append(DefaultTokens.VOCAB_PAD + str(i))
             for tok in data["added_tokens"]:
                 vocab[tok["id"]] = tok["content"]
@@ -800,7 +662,7 @@ class LlamaHFConverter(BaseBin):
         vocabs["tgt"] = src_vocab
         vocabs["data_task"] = "lm"
         if add_bos_token:
-            vocabs["decoder_start_token"] = decoder_start_table[arch]
+            vocabs["decoder_start_token"] = DECODER_START_TABLE[arch]
         else:
             vocabs["decoder_start_token"] = ""
         vocab_dict = vocabs_to_dict(vocabs)
@@ -815,6 +677,229 @@ class LlamaHFConverter(BaseBin):
             for tok in vocab_dict["src"]:
                 vocabfile.write(tok + "\n")
 
+        return vocabs
+
+    @classmethod
+    def get_weight(cls, checkpoint, tensor_name):
+        if isinstance(checkpoint, dict):
+            if tensor_name in checkpoint.keys():
+                return checkpoint[tensor_name]
+            else:
+                return None
+        else:
+            with safetensors.safe_open(checkpoint, framework="pt", device="cpu") as f:
+                if tensor_name in f.keys():
+                    return f.get_tensor(tensor_name)
+                else:
+                    return None
+
+    @classmethod
+    def get_model_params(cls, config):
+        model_params = {}
+        arch = config["architectures"][0]
+        if "num_hidden_layers" in config.keys():
+            model_params["decoder_layers"] = config["num_hidden_layers"]
+        elif "n_layer" in config.keys():
+            model_params["decoder_layers"] = config["n_layer"]
+        else:
+            raise ValueError("Can't find the number of layers in the config.json file")
+        if "hidden_size" in config.keys():
+            model_params["src_word_vec_size"] = config["hidden_size"]
+            model_params["tgt_word_vec_size"] = config["hidden_size"]
+            model_params["hidden_size"] = config["hidden_size"]
+        elif "n_embd" in config.keys():
+            model_params["src_word_vec_size"] = config["n_embd"]
+            model_params["tgt_word_vec_size"] = config["n_embd"]
+            model_params["hidden_size"] = config["n_embd"]
+        else:
+            raise ValueError("can't find the model hidden size in the config.json file")
+        if "num_attention_heads" in config.keys():
+            model_params["heads"] = config["num_attention_heads"]
+        elif "n_head" in config.keys():
+            model_params["heads"] = config["n_head"]
+        else:
+            raise ValueError("can't find the number of heads in the config.json file")
+
+        model_params["vocab_size"] = config["vocab_size"]
+        if "intermediate_size" in config.keys():
+            model_params["transformer_ff"] = config["intermediate_size"]
+        else:
+            model_params["transformer_ff"] = model_params["hidden_size"] * 4
+        model_params["mlp_activation_fn"] = ACT_TABLE[arch]
+        model_params["layer_norm"] = LN_TABLE[arch]
+
+        if "multi_query" in config.keys() and config["multi_query"]:
+            model_params["heads_kv"] = 1  # might be usefull for old config
+        elif (
+            "num_key_value_heads" in config.keys()
+            and config["num_key_value_heads"] != model_params["heads"]
+        ):
+            model_params["heads_kv"] = config["num_key_value_heads"]
+        elif (
+            "num_kv_heads" in config.keys()
+            and config["num_kv_heads"] != model_params["heads"]
+        ):
+            model_params["heads_kv"] = config["num_kv_heads"]
+        elif (
+            "n_head_kv" in config.keys()
+            and config["n_head_kv"] != model_params["heads"]
+        ):
+            model_params["heads_kv"] = config["n_head_kv"]
+        else:
+            model_params["heads_kv"] = model_params["heads"]
+
+        if "parallel_attn" in config.keys():
+            model_params["parallel_residual"] = config["parallel_attn"]
+        else:
+            model_params["parallel_residual"] = False
+
+        if "rms_norm_eps" in config.keys():
+            model_params["norm_eps"] = config["rms_norm_eps"]
+        elif "layer_norm_epsilon" in config.keys():
+            model_params["norm_eps"] = config["layer_norm_epsilon"]
+        elif "layer_norm_eps" in config.keys():
+            model_params["norm_eps"] = config["layer_norm_eps"]
+        else:
+            model_params["norm_eps"] = 1e-6
+        if "rope_theta" in config.keys():
+            model_params["rope_theta"] = config["rope_theta"]
+        else:
+            model_params["rope_theta"] = 1e4
+        if "rotary_dim" in config.keys():
+            model_params["rotary_dim"] = config["rotary_dim"]
+        elif "partial_rotary_factor" in config.keys():
+            model_params["rotary_dim"] = int(
+                config["partial_rotary_factor"]
+                * (model_params["hidden_size"] // model_params["heads"])
+            )
+        else:
+            model_params["rotary_dim"] = 0
+        if "sliding_window" in config.keys():
+            model_params["sliding_window"] = config["sliding_window"]
+            if model_params["sliding_window"] is None:
+                model_params["sliding_window"] = 4096
+        else:
+            model_params["sliding_window"] = 0
+        if "num_local_experts" in config.keys():
+            model_params["num_experts"] = config["num_local_experts"]
+        else:
+            model_params["num_experts"] = 0
+        if "num_experts_per_tok" in config.keys():
+            model_params["num_experts_per_tok"] = config["num_experts_per_tok"]
+        else:
+            model_params["num_experts_per_tok"] = 0
+        if "quantization_config" in config.keys():
+            if (
+                "quant_method" in config["quantization_config"].keys()
+                and config["quantization_config"]["quant_method"] == "awq"
+            ):
+                if "backend" in config["quantization_config"].keys():
+                    model_params["backend"] = config["quantization_config"]["backend"]
+                    if model_params["backend"] == "llm-awq":
+                        model_params["quant_type"] = "awq_gemv"
+                    elif model_params["backend"] == "autoawq":
+                        if config["quantization_config"]["version"].lower() == "gemm":
+                            model_params["quant_type"] = "awq_gemm"
+                        elif config["quantization_config"]["version"].lower() == "gemv":
+                            model_params["quant_type"] = "awq_gemv"
+                        else:
+                            raise ValueError("Unknown quantization config")
+                    else:
+                        raise ValueError("Unknown backend config")
+                else:
+                    print("Backend not specified in config, using Autoawq")
+                    if config["quantization_config"]["version"].lower() == "gemm":
+                        model_params["quant_type"] = "awq_gemm"
+                    elif config["quantization_config"]["version"].lower() == "gemv":
+                        model_params["quant_type"] = "awq_gemv"
+                    else:
+                        raise ValueError("Unknown quantization config")
+            else:
+                raise ValueError("Can convert only awq models for now")
+            if "bits" in config["quantization_config"].keys():
+                model_params["w_bit"] = config["quantization_config"]["bits"]
+            else:
+                model_params["w_bit"] = config["quantization_config"]["w_bit"]
+            if "group_size" in config["quantization_config"].keys():
+                model_params["group_size"] = config["quantization_config"]["group_size"]
+            else:
+                model_params["group_size"] = config["quantization_config"][
+                    "q_group_size"
+                ]
+
+            model_params["quant_layers"] = [
+                "gate_up_proj",
+                "down_proj",
+                "up_proj",
+                "linear_values",
+                "linear_query",
+                "linear_keys",
+                "final_linear",
+            ]
+            model_params["params"] = ["qweight", "qzeros", "scales"]
+        else:
+            model_params["quant_type"] = ""
+            model_params["w_bit"] = 0
+            model_params["group_size"] = 0
+            model_params["quant_layers"] = []
+            model_params["params"] = ["weight", "bias"]
+
+        model_params["add_qkvbias"] = False
+        model_params["add_ffnbias"] = False
+        model_params["rotary_interleave"] = False
+        model_params["shared_layer_norm"] = False
+
+        if arch == "PhiForCausalLM":
+            model_params["parallel_residual"] = True
+            model_params["shared_layer_norm"] = True
+            model_params["add_qkvbias"] = True
+            model_params["add_ffnbias"] = True
+            model_params["rotary_interleave"] = False
+
+        return model_params
+
+    @classmethod
+    def run(cls, args):
+        os.makedirs(args.output, exist_ok=True)
+        if os.path.exists(args.model_dir):
+            (
+                config_path,
+                wmap_path,
+                tokenizer_model,
+                tokenizer_config_json,
+                tokenizer_json,
+                model_path,
+            ) = cls.load_data_from_local_directory(args)
+        else:
+            (
+                config_path,
+                wmap_path,
+                tokenizer_model,
+                tokenizer_config_json,
+                tokenizer_json,
+                model_path,
+            ) = cls.download_data_from_hub(args)
+        with open(config_path, encoding="utf-8") as fconfig:
+            config = json.load(fconfig)
+
+        model_params = cls.get_model_params(config)
+
+        if wmap_path:
+            with open(wmap_path, encoding="utf-8") as fweights:
+                wmap = json.load(fweights)
+
+        cls.convert_and_save_model(
+            args, config, wmap, wmap_path, model_path, model_params
+        )
+
+        vocabs = cls.save_vocab(
+            args,
+            config,
+            tokenizer_model,
+            tokenizer_json,
+            tokenizer_config_json,
+            model_params,
+        )
         config = TrainConfig(
             data=None,
             data_task="lm",
@@ -824,8 +909,8 @@ class LlamaHFConverter(BaseBin):
             src_vocab=None,
             tgt_vocab=None,
             share_vocab=True,
-            src_vocab_size=vocab_size,
-            tgt_vocab_size=vocab_size,
+            src_vocab_size=model_params["vocab_size"],
+            tgt_vocab_size=model_params["vocab_size"],
             vocab_size_multiple=8,
             decoder_start_token=vocabs["decoder_start_token"],
             transforms=["filtertoolong"],
@@ -833,33 +918,33 @@ class LlamaHFConverter(BaseBin):
                 "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}
             },
             model=TransformerLMModelConfig(
-                layers=decoder_layers,
-                hidden_size=hidden_size,
-                heads=heads,
-                transformer_ff=transformer_ff,
+                layers=model_params["decoder_layers"],
+                hidden_size=model_params["hidden_size"],
+                heads=model_params["heads"],
+                transformer_ff=model_params["transformer_ff"],
                 embeddings=EmbeddingsConfig(
-                    src_word_vec_size=src_word_vec_size,
-                    tgt_word_vec_size=tgt_word_vec_size,
+                    src_word_vec_size=model_params["src_word_vec_size"],
+                    tgt_word_vec_size=model_params["tgt_word_vec_size"],
                 ),
                 # src_word_vec_size=src_word_vec_size,
                 # tgt_word_vec_size=tgt_word_vec_size,
                 model_type="text",
-                layer_norm=layer_norm,
-                norm_eps=norm_eps,
-                mlp_activation_fn=mlp_activation_fn,
+                layer_norm=model_params["layer_norm"],
+                norm_eps=model_params["norm_eps"],
+                mlp_activation_fn=model_params["mlp_activation_fn"],
                 self_attn_type="scaled-dot-flash",
                 max_relative_positions=-1,
-                rotary_interleave=rotary_interleave,
-                rotary_theta=rope_theta,
-                rotary_dim=rotary_dim,
-                sliding_window=sliding_window,
-                heads_kv=heads_kv,
-                parallel_residual=parallel_residual,
-                shared_layer_norm=shared_layer_norm,
-                add_qkvbias=add_qkvbias,
-                add_ffnbias=add_ffnbias,
-                num_experts=num_experts,
-                num_experts_per_tok=num_experts_per_tok,
+                rotary_interleave=model_params["rotary_interleave"],
+                rotary_theta=model_params["rope_theta"],
+                rotary_dim=model_params["rotary_dim"],
+                sliding_window=model_params["sliding_window"],
+                heads_kv=model_params["heads_kv"],
+                parallel_residual=model_params["parallel_residual"],
+                shared_layer_norm=model_params["shared_layer_norm"],
+                add_qkvbias=model_params["add_qkvbias"],
+                add_ffnbias=model_params["add_ffnbias"],
+                num_experts=model_params["num_experts"],
+                num_experts_per_tok=model_params["num_experts_per_tok"],
             ),
             training=TrainingConfig(
                 model_dtype="fp16",
@@ -870,15 +955,13 @@ class LlamaHFConverter(BaseBin):
                 accum_count=[32],
                 accum_steps=[0],
                 valid_batch_size=256,
-                quant_layers=quant_layers,
-                quant_type=quant_type,
-                w_bit=w_bit,
-                group_size=group_size,
+                quant_layers=model_params["quant_layers"],
+                quant_type=model_params["quant_type"],
+                w_bit=model_params["w_bit"],
+                group_size=model_params["group_size"],
                 optim="fusedadam",
             ),
         )
         config_dict = recursive_model_fields_set(config)
-        with open(
-            os.path.join(directory_path, "config.json"), "w", encoding="utf-8"
-        ) as f:
+        with open(os.path.join(args.output, "config.json"), "w", encoding="utf-8") as f:
             json.dump(config_dict, f, indent=2, ensure_ascii=False)
