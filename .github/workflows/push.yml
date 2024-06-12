@@ -240,7 +240,7 @@ jobs:
       run: |
         python eole/bin/main.py predict \
           -model_path eole/tests/test_model_lm \
-          -self_attn_backend pytorch \ 
+          -self_attn_backend pytorch \
           -src eole/tests/data/data_lm/src-gen.txt \
           -verbose -batch_size 1 \
           -beam_size 10 \
@@ -252,7 +252,7 @@ jobs:
       run: |
         python eole/bin/main.py predict -model_path eole/tests/test_model_lm \
           -src eole/tests/data/data_lm/src-gen.txt \
-          -self_attn_backend pytorch \ 
+          -self_attn_backend pytorch \
           -verbose -batch_size 1 \
           -beam_size 1 \
           -seed 1 \
@@ -266,7 +266,7 @@ jobs:
       run: |
         python eole/bin/main.py predict -model_path eole/tests/test_model_lm \
           -src eole/tests/data/data_lm/src-gen.txt \
-          -self_attn_backend pytorch \ 
+          -self_attn_backend pytorch \
           -verbose -batch_size 1 \
           -beam_size 1 \
           -seed 3 \
@@ -280,7 +280,7 @@ jobs:
     - name: Test LM generation with random sampling multi-beams
       run: |
         python eole/bin/main.py predict -model_path eole/tests/test_model_lm \
-          -self_attn_backend pytorch \ 
+          -self_attn_backend pytorch \
           -src eole/tests/data/data_lm/src-gen.txt \
           -verbose -batch_size 1 \
           -beam_size 10 \
@@ -298,7 +298,7 @@ jobs:
         head eole/tests/data/src-test.txt > /tmp/src-test.txt
         python eole/tests/test_inference_engines.py \
           -model eole/tests/test_model_lm \
-          -self_attn_backend pytorch \ 
+          -self_attn_backend pytorch \
           -model_task lm \
           -input_file /tmp/src-test.txt \
           -inference_config_file eole/tests/data/inference-engine_py.yaml \
@@ -318,7 +318,7 @@ jobs:
       run: |
         head eole/tests/data/src-test.txt > /tmp/src-test.txt
         python eole/tests/test_inference_engines.py \
-          -self_attn_backend pytorch \ 
+          -self_attn_backend pytorch \
           -model eole/tests/test_model \
           -model_task seq2seq \
           -input_file /tmp/src-test.txt \
