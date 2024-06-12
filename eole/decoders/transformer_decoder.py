@@ -93,9 +93,16 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
 
         norm_layer_in = self.input_layernorm(layer_in)
 
-        self_attn, _ = self._forward_self_attn(
-            norm_layer_in, dec_mask, step, return_attn=return_attn
+        self_attn, _ = self.self_attn(
+            norm_layer_in,
+            norm_layer_in,
+            norm_layer_in,
+            mask=dec_mask,
+            sliding_window=self.sliding_window,
+            step=step,
+            return_attn=return_attn,
         )
+
         if self.dropout_p > 0:
             self_attn = self.dropout(self_attn)
 

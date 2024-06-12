@@ -125,22 +125,6 @@ class TransformerDecoderLayerBase(nn.Module):
             dec_mask = tgt_pad_mask
         return dec_mask
 
-    def _forward_self_attn(self, norm_layer_in, dec_mask, step, return_attn=False):
-        if self.self_attn_type in ["scaled-dot", "scaled-dot-flash"]:
-            return self.self_attn(
-                norm_layer_in,
-                norm_layer_in,
-                norm_layer_in,
-                mask=dec_mask,
-                sliding_window=self.sliding_window,
-                step=step,
-                return_attn=return_attn,
-            )
-        elif self.self_attn_type == "average":
-            return self.self_attn(norm_layer_in, mask=dec_mask, step=step)
-        else:
-            raise ValueError(f"self attention {type(self.self_attn)} not supported")
-
 
 class TransformerDecoderBase(DecoderBase):
     def __init__(
