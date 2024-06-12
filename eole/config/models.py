@@ -424,15 +424,24 @@ class BaseModelConfig(Config):
 
     @model_validator(mode="after")
     def _override_values(self):
-        # This might a bit too harsh, but it works for now
-        # (maybe trigger some warning if both model and encoder/decoder level are set)
+        # aggregate all fields in a single dict,
+        # and update once to prevent validation mismatch
+        embeddings_fields = {}
+        encoder_fields = {}
+        decoder_fields = {}
         for field in self.model_fields_set:
             if hasattr(self.embeddings, field):
-                setattr(self.embeddings, field, getattr(self, field))
+                embeddings_fields[field] = getattr(self, field)
             if hasattr(self.encoder, field):
-                setattr(self.encoder, field, getattr(self, field))
+                encoder_fields[field] = getattr(self, field)
             if hasattr(self.decoder, field):
-                setattr(self.decoder, field, getattr(self, field))
+                decoder_fields[field] = getattr(self, field)
+        if self.embeddings is not None:
+            self.embeddings.update(**embeddings_fields)
+        if self.encoder is not None:
+            self.encoder.update(**encoder_fields)
+        if self.decoder is not None:
+            self.decoder.update(**decoder_fields)
         return self
 
     @model_validator(mode="after")
