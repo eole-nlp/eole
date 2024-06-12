@@ -3,6 +3,7 @@ from eole.utils.logging import init_logger, logger
 from eole.models.model_saver import load_checkpoint
 from eole.models import get_model_class
 from eole.inputters.inputter import dict_to_vocabs, vocabs_to_dict
+from eole.config import recursive_model_fields_set
 from safetensors import safe_open
 from safetensors.torch import save_file
 import glob
@@ -101,8 +102,9 @@ class LoraWeights(BaseBin):
         with open(os.path.join(args.output, "vocab.json"), "w", encoding="utf-8") as f:
             json.dump(vocab_dict, f, indent=2, ensure_ascii=False)
         # save config
+        config_dict = recursive_model_fields_set(new_config)
         with open(os.path.join(args.output, "config.json"), "w", encoding="utf-8") as f:
-            json.dump(new_config, f, indent=2, ensure_ascii=False)
+            json.dump(config_dict, f, indent=2, ensure_ascii=False)
         shards = glob.glob(os.path.join(args.base_model, "model.*.safetensors"))
         f = []
         for i, shard in enumerate(shards):
