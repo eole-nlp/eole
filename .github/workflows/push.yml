@@ -233,7 +233,7 @@ jobs:
         head eole/tests/data/src-test.txt > /tmp/src-test.txt
         python eole/bin/main.py predict \
           -model_path eole/tests/test_model_lm \
-          -self_attn_backend pytorch \ 
+          -self_attn_backend pytorch \
           -src /tmp/src-test.txt \
           -verbose
     - name: Test LM generation with beam search
