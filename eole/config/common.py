@@ -1,6 +1,7 @@
-# import torch
+import torch
 from typing import List, Literal
 from pydantic import Field, model_validator
+from importlib import import_module
 from eole.config.config import Config
 
 # from eole.utils.logging import logger
@@ -132,7 +133,23 @@ class RunningConfig(DistributedConfig):
         default="model",
         description="Path to directory containing all model components.",
     )
+    self_attn_backend: Literal["flash", "pytorch"] = Field(
+        default="flash",
+        description="Self-attention backend.",
+    )
 
     @model_validator(mode="after")
     def _validate_running_config(self):
+        try:
+            flash_pack = import_module("flash_attn")
+            if (
+                hasattr(flash_pack, "flash_attn_func")
+                and torch.cuda.get_device_capability()[0] >= 8
+                and self.self_attn_backend == "flash"
+            ):
+                pass
+            else:
+                self.self_attn_backend == "pytorch"
+        except ImportError:
+            self.self_attn_backend == "pytorch"
         return self

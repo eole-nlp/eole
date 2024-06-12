@@ -320,7 +320,6 @@ class MultiHeadedAttention(torch.nn.Module):
             self.max_relative_positions = 0
         self.relative_positions_buckets = model_config.relative_positions_buckets
         self.attn_type = attn_type
-        self.self_attn_type = model_config.self_attn_type
         self.layer_cache = (
             False,
             {"keys": torch.tensor([]), "values": torch.tensor([])},
@@ -368,21 +367,15 @@ class MultiHeadedAttention(torch.nn.Module):
             else lambda f, x: f(x)
         )
 
-        try:
+        if getattr(running_config, "self_attn_backend", "") == "flash":
             flash_pack = import_module("flash_attn")
-            if (
-                hasattr(flash_pack, "flash_attn_func")
-                and torch.cuda.get_device_capability()[0] >= 8
-            ):
-                self.flash_attn_func = getattr(flash_pack, "flash_attn_func")
-                self.flash_attn_with_kvcache = getattr(
-                    flash_pack, "flash_attn_with_kvcache"
-                )
-                self.flash2 = True
-            else:
-                self.flash2 = False
-        except ImportError:
-            self.flash2 = False
+            self.flash_attn_func = getattr(flash_pack, "flash_attn_func")
+            self.flash_attn_with_kvcache = getattr(
+                flash_pack, "flash_attn_with_kvcache"
+            )
+            self.flash = True
+        else:
+            self.flash = False
 
     def update_dropout(self, dropout: float) -> None:
         self.dropout.p = dropout
@@ -437,8 +430,7 @@ class MultiHeadedAttention(torch.nn.Module):
 
                 if (
                     step == 0
-                    or not self.flash2
-                    or self.self_attn_type != "scaled-dot-flash"
+                    or not self.flash
                     or self.max_relative_positions not in [0, -1]
                     or query.size(0) > 128
                     or query.dtype != torch.float16
@@ -595,25 +587,16 @@ class MultiHeadedAttention(torch.nn.Module):
             value = value.view(b, -1, 1, l, d).repeat(1, 1, qh // h, 1, 1)
             value = value.view(b, qh, l, d)
 
-        # 2) When standard pos. enc. or rotary, use flash attention
-
-        # Ultimately flashv2 will be part of pytorch https://github.com/pytorch/pytorch/pull/105602
-        # In the meantime: if vanilla tranformer or Rotary embeddings (not rel_pos, not alibi)
-        # then use flash2 if seq len > 256 otherwise use xtransformer from pt2 uptream
-        flash2 = (
-            self.flash2
-            and l > 256  # https://github.com/Dao-AILab/flash-attention/issues/591
-        )
-
+        # 2) When standard pos. enc. or rotary, use flash attention or SDPA
         if (
             self.max_relative_positions in [-1, 0]
             and not return_attn
             and query.device != torch.device("cpu")
-            and self.self_attn_type == "scaled-dot-flash"
         ):
-            # Apply flash2 attention.
             causal = self.is_decoder and self.attn_type == "self" and mask is not None
-            if self.is_decoder and self.attn_type == "self" and flash2:
+            # flash2 works for decoder only, self (not context)
+            # keeping this (vs sdpa below) only because it handles windows_size (not sure if Mistral will keep this)
+            if self.is_decoder and self.attn_type == "self" and self.flash:
                 if causal:
                     window_size = (
                         (-1, -1) if sliding_window == 0 else (sliding_window, 0)
@@ -629,7 +612,7 @@ class MultiHeadedAttention(torch.nn.Module):
                     window_size=window_size,
                 ).transpose(1, 2)
             else:
-                # Apply scaled dot product attention.
+                # Apply pytorch scaled_dot_product_attention.
                 with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
                     attn_output = scaled_dot_product_attention(
                         query,

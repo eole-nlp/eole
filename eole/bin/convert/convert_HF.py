@@ -847,7 +847,6 @@ class LlamaHFConverter(BaseBin):
                 layer_norm=layer_norm,
                 norm_eps=norm_eps,
                 mlp_activation_fn=mlp_activation_fn,
-                self_attn_type="scaled-dot-flash",
                 max_relative_positions=-1,
                 rotary_interleave=rotary_interleave,
                 rotary_theta=rope_theta,

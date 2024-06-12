@@ -135,10 +135,6 @@ class TransformerConfig(Config):
     encoder/decoder values with model values if relevant.
     """
 
-    self_attn_type: Literal["scaled-dot-flash", "scaled-dot"] = Field(
-        default="scaled-dot-flash",
-        description="Self attention type in Transformer decoder layer.",
-    )
     sliding_window: int = Field(
         default=0, description="Sliding window for transformer self-attention."
     )
@@ -221,10 +217,6 @@ class TransformerEncoderConfig(TransformerConfig, EncoderConfig):
     encoder_type: Literal["transformer"] = Field(
         default="transformer"
     )  # not sure it's fully proper use, but inspired from docs -- https://docs.pydantic.dev/latest/concepts/fields/#discriminator # noqa: E501
-    self_attn_type: Literal["scaled-dot-flash", "scaled-dot"] = Field(
-        default="scaled-dot-flash",
-        description="Self attention type in Transformer encoder layer.",
-    )
 
 
 class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
