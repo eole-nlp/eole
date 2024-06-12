@@ -267,10 +267,6 @@ class TrainingConfig(
         default=0.68, description="Threshold to filterout data"
     )
 
-    def update(self, **kwargs):
-        self.__class__.validate(self.__dict__ | kwargs)
-        self.__dict__.update(kwargs)
-
     @field_validator("use_ckpting", mode="after")
     @classmethod
     def checkpointing_layers(cls, field: List[str]):
