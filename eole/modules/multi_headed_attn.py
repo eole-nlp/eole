@@ -595,7 +595,7 @@ class MultiHeadedAttention(torch.nn.Module):
         ):
             causal = self.is_decoder and self.attn_type == "self" and mask is not None
             # flash2 works for decoder only, self (not context)
-            # keeping this (vs sdpa below) only because it handles windows_size (not sure if Mistral will keep this)
+            # keeping this (vs sdpa below) only because it handles windows_size
             if self.is_decoder and self.attn_type == "self" and self.flash:
                 if causal:
                     window_size = (
