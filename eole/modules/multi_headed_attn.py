@@ -590,8 +590,8 @@ class SelfMHA(MultiHeadedAttention):
                 step == 0
                 or not self.flash
                 or self.max_relative_positions not in [0, -1]
-                or query.size(0) > 128 # to check
-                or query.dtype != torch.float16 # to match with flash
+                or query.size(0) > 128  # to check
+                or query.dtype != torch.float16  # to match with flash
             ):
                 if self.max_relative_positions == -1:  # Rotary Embeddings
                     if seqlen + start_pos > self.rope.size(0):
