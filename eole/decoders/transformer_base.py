@@ -30,7 +30,6 @@ class TransformerDecoderLayerBase(nn.Module):
         self.full_context_alignment = model_config.full_context_alignment
         self.alignment_heads = model_config.alignment_heads
         self.sliding_window = model_config.sliding_window
-        self.self_attn_type = model_config.self_attn_type
 
         self.input_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps

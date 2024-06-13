@@ -31,6 +31,7 @@ class TestModel(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super(TestModel, self).__init__(*args, **kwargs)
         self.opt = opt
+        self.opt.training.self_attn_backend = "pytorch"
 
     def get_vocabs(self):
         src_vocab = pyonmttok.build_vocab_from_tokens(
