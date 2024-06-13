@@ -149,7 +149,7 @@ class RunningConfig(DistributedConfig):
             ):
                 pass
             else:
-                self.self_attn_backend = "pytorch"
+                self.__dict__["self_attn_backend"] = "pytorch"
         except ImportError:
-            self.self_attn_backend = "pytorch"
+            self.__dict__["self_attn_backend"] = "pytorch"
         return self
