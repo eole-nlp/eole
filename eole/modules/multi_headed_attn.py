@@ -374,12 +374,42 @@ class MultiHeadedAttention(torch.nn.Module):
         self.dropout.p = dropout
         self.dropout_p = dropout
 
-    def _forward(
+    def _forward1(
+        self, key: Tensor, value: Tensor, query: Tensor
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        """ """
+        # Retrieve keys and values from linear layers (training mode).
+        key = self.maybe_ckpt(self.linear_keys, key)
+        value = self.maybe_ckpt(self.linear_values, value)
+        query = self.maybe_ckpt(self.linear_query, query)
+        key = shape(key, self.dim_per_head)
+        value = shape(value, self.dim_per_head)
+        query = shape(query, self.dim_per_head)
+
+        if self.max_relative_positions == -1:  # Rotary Embeddings
+            start_pos = 0
+            seqlen = query.size(2)
+            if seqlen > self.rope.size(0):
+                # Resize rotary embeddings.
+                self.rope, self.cos, self.sin = rotaryembeddings(
+                    self.rotary_dim,
+                    maxseqlen=(seqlen + 2048),
+                    base=self.rotary_theta,
+                    device=query.device,
+                )
+            rope = self.rope[start_pos : start_pos + seqlen].to(query.device)
+            query, key = apply_rotary_emb(
+                query, key, rope, interleave=self.rotary_interleave
+            )
+        return key, value, query
+
+    def _forward2(
         self,
         key: Tensor,
         value: Tensor,
         query: Tensor,
         mask: Optional[Tensor] = None,
+        causal: Optional[Tensor] = False,
         sliding_window: Optional[int] = 0,
         return_attn: Optional[bool] = False,
     ) -> Tuple[Tensor, Tensor]:
@@ -419,16 +449,13 @@ class MultiHeadedAttention(torch.nn.Module):
             and not return_attn
             and query.device != torch.device("cpu")
         ):
-            causal = self.is_decoder and self.attn_type == "self" and mask is not None
-            # flash2 works for decoder only, self (not context)
             # keeping this (vs sdpa below) only because it handles windows_size
-            if self.is_decoder and self.attn_type == "self" and self.flash:
-                if causal:
-                    window_size = (
-                        (-1, -1) if sliding_window == 0 else (sliding_window, 0)
-                    )
-                else:
-                    window_size = (-1, -1)
+            if self.flash:
+                window_size = (
+                    (-1, -1)
+                    if sliding_window == 0 or not causal
+                    else (sliding_window, 0)
+                )
                 attn_output = self.flash_attn_func(
                     query.transpose(1, 2),
                     key.transpose(1, 2),
@@ -533,7 +560,6 @@ class SelfMHA(MultiHeadedAttention):
         is_decoder: bool = True,
     ) -> None:
         self.max_relative_positions = model_config.max_relative_positions
-        self.attn_type = "self"
         super(SelfMHA, self).__init__(model_config, running_config, is_decoder)
 
     def forward(
@@ -544,10 +570,8 @@ class SelfMHA(MultiHeadedAttention):
         step: Optional[int] = 0,
         return_attn: Optional[bool] = False,
     ) -> Tuple[Tensor, Tensor]:
-        # 1) Project key, value, and query.
-        # as a reminder at training layer_cache[0] remains False
         if self.layer_cache[0]:
-            # Retrieve keys and values from the KV cache (decoding mode only).
+            # Inference
             query, key, value = (
                 self.linear_query(query),
                 self.linear_keys(query),
@@ -655,34 +679,14 @@ class SelfMHA(MultiHeadedAttention):
                 return attn_output, None
 
         else:
-            # Retrieve keys and values from linear layers (training mode).
-            key = self.maybe_ckpt(self.linear_keys, query)
-            value = self.maybe_ckpt(self.linear_values, query)
-            query = self.maybe_ckpt(self.linear_query, query)
-            key = shape(key, self.dim_per_head)
-            value = shape(value, self.dim_per_head)
-            query = shape(query, self.dim_per_head)
+            key, value, query = super()._forward1(query, query, query)
 
-            if self.max_relative_positions == -1:  # Rotary Embeddings
-                start_pos = 0
-                seqlen = query.size(2)
-                if seqlen > self.rope.size(0):
-                    # Resize rotary embeddings.
-                    self.rope, self.cos, self.sin = rotaryembeddings(
-                        self.rotary_dim,
-                        maxseqlen=(seqlen + 2048),
-                        base=self.rotary_theta,
-                        device=query.device,
-                    )
-                rope = self.rope[start_pos : start_pos + seqlen].to(query.device)
-                query, key = apply_rotary_emb(
-                    query, key, rope, interleave=self.rotary_interleave
-                )
-        return super()._forward(
+        return super()._forward2(
             key,
             value,
             query,
             mask=mask,
+            causal=self.is_decoder and mask is not None,
             sliding_window=sliding_window,
             return_attn=return_attn,
         )
@@ -693,11 +697,9 @@ class ContextMHA(MultiHeadedAttention):
         self,
         model_config,
         running_config=None,
-        is_decoder: bool = True,
     ) -> None:
         self.max_relative_positions = 0
-        self.attn_type = "context"
-        super(ContextMHA, self).__init__(model_config, running_config, is_decoder)
+        super(ContextMHA, self).__init__(model_config, running_config, True)
 
     def forward(
         self,
@@ -709,52 +711,28 @@ class ContextMHA(MultiHeadedAttention):
         step: Optional[int] = 0,
         return_attn: Optional[bool] = False,
     ) -> Tuple[Tensor, Tensor]:
-        # 1) Project key, value, and query.
-        # as a reminder at training layer_cache[0] remains False
         if self.layer_cache[0]:
+            # inference: we fill the cross-attention cache only once
             query = self.linear_query(query)
             query = shape(query, self.dim_per_head)
             if self.layer_cache[1]["keys"].numel() == 0:
                 key, value = self.linear_keys(key), self.linear_values(value)
-                key = shape(key, self.dim_per_head)
-                value = shape(value, self.dim_per_head)
-            else:
-                key, value = (
-                    self.layer_cache[1]["keys"],
-                    self.layer_cache[1]["values"],
-                )
-            self.layer_cache[1]["keys"] = key
-            self.layer_cache[1]["values"] = value
-
+                self.layer_cache[1]["keys"] = shape(key, self.dim_per_head)
+                self.layer_cache[1]["values"] = shape(value, self.dim_per_head)
+            key, value = (
+                self.layer_cache[1]["keys"],
+                self.layer_cache[1]["values"],
+            )
         else:
-            # Retrieve keys and values from linear layers (training mode).
-            key = self.maybe_ckpt(self.linear_keys, key)
-            value = self.maybe_ckpt(self.linear_values, value)
-            query = self.maybe_ckpt(self.linear_query, query)
-            key = shape(key, self.dim_per_head)
-            value = shape(value, self.dim_per_head)
-            query = shape(query, self.dim_per_head)
+            # training: we project key, value query and apply rotary if required
+            key, value, query = super()._forward1(key, value, query)
 
-            if self.max_relative_positions == -1:  # Rotary Embeddings
-                start_pos = 0
-                seqlen = query.size(2)
-                if seqlen > self.rope.size(0):
-                    # Resize rotary embeddings.
-                    self.rope, self.cos, self.sin = rotaryembeddings(
-                        self.rotary_dim,
-                        maxseqlen=(seqlen + 2048),
-                        base=self.rotary_theta,
-                        device=query.device,
-                    )
-                rope = self.rope[start_pos : start_pos + seqlen].to(query.device)
-                query, key = apply_rotary_emb(
-                    query, key, rope, interleave=self.rotary_interleave
-                )
-        return super()._forward(
+        return super()._forward2(
             key,
             value,
             query,
             mask=mask,
+            causal=False,
             sliding_window=sliding_window,
             return_attn=return_attn,
         )
