@@ -18,7 +18,7 @@ Also you can read the blog post here: https://huggingface.co/blog/hf-bitsandbyte
 
 You need to add the following option:
 
-* `quant_layers: ['w_1', 'w_2', 'linear_values', 'linear_query']`
+* `quant_layers: ['up_proj', 'down_proj', 'linear_values', 'linear_query']`
 * `quant_type: ['bnb_NF4']`
 
 You can for instane quantize the layers of the PositionWise Feed-Forward from the Encoder/Decoder and the key/query/values/final from the Multi-head attention.

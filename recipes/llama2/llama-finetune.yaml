@@ -85,7 +85,7 @@ training:
     valid_steps: 100
 
     # 4/8bit
-    quant_layers: ['w_1', 'w_2', 'w_3', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
+    quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
     quant_type: "bnb_NF4"
 
     # LoRa
