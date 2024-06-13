@@ -174,7 +174,7 @@ def main(config, device_id):
         training=True,
         running_config=config.training,
     )
-    model = torch.compile(model, dynamic=True)
+
     model.count_parameters(log=logger.info)
     trainable = {
         "torch.float32": 0,
