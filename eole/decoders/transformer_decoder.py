@@ -9,7 +9,7 @@ from eole.decoders.transformer_base import (
     TransformerDecoderLayerBase,
     TransformerDecoderBase,
 )
-from eole.modules.multi_headed_attn import MultiHeadedAttention
+from eole.modules.multi_headed_attn import ContextMHA
 from eole.constants import LayerNorm
 
 
@@ -39,10 +39,9 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
         self.precontext_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
-        self.context_attn = MultiHeadedAttention(
+        self.context_attn = ContextMHA(
             model_config,
             running_config=running_config,
-            attn_type="context",
         )
 
     def update_dropout(self, dropout, attention_dropout):
@@ -94,8 +93,6 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
         norm_layer_in = self.input_layernorm(layer_in)
 
         self_attn, _ = self.self_attn(
-            norm_layer_in,
-            norm_layer_in,
             norm_layer_in,
             mask=dec_mask,
             sliding_window=self.sliding_window,

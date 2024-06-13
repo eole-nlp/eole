@@ -5,7 +5,7 @@ Implementation of "Attention is All You Need"
 import torch.nn as nn
 
 from eole.encoders.encoder import EncoderBase
-from eole.modules.multi_headed_attn import MultiHeadedAttention
+from eole.modules.multi_headed_attn import SelfMHA
 from eole.modules.transformer_mlp import MLP
 from eole.constants import LayerNorm
 
@@ -31,11 +31,10 @@ class TransformerEncoderLayer(nn.Module):
         self.input_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
-        self.self_attn = MultiHeadedAttention(
+        self.self_attn = SelfMHA(
             model_config,
             running_config=running_config,
             is_decoder=False,
-            attn_type="self",
         )
         self.dropout = nn.Dropout(self.dropout_p)
         self.post_attention_layernorm = LayerNorm[model_config.layer_norm](
@@ -57,9 +56,7 @@ class TransformerEncoderLayer(nn.Module):
             * layer_out ``(batch_size, src_len, model_dim)``
         """
         norm_layer_in = self.input_layernorm(layer_in)
-        context, _ = self.self_attn(
-            norm_layer_in, norm_layer_in, norm_layer_in, mask=mask
-        )
+        context, _ = self.self_attn(norm_layer_in, mask=mask)
         if self.dropout_p > 0:
             context = self.dropout(context)
         if self.parallel_residual:

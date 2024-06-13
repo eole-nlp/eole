@@ -260,7 +260,6 @@ class MultiHeadedAttention(torch.nn.Module):
         model_config: model_config: eole.config.models.ModelConfig object
         running_config: TrainingConfig or InferenceConfig derived from RunningConfig
         is_decoder: bool, true if called by the Decoder layers
-        attn_type: "self" or "context"
     """
 
     def __init__(
@@ -268,7 +267,6 @@ class MultiHeadedAttention(torch.nn.Module):
         model_config,
         running_config=None,
         is_decoder: bool = True,
-        attn_type: str = None,
     ) -> None:
         self.dim_per_head = model_config.hidden_size // model_config.heads
         super(MultiHeadedAttention, self).__init__()
@@ -314,12 +312,7 @@ class MultiHeadedAttention(torch.nn.Module):
             bias=model_config.add_qkvbias,
         )
         self.is_decoder = is_decoder
-        if attn_type == "self":
-            self.max_relative_positions = model_config.max_relative_positions
-        else:
-            self.max_relative_positions = 0
         self.relative_positions_buckets = model_config.relative_positions_buckets
-        self.attn_type = attn_type
         self.layer_cache = (
             False,
             {"keys": torch.tensor([]), "values": torch.tensor([])},
@@ -381,14 +374,13 @@ class MultiHeadedAttention(torch.nn.Module):
         self.dropout.p = dropout
         self.dropout_p = dropout
 
-    def forward(
+    def _forward(
         self,
         key: Tensor,
         value: Tensor,
         query: Tensor,
         mask: Optional[Tensor] = None,
         sliding_window: Optional[int] = 0,
-        step: Optional[int] = 0,
         return_attn: Optional[bool] = False,
     ) -> Tuple[Tensor, Tensor]:
         """
@@ -403,178 +395,12 @@ class MultiHeadedAttention(torch.nn.Module):
                query vectors  ``(batch, query_len, dim)``
            mask: binary mask 1/0 indicating which keys have
                zero / non-zero attention ``(batch, query_len, key_len)``
-           step (int): decoding step (used for Rotary embedding)
         Returns:
            (Tensor, Tensor):
 
            * output context vectors ``(batch, query_len, dim)``
            * Attention vector in heads ``(batch, head, query_len, key_len)``.
         """
-        # 1) Project key, value, and query.
-        # as a reminder at training layer_cache[0] remains False
-        key_pad_mask = self.layer_cache[1].get("key_pad_mask", None)
-        if self.layer_cache[0]:
-            # Retrieve keys and values from the KV cache (decoding mode only).
-            if self.attn_type == "self":
-                query, key, value = (
-                    self.linear_query(query),
-                    self.linear_keys(query),
-                    self.linear_values(query),
-                )
-
-                query = shape(query, self.dim_per_head)
-                key = shape(key, self.dim_per_head)
-                value = shape(value, self.dim_per_head)
-                start_pos = step
-                seqlen = query.size(2)
-
-                if (
-                    step == 0
-                    or not self.flash
-                    or self.max_relative_positions not in [0, -1]
-                    or query.size(0) > 128
-                    or query.dtype != torch.float16
-                ):
-                    if self.max_relative_positions == -1:  # Rotary Embeddings
-                        if seqlen + start_pos > self.rope.size(0):
-                            # Resize rotary embeddings.
-                            self.rope, self.cos, self.sin = rotaryembeddings(
-                                self.rotary_dim,
-                                maxseqlen=(seqlen + start_pos + 2048),
-                                base=self.rotary_theta,
-                                device=self.rope.device,
-                            )
-                        rope = self.rope[start_pos : start_pos + seqlen]
-                        query, key = apply_rotary_emb(
-                            query, key, rope, interleave=self.rotary_interleave
-                        )
-
-                    if self.layer_cache[1]["keys"].numel() != 0:
-                        key = torch.cat((self.layer_cache[1]["keys"], key), dim=2)
-                        value = torch.cat((self.layer_cache[1]["values"], value), dim=2)
-                        if sliding_window > 0 and key.size(2) > sliding_window:
-                            key = key[:, :, 1:, :]
-                            value = value[:, :, 1:, :]
-
-                    self.layer_cache[1]["keys"] = key
-                    self.layer_cache[1]["values"] = value
-
-                else:
-                    if start_pos >= self.layer_cache[1]["keys"].size(2):
-                        self.layer_cache[1]["keys"] = torch.cat(
-                            [
-                                self.layer_cache[1]["keys"],
-                                torch.zeros(
-                                    self.layer_cache[1]["keys"].shape[:-2]
-                                    + (32,)
-                                    + self.layer_cache[1]["keys"].shape[-1:],
-                                    device=query.device,
-                                ).half(),
-                            ],
-                            dim=-2,
-                        )
-                        self.layer_cache[1]["values"] = torch.cat(
-                            [
-                                self.layer_cache[1]["values"],
-                                torch.zeros(
-                                    self.layer_cache[1]["values"].shape[:-2]
-                                    + (32,)
-                                    + self.layer_cache[1]["values"].shape[-1:],
-                                    device=query.device,
-                                ).half(),
-                            ],
-                            dim=-2,
-                        )
-                        if (
-                            self.max_relative_positions == -1
-                            and start_pos + 32 >= self.rope.size(0)
-                        ):
-                            # Resize rotary embeddings.
-                            # We take a margin of 32 tokens as the kv_cache
-                            #   is incremented by 32 tokens every 32 tokens.
-                            self.rope, self.cos, self.sin = rotaryembeddings(
-                                self.rotary_dim,
-                                maxseqlen=(start_pos + 2048),
-                                base=self.rotary_theta,
-                                device=self.rope.device,
-                            )
-
-                    if sliding_window > 0 and key.size(2) > sliding_window:
-                        self.layer_cache[1]["keys"] = self.layer_cache[1]["keys"][
-                            :, :, 1:, :
-                        ]
-                        self.layer_cache[1]["values"] = self.layer_cache[1]["values"][
-                            :, :, 1:, :
-                        ]
-                    context = self.flash_attn_with_kvcache(
-                        query.transpose(1, 2),
-                        self.layer_cache[1]["keys"].transpose(1, 2),
-                        self.layer_cache[1]["values"].transpose(1, 2),
-                        key.transpose(1, 2),
-                        value.transpose(1, 2),
-                        rotary_cos=self.cos,
-                        rotary_sin=self.sin,
-                        cache_seqlens=step,
-                        rotary_interleaved=self.rotary_interleave,
-                    ).transpose(1, 2)
-                    attn_output = self.final_linear(unshape(context))
-                    if self.parallel_gpu > 1:
-                        all_reduce(attn_output)
-                    return attn_output, None
-
-            elif self.attn_type == "context":
-                query = self.linear_query(query)
-                query = shape(query, self.dim_per_head)
-                if self.layer_cache[1]["keys"].numel() == 0:
-                    key, value = self.linear_keys(key), self.linear_values(value)
-                    key = shape(key, self.dim_per_head)
-                    value = shape(value, self.dim_per_head)
-                else:
-                    key, value = (
-                        self.layer_cache[1]["keys"],
-                        self.layer_cache[1]["values"],
-                    )
-                self.layer_cache[1]["keys"] = key
-                self.layer_cache[1]["values"] = value
-
-            if key_pad_mask is not None:
-                # Increase the cached key pad mask by concatenation.
-                # For decoding only.
-                if step > 0:
-                    y = torch.zeros(
-                        (key_pad_mask.size(0), key_pad_mask.size(1), 1),
-                        dtype=torch.bool,
-                        device=key_pad_mask.device,
-                    )
-                    self.layer_cache[1]["key_pad_mask"] = torch.cat(
-                        (key_pad_mask, y), 2
-                    )
-                    key_pad_mask = self.layer_cache[1]["key_pad_mask"]
-        else:
-            # Retrieve keys and values from linear layers (training mode).
-            key = self.maybe_ckpt(self.linear_keys, key)
-            value = self.maybe_ckpt(self.linear_values, value)
-            query = self.maybe_ckpt(self.linear_query, query)
-
-            key = shape(key, self.dim_per_head)
-            value = shape(value, self.dim_per_head)
-            query = shape(query, self.dim_per_head)
-
-            if self.max_relative_positions == -1:  # Rotary Embeddings
-                start_pos = 0
-                seqlen = query.size(2)
-                if seqlen > self.rope.size(0):
-                    # Resize rotary embeddings.
-                    self.rope, self.cos, self.sin = rotaryembeddings(
-                        self.rotary_dim,
-                        maxseqlen=(seqlen + 2048),
-                        base=self.rotary_theta,
-                        device=query.device,
-                    )
-                rope = self.rope[start_pos : start_pos + seqlen].to(query.device)
-                query, key = apply_rotary_emb(
-                    query, key, rope, interleave=self.rotary_interleave
-                )
 
         b, h, l, d = key.size()
         if self.heads_kv < self.heads:
@@ -667,8 +493,6 @@ class MultiHeadedAttention(torch.nn.Module):
                 scores = self.alibi(scores)
 
             scores = scores.float()
-            if key_pad_mask is not None and mask is None:
-                mask = key_pad_mask.unsqueeze(1)
 
             if mask is not None:
                 # not 100% necessary but expand to nb of heads
@@ -688,17 +512,249 @@ class MultiHeadedAttention(torch.nn.Module):
                 attn_output.add_(relative_matmul(drop_attn, relations_values, False))
 
         context = unshape(attn_output)
-        if key_pad_mask is not None:
-            if key_pad_mask.size(0) > 1 and context.size(1) > 1:
-                x = key_pad_mask.squeeze(1).unsqueeze(2).expand(-1, -1, context.size(2))
-                context = context.masked_fill(x, 0)
 
         if self.layer_cache[0]:
             attn_output = self.final_linear(context)
         else:
-            attn_output = self.maybe_ckpt(self.final_linear, context)
+            # attn_output = self.maybe_ckpt(self.final_linear, context)
+            attn_output = self.final_linear(context)
 
         if self.parallel_gpu > 1:
             all_reduce(attn_output)
 
         return attn_output, attn
+
+
+class SelfMHA(MultiHeadedAttention):
+    def __init__(
+        self,
+        model_config,
+        running_config=None,
+        is_decoder: bool = True,
+    ) -> None:
+        self.max_relative_positions = model_config.max_relative_positions
+        self.attn_type = "self"
+        super(SelfMHA, self).__init__(model_config, running_config, is_decoder)
+
+    def forward(
+        self,
+        query: Tensor,
+        mask: Optional[Tensor] = None,
+        sliding_window: Optional[int] = 0,
+        step: Optional[int] = 0,
+        return_attn: Optional[bool] = False,
+    ) -> Tuple[Tensor, Tensor]:
+        # 1) Project key, value, and query.
+        # as a reminder at training layer_cache[0] remains False
+        if self.layer_cache[0]:
+            # Retrieve keys and values from the KV cache (decoding mode only).
+            query, key, value = (
+                self.linear_query(query),
+                self.linear_keys(query),
+                self.linear_values(query),
+            )
+
+            query = shape(query, self.dim_per_head)
+            key = shape(key, self.dim_per_head)
+            value = shape(value, self.dim_per_head)
+            start_pos = step
+            seqlen = query.size(2)
+
+            if (
+                step == 0
+                or not self.flash
+                or self.max_relative_positions not in [0, -1]
+                or query.size(0) > 128
+                or query.dtype != torch.float16
+            ):
+                if self.max_relative_positions == -1:  # Rotary Embeddings
+                    if seqlen + start_pos > self.rope.size(0):
+                        # Resize rotary embeddings.
+                        self.rope, self.cos, self.sin = rotaryembeddings(
+                            self.rotary_dim,
+                            maxseqlen=(seqlen + start_pos + 2048),
+                            base=self.rotary_theta,
+                            device=self.rope.device,
+                        )
+                    rope = self.rope[start_pos : start_pos + seqlen]
+                    query, key = apply_rotary_emb(
+                        query, key, rope, interleave=self.rotary_interleave
+                    )
+
+                if self.layer_cache[1]["keys"].numel() != 0:
+                    key = torch.cat((self.layer_cache[1]["keys"], key), dim=2)
+                    value = torch.cat((self.layer_cache[1]["values"], value), dim=2)
+                    if sliding_window > 0 and key.size(2) > sliding_window:
+                        key = key[:, :, 1:, :]
+                        value = value[:, :, 1:, :]
+
+                self.layer_cache[1]["keys"] = key
+                self.layer_cache[1]["values"] = value
+
+            else:
+                if start_pos >= self.layer_cache[1]["keys"].size(2):
+                    self.layer_cache[1]["keys"] = torch.cat(
+                        [
+                            self.layer_cache[1]["keys"],
+                            torch.zeros(
+                                self.layer_cache[1]["keys"].shape[:-2]
+                                + (32,)
+                                + self.layer_cache[1]["keys"].shape[-1:],
+                                device=query.device,
+                            ).half(),
+                        ],
+                        dim=-2,
+                    )
+                    self.layer_cache[1]["values"] = torch.cat(
+                        [
+                            self.layer_cache[1]["values"],
+                            torch.zeros(
+                                self.layer_cache[1]["values"].shape[:-2]
+                                + (32,)
+                                + self.layer_cache[1]["values"].shape[-1:],
+                                device=query.device,
+                            ).half(),
+                        ],
+                        dim=-2,
+                    )
+                    if (
+                        self.max_relative_positions == -1
+                        and start_pos + 32 >= self.rope.size(0)
+                    ):
+                        # Resize rotary embeddings.
+                        # We take a margin of 32 tokens as the kv_cache
+                        #   is incremented by 32 tokens every 32 tokens.
+                        self.rope, self.cos, self.sin = rotaryembeddings(
+                            self.rotary_dim,
+                            maxseqlen=(start_pos + 2048),
+                            base=self.rotary_theta,
+                            device=self.rope.device,
+                        )
+
+                if sliding_window > 0 and key.size(2) > sliding_window:
+                    self.layer_cache[1]["keys"] = self.layer_cache[1]["keys"][
+                        :, :, 1:, :
+                    ]
+                    self.layer_cache[1]["values"] = self.layer_cache[1]["values"][
+                        :, :, 1:, :
+                    ]
+                context = self.flash_attn_with_kvcache(
+                    query.transpose(1, 2),
+                    self.layer_cache[1]["keys"].transpose(1, 2),
+                    self.layer_cache[1]["values"].transpose(1, 2),
+                    key.transpose(1, 2),
+                    value.transpose(1, 2),
+                    rotary_cos=self.cos,
+                    rotary_sin=self.sin,
+                    cache_seqlens=step,
+                    rotary_interleaved=self.rotary_interleave,
+                ).transpose(1, 2)
+                attn_output = self.final_linear(unshape(context))
+                if self.parallel_gpu > 1:
+                    all_reduce(attn_output)
+                return attn_output, None
+
+        else:
+            # Retrieve keys and values from linear layers (training mode).
+            key = self.maybe_ckpt(self.linear_keys, query)
+            value = self.maybe_ckpt(self.linear_values, query)
+            query = self.maybe_ckpt(self.linear_query, query)
+            key = shape(key, self.dim_per_head)
+            value = shape(value, self.dim_per_head)
+            query = shape(query, self.dim_per_head)
+
+            if self.max_relative_positions == -1:  # Rotary Embeddings
+                start_pos = 0
+                seqlen = query.size(2)
+                if seqlen > self.rope.size(0):
+                    # Resize rotary embeddings.
+                    self.rope, self.cos, self.sin = rotaryembeddings(
+                        self.rotary_dim,
+                        maxseqlen=(seqlen + 2048),
+                        base=self.rotary_theta,
+                        device=query.device,
+                    )
+                rope = self.rope[start_pos : start_pos + seqlen].to(query.device)
+                query, key = apply_rotary_emb(
+                    query, key, rope, interleave=self.rotary_interleave
+                )
+        return super()._forward(
+            key,
+            value,
+            query,
+            mask=mask,
+            sliding_window=sliding_window,
+            return_attn=return_attn,
+        )
+
+
+class ContextMHA(MultiHeadedAttention):
+    def __init__(
+        self,
+        model_config,
+        running_config=None,
+        is_decoder: bool = True,
+    ) -> None:
+        self.max_relative_positions = 0
+        self.attn_type = "context"
+        super(ContextMHA, self).__init__(model_config, running_config, is_decoder)
+
+    def forward(
+        self,
+        key: Tensor,
+        value: Tensor,
+        query: Tensor,
+        mask: Optional[Tensor] = None,
+        sliding_window: Optional[int] = 0,
+        step: Optional[int] = 0,
+        return_attn: Optional[bool] = False,
+    ) -> Tuple[Tensor, Tensor]:
+        # 1) Project key, value, and query.
+        # as a reminder at training layer_cache[0] remains False
+        if self.layer_cache[0]:
+            query = self.linear_query(query)
+            query = shape(query, self.dim_per_head)
+            if self.layer_cache[1]["keys"].numel() == 0:
+                key, value = self.linear_keys(key), self.linear_values(value)
+                key = shape(key, self.dim_per_head)
+                value = shape(value, self.dim_per_head)
+            else:
+                key, value = (
+                    self.layer_cache[1]["keys"],
+                    self.layer_cache[1]["values"],
+                )
+            self.layer_cache[1]["keys"] = key
+            self.layer_cache[1]["values"] = value
+
+        else:
+            # Retrieve keys and values from linear layers (training mode).
+            key = self.maybe_ckpt(self.linear_keys, key)
+            value = self.maybe_ckpt(self.linear_values, value)
+            query = self.maybe_ckpt(self.linear_query, query)
+            key = shape(key, self.dim_per_head)
+            value = shape(value, self.dim_per_head)
+            query = shape(query, self.dim_per_head)
+
+            if self.max_relative_positions == -1:  # Rotary Embeddings
+                start_pos = 0
+                seqlen = query.size(2)
+                if seqlen > self.rope.size(0):
+                    # Resize rotary embeddings.
+                    self.rope, self.cos, self.sin = rotaryembeddings(
+                        self.rotary_dim,
+                        maxseqlen=(seqlen + 2048),
+                        base=self.rotary_theta,
+                        device=query.device,
+                    )
+                rope = self.rope[start_pos : start_pos + seqlen].to(query.device)
+                query, key = apply_rotary_emb(
+                    query, key, rope, interleave=self.rotary_interleave
+                )
+        return super()._forward(
+            key,
+            value,
+            query,
+            mask=mask,
+            sliding_window=sliding_window,
+            return_attn=return_attn,
+        )
