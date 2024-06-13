@@ -107,7 +107,7 @@ jobs:
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
           -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "lambda_align": 0.05, "alignment_layer": 2, "alignment_heads": 0, "heads": 2}}' \
-          -training '{"self_attn_backend": "pytorch", "batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "dropout_steps": [0, 3, 7], "dropout": [0.3, 0.2, 0.1], "attention_dropout": [0.2, 0.2, 0.1]}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "dropout_steps": [0, 3, 7], "dropout": [0.3, 0.2, 0.1], "attention_dropout": [0.2, 0.2, 0.1]}' \
           -report_every 5 \
     - name : Test Transformer training and validation with dynamic scoring
       run: |
@@ -118,7 +118,7 @@ jobs:
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
           -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 16, "embeddings": {"word_vec_size": 16, "position_encoding": True}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "heads": 2}}' \
-          -training '{"self_attn_backend": "pytorch", "batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5, "accum_count": [2, 4, 8], "accum_steps": [0, 3, 7], "model_path": "/tmp/eole.model"}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5, "accum_count": [2, 4, 8], "accum_steps": [0, 3, 7], "model_path": "/tmp/eole.model"}' \
           -report_every 2 \
           -valid_metrics "BLEU" "TER" \
           -tensorboard \
@@ -135,7 +135,7 @@ jobs:
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
           -model '{"architecture": "transformer", "layers": 4, "heads": 2, "hidden_size": 16, "transformer_ff": 64, "max_relative_positions": 8, "embeddings": {"word_vec_size": 16}}' \
-          -training '{"self_attn_backend": "pytorch", "batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
           -report_every 2 \
           -valid_metrics "BLEU" "TER" \
           -tensorboard \
@@ -152,7 +152,7 @@ jobs:
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
           -model '{"architecture": "transformer", "layers": 4, "heads": 2, "hidden_size": 16, "transformer_ff": 64, "max_relative_positions": -1, "embeddings": {"word_vec_size": 16}}' \
-          -training '{"self_attn_backend": "pytorch", "batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
           -report_every 2 \
           -valid_metrics "BLEU" "TER" \
           -tensorboard \
@@ -169,7 +169,7 @@ jobs:
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
           -model '{"architecture": "transformer", "layers": 4, "heads": 2, "hidden_size": 16, "transformer_ff": 64, "max_relative_positions": -2, "embeddings": {"word_vec_size": 16}}' \
-          -training '{"self_attn_backend": "pytorch", "batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
+          -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
           -report_every 2 \
           -valid_metrics "BLEU" "TER" \
           -tensorboard \
@@ -184,7 +184,7 @@ jobs:
             -src_vocab /tmp/eole.vocab.src \
             -tgt_vocab /tmp/eole.vocab.src \
             -model '{"hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "layers": 2, "heads": 4}}' \
-            -training '{"self_attn_backend": "pytorch", "batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
+            -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
             -report_every 5
