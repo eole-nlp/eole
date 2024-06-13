@@ -614,6 +614,16 @@ class SelfMHA(MultiHeadedAttention):
                         key = key[:, :, 1:, :]
                         value = value[:, :, 1:, :]
 
+                if step == 0:
+                    key_pad_mask = self.layer_cache[1].get("key_pad_mask", None)
+                    if key_pad_mask is not None:
+                        x = key_pad_mask.expand(
+                            -1, self.heads // self.parallel_gpu, -1
+                        )
+                        x = x.unsqueeze(3)
+                        x = x.expand(-1, -1, -1, value.size(3))
+                        value = value.masked_fill(x, 0)
+
                 self.layer_cache[1]["keys"] = key
                 self.layer_cache[1]["values"] = value
 
