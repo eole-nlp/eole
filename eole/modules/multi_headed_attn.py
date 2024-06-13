@@ -409,7 +409,7 @@ class MultiHeadedAttention(torch.nn.Module):
         value: Tensor,
         query: Tensor,
         mask: Optional[Tensor] = None,
-        causal: Optional[Tensor] = False,
+        attn_type: Optional[str] = "self",
         sliding_window: Optional[int] = 0,
         return_attn: Optional[bool] = False,
     ) -> Tuple[Tensor, Tensor]:
@@ -449,8 +449,10 @@ class MultiHeadedAttention(torch.nn.Module):
             and not return_attn
             and query.device != torch.device("cpu")
         ):
+            causal = self.is_decoder and attn_type == "self" and mask is not None
             # keeping this (vs sdpa below) only because it handles windows_size
-            if self.flash:
+            # also flash_attn_func does not support pad mask so not for encoder not for context attn
+            if self.flash and self.is_decoder and attn_type == "self":
                 window_size = (
                     (-1, -1)
                     if sliding_window == 0 or not causal
@@ -588,8 +590,8 @@ class SelfMHA(MultiHeadedAttention):
                 step == 0
                 or not self.flash
                 or self.max_relative_positions not in [0, -1]
-                or query.size(0) > 128
-                or query.dtype != torch.float16
+                or query.size(0) > 128 # to check
+                or query.dtype != torch.float16 # to match with flash
             ):
                 if self.max_relative_positions == -1:  # Rotary Embeddings
                     if seqlen + start_pos > self.rope.size(0):
@@ -686,7 +688,7 @@ class SelfMHA(MultiHeadedAttention):
             value,
             query,
             mask=mask,
-            causal=self.is_decoder and mask is not None,
+            attn_type="self",
             sliding_window=sliding_window,
             return_attn=return_attn,
         )
@@ -732,7 +734,7 @@ class ContextMHA(MultiHeadedAttention):
             value,
             query,
             mask=mask,
-            causal=False,
+            attn_type="context",
             sliding_window=sliding_window,
             return_attn=return_attn,
         )
