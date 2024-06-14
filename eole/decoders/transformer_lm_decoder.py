@@ -55,8 +55,6 @@ class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
 
         attn_output, attns = self.self_attn(
             norm_layer_in,
-            norm_layer_in,
-            norm_layer_in,
             mask=dec_mask,
             sliding_window=self.sliding_window,
             step=step,
