@@ -345,4 +345,10 @@ class TrainingConfig(
                 "states",
                 "all",
             ], '-update_vocab needs -reset_optim "states" or "all"'
+
+        if self.param_init != 0.0 and self.param_init_method == "xavier_uniform":
+            logger.warn(
+                f"xavier_uniform initialization does not require param_init ({self.param_init})"
+            )
+
         return self
