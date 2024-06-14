@@ -545,8 +545,7 @@ class MultiHeadedAttention(torch.nn.Module):
         if self.layer_cache[0]:
             attn_output = self.final_linear(context)
         else:
-            # attn_output = self.maybe_ckpt(self.final_linear, context)
-            attn_output = self.final_linear(context)
+            attn_output = self.maybe_ckpt(self.final_linear, context)
 
         if self.parallel_gpu > 1:
             all_reduce(attn_output)
@@ -573,19 +572,15 @@ class SelfMHA(MultiHeadedAttention):
         return_attn: Optional[bool] = False,
     ) -> Tuple[Tensor, Tensor]:
         if self.layer_cache[0]:
-            # Inference
-            query, key, value = (
-                self.linear_query(query),
-                self.linear_keys(query),
-                self.linear_values(query),
-            )
-
+            # Inference step decoding
+            query = self.linear_query(query)
+            key = self.linear_keys(query)
+            value = self.linear_values(query)
             query = shape(query, self.dim_per_head)
             key = shape(key, self.dim_per_head)
             value = shape(value, self.dim_per_head)
             start_pos = step
             seqlen = query.size(2)
-
             if (
                 step == 0
                 or not self.flash
@@ -606,14 +601,14 @@ class SelfMHA(MultiHeadedAttention):
                     query, key = apply_rotary_emb(
                         query, key, rope, interleave=self.rotary_interleave
                     )
-
+                # update the cache
                 if self.layer_cache[1]["keys"].numel() != 0:
                     key = torch.cat((self.layer_cache[1]["keys"], key), dim=2)
                     value = torch.cat((self.layer_cache[1]["values"], value), dim=2)
                     if sliding_window > 0 and key.size(2) > sliding_window:
                         key = key[:, :, 1:, :]
                         value = value[:, :, 1:, :]
-
+                # mask values for LM left padding by batch
                 if step == 0:
                     key_pad_mask = self.layer_cache[1].get("key_pad_mask", None)
                     if key_pad_mask is not None:
@@ -626,6 +621,7 @@ class SelfMHA(MultiHeadedAttention):
                 self.layer_cache[1]["values"] = value
 
             else:
+                # Fast path with flash_attn_with_kvcache
                 if start_pos >= self.layer_cache[1]["keys"].size(2):
                     self.layer_cache[1]["keys"] = torch.cat(
                         [
