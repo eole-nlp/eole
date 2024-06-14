@@ -5,7 +5,7 @@ from torch.nn.utils import clip_grad_norm_
 import operator
 import functools
 from copy import copy
-from math import sqrt
+from math import sqrt, cos, pi
 import types
 import os
 import importlib
@@ -41,21 +41,43 @@ def build_torch_optimizer(model, config):
     params = [p for p in model.parameters() if p.requires_grad]
     betas = [config.adam_beta1, config.adam_beta2]
     if config.optim == "sgd":
-        optimizer = optim.SGD(params, lr=config.learning_rate)
+        optimizer = optim.SGD(
+            params, lr=config.learning_rate, weight_decay=config.weight_decay
+        )
     elif config.optim == "adagrad":
         optimizer = optim.Adagrad(
             params,
             lr=config.learning_rate,
             initial_accumulator_value=config.adagrad_accumulator_init,
+            weight_decay=config.weight_decay,
         )
     elif config.optim == "adadelta":
-        optimizer = optim.Adadelta(params, lr=config.learning_rate)
+        optimizer = optim.Adadelta(
+            params, lr=config.learning_rate, weight_decay=config.weight_decay
+        )
     elif config.optim == "adafactor":
         optimizer = AdaFactor(
-            params, non_constant_decay=True, enable_factorization=True, weight_decay=0
+            params,
+            non_constant_decay=True,
+            enable_factorization=True,
+            weight_decay=config.weight_decay,
         )
     elif config.optim == "adam":
-        optimizer = optim.Adam(params, lr=config.learning_rate, betas=betas, eps=1e-8)
+        optimizer = optim.Adam(
+            params,
+            lr=config.learning_rate,
+            betas=betas,
+            eps=1e-8,
+            weight_decay=config.weight_decay,
+        )
+    elif config.optim == "adamw":
+        optimizer = optim.AdamW(
+            params,
+            lr=config.learning_rate,
+            betas=betas,
+            eps=1e-8,
+            weight_decay=config.weight_decay,
+        )
     elif config.optim == "sparseadam":
         dense = []
         sparse = []
@@ -178,6 +200,12 @@ def make_learning_rate_decay_fn(config):
             decay_steps=running_config.decay_steps,
             start_step=running_config.start_decay_steps,
         )
+    elif running_config.decay_method == "cosine":
+        return functools.partial(
+            cosine_decay,
+            warmup_steps=running_config.warmup_steps,
+            train_steps=running_config.train_steps,
+        )
     elif running_config.decay_method == "rsqrt":
         return functools.partial(rsqrt_decay, warmup_steps=running_config.warmup_steps)
     elif running_config.start_decay_steps is not None:
@@ -203,6 +231,14 @@ def noamwd_decay(step, warmup_steps, model_size, rate, decay_steps, start_step=0
         * min(step ** (-0.5), step * warmup_steps ** (-1.5))
         * rate ** (max(step - start_step + decay_steps, 0) // decay_steps)
     )
+
+
+def cosine_decay(step, warmup_steps, train_steps):
+    if step < warmup_steps:
+        return step / warmup_steps
+    else:
+        decay_ratio = (step - warmup_steps) / (train_steps - warmup_steps)
+        return 0.5 * (1.0 + cos(pi * decay_ratio))
 
 
 def exponential_decay(step, rate, decay_steps, start_step=0):
@@ -365,11 +401,13 @@ class Optimizer(object):
         """True if use torch amp mix precision training."""
         return self._fp16 == "amp"
 
-    def learning_rate(self):
+    def learning_rate(self, step=None):
         """Returns the current learning rate."""
+        if step is None:
+            step = self._decay_step
         if self._learning_rate_decay_fn is None:
             return self._learning_rate
-        scale = self._learning_rate_decay_fn(self._decay_step)
+        scale = self._learning_rate_decay_fn(step)
         return scale * self._learning_rate
 
     def state_dict(self):

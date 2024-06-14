@@ -58,9 +58,8 @@ training:
     decay_method: "noam"
     adam_beta2: 0.998
     max_grad_norm: 0
-    label_smoothing: 0.1
-    param_init: 0
-    param_init_glorot: true
+    # label_smoothing: 0.1 # hindering loss/ppl values
+    param_init_method: xavier_uniform
     normalization: "tokens"
     # Where to save the checkpoints
     model_path: data/wikitext/wikitext-103-raw-v1/run/model-lm

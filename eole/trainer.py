@@ -332,7 +332,7 @@ class Trainer(object):
                 self._update_average(step)
 
             report_stats = self._maybe_report_training(
-                step, train_steps, self.optim.learning_rate(), report_stats
+                step, train_steps, self.optim.learning_rate(step=step), report_stats
             )
 
             if valid_iter is not None and step % valid_steps == 0:

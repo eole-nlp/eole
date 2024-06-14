@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from glob import glob
+from functools import partial
 import os
 
 from eole.utils.logging import logger
@@ -12,7 +13,7 @@ from eole.modules.lora import (
     mark_only_lora_as_trainable,
 )
 from torch.nn.utils import skip_init
-from torch.nn.init import xavier_uniform_, zeros_, uniform_
+from torch.nn.init import xavier_uniform_, zeros_, uniform_, normal_
 from eole.utils.misc import use_gpu, sequence_mask
 from eole.inputters.inputter import dict_to_vocabs
 
@@ -423,6 +424,29 @@ class BaseModel(nn.Module):
         )
         return vocabs, model, model_config
 
+    def init_weights(self, running_config):
+        match running_config.param_init_method:
+            case "normal":
+                for module in self.modules():
+                    for param_name, param in module.named_parameters():
+                        if param_name == "weight" and param.dim() > 1:
+                            normal_(module.weight, mean=0.0, std=param_init)
+                        elif param_name == "bias":
+                            zeros_(param)
+            case "uniform":
+                # taken from legacy code, we might want to zero bias for coherence
+                for param in self.parameters():
+                    uniform_(
+                        param, -running_config.param_init, running_config.param_init
+                    )
+            case "xavier_uniform":
+                for module in self.modules():
+                    for param_name, param in module.named_parameters():
+                        if param_name == "weight" and param.dim() > 1:
+                            xavier_uniform_(param)
+                        elif param_name == "bias":
+                            zeros_(param)
+
     @classmethod
     def from_config(
         cls,
@@ -470,20 +494,7 @@ class BaseModel(nn.Module):
         # If new training initialize the model params
         # If update_vocab init also but checkpoint will overwrite old weights
         if checkpoint is None or getattr(running_config, "update_vocab", False):
-            if running_config.param_init != 0.0:
-                for param in model.parameters():
-                    uniform_(
-                        param, -running_config.param_init, running_config.param_init
-                    )
-            elif running_config.param_init_glorot:
-                for name, module in model.named_modules():
-                    for param_name, param in module.named_parameters():
-                        if param_name == "weight" and param.dim() > 1:
-                            xavier_uniform_(param)
-                        elif param_name == "bias":
-                            zeros_(param)
-            else:
-                raise ValueError("You need either param_init != 0 OR init_glorot True")
+            model.init_weights(running_config)
 
             if hasattr(model, "encoder") and hasattr(model.encoder, "embeddings"):
                 model.src_emb.load_pretrained_vectors(running_config.pre_word_vecs_enc)
