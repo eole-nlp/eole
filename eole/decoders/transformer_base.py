@@ -6,7 +6,7 @@ subsequent transformer based architectures
 import torch
 import torch.nn as nn
 from eole.decoders.decoder import DecoderBase
-from eole.modules.multi_headed_attn import MultiHeadedAttention
+from eole.modules.multi_headed_attn import SelfMHA
 from eole.modules.transformer_mlp import MLP
 from eole.modules.moe import MoE
 from eole.constants import LayerNorm
@@ -30,15 +30,13 @@ class TransformerDecoderLayerBase(nn.Module):
         self.full_context_alignment = model_config.full_context_alignment
         self.alignment_heads = model_config.alignment_heads
         self.sliding_window = model_config.sliding_window
-        self.self_attn_type = model_config.self_attn_type
 
         self.input_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
-        self.self_attn = MultiHeadedAttention(
+        self.self_attn = SelfMHA(
             model_config,
             running_config=running_config,
-            attn_type="self",
         )
         self.dropout = nn.Dropout(self.dropout_p)
         self.post_attention_layernorm = LayerNorm[model_config.layer_norm](

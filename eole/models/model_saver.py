@@ -162,10 +162,10 @@ class TrainingModelSaver(ModelSaverBase):
                 "linear_keys",
                 "linear_values",
                 "linear_query",
-                "w_1",
-                "w_3",
+                "gate_up_proj",
+                "up_proj",
             }
-            cat_params = {"final_linear", "w_2"}
+            cat_params = {"final_linear", "down_proj"}
             # we probably should try and improve this to rely on dimensions instead of names
             match key_1, key_2:
                 case "lora_A", _ if key_2 in averaged_params:

@@ -564,8 +564,8 @@ class BaseModel(nn.Module):
             "linear_keys",
             "linear_values",
             "linear_query",
-            "w_1",
-            "w_3",
+            "gate_up_proj",
+            "up_proj",
         ]:
             col_slice_start = param.data.size(0) * offset
             col_slice_end = param.data.size(0) * (offset + 1)
@@ -573,7 +573,7 @@ class BaseModel(nn.Module):
             col_slice_start = 0
             col_slice_end = param.data.size(0)
         if param.data.dim() == 2:
-            if name.split(".")[-1] in ["final_linear", "w_2"]:
+            if name.split(".")[-1] in ["final_linear", "down_proj"]:
                 row_slice_start = param.data.size(1) * offset
                 row_slice_end = param.data.size(1) * (offset + 1)
             else:
