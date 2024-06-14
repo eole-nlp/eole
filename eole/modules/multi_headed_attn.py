@@ -573,12 +573,12 @@ class SelfMHA(MultiHeadedAttention):
     ) -> Tuple[Tensor, Tensor]:
         if self.layer_cache[0]:
             # Inference step decoding
-            query = self.linear_query(query)
             key = self.linear_keys(query)
             value = self.linear_values(query)
-            query = shape(query, self.dim_per_head)
+            query = self.linear_query(query)
             key = shape(key, self.dim_per_head)
             value = shape(value, self.dim_per_head)
+            query = shape(query, self.dim_per_head)
             start_pos = step
             seqlen = query.size(2)
             if (
