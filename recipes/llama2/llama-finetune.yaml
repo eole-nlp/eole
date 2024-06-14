@@ -71,8 +71,7 @@ training:
     accum_steps: [0]
     max_grad_norm: 0
     label_smoothing: 0.0
-    param_init: 0
-    param_init_glorot: true
+    param_init_method: xavier_uniform
     normalization: "tokens"  
     
     # folders
