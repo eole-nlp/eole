@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from glob import glob
-from functools import partial
 import os
 
 from eole.utils.logging import logger
@@ -430,7 +429,9 @@ class BaseModel(nn.Module):
                 for module in self.modules():
                     for param_name, param in module.named_parameters():
                         if param_name == "weight" and param.dim() > 1:
-                            normal_(module.weight, mean=0.0, std=param_init)
+                            normal_(
+                                module.weight, mean=0.0, std=running_config.param_init
+                            )
                         elif param_name == "bias":
                             zeros_(param)
             case "uniform":
