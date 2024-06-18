@@ -25,7 +25,7 @@ jobs:
         pip install sacrebleu
         pip install flake8
         pip install rich
-        python -m pip install black==22.* flake8==3.8.*
+        python -m pip install black==22.* flake8==3.8.* numpy<2.0
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     - name: Check code with Black
       run: |
