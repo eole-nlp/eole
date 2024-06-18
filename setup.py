@@ -38,7 +38,7 @@ setup(
         "sentencepiece",
         "huggingface_hub",
         "sentencepiece>=0.1.94,<0.1.98",
-        "subword-nmt>=0.3.7"
+        "subword-nmt>=0.3.7",
     ],
     entry_points={
         "console_scripts": [
