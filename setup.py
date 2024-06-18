@@ -21,6 +21,7 @@ setup(
         "torch>=2.3,<2.4",
         "configargparse",
         "ctranslate2>=4,<5",
+        "numpy<2.0",
         "tensorboard>=2.3",
         "flask",
         "waitress",
@@ -37,8 +38,7 @@ setup(
         "sentencepiece",
         "huggingface_hub",
         "sentencepiece>=0.1.94,<0.1.98",
-        "subword-nmt>=0.3.7",
-        "numpy<2.0"
+        "subword-nmt>=0.3.7"
     ],
     entry_points={
         "console_scripts": [
