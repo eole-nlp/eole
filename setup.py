@@ -21,6 +21,7 @@ setup(
         "torch>=2.3,<2.4",
         "configargparse",
         "ctranslate2>=4,<5",
+        "numpy<2.0",
         "tensorboard>=2.3",
         "flask",
         "waitress",
