@@ -49,6 +49,7 @@ class ModelTask(str, Enum):
 class PositionEncodingType(str, Enum):
     SinusoidalInterleaved = "SinusoidalInterleaved"
     SinusoidalConcat = "SinusoidalConcat"
+    Learned = "Learned"
 
 
 class ActivationFunction(str, Enum):

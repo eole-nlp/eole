@@ -70,6 +70,7 @@ def build_src_emb(model_config, vocabs, running_config=None):
             word_vocab_size=len(vocabs["src"]),
             sparse=getattr(running_config, "optim", None) == "sparseadam",
             freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
+            n_positions=model_config.embeddings.n_positions,
         )
     else:
         src_emb = None
@@ -89,6 +90,7 @@ def build_tgt_emb(
         word_vocab_size=len(vocabs["tgt"]),
         sparse=getattr(running_config, "optim", None) == "sparseadam",
         freeze_word_vecs=model_config.embeddings.freeze_word_vecs_dec,
+        n_positions=model_config.embeddings.n_positions,
     )
 
     if share_embeddings:
@@ -309,6 +311,8 @@ class BaseModel(nn.Module):
         # override gpu_ranks/world_size to prevent warnings
         training_config.gpu_ranks = running_config.gpu_ranks
         training_config.world_size = running_config.world_size
+        # retrieve share_vocab flag from checkpoint config
+        running_config.share_vocab = checkpoint["config"].share_vocab
         # in fine we might have some nested Lora/QuantizeConfig that are updated from checkpoint values # noqa: E501
         # should quant type be in model config or running config ?
         if hasattr(training_config, "quant_type") and training_config.quant_type in [
@@ -574,7 +578,10 @@ class BaseModel(nn.Module):
                     col_slice_start:col_slice_end,
                     row_slice_start:row_slice_end,
                 ].size()
-            ), "An error in model's partition and checkpoint's slice was detected"
+            ), (
+                "An error in model's partition and checkpoint's slice was detected, "
+                f"[{name}, {module}, {param_name}, {param.data.size()}, {ckpt_t.size()}]"
+            )
             if name + "." + param_name in buf_list:
                 if module.__class__.__name__ == "WQLinear_GEMM":
                     module.register_buffer(

@@ -154,6 +154,7 @@ class InferenceEnginePY(InferenceEngine):
             self.transforms_cls = get_transforms_cls(config._all_transform)
             self.vocabs = self.predictor.vocabs
             self.transforms = make_transforms(config, self.transforms_cls, self.vocabs)
+            self.transform_pipe = TransformPipe.build_from(self.transforms.values())
 
     def _predict(self, infer_iter):
         scores, estims, preds = self.predictor._predict(
@@ -166,7 +167,7 @@ class InferenceEnginePY(InferenceEngine):
 
     def _score(self, infer_iter):
         self.predictor.with_scores = True
-        self.return_gold_log_probs = True
+        self.predictor.return_gold_log_probs = True
         return self.predictor._score(infer_iter)
 
     def score_list_parallel(self, src):
