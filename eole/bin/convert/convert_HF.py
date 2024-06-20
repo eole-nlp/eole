@@ -651,8 +651,18 @@ class LlamaHFConverter(BaseBin):
                 for key in weightmap.keys():
                     if (
                         (
-                            key.startswith(key_maps[arch]["decoder_layer_prefix"])
-                            or key.startswith(key_maps[arch]["encoder_layer_prefix"])
+                            (
+                                key_maps[arch]["decoder_layer_prefix"] is not None
+                                and key.startswith(
+                                    key_maps[arch]["decoder_layer_prefix"]
+                                )
+                            )
+                            or (
+                                key_maps[arch]["encoder_layer_prefix"] is not None
+                                and key.startswith(
+                                    key_maps[arch]["encoder_layer_prefix"]
+                                )
+                            )
                         )
                         and int(key.split(".")[2])
                         in range(
