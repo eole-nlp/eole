@@ -65,6 +65,7 @@ def build_src_emb(model_config, vocabs, running_config=None):
             word_vec_size=model_config.embeddings.src_word_vec_size,
             position_encoding=model_config.embeddings.position_encoding,
             position_encoding_type=model_config.embeddings.position_encoding_type,
+            position_shift=model_config.embeddings.position_shift,
             dropout=getattr(running_config, "dropout", [0.0])[0],
             word_padding_idx=vocabs["src"][DefaultTokens.PAD],
             word_vocab_size=len(vocabs["src"]),
@@ -85,6 +86,7 @@ def build_tgt_emb(
         word_vec_size=model_config.embeddings.tgt_word_vec_size,
         position_encoding=model_config.embeddings.position_encoding,
         position_encoding_type=model_config.embeddings.position_encoding_type,
+        position_shift=model_config.embeddings.position_shift,
         dropout=getattr(running_config, "dropout", [0.0])[0],
         word_padding_idx=vocabs["tgt"][DefaultTokens.PAD],
         word_vocab_size=len(vocabs["tgt"]),
@@ -460,7 +462,8 @@ class BaseModel(nn.Module):
             model_config, vocabs, running_config=running_config
         )  # corresponds to build_task_specific_model
         # generator -> shall it be called within build_blocks?
-        model.build_generator(model_config, vocabs)
+        if model_config.decoder is not None:
+            model.build_generator(model_config, vocabs)
         # 1 build_base_model
         # quantization stuff
         model.maybe_quantize(
