@@ -14,7 +14,6 @@ from eole.constants import DefaultTokens
 from eole.config.models import (
     EmbeddingsConfig,
     TransformerEncoderModelConfig,
-    TransformerModelConfig,
     TransformerLMModelConfig,
 )
 from eole.config.run import TrainConfig
@@ -683,7 +682,8 @@ class LlamaHFConverter(BaseBin):
                     1,
                 ):
 
-                    # this is an ugly fix to handle decoder only, encoder only, encoder-decoder models
+                    # this is an ugly fix to handle decoder only, encoder only,
+                    # encoder-decoder models
                     for layer_prefix in [
                         prefix
                         for prefix in [
