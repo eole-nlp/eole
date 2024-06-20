@@ -116,26 +116,55 @@ key_maps["Phi3ForCausalLM"] = {
     ".input_layernorm.weight": ".input_layernorm.weight",
     ".post_attention_layernorm.weight": ".post_attention_layernorm.weight",
 }
+
+# note: weights are transposed in Linear, not in Conv1D, which is used in HF
+key_maps["GPT2LMHeadModel"] = {
+    "layer_prefix": "h.",
+    "tgt_emb.embeddings.weight": "wte.weight",
+    "generator.weight": "wte.weight",  # shared with embeddings
+    "tgt_emb.pe.weight": "wpe.weight",
+    ".self_attn.linear_query.": (".attn.c_attn.", ".t()[:hidden_size, ...]"),
+    ".self_attn.linear_keys.": (
+        ".attn.c_attn.",
+        ".t()[hidden_size:2*hidden_size, ...]",
+    ),
+    ".self_attn.linear_values.": (".attn.c_attn.", ".t()[-hidden_size:, ...]"),
+    ".self_attn.final_linear.": (".attn.c_proj.", ".t()"),
+    ".mlp.gate_up_proj.": (".mlp.c_fc.", ".t()"),
+    ".mlp.down_proj.": (".mlp.c_proj.", ".t()"),
+    ".input_layernorm.weight": ".ln_1.weight",
+    ".input_layernorm.bias": ".ln_1.bias",
+    ".post_attention_layernorm.weight": ".ln_2.weight",
+    ".post_attention_layernorm.bias": ".ln_2.bias",
+    "decoder.layer_norm.weight": "ln_f.weight",
+    "decoder.layer_norm.bias": "ln_f.bias",
+}
+
 ln_table = {
     "LlamaForCausalLM": "rms",
     "MistralForCausalLM": "rms",
     "MixtralForCausalLM": "rms",
     "PhiForCausalLM": "standard",
     "Phi3ForCausalLM": "rms",
+    "GPT2LMHeadModel": "standard",
 }
+
 act_table = {
     "LlamaForCausalLM": "gated-silu",
     "MistralForCausalLM": "gated-silu",
     "MixtralForCausalLM": "gated-silu",
     "PhiForCausalLM": "gelu",
     "Phi3ForCausalLM": "gated-silu",
+    "GPT2LMHeadModel": "gelu",
 }
+
 decoder_start_table = {
     "LlamaForCausalLM": "<s>",
     "MistralForCausalLM": "<s>",
     "MixtralForCausalLM": "<s>",
     "PhiForCausalLM": "",
     "Phi3ForCausalLM": "<s>",
+    "GPT2LMHeadModel": "</s>",
 }
 
 
@@ -448,6 +477,9 @@ class LlamaHFConverter(BaseBin):
         add_ffnbias = False
         rotary_interleave = False
         shared_layer_norm = False
+        max_relative_positions = -1
+        position_encoding = {}
+        left_pad = True
 
         if arch == "PhiForCausalLM":
             parallel_residual = True
@@ -455,6 +487,18 @@ class LlamaHFConverter(BaseBin):
             add_qkvbias = True
             add_ffnbias = True
             rotary_interleave = False
+        if arch == "GPT2LMHeadModel":
+            parallel_residual = False
+            shared_layer_norm = True
+            add_qkvbias = True
+            add_ffnbias = True
+            max_relative_positions = 0
+            position_encoding = {
+                "position_encoding": True,
+                "position_encoding_type": "Learned",
+                "n_positions": 1024,
+            }
+            left_pad = False
 
         if wmap_path:
             with open(wmap_path, encoding="utf-8") as fweights:
@@ -486,7 +530,7 @@ class LlamaHFConverter(BaseBin):
         def get_weight(checkpoint, tensor_name):
             if isinstance(checkpoint, dict):
                 if tensor_name in checkpoint.keys():
-                    return checkpoint[tensor_name]
+                    return checkpoint[tensor_name].contiguous()
                 else:
                     return None
             else:
@@ -494,7 +538,7 @@ class LlamaHFConverter(BaseBin):
                     checkpoint, framework="pt", device="cpu"
                 ) as f:
                     if tensor_name in f.keys():
-                        return f.get_tensor(tensor_name)
+                        return f.get_tensor(tensor_name).contiguous()
                     else:
                         return None
 
@@ -506,6 +550,7 @@ class LlamaHFConverter(BaseBin):
             if shard == 0:
                 targetlist = [
                     "tgt_emb.embeddings.weight",
+                    "tgt_emb.pe.weight",
                     "decoder.layer_norm.weight",
                     "decoder.layer_norm.bias",
                     "generator.weight",
@@ -615,7 +660,7 @@ class LlamaHFConverter(BaseBin):
 
                                 if w is not None:
                                     if type(source) == tuple:
-                                        w = eval("w" + srcmap)
+                                        w = eval("w" + srcmap).contiguous()
                                     eole_safetensor[
                                         "decoder.transformer_layers."
                                         + str(i)
@@ -840,6 +885,7 @@ class LlamaHFConverter(BaseBin):
                 embeddings=EmbeddingsConfig(
                     src_word_vec_size=src_word_vec_size,
                     tgt_word_vec_size=tgt_word_vec_size,
+                    **position_encoding,
                 ),
                 # src_word_vec_size=src_word_vec_size,
                 # tgt_word_vec_size=tgt_word_vec_size,
@@ -847,7 +893,7 @@ class LlamaHFConverter(BaseBin):
                 layer_norm=layer_norm,
                 norm_eps=norm_eps,
                 mlp_activation_fn=mlp_activation_fn,
-                max_relative_positions=-1,
+                max_relative_positions=max_relative_positions,
                 rotary_interleave=rotary_interleave,
                 rotary_theta=rope_theta,
                 rotary_dim=rotary_dim,
@@ -859,6 +905,7 @@ class LlamaHFConverter(BaseBin):
                 add_ffnbias=add_ffnbias,
                 num_experts=num_experts,
                 num_experts_per_tok=num_experts_per_tok,
+                left_pad=left_pad,
             ),
             training=TrainingConfig(
                 model_dtype="fp16",

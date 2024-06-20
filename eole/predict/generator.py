@@ -186,7 +186,8 @@ class GeneratorLM(Inference):
         )
 
         log_probs[:, :, self._tgt_pad_idx] = 0
-        gold_log_probs = log_probs.gather(2, tgt)
+        tgt = tgt.unsqueeze(2)
+        gold_log_probs = log_probs.gather(2, tgt).squeeze(-1)
         gold_scores = gold_log_probs.sum(dim=1).view(-1)
 
         if self.return_gold_log_probs:

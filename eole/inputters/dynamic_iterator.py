@@ -1,7 +1,7 @@
 """Module that contain iterator used for dynamic data."""
 import torch
 from itertools import cycle
-from eole.constants import CorpusTask, ModelTask
+from eole.constants import CorpusTask  # , ModelTask
 from eole.inputters.text_corpus import get_corpora, build_corpora_iters
 from eole.inputters.text_utils import (
     text_sort_key,
@@ -136,6 +136,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         stride=1,
         offset=0,
         score_threshold=0,
+        left_pad=False,
     ):
         super(DynamicDatasetIter).__init__()
         self.corpora = corpora
@@ -162,7 +163,9 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         self.skip_empty_level = skip_empty_level
         self.random_shuffler = RandomShuffler()
         self.bucket_idx = 0
-        if task != CorpusTask.TRAIN and vocabs["data_task"] == ModelTask.LANGUAGE_MODEL:
+        # TODO: we might want to enable some hybrid mode (default left_pad True for LM, else False)
+        # if task != CorpusTask.TRAIN and vocabs["data_task"] == ModelTask.LANGUAGE_MODEL:
+        if task != CorpusTask.TRAIN and left_pad:
             self.left_pad = True
         else:
             self.left_pad = False
@@ -229,6 +232,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             score_threshold=0
             if isinstance(config, PredictConfig)
             else running_config.score_threshold,
+            left_pad=getattr(config.model, "left_pad", False),
         )
 
     def _init_datasets(self, worker_id):

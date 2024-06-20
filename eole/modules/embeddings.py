@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.nn.utils import skip_init
 
 from eole.utils.logging import logger
+from eole.constants import PositionEncodingType
 
 
 class SequenceTooLongError(Exception):
@@ -99,6 +100,7 @@ class Embeddings(nn.Module):
         dropout=0,
         sparse=False,
         freeze_word_vecs=False,
+        n_positions=1024,
     ):
         super(Embeddings, self).__init__()
         self._validate_args()
@@ -119,7 +121,12 @@ class Embeddings(nn.Module):
         self.dropout_p = dropout
 
         self.position_encoding = position_encoding
-        if self.position_encoding:
+        self.position_encoding_type = position_encoding_type
+
+        if self.position_encoding_type == PositionEncodingType.Learned:
+            self.pe = nn.Embedding(n_positions, word_vec_size)
+            self.past_length = 0
+        elif self.position_encoding:
             self.pe = PositionalEncoding(word_vec_size, position_encoding_type)
 
         if freeze_word_vecs:
@@ -157,7 +164,24 @@ class Embeddings(nn.Module):
             FloatTensor: Word embeddings ``(batch, len, embedding_size)``
         """
         emb = self.embeddings(source)
-        if self.position_encoding:
+        if self.position_encoding_type == PositionEncodingType.Learned:
+            if step == 0 or step is None:
+                # reset
+                self.past_length = 0
+            position_ids = torch.arange(
+                self.past_length,
+                source.size(-1) + self.past_length,
+                dtype=torch.long,
+                device=source.device,
+            )
+            position_ids = position_ids.unsqueeze(0)
+            position_emb = self.pe(position_ids)
+            emb += position_emb
+            if self.past_length == 0:
+                self.past_length += source.size(-1)
+            else:
+                self.past_length += 1
+        elif self.position_encoding:
             emb = self.pe(emb, step)
 
         if self.dropout_p > 0:

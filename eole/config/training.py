@@ -229,7 +229,7 @@ class TrainingConfig(
     )
 
     model_dtype: Literal["fp32", "fp16"] = Field(
-        default="fp32", description="Data type of the model."
+        default="fp16", description="Data type of the model."
     )
     loss_scale: float = Field(
         default=0.0,

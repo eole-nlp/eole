@@ -24,13 +24,27 @@ class EmbeddingsConfig(Config):
     )
     position_encoding: bool = Field(
         default=False,
-        description="Use a sin to mark relative words positions. "
+        description="Absolute position encoding, see position_encoding_type. "
         "Necessary for non-RNN style models.",
     )
     position_encoding_type: PositionEncodingType = Field(
         default=PositionEncodingType.SinusoidalInterleaved,
         description="Type of positional encoding.",
     )
+    n_positions: int | None = Field(
+        default=None,
+        description="Absolute number of positions to learn "
+        "position embeddings on (position_encoding_type: Learned)",
+    )
+
+    @model_validator(mode="after")
+    def validate_embeddings(self):
+        if self.position_encoding_type == PositionEncodingType.Learned:
+            assert self.n_positions is not None, (
+                "n_positions must be set if position_encoding_type "
+                f"is {PositionEncodingType.Learned}"
+            )
+        return self
 
 
 class EncoderConfig(Config):
@@ -351,6 +365,10 @@ class BaseModelConfig(Config):
         "over the target vocabulary.",
     )
     add_estimator: bool = Field(default=False, description="Add estimator layer")
+
+    left_pad: bool = Field(
+        default=False, description="Enable left-padding, useful for some LLMs."
+    )
 
     # @computed_field()
     # @property

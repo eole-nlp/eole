@@ -22,7 +22,7 @@ class DecodingConfig(Config):
         "Restrict tokens to the most likely until the cumulated probability "
         "is over p. In range [0,1]. (https://arxiv.org/abs/1904.09751)",
         ge=0.0,
-        lt=1.0,
+        lte=1.0,
     )
     random_sampling_temp: float = Field(
         default=1.0,
@@ -173,5 +173,5 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
             ), "-replace_unk option can not be used with -gold_align enabled"
             assert self.tgt, "-tgt should be specified with -gold_align"
         # originally in validate_translate_opts_dynamic, not sure why
-        self.__dict__["share_vocab"] = False
+        # self.__dict__["share_vocab"] = False
         return self
