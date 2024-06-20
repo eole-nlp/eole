@@ -168,10 +168,9 @@ class Embeddings(nn.Module):
             if step == 0 or step is None:
                 # reset
                 self.past_length = 0
-            past_length = self.past_length  # TODO
             position_ids = torch.arange(
-                past_length,
-                source.size(-1) + past_length,
+                self.past_length,
+                source.size(-1) + self.past_length,
                 dtype=torch.long,
                 device=source.device,
             )
