@@ -259,9 +259,11 @@ class TrainingConfig(
     )
     lm_prior_lambda: float = Field(default=0.0, description="LM Prior Lambda")
     lm_prior_tau: float = Field(default=1.0, description="LM Prior Tau")
-
-    estim_loss_lambda: float = Field(
-        default=1.0, description="Weight applied to estimator loss"
+    estim_loss_lambda: List[float] = Field(
+        default=[1.0], description="Weight applied to estimator loss"
+    )
+    estim_loss_lambda_steps: List[int] = Field(
+        default=[0], description="Steps at which estimator loss lambda changes"
     )
     score_threshold: float = Field(
         default=0.68, description="Threshold to filterout data"
