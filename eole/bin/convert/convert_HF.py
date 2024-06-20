@@ -123,15 +123,15 @@ key_maps["GPT2LMHeadModel"] = {
     "tgt_emb.embeddings.weight": "wte.weight",
     "generator.weight": "wte.weight",  # shared with embeddings
     "tgt_emb.pe.weight": "wpe.weight",
-    ".self_attn.linear_query.": (".attn.c_attn.TRANSPOSE", "[:hidden_size, ...]"),
+    ".self_attn.linear_query.": (".attn.c_attn.", ".t()[:hidden_size, ...]"),
     ".self_attn.linear_keys.": (
-        ".attn.c_attn.TRANSPOSE",
-        "[hidden_size:2*hidden_size, ...]",
+        ".attn.c_attn.",
+        ".t()[hidden_size:2*hidden_size, ...]",
     ),
-    ".self_attn.linear_values.": (".attn.c_attn.TRANSPOSE", "[-hidden_size:, ...]"),
-    ".self_attn.final_linear.": ".attn.c_proj.TRANSPOSE",
-    ".mlp.gate_up_proj.": ".mlp.c_fc.TRANSPOSE",
-    ".mlp.down_proj.": ".mlp.c_proj.TRANSPOSE",
+    ".self_attn.linear_values.": (".attn.c_attn.", ".t()[-hidden_size:, ...]"),
+    ".self_attn.final_linear.": (".attn.c_proj.", ".t()"),
+    ".mlp.gate_up_proj.": (".mlp.c_fc.", ".t()"),
+    ".mlp.down_proj.": (".mlp.c_proj.", ".t()"),
     ".input_layernorm.weight": ".ln_1.weight",
     ".input_layernorm.bias": ".ln_1.bias",
     ".post_attention_layernorm.weight": ".ln_2.weight",
@@ -528,14 +528,8 @@ class LlamaHFConverter(BaseBin):
             return checkpoint
 
         def get_weight(checkpoint, tensor_name):
-            transpose = False
-            if ".TRANSPOSE" in tensor_name:
-                tensor_name = tensor_name.replace(".TRANSPOSE", ".")
-                transpose = True
             if isinstance(checkpoint, dict):
                 if tensor_name in checkpoint.keys():
-                    if transpose:
-                        return checkpoint[tensor_name].t().contiguous()
                     return checkpoint[tensor_name].contiguous()
                 else:
                     return None
@@ -544,8 +538,6 @@ class LlamaHFConverter(BaseBin):
                     checkpoint, framework="pt", device="cpu"
                 ) as f:
                     if tensor_name in f.keys():
-                        if transpose:
-                            return f.get_tensor(tensor_name).t().contiguous()
                         return f.get_tensor(tensor_name).contiguous()
                     else:
                         return None
