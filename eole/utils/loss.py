@@ -76,18 +76,18 @@ class LossCompute(nn.Module):
         )
         padding_idx = vocab[DefaultTokens.PAD]
 
-        if (
-            config.model.decoder is not None
-            and config.model.decoder.lambda_coverage != 0
-        ):
-            lambda_coverage = config.model.decoder.lambda_coverage
-            lambda_align = (
-                getattr(config.model.decoder, "lambda_align", 0.0),
+        if config.model.decoder is not None:
+            lambda_align = getattr(
+                config.model.decoder, "lambda_align", 0.0
             )  # patch to support non transformer configs
-            assert config.model.decoder.coverage_attn, (
-                "--coverage_attn needs to be set in "
-                "order to use --lambda_coverage != 0"
-            )
+            if config.model.decoder.lambda_coverage != 0:
+                lambda_coverage = config.model.decoder.lambda_coverage
+                assert config.model.decoder.coverage_attn, (
+                    "--coverage_attn needs to be set in "
+                    "order to use --lambda_coverage != 0"
+                )
+            else:
+                lambda_coverage = 0
         else:
             lambda_coverage = 0
             lambda_align = 0.0
@@ -307,6 +307,7 @@ class LossCompute(nn.Module):
             loss = torch.tensor([0.0], device=output.device)
             scores = None
 
+        print(self.lambda_align)
         if self.lambda_align != 0.0:
             align_head = attns["align"]
             if align_head.dtype != loss.dtype:  # Fix FP16

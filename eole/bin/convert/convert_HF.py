@@ -209,6 +209,7 @@ specials_table = {
     "XLMRobertaXLForMaskedLM": ["<s>", "<blank>", "</s>", "<unk>"],
 }
 
+
 class Tokenizer:
     def __init__(self, model_path: str):
         assert os.path.isfile(model_path), model_path
@@ -573,7 +574,7 @@ class LlamaHFConverter(BaseBin):
 
         decoder_layer_prefix = key_maps[arch].get("decoder_layer_prefix", None)
         encoder_layer_prefix = key_maps[arch].get("encoder_layer_prefix", None)
-        
+
         if wmap_path:
             with open(wmap_path, encoding="utf-8") as fweights:
                 wmap = json.load(fweights)
@@ -660,15 +661,11 @@ class LlamaHFConverter(BaseBin):
                         (
                             (
                                 decoder_layer_prefix is not None
-                                and key.startswith(
-                                    decoder_layer_prefix
-                                )
+                                and key.startswith(decoder_layer_prefix)
                             )
                             or (
                                 encoder_layer_prefix is not None
-                                and key.startswith(
-                                    encoder_layer_prefix
-                                )
+                                and key.startswith(encoder_layer_prefix)
                             )
                         )
                         and int(key.split(".")[2])
