@@ -358,8 +358,6 @@ class BaseModel(nn.Module):
             if use_gpu(running_config):
                 if len(running_config.gpu_ranks) > 0:
                     device_id = running_config.gpu_ranks[0]
-                elif running_config.gpu > -1:
-                    device_id = running_config.gpu
                 device = torch.device("cuda", device_id)
             else:
                 device = torch.device("cpu")

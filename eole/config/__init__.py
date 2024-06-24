@@ -31,7 +31,9 @@ def recursive_model_fields_set(model):
         else:
             field_value = getattr(model, field, None)
         if isinstance(field_value, Config) or isinstance(field_value, dict):
-            fields[field] = recursive_model_fields_set(field_value)
+            _fields = recursive_model_fields_set(field_value)
+            if _fields != {}:
+                fields[field] = _fields
         else:
             fields[field] = field_value
     return fields

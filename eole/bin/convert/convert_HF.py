@@ -788,6 +788,8 @@ class LlamaHFConverter(BaseBin):
         if (
             tokenizer_model is not None
         ):  # sentencepiece mode (might be good to check it's a SP model)
+            src_subword_type = "sentencepiece"
+            tokenizer_basename = os.path.basename(tokenizer_model)
             tokenizer = Tokenizer(model_path=tokenizer_model)
             vocab = tokenizer.vocab
             # vocab[3] = DefaultTokens.PAD
@@ -806,13 +808,20 @@ class LlamaHFConverter(BaseBin):
                 special_tokens=["<unk>", "<s>", "</s>"],
             )
         else:  # # BPE mode - we leverage the HF tokenizer.json info
+            src_subword_type = "bpe"
             with open(tokenizer_json, encoding="utf-8") as f:
                 data = json.load(f)
-            vocab = [
-                tok if tok != "Ā" else DefaultTokens.PAD
-                # "Ā" is '\x00' in unicode (cf tokenize.py gpt2 mapping)
-                for tok in data["model"]["vocab"]
-            ]
+                # gpt2_pretok
+                gpt2_pretok = False
+                pretokenizers = data.get("pre_tokenizer", {}).get("pretokenizers", [{}])
+                for pretokenizer in pretokenizers:
+                    if pretokenizer.get("type", None) == "ByteLevel":
+                        gpt2_pretok = True
+                vocab = [
+                    tok if tok != "Ā" else DefaultTokens.PAD
+                    # "Ā" is '\x00' in unicode (cf tokenize.py gpt2 mapping)
+                    for tok in data["model"]["vocab"]
+                ]
             voc_size = len(vocab)
             if vocab_size > voc_size:
                 for i in range(vocab_size - voc_size):
@@ -834,8 +843,10 @@ class LlamaHFConverter(BaseBin):
 
             src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
 
+            tokenizer_basename = "bpe.model"
+
             with open(
-                os.path.join(directory_path, "bpe.model"), "w", encoding="utf-8"
+                os.path.join(directory_path, tokenizer_basename), "w", encoding="utf-8"
             ) as bpemodel:
                 bpemodel.write("v3;false;false;false;Ġ;Ġ\n")
                 for merge in data["model"]["merges"]:
@@ -928,3 +939,21 @@ class LlamaHFConverter(BaseBin):
             os.path.join(directory_path, "config.json"), "w", encoding="utf-8"
         ) as f:
             json.dump(config_dict, f, indent=2, ensure_ascii=False)
+
+        inference_dict = {
+            "transforms": ["onmt_tokenize"],
+            "transforms_configs": {
+                "onmt_tokenize": {
+                    "src_subword_type": src_subword_type,
+                    "src_subword_model": os.path.join(
+                        "${MODEL_PATH}", tokenizer_basename
+                    ),
+                    "gpt2_pretok": gpt2_pretok,
+                }
+            },
+        }
+
+        with open(
+            os.path.join(directory_path, "inference.json"), "w", encoding="utf-8"
+        ) as f:
+            json.dump(inference_dict, f, indent=2, ensure_ascii=False)

@@ -261,6 +261,15 @@ class TrainingModelSaver(ModelSaverBase):
         with open(config_path, "w") as f:
             json.dump(config_data, f, indent=2, ensure_ascii=False)
         self._make_symlink("config.json")
+        # save transforms related config for inference
+        inference_keys = ["transforms", "transforms_configs"]
+        inference_data = {
+            k: config_data[k] for k in inference_keys if k in config_data.keys()
+        }
+        inference_path = os.path.join(self.model_path, self.step_dir, "inference.json")
+        with open(inference_path, "w") as f:
+            json.dump(inference_data, f, indent=2, ensure_ascii=False)
+        self._make_symlink("inference.json")
 
     def _save_transforms_artifacts(self):
         if self.transforms is not None:

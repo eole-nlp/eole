@@ -37,7 +37,7 @@ class InferenceEngine(object):
             scores, estims, preds = self.infer_file_parallel()
         return scores, estims, preds
 
-    def infer_list(self, src):
+    def infer_list(self, src, settings={}):
         """List of strings inference `src`"""
         if self.config.world_size <= 1:
             infer_iter = build_dynamic_dataset_iter(
@@ -48,9 +48,9 @@ class InferenceEngine(object):
                 src=src,
                 device_id=self.device_id,
             )
-            scores, estims, preds = self._predict(infer_iter)
+            scores, estims, preds = self._predict(infer_iter, settings=settings)
         else:
-            scores, estims, preds = self.infer_list_parallel(src)
+            scores, estims, preds = self.infer_list_parallel(src, settings=settings)
         return scores, estims, preds
 
     def infer_file_parallel(self):
@@ -59,7 +59,7 @@ class InferenceEngine(object):
             "The inference in mulitprocessing with partitioned models is not implemented."
         )
 
-    def infer_list_parallel(self, src):
+    def infer_list_parallel(self, src, settings={}):
         """The inference in mulitprocessing with partitioned models."""
         raise NotImplementedError(
             "The inference in mulitprocessing with partitioned models is not implemented."
@@ -125,11 +125,13 @@ class InferenceEnginePY(InferenceEngine):
             self.error_queue = mp.SimpleQueue()
             self.error_handler = ErrorHandler(self.error_queue)
             self.queue_instruct = []
+            self.queue_settings = []
             self.queue_result = []
             self.procs = []
 
             for device_id in range(config.world_size):
                 self.queue_instruct.append(mp.Queue())
+                self.queue_settings.append(mp.Queue())
                 self.queue_result.append(mp.Queue())
                 self.procs.append(
                     mp.Process(
@@ -147,7 +149,10 @@ class InferenceEnginePY(InferenceEngine):
                 self.procs[device_id].start()
                 self.error_handler.add_child(self.procs[device_id].pid)
         else:
-            self.device_id = config.gpu
+            if len(config.gpu_ranks) > 0:
+                self.device_id = config.gpu_ranks[0]
+            else:
+                self.device_id = -1  # cpu
             self.predictor = build_predictor(
                 config, self.device_id, logger=self.logger, report_score=True
             )
@@ -156,7 +161,8 @@ class InferenceEnginePY(InferenceEngine):
             self.transforms = make_transforms(config, self.transforms_cls, self.vocabs)
             self.transform_pipe = TransformPipe.build_from(self.transforms.values())
 
-    def _predict(self, infer_iter):
+    def _predict(self, infer_iter, settings={}):
+        self.predictor.update_settings(**settings)
         scores, estims, preds = self.predictor._predict(
             infer_iter,
             infer_iter.transforms,
@@ -188,20 +194,23 @@ class InferenceEnginePY(InferenceEngine):
             score_results.append(self.queue_result[device_id].get())
         return score_results[0]
 
-    def infer_file_parallel(self):
+    def infer_file_parallel(self, settings={}):
         assert self.config.world_size > 1, "World size must be greater than 1."
         for device_id in range(self.config.world_size):
             self.queue_instruct[device_id].put(("infer_file", self.config))
+            # not sure if we want a separate queue or additional info in queue_instruct
+            self.queue_settings[device_id].put(settings)
         scores, preds = [], []
         for device_id in range(self.config.world_size):
             scores.append(self.queue_result[device_id].get())
             preds.append(self.queue_result[device_id].get())
         return scores[0], preds[0]
 
-    def infer_list_parallel(self, src):
+    def infer_list_parallel(self, src, settings={}):
         assert self.config.world_size > 1, "World size must be greater than 1."
         for device_id in range(self.config.world_size):
             self.queue_instruct[device_id].put(("infer_list", src))
+            self.queue_settings[device_id].put(settings)
         scores, preds = [], []
         for device_id in range(self.config.world_size):
             scores.append(self.queue_result[device_id].get())
@@ -232,11 +241,12 @@ class InferenceEngineCT2(InferenceEngine):
         ), "A model_task kwarg must be passed for CT2 models."
         self.logger = init_logger(config.log_file)
         assert self.config.world_size <= 1, "World size must be less than 1."
-        self.device_id = config.gpu
         if config.world_size == 1:
+            self.device_id = config.gpu_ranks[0]
             self.device_index = config.gpu_ranks
             self.device = "cuda"
         else:
+            self.device_id = -1
             self.device_index = 0
             self.device = "cpu"
         self.transforms_cls = get_transforms_cls(self.config._all_transform)
@@ -289,9 +299,9 @@ class InferenceEngineCT2(InferenceEngine):
                 max_length=config.max_length,
                 return_scores=True,
                 include_prompt_in_result=False,
-                sampling_topk=config.random_sampling_topk,
-                sampling_topp=config.random_sampling_topp,
-                sampling_temperature=config.random_sampling_temp,
+                sampling_topk=config.top_k,
+                sampling_topp=config.top_p,
+                sampling_temperature=config.temperature,
             )
             preds = [
                 [self.transforms.apply_reverse(tokens) for tokens in out.sequences]
@@ -307,9 +317,9 @@ class InferenceEngineCT2(InferenceEngine):
                 num_hypotheses=config.n_best,
                 max_decoding_length=config.max_length,
                 return_scores=True,
-                sampling_topk=config.random_sampling_topk,
-                sampling_topp=config.random_sampling_topp,
-                sampling_temperature=config.random_sampling_temp,
+                sampling_topk=config.top_k,
+                sampling_topp=config.top_p,
+                sampling_temperature=config.temperature,
             )
             preds = [
                 [self.transforms.apply_reverse(tokens) for tokens in out.hypotheses]
@@ -319,7 +329,8 @@ class InferenceEngineCT2(InferenceEngine):
 
         return scores, None, preds
 
-    def _predict(self, infer_iter):
+    def _predict(self, infer_iter, settings={}):
+        # TODO: convert settings to CT2 naming
         scores = []
         preds = []
         for batch, bucket_idx in infer_iter:
