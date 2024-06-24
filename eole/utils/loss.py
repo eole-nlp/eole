@@ -307,7 +307,6 @@ class LossCompute(nn.Module):
             loss = torch.tensor([0.0], device=output.device)
             scores = None
 
-        print(self.lambda_align)
         if self.lambda_align != 0.0:
             align_head = attns["align"]
             if align_head.dtype != loss.dtype:  # Fix FP16
