@@ -25,7 +25,6 @@ from eole.bin import BaseBin, register_bin
 key_maps = {}
 key_maps["LlamaForCausalLM"] = {
     "decoder_layer_prefix": "model.layers.",
-    "encoder_layer_prefix": None,
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.norm.weight",
     "generator.weight": "lm_head.weight",
@@ -42,7 +41,6 @@ key_maps["LlamaForCausalLM"] = {
 key_maps["MistralForCausalLM"] = key_maps["LlamaForCausalLM"]
 key_maps["MixtralForCausalLM"] = {
     "decoder_layer_prefix": "model.layers.",
-    "encoder_layer_prefix": None,
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.norm.weight",
     "generator.weight": "lm_head.weight",
@@ -87,7 +85,6 @@ key_maps["MixtralForCausalLM"] = {
 }
 key_maps["PhiForCausalLM"] = {
     "decoder_layer_prefix": "model.layers.",
-    "encoder_layer_prefix": None,
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.final_layernorm.weight",
     "decoder.layer_norm.bias": "model.final_layernorm.bias",
@@ -104,7 +101,6 @@ key_maps["PhiForCausalLM"] = {
 }
 key_maps["Phi3ForCausalLM"] = {
     "decoder_layer_prefix": "model.layers.",
-    "encoder_layer_prefix": None,
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.norm.weight",
     "generator.weight": "lm_head.weight",
@@ -125,7 +121,6 @@ key_maps["Phi3ForCausalLM"] = {
 # note: weights are transposed in Linear, not in Conv1D, which is used in HF
 key_maps["GPT2LMHeadModel"] = {
     "decoder_layer_prefix": "h.",
-    "encoder_layer_prefix": None,
     "tgt_emb.embeddings.weight": "wte.weight",
     "generator.weight": "wte.weight",  # shared with embeddings
     "tgt_emb.pe.weight": "wpe.weight",
@@ -148,7 +143,6 @@ key_maps["GPT2LMHeadModel"] = {
 
 key_maps["XLMRobertaXLForMaskedLM"] = {
     "encoder_layer_prefix": "roberta.encoder.layer.",
-    "decoder_layer_prefix": None,
     "src_emb.embeddings.weight": "roberta.embeddings.word_embeddings.weight",
     "src_emb.pe.weight": "roberta.embeddings.position_embeddings.weight",
     ".self_attn.linear_query.": ".attention.self.query.",
@@ -205,6 +199,15 @@ decoder_start_table = {
     "XLMRobertaXLForMaskedLM": "<s>",
 }
 
+specials_table = {
+    "LlamaForCausalLM": ["<unk>", "<s>", "</s>"],
+    "MistralForCausalLM": ["<unk>", "<s>", "</s>"],
+    "MixtralForCausalLM": ["<unk>", "<s>", "</s>"],
+    "PhiForCausalLM": ["<unk>", "<s>", "</s>"],
+    "Phi3ForCausalLM": ["<unk>", "<s>", "</s>"],
+    "GPT2LMHeadModel": ["<unk>", "<s>", "</s>"],
+    "XLMRobertaXLForMaskedLM": ["<s>", "<blank>", "</s>", "<unk>"],
+}
 
 class Tokenizer:
     def __init__(self, model_path: str):
@@ -568,6 +571,9 @@ class LlamaHFConverter(BaseBin):
             left_pad = False
             data_task = "encoder"
 
+        decoder_layer_prefix = key_maps[arch].get("decoder_layer_prefix", None)
+        encoder_layer_prefix = key_maps[arch].get("encoder_layer_prefix", None)
+        
         if wmap_path:
             with open(wmap_path, encoding="utf-8") as fweights:
                 wmap = json.load(fweights)
@@ -653,15 +659,15 @@ class LlamaHFConverter(BaseBin):
                     if (
                         (
                             (
-                                key_maps[arch]["decoder_layer_prefix"] is not None
+                                decoder_layer_prefix is not None
                                 and key.startswith(
-                                    key_maps[arch]["decoder_layer_prefix"]
+                                    decoder_layer_prefix
                                 )
                             )
                             or (
-                                key_maps[arch]["encoder_layer_prefix"] is not None
+                                encoder_layer_prefix is not None
                                 and key.startswith(
-                                    key_maps[arch]["encoder_layer_prefix"]
+                                    encoder_layer_prefix
                                 )
                             )
                         )
@@ -698,14 +704,14 @@ class LlamaHFConverter(BaseBin):
                     for layer_prefix in [
                         prefix
                         for prefix in [
-                            key_maps[arch]["decoder_layer_prefix"],
-                            key_maps[arch]["encoder_layer_prefix"],
+                            decoder_layer_prefix,
+                            encoder_layer_prefix,
                         ]
                         if prefix is not None
                     ]:
-                        if layer_prefix == key_maps[arch]["decoder_layer_prefix"]:
+                        if layer_prefix == decoder_layer_prefix:
                             eole_prefix = "decoder.transformer_layers."
-                        elif layer_prefix == key_maps[arch]["encoder_layer_prefix"]:
+                        elif layer_prefix == encoder_layer_prefix:
                             eole_prefix = "encoder.transformer_layers."
                         else:
                             print("error.")
@@ -895,19 +901,11 @@ class LlamaHFConverter(BaseBin):
             if "<0x00>" in vocab:
                 index = vocab.index("<0x00>")
                 vocab[index] = DefaultTokens.PAD
-            # NOT VERY CLEAN but so many cases .....
-            if arch == "XLMRobertaXLForMaskedLM":
-                src_vocab = pyonmttok.build_vocab_from_tokens(
-                    vocab,
-                    maximum_size=tokenizer.n_words,
-                    special_tokens=["<s>", "<blank>", "</s>", "<unk>"],
-                )
-            else:
-                src_vocab = pyonmttok.build_vocab_from_tokens(
-                    vocab,
-                    maximum_size=tokenizer.n_words,
-                    special_tokens=["<unk>", "<s>", "</s>"],
-                )
+            src_vocab = pyonmttok.build_vocab_from_tokens(
+                vocab,
+                maximum_size=tokenizer.n_words,
+                special_tokens=specials_table[arch],
+            )
         else:  # # BPE mode - we leverage the HF tokenizer.json info
             with open(tokenizer_json, encoding="utf-8") as f:
                 data = json.load(f)
