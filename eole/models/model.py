@@ -299,11 +299,9 @@ class BaseModel(nn.Module):
         # currently in TrainingConfig which makes more sense
         if running_config.freeze_encoder:
             self.encoder.requires_grad_(False)
-            self.src_emb.requires_grad_()
 
         if running_config.freeze_decoder:
             self.decoder.requires_grad_(False)
-            self.tgt_emb.requires_grad_()
 
     @classmethod
     def inference_logic(self, checkpoint, running_config, vocabs, device_id=None):
@@ -400,7 +398,10 @@ class BaseModel(nn.Module):
         model = cls.build_blocks(config, vocabs, running_config=running_config)
         model.maybe_quantize(running_config)
         model.maybe_lora(running_config)
-        model.build_generator(config, vocabs)
+        if config.decoder is not None:
+            model.build_generator(config, vocabs)
+        else:
+            model.generator = None
         return model
 
     @classmethod
@@ -464,6 +465,8 @@ class BaseModel(nn.Module):
         # generator -> shall it be called within build_blocks?
         if model_config.decoder is not None:
             model.build_generator(model_config, vocabs)
+        else:
+            model.generator = None
         # 1 build_base_model
         # quantization stuff
         model.maybe_quantize(
@@ -932,7 +935,7 @@ class EncoderModel(BaseModel):
         mask = sequence_mask(src_len)
         enc_out, enc_final_hs = self.encoder(self.src_emb(src), mask=mask)
         if self.add_estimator:  # on prend en compte les average de enc_out et dec_out
-            pad_mask1 = ~src[:, :, 0].eq(1)
+            pad_mask1 = ~src.eq(1)
             in_estim1 = (enc_out * pad_mask1.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask1.sum(dim=1, keepdim=True).float()

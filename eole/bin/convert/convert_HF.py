@@ -562,7 +562,8 @@ class LlamaHFConverter(BaseBin):
             position_encoding = {
                 "position_encoding": True,
                 "position_encoding_type": "Learned",
-                "n_positions": 512,
+                "n_positions": 514,
+                "position_shift": 2,
             }
             left_pad = False
             data_task = "encoder"
@@ -855,6 +856,8 @@ class LlamaHFConverter(BaseBin):
             # if shard == 0:
             #     vocab_size = eole_safetensor["generator.weight"].size(0)
             print("Saving output model shard: %d" % shard)
+            for key in eole_safetensor.keys():
+                eole_safetensor[key] = eole_safetensor[key].to(torch.float16)
             save_file(
                 eole_safetensor,
                 os.path.join(args.output, "model.{:02d}.safetensors".format(shard)),

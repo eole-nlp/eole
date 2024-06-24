@@ -200,7 +200,6 @@ def main(config, device_id):
 
     # Build optimizer.
     optim = Optimizer.from_config(model, config, checkpoint=checkpoint)
-
     del checkpoint
 
     # Build model saver
