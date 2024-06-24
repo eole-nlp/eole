@@ -97,6 +97,7 @@ class Embeddings(nn.Module):
         word_padding_idx,
         position_encoding=False,
         position_encoding_type="SinusoidalInterleaved",
+        position_shift=0,
         dropout=0,
         sparse=False,
         freeze_word_vecs=False,
@@ -122,6 +123,7 @@ class Embeddings(nn.Module):
 
         self.position_encoding = position_encoding
         self.position_encoding_type = position_encoding_type
+        self.position_shift = position_shift
 
         if self.position_encoding_type == PositionEncodingType.Learned:
             self.pe = nn.Embedding(n_positions, word_vec_size)
@@ -174,7 +176,7 @@ class Embeddings(nn.Module):
                 dtype=torch.long,
                 device=source.device,
             )
-            position_ids = position_ids.unsqueeze(0)
+            position_ids = position_ids.unsqueeze(0) + self.position_shift
             position_emb = self.pe(position_ids)
             emb += position_emb
             if self.past_length == 0:

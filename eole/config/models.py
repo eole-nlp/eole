@@ -36,6 +36,11 @@ class EmbeddingsConfig(Config):
         description="Absolute number of positions to learn "
         "position embeddings on (position_encoding_type: Learned)",
     )
+    position_shift: int | None = Field(
+        default=0,
+        description="Positions IDS shift before making position embed "
+        "dirty patch to cover for xlm-roberta-xl",
+    )
 
     @model_validator(mode="after")
     def validate_embeddings(self):
@@ -638,12 +643,61 @@ class TransformerLMModelConfig(TransformerConfig, BaseModelConfig):
         return self
 
 
+class TransformerEncoderModelConfig(TransformerConfig, BaseModelConfig):
+    """
+    Facilitate setting some transformer specific params at model level.
+    """
+
+    architecture: Literal["transformer_encoder"] = Field(default="transformer_encoder")
+
+    # force decoder to None in TransformerEncoder case
+    decoder: None = Field(default=None, description="Major parameters of a decoder.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def encoder_decoder_type(cls, data: Any) -> Any:
+        # patch to allow transparent setting of encoder/decoder_type
+        if not (isinstance(data, dict)):
+            return data
+        if "encoder" in data.keys():
+            data["encoder"]["encoder_type"] = "transformer"
+        else:
+            data["encoder"] = {"encoder_type": "transformer"}
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_architecture(cls, data: Any) -> Any:
+        if not (isinstance(data, dict)):
+            return data
+        if "architecture" not in data.keys():
+            data["architecture"] = "transformer_encoder"
+        return data
+
+    @model_validator(mode="after")
+    def _validate_transformer(self):
+        # duplicate with TransformerModelConfig, might merge at some point
+        if (
+            getattr(self.embeddings, "position_encoding", False)
+            and self.max_relative_positions != 0
+        ):
+            raise ValueError(
+                "Cannot use absolute and relative position encoding at the"
+                "same time. Use either --position_encoding=true for legacy"
+                "absolute position encoding or --max_realtive_positions with"
+                " -1 for Rotary, or > 0 for Relative Position Representations"
+                "as in https://arxiv.org/pdf/1803.02155.pdf"
+            )
+        return self
+
+
 # Facilitate transparent instanciation from dumped fields
 # https://stackoverflow.com/a/76538571
 ModelConfig = Annotated[
     Union[
         TransformerModelConfig,
         TransformerLMModelConfig,
+        TransformerEncoderModelConfig,
         RnnModelConfig,
         CnnModelConfig,
         CustomModelConfig,

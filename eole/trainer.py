@@ -564,7 +564,7 @@ class Trainer(object):
                         raise exc
 
                 # If truncated, don't backprop fully.
-                if hasattr(self.model, "decoder") and self.model.decoder.state != {}:
+                if self.model.decoder is not None and self.model.decoder.state != {}:
                     self.model.decoder.detach_state()
 
         # in case of multi step gradient accumulation,

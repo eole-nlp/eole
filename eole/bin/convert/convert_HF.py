@@ -13,6 +13,7 @@ from eole.inputters.inputter import vocabs_to_dict
 from eole.constants import DefaultTokens
 from eole.config.models import (
     EmbeddingsConfig,
+    TransformerEncoderModelConfig,
     TransformerLMModelConfig,
 )
 from eole.config.run import TrainConfig
@@ -23,7 +24,7 @@ from eole.bin import BaseBin, register_bin
 
 key_maps = {}
 key_maps["LlamaForCausalLM"] = {
-    "layer_prefix": "model.layers.",
+    "decoder_layer_prefix": "model.layers.",
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.norm.weight",
     "generator.weight": "lm_head.weight",
@@ -39,7 +40,7 @@ key_maps["LlamaForCausalLM"] = {
 }
 key_maps["MistralForCausalLM"] = key_maps["LlamaForCausalLM"]
 key_maps["MixtralForCausalLM"] = {
-    "layer_prefix": "model.layers.",
+    "decoder_layer_prefix": "model.layers.",
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.norm.weight",
     "generator.weight": "lm_head.weight",
@@ -83,7 +84,7 @@ key_maps["MixtralForCausalLM"] = {
     ".mlp.experts.7.layer_norm.weight": ".post_attention_layernorm.weight",
 }
 key_maps["PhiForCausalLM"] = {
-    "layer_prefix": "model.layers.",
+    "decoder_layer_prefix": "model.layers.",
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.final_layernorm.weight",
     "decoder.layer_norm.bias": "model.final_layernorm.bias",
@@ -99,7 +100,7 @@ key_maps["PhiForCausalLM"] = {
     ".input_layernorm.bias": (".input_layernorm.bias", ""),
 }
 key_maps["Phi3ForCausalLM"] = {
-    "layer_prefix": "model.layers.",
+    "decoder_layer_prefix": "model.layers.",
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.norm.weight",
     "generator.weight": "lm_head.weight",
@@ -119,7 +120,7 @@ key_maps["Phi3ForCausalLM"] = {
 
 # note: weights are transposed in Linear, not in Conv1D, which is used in HF
 key_maps["GPT2LMHeadModel"] = {
-    "layer_prefix": "h.",
+    "decoder_layer_prefix": "h.",
     "tgt_emb.embeddings.weight": "wte.weight",
     "generator.weight": "wte.weight",  # shared with embeddings
     "tgt_emb.pe.weight": "wpe.weight",
@@ -140,6 +141,24 @@ key_maps["GPT2LMHeadModel"] = {
     "decoder.layer_norm.bias": "ln_f.bias",
 }
 
+key_maps["XLMRobertaXLForMaskedLM"] = {
+    "encoder_layer_prefix": "roberta.encoder.layer.",
+    "src_emb.embeddings.weight": "roberta.embeddings.word_embeddings.weight",
+    "src_emb.pe.weight": "roberta.embeddings.position_embeddings.weight",
+    ".self_attn.linear_query.": ".attention.self.query.",
+    ".self_attn.linear_keys.": ".attention.self.key.",
+    ".self_attn.linear_values.": ".attention.self.value.",
+    ".self_attn.final_linear.": ".attention.output.dense.",
+    ".mlp.gate_up_proj.": ".intermediate.dense.",
+    ".mlp.down_proj.": ".output.dense.",
+    ".input_layernorm.weight": ".attention.self_attn_layer_norm.weight",
+    ".input_layernorm.bias": ".attention.self_attn_layer_norm.bias",
+    ".post_attention_layernorm.weight": ".LayerNorm.weight",
+    ".post_attention_layernorm.bias": ".LayerNorm.bias",
+    "encoder.layer_norm.weight": "roberta.encoder.LayerNorm.weight",
+    "encoder.layer_norm.bias": "roberta.encoder.LayerNorm.bias",
+}
+
 ln_table = {
     "LlamaForCausalLM": "rms",
     "MistralForCausalLM": "rms",
@@ -147,6 +166,7 @@ ln_table = {
     "PhiForCausalLM": "standard",
     "Phi3ForCausalLM": "rms",
     "GPT2LMHeadModel": "standard",
+    "XLMRobertaXLForMaskedLM": "standard",
 }
 
 act_table = {
@@ -156,6 +176,17 @@ act_table = {
     "PhiForCausalLM": "gelu",
     "Phi3ForCausalLM": "gated-silu",
     "GPT2LMHeadModel": "gelu",
+    "XLMRobertaXLForMaskedLM": "gelu",
+}
+
+arch_table = {
+    "LlamaForCausalLM": TransformerLMModelConfig,
+    "MistralForCausalLM": TransformerLMModelConfig,
+    "MixtralForCausalLM": TransformerLMModelConfig,
+    "PhiForCausalLM": TransformerLMModelConfig,
+    "Phi3ForCausalLM": TransformerLMModelConfig,
+    "GPT2LMHeadModel": TransformerLMModelConfig,
+    "XLMRobertaXLForMaskedLM": TransformerEncoderModelConfig,
 }
 
 decoder_start_table = {
@@ -165,6 +196,17 @@ decoder_start_table = {
     "PhiForCausalLM": "",
     "Phi3ForCausalLM": "<s>",
     "GPT2LMHeadModel": "</s>",
+    "XLMRobertaXLForMaskedLM": "<s>",
+}
+
+specials_table = {
+    "LlamaForCausalLM": ["<unk>", "<s>", "</s>"],
+    "MistralForCausalLM": ["<unk>", "<s>", "</s>"],
+    "MixtralForCausalLM": ["<unk>", "<s>", "</s>"],
+    "PhiForCausalLM": ["<unk>", "<s>", "</s>"],
+    "Phi3ForCausalLM": ["<unk>", "<s>", "</s>"],
+    "GPT2LMHeadModel": ["<unk>", "<s>", "</s>"],
+    "XLMRobertaXLForMaskedLM": ["<s>", "<blank>", "</s>", "<unk>"],
 }
 
 
@@ -240,6 +282,12 @@ class LlamaHFConverter(BaseBin):
                 )
             if os.path.exists(os.path.join(args.model_dir, "tokenizer.model")):
                 tokenizer_model = os.path.join(args.model_dir, "tokenizer.model")
+            elif os.path.exists(
+                os.path.join(args.model_dir, "sentencepiece.bpe.model")
+            ):
+                tokenizer_model = os.path.join(
+                    args.model_dir, "sentencepiece.bpe.model"
+                )
             else:
                 if os.path.exists(os.path.join(args.model_dir, "tokenizer.json")):
                     tokenizer_json = os.path.join(args.model_dir, "tokenizer.json")
@@ -267,17 +315,25 @@ class LlamaHFConverter(BaseBin):
                 )
             except huggingface_hub.utils.EntryNotFoundError:
                 try:
-                    tokenizer_json = huggingface_hub.hf_hub_download(
+                    tokenizer_model = huggingface_hub.hf_hub_download(
                         repo_id=args.model_dir,
-                        filename="tokenizer.json",
+                        filename="sentencepiece.bpe.model",
                         token=args.token,
                         local_dir=args.output,
                     )
-                    tokenizer_model = None
                 except huggingface_hub.utils.EntryNotFoundError:
-                    raise huggingface_hub.utils.EntryNotFoundError(
-                        "Make sure the repo contains tokenizer.model or tokenizer.json"
-                    )
+                    try:
+                        tokenizer_json = huggingface_hub.hf_hub_download(
+                            repo_id=args.model_dir,
+                            filename="tokenizer.json",
+                            token=args.token,
+                            local_dir=args.output,
+                        )
+                        tokenizer_model = None
+                    except huggingface_hub.utils.EntryNotFoundError:
+                        raise huggingface_hub.utils.EntryNotFoundError(
+                            "Make sure the repo contains tokenizer.model or tokenizer.json"
+                        )
             try:
                 config_path = huggingface_hub.hf_hub_download(
                     repo_id=args.model_dir,
@@ -337,10 +393,12 @@ class LlamaHFConverter(BaseBin):
 
         arch = config["architectures"][0]
 
+        # FROM THIS n_layers is the same for decoder/encoder
+        # for encoder/decoder models like T5 if the number differs will require adaptation
         if "num_hidden_layers" in config.keys():
-            decoder_layers = config["num_hidden_layers"]
+            n_layers = config["num_hidden_layers"]
         elif "n_layer" in config.keys():
-            decoder_layers = config["n_layer"]
+            n_layers = config["n_layer"]
         else:
             raise ValueError("Can't find the number of layers in the config.json file")
         if "hidden_size" in config.keys():
@@ -480,7 +538,9 @@ class LlamaHFConverter(BaseBin):
         max_relative_positions = -1
         position_encoding = {}
         left_pad = True
+        data_task = "lm"
 
+        # ALL THESE IF SHOULD BE HANDLED IN MAPPINGS
         if arch == "PhiForCausalLM":
             parallel_residual = True
             shared_layer_norm = True
@@ -499,6 +559,21 @@ class LlamaHFConverter(BaseBin):
                 "n_positions": 1024,
             }
             left_pad = False
+        if arch == "XLMRobertaXLForMaskedLM":
+            add_qkvbias = True
+            add_ffnbias = True
+            max_relative_positions = 0
+            position_encoding = {
+                "position_encoding": True,
+                "position_encoding_type": "Learned",
+                "n_positions": 514,
+                "position_shift": 2,
+            }
+            left_pad = False
+            data_task = "encoder"
+
+        decoder_layer_prefix = key_maps[arch].get("decoder_layer_prefix", None)
+        encoder_layer_prefix = key_maps[arch].get("encoder_layer_prefix", None)
 
         if wmap_path:
             with open(wmap_path, encoding="utf-8") as fweights:
@@ -553,6 +628,10 @@ class LlamaHFConverter(BaseBin):
                     "tgt_emb.pe.weight",
                     "decoder.layer_norm.weight",
                     "decoder.layer_norm.bias",
+                    "src_emb.embeddings.weight",
+                    "src_emb.pe.weight",
+                    "encoder.layer_norm.weight",
+                    "encoder.layer_norm.bias",
                     "generator.weight",
                 ]
                 for target in targetlist:
@@ -568,22 +647,33 @@ class LlamaHFConverter(BaseBin):
                         if w is not None:
                             eole_safetensor[target] = w
 
-                eole_safetensor["generator.bias"] = torch.zeros(
-                    eole_safetensor["generator.weight"].size(0), dtype=torch.float16
-                )
+                        if target == "generator.weight" and w is not None:
+                            eole_safetensor["generator.bias"] = torch.zeros(
+                                eole_safetensor["generator.weight"].size(0),
+                                dtype=torch.float16,
+                            )
 
             if wmap_path:
                 weightmap = wmap["weight_map"]
                 ckpt_list = []
                 for key in weightmap.keys():
                     if (
-                        key.startswith(key_maps[arch]["layer_prefix"])
+                        (
+                            (
+                                decoder_layer_prefix is not None
+                                and key.startswith(decoder_layer_prefix)
+                            )
+                            or (
+                                encoder_layer_prefix is not None
+                                and key.startswith(encoder_layer_prefix)
+                            )
+                        )
                         and int(key.split(".")[2])
                         in range(
-                            -(decoder_layers // -args.nshards) * shard,
+                            -(n_layers // -args.nshards) * shard,
                             min(
-                                -(decoder_layers // -args.nshards) * (shard + 1),
-                                decoder_layers,
+                                -(n_layers // -args.nshards) * (shard + 1),
+                                n_layers,
                             ),
                             1,
                         )
@@ -601,168 +691,176 @@ class LlamaHFConverter(BaseBin):
                 else:
                     checkpoint = get_load_ckpt(*os.path.split(model_path))
                 for i in range(
-                    -(decoder_layers // -args.nshards) * shard,
-                    min(
-                        -(decoder_layers // -args.nshards) * (shard + 1), decoder_layers
-                    ),
+                    -(n_layers // -args.nshards) * shard,
+                    min(-(n_layers // -args.nshards) * (shard + 1), n_layers),
                     1,
                 ):
 
-                    for param in params:
-                        targetlist = [
-                            ".self_attn.linear_query.",
-                            ".self_attn.linear_keys.",
-                            ".self_attn.linear_values.",
-                            ".self_attn.final_linear.",
-                            ".mlp.gate_up_proj.",
-                            ".mlp.down_proj.",
-                            ".mlp.up_proj.",
-                            ".mlp.experts.0.gate_up_proj.",
-                            ".mlp.experts.0.down_proj.",
-                            ".mlp.experts.0.up_proj.",
-                            ".mlp.experts.1.gate_up_proj.",
-                            ".mlp.experts.1.down_proj.",
-                            ".mlp.experts.1.up_proj.",
-                            ".mlp.experts.2.gate_up_proj.",
-                            ".mlp.experts.2.down_proj.",
-                            ".mlp.experts.2.up_proj.",
-                            ".mlp.experts.3.gate_up_proj.",
-                            ".mlp.experts.3.down_proj.",
-                            ".mlp.experts.3.up_proj.",
-                            ".mlp.experts.4.gate_up_proj.",
-                            ".mlp.experts.4.down_proj.",
-                            ".mlp.experts.4.up_proj.",
-                            ".mlp.experts.5.gate_up_proj.",
-                            ".mlp.experts.5.down_proj.",
-                            ".mlp.experts.5.up_proj.",
-                            ".mlp.experts.6.gate_up_proj.",
-                            ".mlp.experts.6.down_proj.",
-                            ".mlp.experts.6.up_proj.",
-                            ".mlp.experts.7.gate_up_proj.",
-                            ".mlp.experts.7.down_proj.",
-                            ".mlp.experts.7.up_proj.",
+                    # this is an ugly fix to handle decoder only, encoder only,
+                    # encoder-decoder models
+                    for layer_prefix in [
+                        prefix
+                        for prefix in [
+                            decoder_layer_prefix,
+                            encoder_layer_prefix,
                         ]
-                        for target in targetlist:
-                            if target in key_maps[arch].keys():
-                                source = key_maps[arch][target]
-                                if type(source) == tuple:
-                                    srckey = source[0]
-                                    srcmap = source[1]
-                                else:
-                                    srckey = source
-                                w = get_weight(
-                                    checkpoint,
-                                    key_maps[arch]["layer_prefix"]
-                                    + str(i)
-                                    + srckey
-                                    + param,
-                                )
-
-                                if w is not None:
+                        if prefix is not None
+                    ]:
+                        if layer_prefix == decoder_layer_prefix:
+                            eole_prefix = "decoder.transformer_layers."
+                        elif layer_prefix == encoder_layer_prefix:
+                            eole_prefix = "encoder.transformer_layers."
+                        else:
+                            print("error.")
+                            exit()
+                        for param in params:
+                            targetlist = [
+                                ".self_attn.linear_query.",
+                                ".self_attn.linear_keys.",
+                                ".self_attn.linear_values.",
+                                ".self_attn.final_linear.",
+                                ".mlp.gate_up_proj.",
+                                ".mlp.down_proj.",
+                                ".mlp.up_proj.",
+                                ".mlp.experts.0.gate_up_proj.",
+                                ".mlp.experts.0.down_proj.",
+                                ".mlp.experts.0.up_proj.",
+                                ".mlp.experts.1.gate_up_proj.",
+                                ".mlp.experts.1.down_proj.",
+                                ".mlp.experts.1.up_proj.",
+                                ".mlp.experts.2.gate_up_proj.",
+                                ".mlp.experts.2.down_proj.",
+                                ".mlp.experts.2.up_proj.",
+                                ".mlp.experts.3.gate_up_proj.",
+                                ".mlp.experts.3.down_proj.",
+                                ".mlp.experts.3.up_proj.",
+                                ".mlp.experts.4.gate_up_proj.",
+                                ".mlp.experts.4.down_proj.",
+                                ".mlp.experts.4.up_proj.",
+                                ".mlp.experts.5.gate_up_proj.",
+                                ".mlp.experts.5.down_proj.",
+                                ".mlp.experts.5.up_proj.",
+                                ".mlp.experts.6.gate_up_proj.",
+                                ".mlp.experts.6.down_proj.",
+                                ".mlp.experts.6.up_proj.",
+                                ".mlp.experts.7.gate_up_proj.",
+                                ".mlp.experts.7.down_proj.",
+                                ".mlp.experts.7.up_proj.",
+                            ]
+                            for target in targetlist:
+                                if target in key_maps[arch].keys():
+                                    source = key_maps[arch][target]
                                     if type(source) == tuple:
-                                        w = eval("w" + srcmap).contiguous()
-                                    eole_safetensor[
-                                        "decoder.transformer_layers."
+                                        srckey = source[0]
+                                        srcmap = source[1]
+                                    else:
+                                        srckey = source
+                                    w = get_weight(
+                                        checkpoint,
+                                        layer_prefix + str(i) + srckey + param,
+                                    )
+
+                                    if w is not None:
+                                        if type(source) == tuple:
+                                            w = eval("w" + srcmap).contiguous()
+                                        eole_safetensor[
+                                            eole_prefix + str(i) + target + param
+                                        ] = w
+
+                        if shared_layer_norm:
+                            idx = 0
+                        else:
+                            idx = 1
+                        for p in ["weight", "bias"]:
+                            if ".input_layernorm." + p in key_maps[arch].keys():
+                                if (
+                                    type(key_maps[arch][".input_layernorm." + p])
+                                    == tuple
+                                ):
+                                    w = get_weight(
+                                        checkpoint,
+                                        layer_prefix
                                         + str(i)
-                                        + target
-                                        + param
+                                        + key_maps[arch][".input_layernorm." + p][idx],
+                                    )
+                                else:
+                                    w = get_weight(
+                                        checkpoint,
+                                        layer_prefix
+                                        + str(i)
+                                        + key_maps[arch][".input_layernorm." + p],
+                                    )
+                                if w is not None:
+                                    eole_safetensor[
+                                        eole_prefix + str(i) + ".input_layernorm." + p
                                     ] = w
-
-                    if shared_layer_norm:
-                        idx = 0
-                    else:
-                        idx = 1
-                    for p in ["weight", "bias"]:
-                        if ".input_layernorm." + p in key_maps[arch].keys():
-                            if type(key_maps[arch][".input_layernorm." + p]) == tuple:
+                            if ".layer_norm_res." + p in key_maps[arch].keys():
                                 w = get_weight(
                                     checkpoint,
-                                    key_maps[arch]["layer_prefix"]
+                                    layer_prefix
                                     + str(i)
-                                    + key_maps[arch][".input_layernorm." + p][idx],
+                                    + key_maps[arch][".layer_norm_res." + p],
                                 )
-                            else:
-                                w = get_weight(
-                                    checkpoint,
-                                    key_maps[arch]["layer_prefix"]
-                                    + str(i)
-                                    + key_maps[arch][".input_layernorm." + p],
-                                )
-                            if w is not None:
-                                eole_safetensor[
-                                    "decoder.transformer_layers."
-                                    + str(i)
-                                    + ".input_layernorm."
-                                    + p
-                                ] = w
-                        if ".layer_norm_res." + p in key_maps[arch].keys():
-                            w = get_weight(
-                                checkpoint,
-                                key_maps[arch]["layer_prefix"]
-                                + str(i)
-                                + key_maps[arch][".layer_norm_res." + p],
-                            )
-                            if w is not None:
-                                eole_safetensor[
-                                    "decoder.transformer_layers."
-                                    + str(i)
-                                    + ".layer_norm_res."
-                                    + p
-                                ] = w
-                        if ".post_attention_layernorm." + p in key_maps[arch].keys():
-                            w = get_weight(
-                                checkpoint,
-                                key_maps[arch]["layer_prefix"]
-                                + str(i)
-                                + key_maps[arch][".post_attention_layernorm." + p],
-                            )
-                            if w is not None:
-                                eole_safetensor[
-                                    "decoder.transformer_layers."
-                                    + str(i)
-                                    + ".post_attention_layernorm."
-                                    + p
-                                ] = w
-
-                        if ".mlp.gate." + p in key_maps[arch].keys():
-                            w = get_weight(
-                                checkpoint,
-                                key_maps[arch]["layer_prefix"]
-                                + str(i)
-                                + key_maps[arch][".mlp.gate." + p],
-                            )
-                            if w is not None:
-                                eole_safetensor[
-                                    "decoder.transformer_layers."
-                                    + str(i)
-                                    + ".mlp.gate."
-                                    + p
-                                ] = w
-
-                        for j in range(num_experts):
+                                if w is not None:
+                                    eole_safetensor[
+                                        eole_prefix + str(i) + ".layer_norm_res." + p
+                                    ] = w
                             if (
-                                f".mlp.experts.{j}.layer_norm." + p
+                                ".post_attention_layernorm." + p
                                 in key_maps[arch].keys()
                             ):
                                 w = get_weight(
                                     checkpoint,
-                                    key_maps[arch]["layer_prefix"]
+                                    layer_prefix
                                     + str(i)
-                                    + key_maps[arch][
-                                        f".mlp.experts.{j}.layer_norm." + p
-                                    ],
+                                    + key_maps[arch][".post_attention_layernorm." + p],
                                 )
                                 if w is not None:
                                     eole_safetensor[
-                                        "decoder.transformer_layers."
+                                        eole_prefix
                                         + str(i)
-                                        + f".mlp.experts.{j}.layer_norm."
+                                        + ".post_attention_layernorm."
                                         + p
                                     ] = w
+
+                            if ".mlp.gate." + p in key_maps[arch].keys():
+                                w = get_weight(
+                                    checkpoint,
+                                    layer_prefix
+                                    + str(i)
+                                    + key_maps[arch][".mlp.gate." + p],
+                                )
+                                if w is not None:
+                                    eole_safetensor[
+                                        eole_prefix + str(i) + ".mlp.gate." + p
+                                    ] = w
+
+                            for j in range(num_experts):
+                                if (
+                                    f".mlp.experts.{j}.layer_norm." + p
+                                    in key_maps[arch].keys()
+                                ):
+                                    w = get_weight(
+                                        checkpoint,
+                                        layer_prefix
+                                        + str(i)
+                                        + key_maps[arch][
+                                            f".mlp.experts.{j}.layer_norm." + p
+                                        ],
+                                    )
+                                    if w is not None:
+                                        eole_safetensor[
+                                            eole_prefix
+                                            + str(i)
+                                            + f".mlp.experts.{j}.layer_norm."
+                                            + p
+                                        ] = w
 
             # if shard == 0:
             #     vocab_size = eole_safetensor["generator.weight"].size(0)
             print("Saving output model shard: %d" % shard)
+            for key in eole_safetensor.keys():
+                eole_safetensor[key] = eole_safetensor[key].to(torch.float16)
             save_file(
                 eole_safetensor,
                 os.path.join(args.output, "model.{:02d}.safetensors".format(shard)),
@@ -803,7 +901,7 @@ class LlamaHFConverter(BaseBin):
             src_vocab = pyonmttok.build_vocab_from_tokens(
                 vocab,
                 maximum_size=tokenizer.n_words,
-                special_tokens=["<unk>", "<s>", "</s>"],
+                special_tokens=specials_table[arch],
             )
         else:  # # BPE mode - we leverage the HF tokenizer.json info
             with open(tokenizer_json, encoding="utf-8") as f:
@@ -843,7 +941,7 @@ class LlamaHFConverter(BaseBin):
 
         vocabs["src"] = src_vocab
         vocabs["tgt"] = src_vocab
-        vocabs["data_task"] = "lm"
+        vocabs["data_task"] = data_task
         if add_bos_token:
             vocabs["decoder_start_token"] = decoder_start_table[arch]
         else:
@@ -862,7 +960,7 @@ class LlamaHFConverter(BaseBin):
 
         config = TrainConfig(
             data=None,
-            data_task="lm",
+            data_task=data_task,
             skip_empty_level="silent",  # default is "warning"
             save_data=None,
             n_sample=0,
@@ -877,8 +975,8 @@ class LlamaHFConverter(BaseBin):
             transforms_configs={
                 "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}
             },
-            model=TransformerLMModelConfig(
-                layers=decoder_layers,
+            model=arch_table[arch](
+                layers=n_layers,
                 hidden_size=hidden_size,
                 heads=heads,
                 transformer_ff=transformer_ff,

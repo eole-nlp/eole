@@ -76,11 +76,21 @@ class LossCompute(nn.Module):
         )
         padding_idx = vocab[DefaultTokens.PAD]
 
-        if config.model.decoder.lambda_coverage != 0:
-            assert config.model.decoder.coverage_attn, (
-                "--coverage_attn needs to be set in "
-                "order to use --lambda_coverage != 0"
-            )
+        if config.model.decoder is not None:
+            lambda_align = getattr(
+                config.model.decoder, "lambda_align", 0.0
+            )  # patch to support non transformer configs
+            if config.model.decoder.lambda_coverage != 0:
+                lambda_coverage = config.model.decoder.lambda_coverage
+                assert config.model.decoder.coverage_attn, (
+                    "--coverage_attn needs to be set in "
+                    "order to use --lambda_coverage != 0"
+                )
+            else:
+                lambda_coverage = 0
+        else:
+            lambda_coverage = 0
+            lambda_align = 0.0
 
         tgt_shift_idx = model.tgt_shift
 
@@ -126,10 +136,8 @@ class LossCompute(nn.Module):
         compute = cls(
             criterion,
             model.generator,
-            lambda_coverage=config.model.decoder.lambda_coverage,
-            lambda_align=getattr(
-                config.model.decoder, "lambda_align", 0.0
-            ),  # patch to support non transformer configs
+            lambda_coverage=lambda_coverage,
+            lambda_align=lambda_align,
             tgt_shift_index=tgt_shift_idx,
             vocab=vocab,
             lm_generator=lm_generator,

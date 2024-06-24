@@ -84,13 +84,22 @@ def build_torch_optimizer(model, config):
         if config.apex_opt_level in ["O0", "O1", "O2", "O3"]:
             # we use apex.amp
             loss_scale = "dynamic" if config.loss_scale == 0 else config.loss_scale
-            model, optimizer = apex.amp.initialize(
-                [model, model.generator],
-                optimizer,
-                opt_level=config.apex_opt_level,
-                loss_scale=loss_scale,
-                keep_batchnorm_fp32=None,
-            )
+            if hasattr(model, "generator") and model.generator is not None:
+                model, optimizer = apex.amp.initialize(
+                    [model, model.generator],
+                    optimizer,
+                    opt_level=config.apex_opt_level,
+                    loss_scale=loss_scale,
+                    keep_batchnorm_fp32=None,
+                )
+            else:
+                model, optimizer = apex.amp.initialize(
+                    model,
+                    optimizer,
+                    opt_level=config.apex_opt_level,
+                    loss_scale=loss_scale,
+                    keep_batchnorm_fp32=None,
+                )
         else:
             if config.model_dtype == "fp16":
                 # In this case use the old FusedAdam with
