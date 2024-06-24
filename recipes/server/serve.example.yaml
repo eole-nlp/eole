@@ -1,0 +1,11 @@
+models_root: "." # used only for HF downloads for now, but might override $EOLE_MODEL_DIR at some point
+some_params: null # might be useful to setup some server level params (available gpus, network, etc.)
+models:
+# local model
+- id: "llama3-8b-instruct"
+  path: "${EOLE_MODEL_DIR}/llama3-8b-instruct"
+  preload: false
+# HF repo id, automatically downloaded to models_root
+- id: "llama3-8b-instruct-hf"
+  path: "fhdz/llama3-8b-instruct-TEST1"
+  preload: true
