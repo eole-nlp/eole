@@ -157,26 +157,17 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
     )
 
     def _data_task(self) -> str:
-        # Note: this now works thanks to patch in validate_data/text_corpus (path_tgt is kept None)
-        # TO BE REVIEWED FOR ENCODER ONLY MODEL/TASK
         if self.data_task is not None:
             return self.data_task
-        for cname, corpus in self.data.items():
-            # Check path
-            if corpus.path_src is None:
-                raise ValueError(
-                    f"Corpus {cname} src path is required."
-                    "tgt path is also required for non language"
-                    " modeling tasks."
-                )
+        if getattr(self, "model", None) is not None:
+            if self.model.decoder is None:
+                return constants.ModelTask.ENCODER
+            elif self.model.encoder is None:
+                return constants.ModelTask.LANGUAGE_MODEL
             else:
-                if corpus.path_tgt is None:
-                    logger.debug(
-                        "path_tgt is None, it should be set unless the task"
-                        " is language modeling"
-                    )
-                    return constants.ModelTask.LANGUAGE_MODEL
                 return constants.ModelTask.SEQ2SEQ
+        logger.warning(f"No model specified in config, data_task will default to {constants.ModelTask.SEQ2SEQ}")
+        return constants.ModelTask.SEQ2SEQ
 
     @field_validator("transforms_configs", mode="before")
     @classmethod
