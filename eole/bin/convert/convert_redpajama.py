@@ -273,7 +273,6 @@ class RedPajamaConverter(BaseBin):
                 ),
                 # src_word_vec_size=src_word_vec_size,
                 # tgt_word_vec_size=tgt_word_vec_size,
-                model_type="text",
                 layer_norm="standard",
                 pos_ffn_activation_fn="gelu",
                 self_attn_type="scaled-dot",

@@ -365,7 +365,6 @@ class LlamaLegacyConverter(BaseBin):
                 ),
                 # src_word_vec_size=src_word_vec_size,
                 # tgt_word_vec_size=tgt_word_vec_size,
-                model_type="text",
                 layer_norm="rms",
                 norm_eps=norm_eps,
                 pos_ffn_activation_fn="silu",

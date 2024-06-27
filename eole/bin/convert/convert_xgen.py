@@ -231,7 +231,6 @@ class XgenConverter(BaseBin):
                 ),
                 # src_word_vec_size=src_word_vec_size,
                 # tgt_word_vec_size=tgt_word_vec_size,
-                model_type="text",
                 layer_norm="rms",
                 pos_ffn_activation_fn="silu",
                 self_attn_type="scaled-dot",
