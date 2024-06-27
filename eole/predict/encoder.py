@@ -1,6 +1,6 @@
 import torch
 from eole.predict.inference import Inference
-from eole.constants import ModelTask
+from eole.constants import ModelType
 from eole.predict.greedy_search import GreedySearch
 from eole.predict.beam_search import BeamSearch
 from eole.utils.misc import sequence_mask
@@ -9,10 +9,10 @@ from eole.utils.misc import sequence_mask
 class Encoder(Inference):
     @classmethod
     def validate_task(cls, task):
-        if task != ModelTask.ENCODER:
+        if task != ModelType.ENCODER:
             raise ValueError(
                 f"Encoder does not support task {task}."
-                f" Tasks supported: {ModelTask.ENCODER}"
+                f" Tasks supported: {ModelType.ENCODER}"
             )
 
     def predict_batch(self, batch, attn_debug):

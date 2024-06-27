@@ -83,6 +83,7 @@ class ScoringPreparator:
         predict_config.src = self.config.data["valid"].path_src
         predict_config.transforms = self.config.transforms
         predict_config.transforms_configs = self.config.transforms_configs
+        predict_config.model = model_config
         # Retrieve raw references and sources
         with codecs.open(
             self.config.data["valid"].path_tgt, "r", encoding="utf-8"

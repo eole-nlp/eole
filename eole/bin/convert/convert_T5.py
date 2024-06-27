@@ -374,7 +374,6 @@ class T5Converter(BaseBin):
         )
         vocabs["src"] = src_vocab
         vocabs["tgt"] = src_vocab
-        vocabs["data_task"] = "seq2seq"
 
         vocabs["decoder_start_token"] = "<blank>"
 
@@ -390,7 +389,6 @@ class T5Converter(BaseBin):
 
         config = TrainConfig(
             data=None,
-            data_task="seq2seq",
             skip_empty_level="silent",  # default is "warning"
             save_data=None,
             n_sample=0,

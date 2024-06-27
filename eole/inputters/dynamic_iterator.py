@@ -1,7 +1,7 @@
 """Module that contain iterator used for dynamic data."""
 import torch
 from itertools import cycle
-from eole.constants import CorpusTask  # , ModelTask
+from eole.constants import CorpusTask
 from eole.inputters.text_corpus import get_corpora, build_corpora_iters
 from eole.inputters.text_utils import (
     text_sort_key,
@@ -137,6 +137,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         offset=0,
         score_threshold=0,
         left_pad=False,
+        model_type=None,
     ):
         super(DynamicDatasetIter).__init__()
         self.corpora = corpora
@@ -164,15 +165,24 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         self.random_shuffler = RandomShuffler()
         self.bucket_idx = 0
         # TODO: we might want to enable some hybrid mode (default left_pad True for LM, else False)
-        # if task != CorpusTask.TRAIN and vocabs["data_task"] == ModelTask.LANGUAGE_MODEL:
         if task != CorpusTask.TRAIN and left_pad:
             self.left_pad = True
         else:
             self.left_pad = False
+        self.model_type = model_type
 
     @classmethod
     def from_config(
-        cls, corpora, transforms, vocabs, config, task, device, stride=1, offset=0
+        cls,
+        corpora,
+        transforms,
+        vocabs,
+        config,
+        task,
+        device,
+        stride=1,
+        offset=0,
+        model_type=None,
     ):
         """Initilize `DynamicDatasetIter` with options parsed from `opt`."""
         from eole.config.run import PredictConfig
@@ -233,6 +243,9 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             if isinstance(config, PredictConfig)
             else running_config.score_threshold,
             left_pad=getattr(config.model, "left_pad", False),
+            model_type=model_type
+            if model_type is not None
+            else getattr(config.model, "model_type", None),
         )
 
     def _init_datasets(self, worker_id):
@@ -265,7 +278,9 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         tuple_bucket = transform_bucket(self.task, tuple_bucket, self.score_threshold)
         for example in tuple_bucket:
             if example is not None:
-                bucket.append(numericalize(self.vocabs, example))
+                bucket.append(
+                    numericalize(self.vocabs, example, model_type=self.model_type)
+                )
         return bucket
 
     def _add_indice(self, bucket):
@@ -409,6 +424,7 @@ def build_dynamic_dataset_iter(
     tgt=None,
     align=None,
     device_id=-1,
+    model_type=None,
 ):
     """
     Build `DynamicDatasetIter` from opt.
@@ -446,6 +462,7 @@ def build_dynamic_dataset_iter(
             stride=stride,
             offset=offset,
             device=device,
+            model_type=model_type,
         )
         data_iter.num_workers = num_workers
         data_iter._init_datasets(0)  # when workers=0 init_fn not called

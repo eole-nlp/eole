@@ -277,23 +277,6 @@ class TrainingConfig(
             raise ValueError(f"use_ckpting only supports these layers: {_layers}")
         return field
 
-    # not fully sure about this one, as it should technically be in ModelConfig
-    # (but we don't have access to vocab stuff there, yet)
-    # --> was actually never called in legacy code... commenting out for now
-    # def _validate_language_model_compatibilities_opts(self):
-    #     if self.model_task != ModelTask.LANGUAGE_MODEL:
-    #         return
-
-    #     logger.info("encoder is not used for LM task")
-
-    #     assert self.share_vocab and (
-    #         self.tgt_vocab is None
-    #     ), "vocab must be shared for LM task"
-
-    #     assert (
-    #         self.decoder_type == "transformer"
-    #     ), "Only transformer decoder is supported for LM task"
-
     def get_model_path(self):
         # TODO: clarify this
         if self.train_from is not None:

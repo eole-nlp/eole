@@ -151,33 +151,6 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
         default=False, description="Overwrite existing objects if any."
     )
 
-    data_task: constants.ModelTask | None = Field(
-        default=None,
-        description="set data_task manually for now, might be handled upstream in validation",
-    )
-
-    def _data_task(self) -> str:
-        # Note: this now works thanks to patch in validate_data/text_corpus (path_tgt is kept None)
-        # TO BE REVIEWED FOR ENCODER ONLY MODEL/TASK
-        if self.data_task is not None:
-            return self.data_task
-        for cname, corpus in self.data.items():
-            # Check path
-            if corpus.path_src is None:
-                raise ValueError(
-                    f"Corpus {cname} src path is required."
-                    "tgt path is also required for non language"
-                    " modeling tasks."
-                )
-            else:
-                if corpus.path_tgt is None:
-                    logger.debug(
-                        "path_tgt is None, it should be set unless the task"
-                        " is language modeling"
-                    )
-                    return constants.ModelTask.LANGUAGE_MODEL
-                return constants.ModelTask.SEQ2SEQ
-
     @field_validator("transforms_configs", mode="before")
     @classmethod
     def _str_to_dict(cls, v) -> Dict:
@@ -322,8 +295,6 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
             logger.info(f"Parsed {len(corpora)} corpora from -data.")
         # self.data = corpora
         self.__dict__["data"] = corpora  # skip validation to avoid recursion error
-        if self.data_task is None:
-            self.__dict__["data_task"] = self._data_task()
 
     @model_validator(mode="after")
     def _validate_data_config(self, build_vocab_only=False):
@@ -337,5 +308,4 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
         self._get_all_transform()
         # not sure about validate_vocab_opts (especially for "build_vocab_only" case)
         self._validate_vocab_config(build_vocab_only=build_vocab_only)
-        self.__dict__["data_task"] = self._data_task()
         return self
