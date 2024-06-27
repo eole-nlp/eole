@@ -166,7 +166,9 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
                 return constants.ModelTask.LANGUAGE_MODEL
             else:
                 return constants.ModelTask.SEQ2SEQ
-        logger.warning(f"No model specified in config, data_task will default to {constants.ModelTask.SEQ2SEQ}")
+        logger.warning(
+            f"No model specified in config, data_task will default to {constants.ModelTask.SEQ2SEQ}"
+        )
         return constants.ModelTask.SEQ2SEQ
 
     @field_validator("transforms_configs", mode="before")

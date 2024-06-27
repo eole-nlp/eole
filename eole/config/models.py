@@ -477,7 +477,9 @@ class BaseModelConfig(Config):
             if self.model_type != "text":
                 raise AssertionError("--share_embeddings requires --model_type text.")
             if self.encoder is None or self.decoder is None:
-                raise AssertionError("--share_embeddings is for EncoderDecoder models only.")
+                raise AssertionError(
+                    "--share_embeddings is for EncoderDecoder models only."
+                )
 
         return self
 
