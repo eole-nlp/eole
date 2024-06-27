@@ -40,9 +40,9 @@ class SubwordMarker(str, Enum):
     BEGIN_CASED = "｟mrk_case_modifier_C｠"
 
 
-class ModelTask(str, Enum):
-    LANGUAGE_MODEL = "lm"
-    SEQ2SEQ = "seq2seq"
+class ModelType(str, Enum):
+    DECODER = "decoder"
+    ENCODER_DECODER = "encoder_decoder"
     ENCODER = "encoder"
 
 

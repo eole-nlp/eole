@@ -1,7 +1,7 @@
 """Module that contain iterator used for dynamic data."""
 import torch
 from itertools import cycle
-from eole.constants import CorpusTask  # , ModelTask
+from eole.constants import CorpusTask
 from eole.inputters.text_corpus import get_corpora, build_corpora_iters
 from eole.inputters.text_utils import (
     text_sort_key,

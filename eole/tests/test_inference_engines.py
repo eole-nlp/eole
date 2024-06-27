@@ -6,7 +6,7 @@ from argparse import ArgumentParser
 from eole.utils.misc import use_gpu, set_random_seed
 
 
-def evaluate(config, inference_mode, input_file, out, method, model_task=None):
+def evaluate(config, inference_mode, input_file, out, method, model_type=None):
     print("# input file", input_file)
     run_results = {}
     # Build the translator (along with the model)
@@ -20,7 +20,7 @@ def evaluate(config, inference_mode, input_file, out, method, model_task=None):
         from eole.inference_engine import InferenceEngineCT2
 
         config.src_subword_vocab = config.get_model_path() + "/vocabulary.json"
-        engine = InferenceEngineCT2(config, model_task=model_task)
+        engine = InferenceEngineCT2(config, model_type=model_type)
     start = time.time()
     if method == "file":
         engine.config.src = input_file
@@ -46,11 +46,11 @@ def main():
     parser = ArgumentParser()
     parser.add_argument("-model", help="Path to model.", required=True, type=str)
     parser.add_argument(
-        "-model_task",
+        "-model_type",
         help="Model task.",
         required=True,
         type=str,
-        choices=["lm", "seq2seq"],
+        choices=["decoder", "encoder_decoder"],
     )
     parser.add_argument(
         "-inference_config_file", help="Inference config file", required=True, type=str
@@ -89,7 +89,7 @@ def main():
         input_file=args.input_file,
         out=args.out,
         method="file",
-        model_task=args.model_task,
+        model_type=args.model_type,
     )
     evaluate(
         config,
@@ -97,7 +97,7 @@ def main():
         input_file=args.input_file,
         out=args.out,
         method="list",
-        model_task=args.model_task,
+        model_type=args.model_type,
     )
 
 

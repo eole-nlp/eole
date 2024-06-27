@@ -5,7 +5,7 @@ from pydantic import (
     model_validator,
 )  # , TypeAdapter
 
-from eole.constants import PositionEncodingType, ActivationFunction, ModelTask
+from eole.constants import PositionEncodingType, ActivationFunction, ModelType
 from eole.config.config import Config
 
 
@@ -383,13 +383,13 @@ class BaseModelConfig(Config):
     #         return self.encoder.encoder_type == "brnn"
 
     @property
-    def model_type(self) -> ModelTask:
+    def model_type(self) -> ModelType:
         if self.decoder is None:
-            return ModelTask.ENCODER
+            return ModelType.ENCODER
         elif self.encoder is None:
-            return ModelTask.LANGUAGE_MODEL
+            return ModelType.DECODER
         else:
-            return ModelTask.SEQ2SEQ
+            return ModelType.ENCODER_DECODER
 
     @field_validator("encoder", "decoder", "embeddings", mode="before")
     @classmethod

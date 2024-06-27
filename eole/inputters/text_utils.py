@@ -1,5 +1,5 @@
 import torch
-from eole.constants import DefaultTokens, CorpusTask, ModelTask
+from eole.constants import DefaultTokens, CorpusTask, ModelType
 from torch.nn.utils.rnn import pad_sequence
 from eole.utils.logging import logger
 
@@ -56,12 +56,12 @@ def transform_bucket(task, bucket, threshold=0):
         return None
 
 
-def numericalize(vocabs, example, model_type=ModelTask.SEQ2SEQ):
+def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
     """ """
     decoder_start_token = vocabs["decoder_start_token"]
     numeric = example
     numeric["src"]["src_ids"] = []
-    if model_type == ModelTask.SEQ2SEQ:
+    if model_type == ModelType.ENCODER_DECODER:
         src_text = example["src"]["src"].split(" ")
         numeric["src"]["src_ids"] = vocabs["src"](src_text)
         if example["tgt"] is not None:
@@ -71,7 +71,7 @@ def numericalize(vocabs, example, model_type=ModelTask.SEQ2SEQ):
                 [decoder_start_token] + tgt_text + [DefaultTokens.EOS]
             )
 
-    elif model_type == ModelTask.LANGUAGE_MODEL:
+    elif model_type == ModelType.DECODER:
         src_text = example["src"]["src"].split(" ")
         if decoder_start_token != "":
             src_text = [decoder_start_token] + src_text
@@ -83,7 +83,7 @@ def numericalize(vocabs, example, model_type=ModelTask.SEQ2SEQ):
             if decoder_start_token == "":
                 numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
 
-    elif model_type == ModelTask.ENCODER:
+    elif model_type == ModelType.ENCODER:
         src_text = example["src"]["src"].split(" ")
         if example["tgt"] is not None:  # TO BE DISCUSSED
             tgt_text = example["tgt"]["tgt"].split(" ")

@@ -14,9 +14,7 @@ class Config(BaseModel):
         use_enum_values=True,
         extra="forbid",
     )
-    model_config[
-        "protected_namespaces"
-    ] = ()  # prevents warning for model_task / model_type
+    model_config["protected_namespaces"] = ()  # prevents warning for model_type
 
     def update(self, **kwargs):
         self.__class__.validate(self.__dict__ | kwargs)
