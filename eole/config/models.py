@@ -1,7 +1,11 @@
 from typing import Dict, Union, Literal, Any, Annotated
-from pydantic import Field, field_validator, model_validator  # , TypeAdapter
+from pydantic import (
+    Field,
+    field_validator,
+    model_validator,
+)  # , TypeAdapter
 
-from eole.constants import PositionEncodingType, ActivationFunction
+from eole.constants import PositionEncodingType, ActivationFunction, ModelTask
 from eole.config.config import Config
 
 
@@ -356,9 +360,6 @@ class BaseModelConfig(Config):
         description="Share the word embeddings between encoder and decoder. "
         "Need to use shared vocabulary for this option.",
     )
-    model_type: Literal[
-        "text"
-    ] | None = "text"  # same (or use only this one maybe, like ludwig)
     input_feed: int = Field(
         default=1,
         description="Feed the context vector at each time step as additional input "
@@ -380,6 +381,15 @@ class BaseModelConfig(Config):
     # def brnn(self) -> bool:
     #     if self.encoder is not None:
     #         return self.encoder.encoder_type == "brnn"
+
+    @property
+    def model_type(self) -> ModelTask:
+        if self.decoder is None:
+            return ModelTask.ENCODER
+        elif self.encoder is None:
+            return ModelTask.LANGUAGE_MODEL
+        else:
+            return ModelTask.SEQ2SEQ
 
     @field_validator("encoder", "decoder", "embeddings", mode="before")
     @classmethod
@@ -462,9 +472,6 @@ class BaseModelConfig(Config):
     @model_validator(mode="after")
     def _validate_model_config(self):
         self.update_model_opts()
-        assert self.model_type in ["text"], (
-            "Unsupported model type %s" % self.model_type
-        )
 
         # encoder and decoder should be same sizes
         if self.encoder is not None and self.decoder is not None:
@@ -474,8 +481,6 @@ class BaseModelConfig(Config):
             ), "The encoder and decoder rnns must be the same size for now"
 
         if self.share_embeddings:
-            if self.model_type != "text":
-                raise AssertionError("--share_embeddings requires --model_type text.")
             if self.encoder is None or self.decoder is None:
                 raise AssertionError(
                     "--share_embeddings is for EncoderDecoder models only."

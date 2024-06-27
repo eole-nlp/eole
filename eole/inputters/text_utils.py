@@ -56,12 +56,12 @@ def transform_bucket(task, bucket, threshold=0):
         return None
 
 
-def numericalize(vocabs, example):
+def numericalize(vocabs, example, model_type=ModelTask.SEQ2SEQ):
     """ """
     decoder_start_token = vocabs["decoder_start_token"]
     numeric = example
     numeric["src"]["src_ids"] = []
-    if vocabs["data_task"] == ModelTask.SEQ2SEQ:
+    if model_type == ModelTask.SEQ2SEQ:
         src_text = example["src"]["src"].split(" ")
         numeric["src"]["src_ids"] = vocabs["src"](src_text)
         if example["tgt"] is not None:
@@ -71,7 +71,7 @@ def numericalize(vocabs, example):
                 [decoder_start_token] + tgt_text + [DefaultTokens.EOS]
             )
 
-    elif vocabs["data_task"] == ModelTask.LANGUAGE_MODEL:
+    elif model_type == ModelTask.LANGUAGE_MODEL:
         src_text = example["src"]["src"].split(" ")
         if decoder_start_token != "":
             src_text = [decoder_start_token] + src_text
@@ -83,7 +83,7 @@ def numericalize(vocabs, example):
             if decoder_start_token == "":
                 numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
 
-    elif vocabs["data_task"] == ModelTask.ENCODER:
+    elif model_type == ModelTask.ENCODER:
         src_text = example["src"]["src"].split(" ")
         if example["tgt"] is not None:  # TO BE DISCUSSED
             tgt_text = example["tgt"]["tgt"].split(" ")
@@ -102,7 +102,7 @@ def numericalize(vocabs, example):
             numeric["src"]["src_ids"] = vocabs["src"](txt)
 
     else:
-        raise ValueError(f"Something went wrong with task {vocabs['data_task']}")
+        raise ValueError(f"Something went wrong with model_type {model_type}")
 
     return numeric
 

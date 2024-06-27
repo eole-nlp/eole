@@ -32,11 +32,7 @@ def build_encoder(model_config, running_config=None):
     Args:
         opt: the option in current environment.
     """
-    enc_type = (
-        model_config.encoder.encoder_type
-        if model_config.model_type == "text"
-        else model_config.model.model_type
-    )
+    enc_type = model_config.encoder.encoder_type
     return str2enc[enc_type].from_config(
         model_config.encoder, running_config=running_config
     )  # full config for now
@@ -60,21 +56,18 @@ def build_decoder(model_config, running_config=None):
 
 def build_src_emb(model_config, vocabs, running_config=None):
     # Build embeddings.
-    if model_config.model_type == "text":
-        src_emb = Embeddings(
-            word_vec_size=model_config.embeddings.src_word_vec_size,
-            position_encoding=model_config.embeddings.position_encoding,
-            position_encoding_type=model_config.embeddings.position_encoding_type,
-            position_shift=model_config.embeddings.position_shift,
-            dropout=getattr(running_config, "dropout", [0.0])[0],
-            word_padding_idx=vocabs["src"][DefaultTokens.PAD],
-            word_vocab_size=len(vocabs["src"]),
-            sparse=getattr(running_config, "optim", None) == "sparseadam",
-            freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
-            n_positions=model_config.embeddings.n_positions,
-        )
-    else:
-        src_emb = None
+    src_emb = Embeddings(
+        word_vec_size=model_config.embeddings.src_word_vec_size,
+        position_encoding=model_config.embeddings.position_encoding,
+        position_encoding_type=model_config.embeddings.position_encoding_type,
+        position_shift=model_config.embeddings.position_shift,
+        dropout=getattr(running_config, "dropout", [0.0])[0],
+        word_padding_idx=vocabs["src"][DefaultTokens.PAD],
+        word_vocab_size=len(vocabs["src"]),
+        sparse=getattr(running_config, "optim", None) == "sparseadam",
+        freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
+        n_positions=model_config.embeddings.n_positions,
+    )
     return src_emb
 
 

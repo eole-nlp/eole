@@ -190,7 +190,6 @@ def load_test_model(config, device_id=0):
     config2 = copy.deepcopy(config)
     for i, model_path in enumerate(config.model_path):
         config2.model_path = [config.model_path[i]]
-        print(config2.model)
         vocabs, model, model_config = BaseModel.load_test_model(
             config2, device_id, model_path=model_path
         )

@@ -211,7 +211,6 @@ share_vocab: true
 # tensorboard=False,
 # tensorboard_log_dir='runs/eole',
 # bucket_size=2048,
-# data_task='lm',
 # _all_transform=set(),
 # hidden_size=64,
 # enc_hid_size=64, 
