@@ -1,5 +1,5 @@
 import json
-from eole.constants import CorpusTask, DefaultTokens, ModelTask
+from eole.constants import CorpusTask, DefaultTokens, ModelType
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.utils.distributed import ErrorHandler, spawned_infer
 from eole.utils.logging import init_logger
@@ -15,6 +15,7 @@ class InferenceEngine(object):
 
     def __init__(self, config):
         self.config = config  # PredictConfig
+        self.model_type = None
 
     def predict_batch(self, batch):
         pass
@@ -31,6 +32,7 @@ class InferenceEngine(object):
                 self.vocabs,
                 task=CorpusTask.INFER,
                 device_id=self.device_id,
+                model_type=self.model_type,  # patch for CT2
             )
             scores, estims, preds = self._predict(infer_iter)
         else:
@@ -47,6 +49,7 @@ class InferenceEngine(object):
                 task=CorpusTask.INFER,
                 src=src,
                 device_id=self.device_id,
+                model_type=self.model_type,
             )
             scores, estims, preds = self._predict(infer_iter)
         else:
@@ -222,14 +225,14 @@ class InferenceEngineCT2(InferenceEngine):
         opt: inference options
     """
 
-    def __init__(self, config, model_task=None):
+    def __init__(self, config, model_type=None):
         import ctranslate2
         import pyonmttok
 
         super().__init__(config)
         assert (
-            model_task is not None
-        ), "A model_task kwarg must be passed for CT2 models."
+            model_type is not None
+        ), "A model_type kwarg must be passed for CT2 models."
         self.logger = init_logger(config.log_file)
         assert self.config.world_size <= 1, "World size must be less than 1."
         self.device_id = config.gpu
@@ -241,8 +244,8 @@ class InferenceEngineCT2(InferenceEngine):
             self.device = "cpu"
         self.transforms_cls = get_transforms_cls(self.config._all_transform)
         # Build translator
-        self.model_task = model_task
-        if self.model_task == ModelTask.LANGUAGE_MODEL:
+        self.model_type = model_type
+        if self.model_type == ModelType.DECODER:
             self.predictor = ctranslate2.Generator(
                 config.get_model_path(),
                 device=self.device,
@@ -262,7 +265,6 @@ class InferenceEngineCT2(InferenceEngine):
         src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
         vocabs["src"] = src_vocab
         vocabs["tgt"] = src_vocab
-        vocabs["data_task"] = "lm"
         vocabs["decoder_start_token"] = "<s>"
         self.vocabs = vocabs
         # Build transform pipe
@@ -279,7 +281,7 @@ class InferenceEngineCT2(InferenceEngine):
                 if id != self.vocabs["src"].lookup_token(DefaultTokens.PAD)
             ]
             input_tokens.append(_input_tokens)
-        if self.model_task == ModelTask.LANGUAGE_MODEL:
+        if self.model_type == ModelType.DECODER:
             predicted_batch = self.predictor.generate_batch(
                 start_tokens=input_tokens,
                 batch_type=("examples" if config.batch_type == "sents" else "tokens"),
@@ -298,7 +300,7 @@ class InferenceEngineCT2(InferenceEngine):
                 for out in predicted_batch
             ]
             scores = [out.scores for out in predicted_batch]
-        elif self.model_task == ModelTask.SEQ2SEQ:
+        elif self.model_type == ModelType.ENCODER_DECODER:
             predicted_batch = self.predictor.translate_batch(
                 input_tokens,
                 batch_type=("examples" if config.batch_type == "sents" else "tokens"),

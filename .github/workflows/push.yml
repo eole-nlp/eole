@@ -293,7 +293,7 @@ jobs:
         head eole/tests/data/src-test.txt > /tmp/src-test.txt
         python eole/tests/test_inference_engines.py \
           -model eole/tests/test_model_lm \
-          -model_task lm \
+          -model_type decoder \
           -input_file /tmp/src-test.txt \
           -inference_config_file eole/tests/data/inference-engine_py.yaml \
           -inference_mode py \
@@ -303,7 +303,7 @@ jobs:
         head eole/tests/data/src-test.txt > /tmp/src-test.txt
         python eole/tests/test_inference_engines.py \
           -model eole/tests/test_model_lm_ct2 \
-          -model_task lm \
+          -model_type decoder \
           -input_file /tmp/src-test.txt \
           -inference_config_file eole/tests/data/inference-engine_py.yaml \
           -inference_mode ct2 \
@@ -313,7 +313,7 @@ jobs:
         head eole/tests/data/src-test.txt > /tmp/src-test.txt
         python eole/tests/test_inference_engines.py \
           -model eole/tests/test_model \
-          -model_task seq2seq \
+          -model_type encoder_decoder \
           -input_file /tmp/src-test.txt \
           -inference_config_file eole/tests/data/inference-engine_py.yaml \
           -inference_mode py \

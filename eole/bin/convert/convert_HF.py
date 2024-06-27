@@ -538,7 +538,6 @@ class LlamaHFConverter(BaseBin):
         max_relative_positions = -1
         position_encoding = {}
         left_pad = True
-        data_task = "lm"
 
         # ALL THESE IF SHOULD BE HANDLED IN MAPPINGS
         if arch == "PhiForCausalLM":
@@ -570,7 +569,6 @@ class LlamaHFConverter(BaseBin):
                 "position_shift": 2,
             }
             left_pad = False
-            data_task = "encoder"
 
         decoder_layer_prefix = key_maps[arch].get("decoder_layer_prefix", None)
         encoder_layer_prefix = key_maps[arch].get("encoder_layer_prefix", None)
@@ -941,7 +939,6 @@ class LlamaHFConverter(BaseBin):
 
         vocabs["src"] = src_vocab
         vocabs["tgt"] = src_vocab
-        vocabs["data_task"] = data_task
         if add_bos_token:
             vocabs["decoder_start_token"] = decoder_start_table[arch]
         else:
@@ -960,7 +957,6 @@ class LlamaHFConverter(BaseBin):
 
         config = TrainConfig(
             data=None,
-            data_task=data_task,
             skip_empty_level="silent",  # default is "warning"
             save_data=None,
             n_sample=0,

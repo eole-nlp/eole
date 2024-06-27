@@ -234,7 +234,6 @@ class RedPajamaConverter(BaseBin):
 
         vocabs["src"] = src_vocab
         vocabs["tgt"] = src_vocab
-        vocabs["data_task"] = "lm"
         vocabs["decoder_start_token"] = "</s>"
 
         vocab_dict = vocabs_to_dict(vocabs)
@@ -249,7 +248,6 @@ class RedPajamaConverter(BaseBin):
 
         config = TrainConfig(
             data=None,
-            data_task="lm",
             skip_empty_level="silent",  # default is "warning"
             save_data=None,
             n_sample=0,

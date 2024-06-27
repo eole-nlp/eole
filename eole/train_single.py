@@ -96,9 +96,10 @@ def _init_train(config):
     else:
         checkpoint = None
         # vocabs, transforms = prepare_transforms_vocabs(config, transforms_cls)
+    config = update_config_with_checkpoint(config, checkpoint=checkpoint)
     vocabs, transforms = prepare_transforms_vocabs(config, transforms_cls)
 
-    return checkpoint, vocabs, transforms
+    return checkpoint, vocabs, transforms, config
 
 
 def configure_process(config, device_id):
@@ -138,8 +139,7 @@ def main(config, device_id):
 
     configure_process(config, device_id)
     init_logger(config.log_file)
-    checkpoint, vocabs, transforms = _init_train(config)
-    config = update_config_with_checkpoint(config, checkpoint=checkpoint)
+    checkpoint, vocabs, transforms, config = _init_train(config)
 
     # if transform + options set in 'valid' we need to copy in main
     # transform / options for scoring considered as inference
