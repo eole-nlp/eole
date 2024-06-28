@@ -8,6 +8,7 @@ from eole.inputters.inputter import vocabs_to_dict
 from eole.modules.lora import lora_state_dict
 from eole.config import recursive_model_fields_set
 from eole.config.run import TrainConfig
+from eole.constants import DefaultTokens
 
 try:
     from safetensors.torch import save_file
@@ -58,6 +59,14 @@ def load_checkpoint(model_path):
         if os.path.exists(vocab_path):
             with open(vocab_path) as f:
                 checkpoint["vocab"] = json.load(f)
+            # use default specials if not specified
+            if "specials" not in checkpoint["vocab"].keys():
+                checkpoint["vocab"]["specials"] = {
+                    "pad_token": DefaultTokens.PAD,
+                    "unk_token": DefaultTokens.UNK,
+                    "bos_token": DefaultTokens.BOS,
+                    "eos_token": DefaultTokens.EOS,
+                }
         else:
             raise FileNotFoundError(f"{model_path} does not contain vocab.json")
         optim_path = os.path.join(model_path, "optimizer.pt")
