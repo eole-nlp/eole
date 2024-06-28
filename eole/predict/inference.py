@@ -86,14 +86,25 @@ class Inference(object):
         with_score=False,
         return_gold_log_probs=False,
         add_estimator=False,
+        optional_eos=[],
     ):
         self.model = model
         self.vocabs = vocabs
         self._tgt_vocab = vocabs["tgt"]
-        self._tgt_eos_idx = vocabs["tgt"].lookup_token(DefaultTokens.EOS)
-        self._tgt_pad_idx = vocabs["tgt"].lookup_token(DefaultTokens.PAD)
-        self._tgt_bos_idx = vocabs["tgt"].lookup_token(DefaultTokens.BOS)
-        self._tgt_unk_idx = vocabs["tgt"].lookup_token(DefaultTokens.UNK)
+        self._tgt_eos_idx = [
+            vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("eos_token", ""))
+        ] + [vocabs["tgt"].lookup_token(eos_token) for eos_token in optional_eos]
+        print(self._tgt_eos_idx)
+        print(vocabs.get("specials"))
+        self._tgt_pad_idx = vocabs["tgt"].lookup_token(
+            vocabs.get("specials", {}).get("pad_token", "")
+        )
+        self._tgt_bos_idx = vocabs["tgt"].lookup_token(
+            vocabs.get("specials", {}).get("bos_token", "")
+        )
+        self._tgt_unk_idx = vocabs["tgt"].lookup_token(
+            vocabs.get("specials", {}).get("unk_token", "")
+        )
         self._tgt_sep_idx = vocabs["tgt"].lookup_token(DefaultTokens.SEP)
         self._tgt_start_with = vocabs["tgt"].lookup_token(vocabs["decoder_start_token"])
         self._tgt_vocab_len = len(self._tgt_vocab)
@@ -224,6 +235,7 @@ class Inference(object):
             seed=config.seed,
             with_score=config.with_score,
             add_estimator=model_config.add_estimator,
+            optional_eos=config.optional_eos,
         )
 
     def _log(self, msg):

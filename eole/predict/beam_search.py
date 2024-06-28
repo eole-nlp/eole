@@ -382,7 +382,9 @@ class BeamSearchBase(DecodeStrategy):
             )
             self.topk_scores -= cov_penalty.view(_B, self.beam_size).float()
 
-        self.is_finished_list = self.topk_ids.eq(self.eos).tolist()
+        self.is_finished_list = torch.isin(
+            self.topk_ids, torch.tensor(self.eos)
+        ).tolist()
 
         self.ensure_max_length()
 

@@ -36,6 +36,18 @@ class BaseVocabConfig(Config):
         description="Default specials used for vocab initialization. "
         "UNK, PAD, BOS, EOS will take IDs 0, 1, 2, 3.",
     )
+    bos_token: str | None = Field(
+        default=constants.DefaultTokens.BOS,
+    )
+    eos_token: str | None = Field(
+        default=constants.DefaultTokens.EOS,
+    )
+    unk_token: str | None = Field(
+        default=constants.DefaultTokens.UNK,
+    )
+    pad_token: str | None = Field(
+        default=constants.DefaultTokens.PAD,
+    )
     # pre trained embeddings stuff, might be put elsewhere
     both_embeddings: str | None = Field(
         default=None,

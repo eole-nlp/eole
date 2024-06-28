@@ -235,7 +235,7 @@ class GreedySearch(DecodeStrategy):
         topk_ids, self.topk_scores = self._pick(log_probs)
         self.beams_scores += self.topk_scores
 
-        self.is_finished_list = topk_ids.eq(self.eos).tolist()
+        self.is_finished_list = torch.isin(topk_ids, torch.tensor(self.eos)).tolist()
 
         self.alive_seq = torch.cat([self.alive_seq, topk_ids], -1)
         if self.return_attention:

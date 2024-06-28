@@ -42,7 +42,9 @@ class PredictionBuilder(object):
                 else dyn_voc.ids_to_tokens[tok - len(self.vocabs["src"].ids_to_tokens)]
                 for tok in pred.tolist()
             ]
-        if tokens[-1] == DefaultTokens.EOS:
+        if tokens[-1] == self.vocabs.get("specials", {}).get(
+            "eos_token", DefaultTokens.EOS
+        ):
             tokens = tokens[:-1]
 
         if self.replace_unk and attn is not None and src is not None:
