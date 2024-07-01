@@ -719,9 +719,9 @@ class BaseModel(nn.Module):
                     ):
                         # Let's warn instead of just passing
                         logger.info(
-                             "Missing key in safetensors checkpoint: %s" % name
-                             + "."
-                             + param_name
+                            "Missing key in safetensors checkpoint: %s" % name
+                            + "."
+                            + param_name
                         )
                     if precision == torch.int8:
                         torch.quantization.quantize_dynamic(module, inplace=True)
