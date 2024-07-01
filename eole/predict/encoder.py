@@ -121,10 +121,8 @@ class Encoder(Inference):
             ) / pad_mask1.sum(dim=1, keepdim=True).float()
             estim = self.model.estimator(in_estim1.half()).squeeze(-1)
             """
-            # Version with first token embed
-            estim = self.model.estimator(
-                enc_out[:, 0, :]
-             ).squeeze(-1)
+            # Version with first token embedding (same as COMET)
+            estim = self.model.estimator(enc_out[:, 0, :]).squeeze(-1)
         else:
             estim = torch.ones([enc_out.size(0)])
         estim = [[item] for item in estim.tolist()]

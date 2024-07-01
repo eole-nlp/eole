@@ -178,7 +178,8 @@ class BaseModel(nn.Module):
             hasattr(running_config, "lora_layers")
             and len(running_config.lora_layers) > 0
         ):
-            #if running_config.freeze_encoder or running_config.freeze_decoder:
+            # I think we need to allow encoder freezing while training LoRa
+            # if running_config.freeze_encoder or running_config.freeze_decoder:
             #    raise ValueError("Cannot use LoRa with Enc/Dec-oder freezing")
             for layer in running_config.lora_layers:
                 if (
@@ -716,12 +717,12 @@ class BaseModel(nn.Module):
                     elif strict and (
                         "lora" not in param_name and "slopes" not in param_name
                     ):
-                        pass  # TO FIX - patch for estimator
-                        # raise ValueError(
-                        #     "Missing key in safetensors checkpoint: %s" % name
-                        #     + "."
-                        #     + param_name
-                        # )
+                        # Let's warn instead of just passing
+                        logger.info(
+                             "Missing key in safetensors checkpoint: %s" % name
+                             + "."
+                             + param_name
+                        )
                     if precision == torch.int8:
                         torch.quantization.quantize_dynamic(module, inplace=True)
                     else:
