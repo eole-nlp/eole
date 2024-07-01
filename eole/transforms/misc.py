@@ -58,9 +58,8 @@ class FilterTooLongTransform(Transform):
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
         """Return None if too long else return as is."""
-        if (
-            len(example["src"]) > self.src_seq_length
-            or len(example["tgt"]) > self.tgt_seq_length - 2
+        if len(example["src"]) > self.src_seq_length or (
+            example["tgt"] is not None and len(example["tgt"]) > self.tgt_seq_length - 2
         ):
             if stats is not None:
                 stats.update(FilterTooLongStats())
