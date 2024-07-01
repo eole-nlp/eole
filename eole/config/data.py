@@ -298,11 +298,6 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
 
     @model_validator(mode="after")
     def _validate_data_config(self, build_vocab_only=False):
-        if self.n_sample != 0:
-            assert (
-                self.save_data
-            ), "-save_data should be set if \
-                want save samples."
         if self.data is not None:  # patch to allow None data
             self._validate_data()
         self._get_all_transform()

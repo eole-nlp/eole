@@ -341,6 +341,9 @@ class BaseModelConfig(Config):
         default=-1,
         description="Size of hidden states. Overwrites [encoder/decoder].hidden_size if set.",
     )
+    word_vec_size: int = Field(
+        default=-1, description="Word embedding size for src and tgt."
+    )
     layers: int = Field(
         default=-1,
         description="Number of layers in both encoder and decoder "
