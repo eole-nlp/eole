@@ -40,7 +40,7 @@ class TestTransform(unittest.TestCase):
             data={
                 "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
             },  # actual file path (tested in validate)
-            src_vocab="dummy",
+            src_vocab="eole/tests/data/vocab-train.src",
             share_vocab=True,
             seed=-1,
             transforms_configs={"switchout": {"switchout_temperature": 1.0}},
@@ -70,7 +70,10 @@ class TestTransform(unittest.TestCase):
         )
         # opt = Namespace(data=corpora)
         opt = TrainConfig(
-            data=corpora, src_vocab="dummy", share_vocab=True, model=CustomModelConfig()
+            data=corpora,
+            src_vocab="eole/tests/data/vocab-train.src",
+            share_vocab=True,
+            model=CustomModelConfig(),
         )
         specials = get_specials(opt, transforms_cls)
         specials_expected = {"src": ["｟_pf_src｠"], "tgt": ["｟_pf_tgt｠"]}
@@ -94,7 +97,7 @@ class TestTransform(unittest.TestCase):
         opt = TrainConfig(
             data=corpora,
             seed=-1,
-            src_vocab="dummy",
+            src_vocab="eole/tests/data/vocab-train.src",
             share_vocab=True,
             model=CustomModelConfig(),
         )
@@ -107,7 +110,7 @@ class TestTransform(unittest.TestCase):
             data={
                 "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
             },  # actual file path (tested in validate)
-            src_vocab="dummy",
+            src_vocab="eole/tests/data/vocab-train.src",
             share_vocab=True,
             transforms_configs={
                 "filtertoolong": {"src_seq_length": 4, "tgt_seq_length": 4}
@@ -151,7 +154,7 @@ class TestMiscTransform(unittest.TestCase):
         opt = TrainConfig(
             data=corpora,
             seed=-1,
-            src_vocab="dummy",
+            src_vocab="eole/tests/data/vocab-train.src",
             share_vocab=True,
             model=CustomModelConfig(),
         )
@@ -511,7 +514,7 @@ class TestSamplingTransform(unittest.TestCase):
             data={
                 "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
             },  # actual file path (tested in validate)
-            src_vocab="dummy",
+            src_vocab="eole/tests/data/vocab-train.src",
             share_vocab=True,
             seed=3434,
             transforms_configs={"tokendrop": {"tokendrop_temperature": 0.1}},
@@ -537,7 +540,7 @@ class TestSamplingTransform(unittest.TestCase):
             data={
                 "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
             },  # actual file path (tested in validate)
-            src_vocab="dummy",
+            src_vocab="eole/tests/data/vocab-train.src",
             share_vocab=True,
             seed=3434,
             transforms_configs={"tokenmask": {"tokenmask_temperature": 0.1}},
@@ -563,7 +566,7 @@ class TestSamplingTransform(unittest.TestCase):
             data={
                 "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
             },  # actual file path (tested in validate)
-            src_vocab="dummy",
+            src_vocab="eole/tests/data/vocab-train.src",
             share_vocab=True,
             seed=3434,
             transforms_configs={"switchout": {"switchout_temperature": 0.1}},

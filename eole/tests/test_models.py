@@ -21,7 +21,7 @@ opt = TrainConfig(
     data={
         "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
     },  # actual file path (tested in validate)
-    src_vocab="dummy",
+    src_vocab="eole/tests/data/vocab-train.src",
     share_vocab=True,
     model=CustomModelConfig(),
 )  # now required by validation
