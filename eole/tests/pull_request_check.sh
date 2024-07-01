@@ -352,8 +352,8 @@ ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model2  \
             -verbose -batch_size 10     \
             -beam_size 1                \
             -seed 1                     \
-            -random_sampling_topk -1    \
-            -random_sampling_temp 0.0001    \
+            -top_k -1    \
+            -temperature 0.0001    \
             -tgt ${DATA_DIR}/morph/tgt.valid   \
             -out $TMP_OUT_DIR/trans_sampling  >> ${LOG_FILE} 2>&1
 diff ${DATA_DIR}/morph/tgt.valid $TMP_OUT_DIR/trans_sampling
@@ -389,8 +389,8 @@ ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model_lm  \
             -verbose -batch_size 1     \
             -beam_size 1                \
             -seed 1                     \
-            -random_sampling_topk -1    \
-            -random_sampling_temp 0.0001    \
+            -top_k -1    \
+            -temperature 0.0001    \
             -ban_unk_token \
             -length_penalty none \
             -out $TMP_OUT_DIR/gen_sampling  >> ${LOG_FILE} 2>&1
@@ -405,9 +405,9 @@ ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model_lm  \
             -verbose -batch_size 1     \
             -beam_size 1                \
             -seed 3                     \
-            -random_sampling_topk -1    \
-            -random_sampling_topp 0.95    \
-            -random_sampling_temp 1    \
+            -top_k -1    \
+            -top_p 0.95    \
+            -temperature 1    \
             -ban_unk_token \
             -length_penalty none \
             -out $TMP_OUT_DIR/gen_sampling  >> ${LOG_FILE} 2>&1
@@ -422,9 +422,9 @@ ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model_lm  \
             -verbose -batch_size 1     \
             -beam_size 10                \
             -seed 2                     \
-            -random_sampling_topk 50    \
-            -random_sampling_topp 0.95    \
-            -random_sampling_temp 1    \
+            -top_k 50    \
+            -top_p 0.95    \
+            -temperature 1    \
             -length_penalty avg \
             -ban_unk_token \
             -min_length 5 \

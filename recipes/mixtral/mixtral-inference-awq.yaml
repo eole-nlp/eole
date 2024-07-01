@@ -10,7 +10,6 @@ model_path: "${EOLE_MODEL_DIR}/mixtral-8x7b-instruct-v0.1-awq"
 # Inference
 seed: 42
 max_length: 256
-gpu: 0
 batch_type: sents
 batch_size: 1
 world_size: 2
@@ -20,9 +19,9 @@ parallel_mode: "tensor_parallel"
 #quant_layers: ['gate_up_proj', 'down_proj', 'up_proj']
 #quant_type: "bnb_sparse"
 precision: fp16
-#random_sampling_topk: 1
-#random_sampling_topp: 0.6
-#random_sampling_temp: 0.9
+#top_k: 1
+#top_p: 0.6
+#temperature: 0.9
 beam_size: 1
 n_best: 1
 profile: false

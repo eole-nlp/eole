@@ -10,10 +10,9 @@ transforms_configs:
 
 verbose: false
 n_best: 3
-random_sampling_topp: 0.9
+top_p: 0.9
 beam_size: 10
 
-gpu: 0
 world_size: 1
 gpu_ranks: [0]
 

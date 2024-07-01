@@ -10,7 +10,6 @@ model_path: "${EOLE_MODEL_DIR}/llama2-7b-chat-hf/model.pt"
 # Inference
 seed: 42
 max_length: 256
-gpu: 0
 batch_type: sents
 batch_size: 8
 world_size: 2
@@ -19,9 +18,9 @@ parallel_mode: "tensor_parallel"
 quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
 quant_type: "bnb_NF4"
 precision: fp16
-random_sampling_topk: 5
-random_sampling_topp: 0.8
-random_sampling_temp: 0.9
+top_k: 5
+top_p: 0.8
+temperature: 0.9
 beam_size: 1
 n_best: 1
 report_time: true
