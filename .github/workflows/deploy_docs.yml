@@ -1,0 +1,35 @@
+name: Deploy Docs
+
+# Trigger manually via Github Actions UI for now, on release later
+on: ["workflow_dispatch"]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    permissions: write-all
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: 20
+    - name: Install Eole
+      run: pip install -e .
+    - name: Install pandoc (bibtex to markdown)
+      run: |
+        wget https://github.com/jgm/pandoc/releases/download/3.2.1/pandoc-3.2.1-1-amd64.deb;
+        sudo dpkg -i pandoc-3.2.1-1-amd64.deb
+    - name: Install docusaurus and deps
+      run: |
+        cd docs/docusaurus_tsx && npm install
+    - name: Build docs
+      run: |
+        cd docs && pip install -r requirements.txt && ./build_docs.sh
+    - name: Deploy to Github Pages
+      uses: JamesIves/github-pages-deploy-action@v4
+      with:
+        folder: docs/docusaurus_tsx/build
+        branch: gh-pages-docs
+        clean: true
+        token: ${{ secrets.GITHUB_TOKEN }}
