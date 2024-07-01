@@ -178,8 +178,9 @@ class BaseModel(nn.Module):
             hasattr(running_config, "lora_layers")
             and len(running_config.lora_layers) > 0
         ):
-            if running_config.freeze_encoder or running_config.freeze_decoder:
-                raise ValueError("Cannot use LoRa with Enc/Dec-oder freezing")
+            # I think we need to allow encoder freezing while training LoRa
+            # if running_config.freeze_encoder or running_config.freeze_decoder:
+            #    raise ValueError("Cannot use LoRa with Enc/Dec-oder freezing")
             for layer in running_config.lora_layers:
                 if (
                     hasattr(running_config, "quant_layers")
@@ -716,12 +717,12 @@ class BaseModel(nn.Module):
                     elif strict and (
                         "lora" not in param_name and "slopes" not in param_name
                     ):
-                        pass  # TO FIX - patch for estimator
-                        # raise ValueError(
-                        #     "Missing key in safetensors checkpoint: %s" % name
-                        #     + "."
-                        #     + param_name
-                        # )
+                        # Let's warn instead of just passing
+                        logger.info(
+                            "Missing key in safetensors checkpoint: %s" % name
+                            + "."
+                            + param_name
+                        )
                     if precision == torch.int8:
                         torch.quantization.quantize_dynamic(module, inplace=True)
                     else:
@@ -927,13 +928,17 @@ class EncoderModel(BaseModel):
 
         mask = sequence_mask(src_len)
         enc_out, enc_final_hs = self.encoder(self.src_emb(src), mask=mask)
-        if self.add_estimator:  # on prend en compte les average de enc_out et dec_out
+        if self.add_estimator:
+            # Version with average
+            """
             pad_mask1 = ~src.eq(1)
             in_estim1 = (enc_out * pad_mask1.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask1.sum(dim=1, keepdim=True).float()
             estim = self.estimator(in_estim1.half()).squeeze(-1)
-            # estim = self.estimator(enc_out[:, 0, :]).squeeze(-1)
+            """
+            # Version with first token
+            estim = self.estimator(enc_out[:, 0, :]).squeeze(-1)
         else:
             estim = None
 
