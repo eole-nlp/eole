@@ -5,3 +5,4 @@ bitsandbytes>=0.41.2
 spacy
 gradio
 autoawq
+pyarrow
