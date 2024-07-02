@@ -221,8 +221,11 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
     @staticmethod
     def _validate_file(file_path, info):
         """Check `file_path` is valid or raise `IOError`."""
-        if not os.path.isfile(file_path):
-            raise IOError(f"Please check path of your {info} file!")
+        if file_path == "dummy":
+            # hack to allow creating objects with required fields
+            pass
+        elif not os.path.isfile(file_path):
+            raise IOError(f"Please check path of your {info} file! ({file_path})")
 
     def _validate_data(self):
         """Parse corpora specified in data field of YAML file."""
@@ -298,14 +301,10 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
 
     @model_validator(mode="after")
     def _validate_data_config(self, build_vocab_only=False):
-        if self.n_sample != 0:
-            assert (
-                self.save_data
-            ), "-save_data should be set if \
-                want save samples."
         if self.data is not None:  # patch to allow None data
             self._validate_data()
         self._get_all_transform()
-        # not sure about validate_vocab_opts (especially for "build_vocab_only" case)
-        self._validate_vocab_config(build_vocab_only=build_vocab_only)
+        # this is manually triggered where needed, to allow instanciation of
+        # TrainConfig without existing files (e.g. inference)
+        # self._validate_vocab_config(build_vocab_only=build_vocab_only)
         return self
