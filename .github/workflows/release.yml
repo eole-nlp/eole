@@ -12,8 +12,7 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/p/eole
-    permissions:
-      id-token: write
+    permissions: write-all
     steps:
     - uses: actions/checkout@v2
     - name: Set up Python 3.10
