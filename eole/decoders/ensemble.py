@@ -10,7 +10,7 @@ import torch.nn as nn
 import copy
 from eole.encoders.encoder import EncoderBase
 from eole.decoders.decoder import DecoderBase
-from eole.models import EncoderDecoderModel, BaseModel
+from eole.models.model import EncoderDecoderModel, BaseModel
 
 
 class EnsembleDecoderOutput(object):

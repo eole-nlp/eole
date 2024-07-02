@@ -11,15 +11,15 @@ from eole.transforms import (
     get_specials,
     get_transforms_cls,
 )
-from eole.inputters import build_vocab
-from eole.inputters.inputter import vocabs_to_dict  # , dict_to_vocabs
+from eole.inputters.inputter import vocabs_to_dict, build_vocab  # , dict_to_vocabs
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.inputters.text_corpus import save_transformed_sample
 from eole.models.model_saver import load_checkpoint
 from eole.utils.optimizers import Optimizer
 from eole.utils.misc import set_random_seed
 from eole.trainer import build_trainer
-from eole.models import build_model_saver, get_model_class
+from eole.models.model_saver import build_model_saver
+from eole.models.model import get_model_class
 from eole.modules.embeddings import prepare_pretrained_embeddings
 
 from eole.config import (
