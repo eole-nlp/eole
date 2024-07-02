@@ -6,6 +6,7 @@ on:
 
 jobs:
   deploy-docs:
+    permissions: write-all
     uses: ./.github/workflows/deploy_docs.yml
   publish-pypi:
     runs-on: ubuntu-latest
