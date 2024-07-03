@@ -9,6 +9,8 @@ What is common:
 We use the same base model xlm-roberta-xl or xlm-roberta-xxl encoders
 We use the same dataset (1720-da.mlqe)
 
+You can get the dataset to train the model below here: https://huggingface.co/eole-nlp/cometkiwi-xxl-eole/
+
 What is different:
 wmt23-cometkiwi-da-xl(or xxl) use Layerwise attention which brings complexity without significant better accuracy
 we use Gelu instead of Tanh in the Estimator
@@ -52,6 +54,7 @@ You need to concat the `added_vocab.txt` file to the `vocab.txt` file resulting 
 ## Training cometkiwi
 
 Training will happen in two steps (see cometkiwi-xxl-eole.yaml file)
+FYI the trained model can be downloaded here: https://huggingface.co/eole-nlp/cometkiwi-xxl-eole/
 
 STEP 1:
 We train from the converted xlm-roberta-xxl model but we keep everything frozen.
