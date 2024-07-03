@@ -404,11 +404,6 @@ class Trainer(object):
         # Set model in validating mode.
         valid_model.eval()
 
-        # we might need some trick to enable scoring with amp codepath
-        # valid_model.to(torch.float16)
-
-        # raw_srcs = []
-        # raw_refs = []
         with torch.no_grad():
             stats = eole.utils.Statistics()
             start = time.time()
@@ -479,7 +474,6 @@ class Trainer(object):
                 param.data = param_data
 
         # Set model back to training mode.
-        # valid_model.to(torch.float32)
         valid_model.train()
 
         return stats
