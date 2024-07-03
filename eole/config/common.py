@@ -177,6 +177,7 @@ class RunningConfig(DistributedConfig):
                 hasattr(flash_pack, "flash_attn_func")
                 and torch.cuda.get_device_capability()[0] >= 8
                 and self.self_attn_backend == "flash"
+                and self.precision in [torch.float16, torch.bfloat16]
             ):
                 pass
             else:

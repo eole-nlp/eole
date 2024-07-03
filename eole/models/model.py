@@ -293,6 +293,9 @@ class BaseModel(nn.Module):
         training_config.world_size = running_config.world_size
         # retrieve share_vocab flag from checkpoint config
         running_config.share_vocab = checkpoint["config"].share_vocab
+        # retrieve precision from checkpoint config if not explicitly set
+        if "precision" not in running_config.model_fields_set:
+            running_config.precision = training_config.precision
         # in fine we might have some nested Lora/QuantizeConfig that are updated from checkpoint values # noqa: E501
         # should quant type be in model config or running config ?
         if hasattr(training_config, "quant_type") and training_config.quant_type in [
