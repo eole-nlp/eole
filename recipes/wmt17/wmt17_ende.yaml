@@ -48,7 +48,7 @@ training:
     dropout_steps: [0]
     dropout: [0.1]
     attention_dropout: [0.1]
-    model_dtype: "fp16"
+    precision: "fp16"
     #apex_opt_level: "O2"
     optim: "fusedadam"
     learning_rate: 2

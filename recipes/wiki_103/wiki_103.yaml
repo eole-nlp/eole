@@ -49,9 +49,9 @@ training:
     batch_size: 2048
     batch_type: tokens
 
-    model_dtype: "fp32"
+    precision: "fp32"
     optim: "adam"
-    # model_dtype: "fp16"
+    # precision: "fp16"
     # optim: "fusedadam"
     learning_rate: 2
     warmup_steps: 8000

@@ -12,7 +12,7 @@ class OptimizerConfig(Config):
     Everything related to optimizers.
     Might be split into multiple subclasses later.
     Note: not fully sufficient (yet) to replace full opt namespace in build_torch_optimizer.
-    Some other parameters (hidden_size, model_dtype, apex_opt_level, etc.) are accessed.
+    Some other parameters (hidden_size, precision, apex_opt_level, etc.) are accessed.
     """
 
     optim: Literal[

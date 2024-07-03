@@ -204,7 +204,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             if running_config.batch_size_multiple is not None:
                 batch_size_multiple = running_config.batch_size_multiple
             else:
-                batch_size_multiple = 8 if running_config.model_dtype == "fp16" else 1
+                batch_size_multiple = 8 if running_config.precision == "fp16" else 1
             corpora_info = config.data
             bucket_size = (
                 running_config.bucket_size
