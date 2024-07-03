@@ -228,7 +228,7 @@ class TrainingConfig(
         description="Step for moving average. Default is every update if average_decay is set.",
     )
 
-    model_dtype: Literal["fp32", "fp16"] = Field(
+    model_dtype: Literal["fp32", "fp16", "bf16"] = Field(
         default="fp16", description="Data type of the model."
     )
     loss_scale: float = Field(

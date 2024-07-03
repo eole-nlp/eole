@@ -255,7 +255,9 @@ class BaseModel(nn.Module):
 
     # probably good to refactor in some way, but working for now
     def training_logic(self, running_config, vocabs, checkpoint, device_id):
-        if (
+        if running_config.model_dtype == "bf16":
+            precision = torch.bfloat16
+        elif (
             running_config.model_dtype == "fp16"
             and running_config.apex_opt_level not in ["O0", "O1", "O2", "O3"]
             and running_config.optim == "fusedadam"
@@ -374,10 +376,13 @@ class BaseModel(nn.Module):
             attention_dropout=[0.0],
         )
         # required to force no dropout at inference with flash
-        precision = torch.float32
 
-        if running_config.precision == "fp16":
+        if running_config.precision == "fp32":
+            precision = torch.float32
+        elif running_config.precision == "fp16":
             precision = torch.float16
+        elif running_config.precision == "bf16":
+            precision = torch.bfloat16
         elif running_config.precision == "int8":
             if running_config.gpu >= 0:
                 raise ValueError("Dynamic 8-bit quantization is not supported on GPU")

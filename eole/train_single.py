@@ -181,12 +181,14 @@ def main(config, device_id):
         "torch.float16": 0,
         "torch.uint8": 0,
         "torch.int8": 0,
+        "torch.bfloat16": 0,
     }
     non_trainable = {
         "torch.float32": 0,
         "torch.float16": 0,
         "torch.uint8": 0,
         "torch.int8": 0,
+        "torch.bfloat16": 0,
     }
     for n, p in model.named_parameters():
         if p.requires_grad:

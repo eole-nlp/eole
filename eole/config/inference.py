@@ -135,7 +135,7 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     gpu: int = Field(
         default=-1, description="Device to run on. -1 will default to CPU."
     )
-    precision: Literal["", "fp32", "fp16", "int8"] = Field(
+    precision: Literal["", "fp32", "fp16", "int8", "bf16"] = Field(
         default="",
         description="Precision to run inference. "
         "Default will use model.dtype, "
