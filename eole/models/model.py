@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from glob import glob
+from collections import defaultdict
 import os
 
 from eole.utils.logging import logger
@@ -730,7 +731,8 @@ class BaseModel(nn.Module):
         Returns: (int, int)
             encoder side parameter count
             decoder side parameter count"""
-
+        trainable = defaultdict(int)
+        non_trainable = defaultdict(int)
         emb, enc, dec, gen, other = 0, 0, 0, 0, 0
         for name, param in self.named_parameters():
             if "encoder" in name:
@@ -744,6 +746,10 @@ class BaseModel(nn.Module):
             else:
                 # mostly zero, but might be useful to grab edge cases
                 other += param.nelement()
+            if param.requires_grad:
+                trainable[str(param.dtype)] += param.numel()
+            else:
+                non_trainable[str(param.dtype)] += param.numel()
 
         if callable(log):
             log("embeddings: {}".format(emb))
@@ -752,6 +758,8 @@ class BaseModel(nn.Module):
             log("generator: {}".format(gen))
             log("other: {}".format(other))
             log("* number of parameters: {}".format(emb + enc + dec + gen + other))
+            log("Trainable parameters = %s" % str(dict(trainable)))
+            log("Non trainable parameters = %s" % str(dict(non_trainable)))
 
 
 class EncoderDecoderModel(BaseModel):

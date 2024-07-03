@@ -353,6 +353,7 @@ class TrainingConfig(
                 "all",
             ], '-update_vocab needs -reset_optim "states" or "all"'
         if self.optim == "fusedadam":
-            assert self.precision == torch.float16,\
-                "optim: fusedam requires fp16 precision"
+            assert (
+                self.precision == torch.float16
+            ), "optim: fusedam requires fp16 precision"
         return self
