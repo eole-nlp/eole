@@ -255,21 +255,6 @@ class BaseModel(nn.Module):
 
     # probably good to refactor in some way, but working for now
     def training_logic(self, running_config, vocabs, checkpoint, device_id):
-        if running_config.model_dtype == "bf16":
-            precision = torch.bfloat16
-        elif (
-            running_config.model_dtype == "fp16"
-            and running_config.apex_opt_level not in ["O0", "O1", "O2", "O3"]
-            and running_config.optim == "fusedadam"
-        ):
-            precision = torch.float16
-            logger.info("Switching model to half() for FusedAdam legacy")
-            logger.info("Non quantized layer compute is %s", running_config.model_dtype)
-        else:
-            precision = torch.float32
-            logger.info("Switching model to float32 for amp/apex_amp")
-            logger.info("Non quantized layer compute is %s", running_config.model_dtype)
-
         if (
             running_config.world_size > 1
             and running_config.parallel_mode == "tensor_parallel"
@@ -285,10 +270,10 @@ class BaseModel(nn.Module):
 
         if checkpoint is not None:
             self.load_checkpoint(
-                running_config, vocabs, checkpoint, device, precision, offset
+                running_config, vocabs, checkpoint, device, running_config.dtype, offset
             )
         else:
-            self.to(precision)
+            self.to(running_config.dtype)
             self.to(device)
 
         # currently in TrainingConfig which makes more sense
@@ -377,18 +362,15 @@ class BaseModel(nn.Module):
         )
         # required to force no dropout at inference with flash
 
-        if running_config.precision == "fp32":
-            precision = torch.float32
-        elif running_config.precision == "fp16":
-            precision = torch.float16
-        elif running_config.precision == "bf16":
-            precision = torch.bfloat16
-        elif running_config.precision == "int8":
+        # we might want to handle this via quant options at some point
+        if running_config.precision == torch.int8:
             if running_config.gpu >= 0:
                 raise ValueError("Dynamic 8-bit quantization is not supported on GPU")
             else:
+                # dynamic quantization is enabled downstream
                 precision = torch.float32
-
+        else:
+            precision = running_config.precision
         return model_config, running_config, vocabs, device, precision, offset
 
     @classmethod

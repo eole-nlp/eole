@@ -1,8 +1,8 @@
 import torch
-from typing import List, Literal
-from pydantic import Field, model_validator
+from typing import List, Literal, Union
+from pydantic import Field, model_validator, field_validator
 from importlib import import_module
-from eole.config.config import Config
+from eole.config.config import Config, get_config_dict
 
 # from eole.utils.logging import logger
 
@@ -129,6 +129,9 @@ class RunningConfig(DistributedConfig):
     factorizing common stuff like batch_size etc.
     """
 
+    model_config = get_config_dict()
+    model_config["arbitrary_types_allowed"] = True  # to allow torch.dtype
+
     model_path: str = Field(
         default="model",
         description="Path to directory containing all model components.",
@@ -137,6 +140,34 @@ class RunningConfig(DistributedConfig):
         default="flash",
         description="Self-attention backend.",
     )
+    precision: Union[Literal["fp32", "fp16", "int8", "bf16"], torch.dtype] = Field(
+        default=torch.float32,
+        description="Precision to use for main compute. "
+        "Some parameters might have other dtypes for specific cases "
+        "(e.g. torch.amp -- See eole.config.training.TrainingConfig.dtype) "
+        "fp32 to force slow fp16 model on gtx1080, "
+        "int8 to enable pytorch native 8-bit quantization (cpu only).",
+    )
+
+    @field_validator("precision", mode="before")
+    @classmethod
+    def validate_precision(cls, v: Union[str, torch.dtype]) -> torch.dtype:
+        _precision_map: dict = {
+            "fp32": torch.float32,
+            "fp16": torch.float16,
+            "bf16": torch.bfloat16,
+            "int8": torch.int8,
+            "torch.float32": torch.float32,
+            "torch.float16": torch.float16,
+            "torch.bfloat16": torch.bfloat16,
+            "torch.int8": torch.int8,
+        }
+        if isinstance(v, str):
+            if v in _precision_map:
+                return _precision_map[v]
+            else:
+                raise ValueError(f"Invalid precision value: {v}")
+        return v
 
     @model_validator(mode="after")
     def _validate_running_config(self):

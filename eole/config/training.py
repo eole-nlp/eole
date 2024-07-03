@@ -1,8 +1,8 @@
 from typing import List, Literal
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator, computed_field
 import torch
 
-from eole.config.config import Config
+from eole.config.config import Config, get_config_dict
 from eole.config.common import RunningConfig, LoRaConfig, QuantizeConfig
 from eole.utils.logging import logger
 
@@ -88,6 +88,10 @@ class TrainingConfig(
     LoRaConfig,
     QuantizeConfig,
 ):
+
+    model_config = get_config_dict()
+    model_config["arbitrary_types_allowed"] = True  # to allow torch.dtype
+
     # Init stuff
     param_init: float = Field(
         default=0.1,
@@ -228,9 +232,6 @@ class TrainingConfig(
         description="Step for moving average. Default is every update if average_decay is set.",
     )
 
-    model_dtype: Literal["fp32", "fp16", "bf16"] = Field(
-        default="fp16", description="Data type of the model."
-    )
     loss_scale: float = Field(
         default=0.0,
         description="For FP16 training, the static loss scale to use. "
@@ -268,6 +269,30 @@ class TrainingConfig(
     score_threshold: float = Field(
         default=0.68, description="Threshold to filterout data"
     )
+
+    @computed_field
+    @property
+    def dtype(self) -> torch.dtype:
+        """
+        Deduce which dtype to use for main model parameters.
+        E.g. with mixed precision a copy is kept in float32.
+        """
+        if self.precision == torch.bfloat16:
+            dtype = torch.bfloat16
+        elif (
+            self.precision == torch.float16
+            and self.apex_opt_level not in ["O0", "O1", "O2", "O3"]
+            and self.optim == "fusedadam"
+        ):
+            dtype = torch.float16
+            logger.info("Switching model to half() for FusedAdam legacy")
+            logger.info("Non quantized layer compute is %s", self.precision)
+        else:
+            dtype = torch.float32
+            if self.precision == torch.float16:
+                logger.info("Switching model to float32 for amp/apex_amp")
+                logger.info("Non quantized layer compute is %s", self.precision)
+        return dtype
 
     @field_validator("use_ckpting", mode="after")
     @classmethod
