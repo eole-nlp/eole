@@ -2,8 +2,8 @@
 seed: 1234
 share_vocab: true
 #overwrite: true
-save_data: "/media/vincent/Crucial X6/NMT_work/en-de/runs/36-0-32-2560-10240/"
-src_vocab: "/mnt/InternalCrucial4/LLM_work/xlm-roberta-xl-eole/dict2.txt"
+save_data: "./cometkiwi-xl-eole"
+src_vocab: "${EOLE_MODEL_DIR}/xlm-roberta-xl-eole/vocab.txt"
 src_vocab_size: 250880
 tgt_vocab_size: 250880
 vocab_size_multiple: 1
@@ -17,8 +17,8 @@ transforms: [sentencepiece, filtertoolong]
 transforms_configs:
   sentencepiece:
     #### Subword
-    src_subword_model: "/mnt/InternalCrucial4/LLM_work/xlm-roberta-xl-eole/sentencepiece.bpe.model"
-    tgt_subword_model: "/mnt/InternalCrucial4/LLM_work/xlm-roberta-xl-eole/sentencepiece.bpe.model"
+    src_subword_model: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/sentencepiece.bpe.model"
+    tgt_subword_model: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/sentencepiece.bpe.model"
 
   filtertoolong:
     src_seq_length: 94
@@ -28,33 +28,36 @@ transforms_configs:
 # Corpus opts:
 data:
     1720-da-mlqe:
-        path_src: "/mnt/InternalCrucial4/data/en-de/1720-da-mlqe/1720-da.mlqe.src"
-        path_tgt: "/mnt/InternalCrucial4/data/en-de/1720-da-mlqe/1720-da.mlqe.tgt"
-        path_sco: "/mnt/InternalCrucial4/data/en-de/1720-da-mlqe/1720-da.mlqe.sco"
+        path_src: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/1720-da-mlqe/1720-da.mlqe.src"
+        path_tgt: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/1720-da-mlqe/1720-da.mlqe.tgt"
+        path_sco: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/1720-da-mlqe/1720-da.mlqe.sco"
         transforms: [sentencepiece, filtertoolong]
         weight: 1
 
-    valid:
-        path_src: "/mnt/InternalCrucial4/data/en-de/testsets/newstest2014-origlang-en.en"
-        path_tgt: "/mnt/InternalCrucial4/data/en-de/testsets/newstest2014-origlang-en.de"
-        transforms: [sentencepiece]
+    #valid:
+    #    path_src: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/testsets/newstest2014-origlang-en.en"
+    #    path_tgt: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/testsets/newstest2014-origlang-en.de"
+    #    transforms: [sentencepiece]
 
-log_file: "/media/vincent/Crucial X6/NMT_work/en-de/runs/36-0-32-2560-10240-with-estim/36-0-32-2560-10240-with-estim.log"
+log_file: "./cometkiwi-xl-eole/cometkiwi-xl-eole.log"
 
 training:
     # General opts
     #torch_compile: true
     self_attn_backend: "pytorch"
     #update_vocab: true
-    
-    #train_from: "/mnt/InternalCrucial4/LLM_work/xlm-roberta-xl-eole/"
-    train_from: "/media/vincent/Crucial X6/NMT_work/en-de/runs/36-0-32-2560-10240-with-estim2/step_10000_pretrain"
-    reset_optim: all #keep_states
-    model_path: "/media/vincent/Crucial X6/NMT_work/en-de/runs/36-0-32-2560-10240-with-estim2"
+    # STEP 1: pre-train estimator from frozen xlm-roberta-xl
+    # train_from: "${EOLE_MODEL_DIR}/xlm-roberta-xl-eole/"
+    # STEP 2: train cometkiwi from pre-trained estimator along xlm-roberta encoder
+    # train_from: "./cometkiwi-xl-eole/step_4000_pretrain"
+    # reset_optim: all
+    model_path: "./cometkiwi-xl-eole"
     keep_checkpoint: 50
     save_checkpoint_steps: 10000
     average_decay: 0.0
-    train_steps: 40000
+    # STEP 1: train only 4000 steps
+    # train_steps: 4000
+    # STEP 2: train 40000 steps
     valid_steps: 1000
 
     # Batching
@@ -92,13 +95,21 @@ training:
     estim_loss_lambda_steps: [0]
     estim_loss_lambda: [1.0]
     score_threshold: 0.0 #0.68
-    freeze_encoder: false
+    # STEP 1: keep encoder frozen
+    # freeze_encoder: true
+    # STEP 2: make encoder trainable
+    # freeze_encoder: false
     # LoRa
-    lora_layers: ['linear_values', 'linear_query', 'linear_keys', 'final_linear', 'gate_up_proj', 'down_proj', '0', '3', '6']
-    lora_rank: 2
-    lora_dropout: 0.05
-    lora_alpha: 8
-    lora_embedding: false
+    # lora_layers: ['linear_values', 'linear_query', 'linear_keys', 'final_linear', 'gate_up_proj', 'down_proj', '0', '3', '6']
+    # lora_layers: ['linear_values', 'linear_query', 'linear_keys', 'final_linear', 'gate_up_proj', 'down_proj']
+    # lora_rank: 2
+    # lora_dropout: 0.05
+    # lora_alpha: 8
+    # lora_embedding: false
+    
+    # for XL it is not necessary to use quantization on 24GB cards
+    # quant_layers: ['linear_values', 'linear_query', 'linear_keys', 'final_linear', 'gate_up_proj', 'down_proj']
+    # quant_type: "bnb_NF4"
 
 model:
     architecture: "transformer_encoder"

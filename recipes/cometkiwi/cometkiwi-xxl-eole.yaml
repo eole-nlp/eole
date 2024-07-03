@@ -38,15 +38,13 @@ data:
     #    path_tgt: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/testsets/newstest2014-origlang-en.de"
     #    transforms: [sentencepiece]
 
-log_file: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/48-0-32-4096-16384-with-estim.log"
+log_file: "./cometkiwi-xxl-eole/cometkiwi-xxl-eole.log"
 
 training:
     # General opts
     #torch_compile: true
     self_attn_backend: "pytorch"
     #update_vocab: true
-    
-    
     # STEP 1: pre-train estimator from frozen xlm-roberta-xxl
     # train_from: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/"
     # STEP 2: train cometkiwi from pre-trained estimator along xlm-roberta encoder
