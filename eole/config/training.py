@@ -356,4 +356,7 @@ class TrainingConfig(
             assert (
                 self.precision == torch.float16
             ), "optim: fusedam requires fp16 precision"
+        assert (
+            self.precision != torch.int8
+        ), "int8 precision is currently only used for inference dynamic quantization"
         return self

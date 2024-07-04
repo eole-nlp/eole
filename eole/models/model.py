@@ -234,7 +234,6 @@ class BaseModel(nn.Module):
         vocabs,
         checkpoint,
         device,
-        precision,
         offset,
         model_path=None,
     ):
@@ -248,7 +247,6 @@ class BaseModel(nn.Module):
             running_config=running_config,
             vocabs=vocabs,
             checkpoint=checkpoint,
-            precision=precision,
             device=device,
             offset=offset,
             strict=strict,
@@ -270,9 +268,7 @@ class BaseModel(nn.Module):
             offset = 0
 
         if checkpoint is not None:
-            self.load_checkpoint(
-                running_config, vocabs, checkpoint, device, running_config.dtype, offset
-            )
+            self.load_checkpoint(running_config, vocabs, checkpoint, device, offset)
         else:
             self.to(running_config.dtype)
             self.to(device)
@@ -366,16 +362,13 @@ class BaseModel(nn.Module):
         )
         # required to force no dropout at inference with flash
 
-        # we might want to handle this via quant options at some point
-        if running_config.precision == torch.int8:
-            if running_config.gpu >= 0:
-                raise ValueError("Dynamic 8-bit quantization is not supported on GPU")
-            else:
-                # dynamic quantization is enabled downstream
-                precision = torch.float32
-        else:
-            precision = running_config.precision
-        return model_config, running_config, vocabs, device, precision, offset
+        return (
+            model_config,
+            running_config,
+            vocabs,
+            device,
+            offset,
+        )
 
     @classmethod
     def build_base_model(cls, config, vocabs, running_config=None):
@@ -440,7 +433,6 @@ class BaseModel(nn.Module):
                 running_config,
                 vocabs,
                 device,
-                precision,
                 offset,
             ) = cls.inference_logic(checkpoint, running_config, vocabs, device_id)
         model = cls.build_blocks(
@@ -496,7 +488,6 @@ class BaseModel(nn.Module):
                 vocabs,
                 checkpoint,
                 device,
-                precision,
                 offset,
             )
             if running_config.precision == torch.int8:
@@ -611,7 +602,6 @@ class BaseModel(nn.Module):
         running_config=None,
         vocabs=None,
         checkpoint=None,
-        precision=torch.float32,
         device=torch.device("cpu"),
         offset=0,
         strict=False,
@@ -713,10 +703,10 @@ class BaseModel(nn.Module):
                         #     + "."
                         #     + param_name
                         # )
-                    if precision == torch.int8:
+                    if getattr(running_config, "precision", None) == torch.int8:
                         torch.quantization.quantize_dynamic(module, inplace=True)
                     else:
-                        module.to(precision)
+                        module.to(getattr(running_config, "dtype", torch.float32))
                     module.to(device)
         for key in keys_shard.keys():
             if key not in keyfound.keys() and key not in buf_list:
