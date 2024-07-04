@@ -277,9 +277,7 @@ class TrainingConfig(
         Deduce which dtype to use for main model parameters.
         E.g. with mixed precision a copy is kept in float32.
         """
-        if self.precision == torch.bfloat16:
-            dtype = torch.bfloat16
-        elif (
+        if (
             self.precision == torch.float16
             and self.apex_opt_level not in ["O0", "O1", "O2", "O3"]
             and self.optim == "fusedadam"
