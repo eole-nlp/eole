@@ -1001,7 +1001,7 @@ class LlamaHFConverter(BaseBin):
                 left_pad=left_pad,
             ),
             training=TrainingConfig(
-                precision="fp16",
+                compute_dtype="fp16",
                 batch_size=896,
                 batch_size_multiple=1,
                 batch_type="tokens",

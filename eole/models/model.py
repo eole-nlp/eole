@@ -271,7 +271,7 @@ class BaseModel(nn.Module):
         if checkpoint is not None:
             self.load_checkpoint(running_config, vocabs, checkpoint, device, offset)
         else:
-            self.to(running_config.dtype)
+            self.to(running_config.storage_dtype)
             self.to(device)
 
         # currently in TrainingConfig which makes more sense
@@ -292,8 +292,8 @@ class BaseModel(nn.Module):
         # retrieve share_vocab flag from checkpoint config
         running_config.share_vocab = checkpoint["config"].share_vocab
         # retrieve precision from checkpoint config if not explicitly set
-        if "precision" not in running_config.model_fields_set:
-            running_config.precision = training_config.precision
+        if "compute_dtype" not in running_config.model_fields_set:
+            running_config.compute_dtype = training_config.compute_dtype
         # in fine we might have some nested Lora/QuantizeConfig that are updated from checkpoint values # noqa: E501
         # should quant type be in model config or running config ?
         if hasattr(training_config, "quant_type") and training_config.quant_type in [
@@ -491,7 +491,7 @@ class BaseModel(nn.Module):
                 device,
                 offset,
             )
-            if running_config.precision == torch.int8:
+            if running_config.compute_dtype == torch.int8:
                 torch.quantization.quantize_dynamic(
                     model, dtype=torch.qint8, inplace=True
                 )
@@ -611,9 +611,12 @@ class BaseModel(nn.Module):
 
         Args:
             model_path: Model path
-            precision: same as above
-            device: same as above
-            strict: same as above
+            running_config: RunningConfig (either training or predict)
+            vocabs: src/tgt vocabs
+            checkpoint: config/vocabs loaded from checkpoint
+            device: device to move parameters to
+            offset: for tensor_parallel
+            strict: stric loading of all parameters
         """
         # bitsandbytes quantize weights when .cuda() is called
         # for huge models we need to save Ram
@@ -704,10 +707,12 @@ class BaseModel(nn.Module):
                             + "."
                             + param_name
                         )
-                    if getattr(running_config, "precision", None) == torch.int8:
+                    if getattr(running_config, "compute_dtype", None) == torch.int8:
                         torch.quantization.quantize_dynamic(module, inplace=True)
                     else:
-                        module.to(getattr(running_config, "dtype", torch.float32))
+                        module.to(
+                            getattr(running_config, "storage_dtype", torch.float32)
+                        )
                     module.to(device)
         for key in keys_shard.keys():
             if key not in keyfound.keys() and key not in buf_list:

@@ -140,19 +140,19 @@ class RunningConfig(DistributedConfig):
         default="flash",
         description="Self-attention backend.",
     )
-    precision: Union[Literal["fp32", "fp16", "int8", "bf16"], torch.dtype] = Field(
+    compute_dtype: Union[Literal["fp32", "fp16", "int8", "bf16"], torch.dtype] = Field(
         default=torch.float32,
-        description="Precision to use for main compute. "
+        description="Compute dtype (precision) to use for main compute. "
         "Some parameters might have other dtypes for specific cases "
-        "(e.g. torch.amp -- See eole.config.training.TrainingConfig.dtype) "
+        "(e.g. torch.amp -- See eole.config.training.TrainingConfig.storage_dtype) "
         "fp32 to force slow fp16 model on gtx1080, "
         "int8 to enable pytorch native 8-bit quantization (cpu only).",
     )
 
-    @field_validator("precision", mode="before")
+    @field_validator("compute_dtype", mode="before")
     @classmethod
-    def validate_precision(cls, v: Union[str, torch.dtype]) -> torch.dtype:
-        _precision_map: dict = {
+    def validate_compute_dtype(cls, v: Union[str, torch.dtype]) -> torch.dtype:
+        _compute_dtype_map: dict = {
             "fp32": torch.float32,
             "fp16": torch.float16,
             "bf16": torch.bfloat16,
@@ -163,10 +163,10 @@ class RunningConfig(DistributedConfig):
             "torch.int8": torch.int8,
         }
         if isinstance(v, str):
-            if v in _precision_map:
-                return _precision_map[v]
+            if v in _compute_dtype_map:
+                return _compute_dtype_map[v]
             else:
-                raise ValueError(f"Invalid precision value: {v}")
+                raise ValueError(f"Invalid compute_dtype value: {v}")
         return v
 
     @model_validator(mode="after")
@@ -177,7 +177,7 @@ class RunningConfig(DistributedConfig):
                 hasattr(flash_pack, "flash_attn_func")
                 and torch.cuda.get_device_capability()[0] >= 8
                 and self.self_attn_backend == "flash"
-                and self.precision in [torch.float16, torch.bfloat16]
+                and self.compute_dtype in [torch.float16, torch.bfloat16]
             ):
                 pass
             else:

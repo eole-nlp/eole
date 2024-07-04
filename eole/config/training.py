@@ -12,7 +12,7 @@ class OptimizerConfig(Config):
     Everything related to optimizers.
     Might be split into multiple subclasses later.
     Note: not fully sufficient (yet) to replace full opt namespace in build_torch_optimizer.
-    Some other parameters (hidden_size, precision, apex_opt_level, etc.) are accessed.
+    Some other parameters (hidden_size, compute_dtype, apex_opt_level, etc.) are accessed.
     """
 
     optim: Literal[
@@ -272,24 +272,24 @@ class TrainingConfig(
 
     @computed_field
     @property
-    def dtype(self) -> torch.dtype:
+    def storage_dtype(self) -> torch.dtype:
         """
         Deduce which dtype to use for main model parameters.
         E.g. with mixed precision a copy is kept in float32.
         """
         if (
-            self.precision == torch.float16
+            self.compute_dtype == torch.float16
             and self.apex_opt_level not in ["O0", "O1", "O2", "O3"]
             and self.optim == "fusedadam"
         ):
             dtype = torch.float16
             logger.info("Switching model to half() for FusedAdam legacy")
-            logger.info("Non quantized layer compute is %s", self.precision)
+            logger.info("Non quantized layer compute is %s", self.compute_dtype)
         else:
             dtype = torch.float32
-            if self.precision == torch.float16:
+            if self.compute_dtype == torch.float16:
                 logger.info("Switching model to float32 for amp/apex_amp")
-                logger.info("Non quantized layer compute is %s", self.precision)
+                logger.info("Non quantized layer compute is %s", self.compute_dtype)
         return dtype
 
     @field_validator("use_ckpting", mode="after")
@@ -352,9 +352,9 @@ class TrainingConfig(
             ], '-update_vocab needs -reset_optim "states" or "all"'
         if self.optim == "fusedadam":
             assert (
-                self.precision == torch.float16
-            ), "optim: fusedam requires fp16 precision"
+                self.compute_dtype == torch.float16
+            ), "optim: fusedam requires fp16 compute_dtype"
         assert (
-            self.precision != torch.int8
-        ), "int8 precision is currently only used for inference dynamic quantization"
+            self.compute_dtype != torch.int8
+        ), "int8 compute_dtype is currently only used for inference dynamic quantization"
         return self

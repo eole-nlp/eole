@@ -424,7 +424,7 @@ class T5Converter(BaseBin):
                 decoder={"layers": decoder_layers},
             ),
             training=TrainingConfig(
-                precision="fp16",
+                compute_dtype="fp16",
                 batch_size=896,
                 batch_size_multiple=1,
                 batch_type="tokens",

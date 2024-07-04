@@ -172,16 +172,16 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
             assert self.tgt, "-tgt should be specified with -gold_align"
         # originally in validate_translate_opts_dynamic, not sure why
         # self.__dict__["share_vocab"] = False
-        if self.precision == torch.int8:
+        if self.compute_dtype == torch.int8:
             assert self.gpu < 0, "Dynamic 8-bit quantization is not supported on GPU"
         return self
 
     @computed_field
     @property
-    def dtype(self) -> torch.dtype:
+    def storage_dtype(self) -> torch.dtype:
         """
         Deduce which dtype to use for main model parameters.
         """
-        if self.precision == torch.int8:
+        if self.compute_dtype == torch.int8:
             return torch.float32
-        return self.precision
+        return self.compute_dtype
