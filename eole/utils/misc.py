@@ -69,9 +69,7 @@ def use_gpu(config):
     """
     Creates a boolean if gpu used
     """
-    return (hasattr(config, "gpu_ranks") and len(config.gpu_ranks) > 0) or (
-        hasattr(config, "gpu") and config.gpu > -1
-    )
+    return hasattr(config, "gpu_ranks") and len(config.gpu_ranks) > 0
 
 
 def set_random_seed(seed, is_cuda):

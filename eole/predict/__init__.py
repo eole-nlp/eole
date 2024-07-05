@@ -42,6 +42,7 @@ def build_predictor(config, device_id=0, report_score=True, logger=None, out_fil
             vocabs,
             config,
             model_config,
+            device_id=device_id,
             global_scorer=scorer,
             out_file=out_file,
             report_align=config.report_align,

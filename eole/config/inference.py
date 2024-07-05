@@ -10,13 +10,13 @@ class DecodingConfig(Config):
     ratio: float = Field(
         default=-0.0, description="Ratio based beam stop condition."
     )  # is the minus sign useful here?
-    random_sampling_topk: int = Field(
+    top_k: int = Field(
         default=0,
         description="Set this to -1 to do random sampling from full distribution. "
         "Set this to value k>1 to do random sampling restricted to "
         "the k most likely next tokens. Set this to 1 to use argmax.",
     )
-    random_sampling_topp: float = Field(
+    top_p: float = Field(
         default=0.0,
         description="Probability for top-p/nucleus sampling. "
         "Restrict tokens to the most likely until the cumulated probability "
@@ -24,7 +24,7 @@ class DecodingConfig(Config):
         ge=0.0,
         lte=1.0,
     )
-    random_sampling_temp: float = Field(
+    temperature: float = Field(
         default=1.0,
         description="If doing random sampling, divide the logits by this "
         "before computing softmax during decoding.",
@@ -44,14 +44,15 @@ class DecodingConfig(Config):
         default=False,
         description="Apply coverage penalty at every decoding step. Helpful for summary penalty.",
     )
-    min_length: int = Field(default=0, description="Minimum prediction length.")
+    min_length: int = Field(default=0, description="Minimum prediction length.", ge=0)
     max_length: int = Field(default=250, description="Maximum prediction length.")
     max_length_ratio: float = Field(
         default=2,
         description="Maximum prediction length ratio. For European languages, "
         "2 is large enough, for target Asian charageters, "
         "need to increase to 2-3, for special languages (Burmese, Amharic) to 10.",
-    )
+        ge=1,
+    )  # we might want to validate this against min_length
     block_ngram_repeat: int = Field(
         default=0, description="Block repetition of ngrams during decoding."
     )
@@ -131,9 +132,6 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     batch_size: int = Field(default=30, description="Batch size.")
     batch_type: Literal["sents", "tokens"] = Field(
         default="sents", description="Batch grouping for batch size."
-    )
-    gpu: int = Field(
-        default=-1, description="Device to run on. -1 will default to CPU."
     )
     precision: Literal["", "fp32", "fp16", "int8"] = Field(
         default="",
