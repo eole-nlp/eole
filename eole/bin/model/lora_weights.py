@@ -1,7 +1,7 @@
 import torch
 from eole.utils.logging import init_logger, logger
 from eole.models.model_saver import load_checkpoint
-from eole.models import get_model_class
+from eole.models.model import get_model_class
 from eole.inputters.inputter import dict_to_vocabs, vocabs_to_dict
 from eole.config import recursive_model_fields_set
 from safetensors import safe_open
