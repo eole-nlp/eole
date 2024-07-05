@@ -3,6 +3,7 @@ from typing import List, Literal, Union
 from pydantic import Field, model_validator, field_validator
 from importlib import import_module
 from eole.config.config import Config, get_config_dict
+from eole.constants import TORCH_DTYPES
 
 # from eole.utils.logging import logger
 
@@ -152,19 +153,9 @@ class RunningConfig(DistributedConfig):
     @field_validator("compute_dtype", mode="before")
     @classmethod
     def validate_compute_dtype(cls, v: Union[str, torch.dtype]) -> torch.dtype:
-        _compute_dtype_map: dict = {
-            "fp32": torch.float32,
-            "fp16": torch.float16,
-            "bf16": torch.bfloat16,
-            "int8": torch.int8,
-            "torch.float32": torch.float32,
-            "torch.float16": torch.float16,
-            "torch.bfloat16": torch.bfloat16,
-            "torch.int8": torch.int8,
-        }
         if isinstance(v, str):
-            if v in _compute_dtype_map:
-                return _compute_dtype_map[v]
+            if v in TORCH_DTYPES:
+                return TORCH_DTYPES[v]
             else:
                 raise ValueError(f"Invalid compute_dtype value: {v}")
         return v

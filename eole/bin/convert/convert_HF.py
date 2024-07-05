@@ -10,7 +10,7 @@ from safetensors.torch import save_file
 from sentencepiece import SentencePieceProcessor
 
 from eole.inputters.inputter import vocabs_to_dict
-from eole.constants import DefaultTokens
+from eole.constants import DefaultTokens, TORCH_DTYPES
 from eole.config.models import (
     EmbeddingsConfig,
     TransformerEncoderModelConfig,
@@ -250,6 +250,14 @@ class LlamaHFConverter(BaseBin):
             type=str,
             default="",
             help="""HF token""",
+        )
+        parser.add_argument(
+            "--dtype",
+            type=str,
+            default=None,
+            choices=TORCH_DTYPES.keys(),
+            help="Specify which dtype to save model parameters into, "
+            "default will keep the same as the input.",
         )
 
     @classmethod
@@ -615,6 +623,14 @@ class LlamaHFConverter(BaseBin):
                     else:
                         return None
 
+        # Deduce dtype from args or config, or default to fp16
+        if args.dtype is not None:
+            compute_dtype = args.dtype
+        elif "torch_dtype" in config.keys():
+            compute_dtype = config["torch_dtype"]
+        else:
+            compute_dtype = "fp16"
+
         for shard in range(args.nshards):
 
             print("starting output shard: %d/%d" % (shard + 1, args.nshards))
@@ -645,10 +661,11 @@ class LlamaHFConverter(BaseBin):
                         if w is not None:
                             eole_safetensor[target] = w
 
+                        # not sure why we're doing this if generator.bias not in key_map
                         if target == "generator.weight" and w is not None:
                             eole_safetensor["generator.bias"] = torch.zeros(
                                 eole_safetensor["generator.weight"].size(0),
-                                dtype=torch.float16,
+                                dtype=TORCH_DTYPES[compute_dtype],
                             )
 
             if wmap_path:
@@ -854,11 +871,13 @@ class LlamaHFConverter(BaseBin):
                                             + p
                                         ] = w
 
-            # if shard == 0:
-            #     vocab_size = eole_safetensor["generator.weight"].size(0)
+            # Convert to another dtype if specified
+            if args.dtype is not None:
+                for key in eole_safetensor.keys():
+                    eole_safetensor[key] = eole_safetensor[key].to(
+                        TORCH_DTYPES[compute_dtype]
+                    )
             print("Saving output model shard: %d" % shard)
-            for key in eole_safetensor.keys():
-                eole_safetensor[key] = eole_safetensor[key].to(torch.float16)
             save_file(
                 eole_safetensor,
                 os.path.join(args.output, "model.{:02d}.safetensors".format(shard)),
@@ -1001,7 +1020,7 @@ class LlamaHFConverter(BaseBin):
                 left_pad=left_pad,
             ),
             training=TrainingConfig(
-                compute_dtype="fp16",
+                compute_dtype=compute_dtype,
                 batch_size=896,
                 batch_size_multiple=1,
                 batch_type="tokens",

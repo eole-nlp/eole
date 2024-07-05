@@ -70,3 +70,18 @@ ACTIVATION_FUNCTIONS = {
 
 
 LayerNorm = {"standard": torch.nn.LayerNorm, "rms": RMSNorm}
+
+
+TORCH_DTYPES = {
+    "fp32": torch.float32,
+    "fp16": torch.float16,
+    "bf16": torch.bfloat16,
+    "int8": torch.int8,
+    "torch.float32": torch.float32,
+    "torch.float16": torch.float16,
+    "torch.bfloat16": torch.bfloat16,
+    "torch.int8": torch.int8,
+    "float32": torch.float32,
+    "float16": torch.float16,
+    "bfloat16": torch.bfloat16,
+}
