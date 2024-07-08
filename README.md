@@ -137,6 +137,8 @@ For more details, refer to [AutoAWQ](https://github.com/casper-hansen/AutoAWQ).
 
 ## Contributing
 
+[![GitHub repo Good Issues for newbies](https://img.shields.io/github/issues/eole-nlp/eole/good%20first%20issue?style=flat&logo=github&logoColor=green&label=Good%20First%20issues)](https://github.com/eole-nlp/eole/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) [![GitHub Help Wanted issues](https://img.shields.io/github/issues/eole-nlp/eole/help%20wanted?style=flat&logo=github&logoColor=b545d1&label=%22Help%20Wanted%22%20issues)](https://github.com/eole-nlp/eole/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22) [![GitHub Help Wanted PRs](https://img.shields.io/github/issues-pr/eole-nlp/eole/help%20wanted?style=flat&logo=github&logoColor=b545d1&label=%22Help%20Wanted%22%20PRs)](https://github.com/eole-nlp/eole/pulls?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22) [![GitHub repo Issues](https://img.shields.io/github/issues/eole-nlp/eole?style=flat&logo=github&logoColor=red&label=Issues)](https://github.com/eole-nlp/eole/issues?q=is%3Aopen)
+
 We love contributions! Please look at issues marked with the [contributions welcome](https://github.com/eole-nlp/eole/issues?q=is%3Aissue+is%3Aopen+label%3A%22contributions+welcome%22) tag.
 
 Before raising an issue, make sure you read the requirements and the [Full Documentation](https://eole-nlp.github.io/eole). You can also check if a [Recipe](https://github.com/eole-nlp/eole/tree/main/recipes) fits your use case.
