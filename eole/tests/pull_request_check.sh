@@ -71,6 +71,10 @@ ${PYTHON} -m unittest discover >> ${LOG_FILE} 2>&1
 [ "$?" -eq 0 ] || error_exit
 echo "Succeeded" | tee -a ${LOG_FILE}
 
+# Make sure recipes configs are valid
+echo -n "[+] Checking recipes config..."
+${PYTHON} eole/tests/test_recipes.py $PROJECT_ROOT/recipes
+
 # Get Vocabulary test
 echo -n "[+] Testing vocabulary building..."
 PYTHONPATH=${PROJECT_ROOT}:${PYTHONPATH} ${PYTHON} eole/bin/main.py build_vocab \

@@ -36,8 +36,7 @@ training:
   optim: adam
   decay_method: noam
   warmup_steps: 100
-  param_init_glorot: true
-  param_init: 0.0
+  param_init_method: xavier_uniform
   # distributed
   gpu_ranks: [0]
   world_size: 1
