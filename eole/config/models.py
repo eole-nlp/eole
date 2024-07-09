@@ -458,7 +458,7 @@ class BaseModelConfig(Config):
                 self.encoder.n_positions = self.embeddings.n_positions
         if self.decoder is not None:
             self.decoder.tgt_word_vec_size = self.embeddings.tgt_word_vec_size
-            if getattr(self.decoder, "decoder_type", None) == "transformer":
+            if getattr(self.decoder, "decoder_type", None) in ["transformer", "transformer_lm"]:
                 self.decoder.position_encoding_type = (
                     self.embeddings.position_encoding_type
                 )
