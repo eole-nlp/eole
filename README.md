@@ -113,16 +113,10 @@ cd ..
 
 #### Flash Attention
 
-As of October 2023, Flash Attention 1 has been integrated into PyTorch v2, but using Flash Attention 2 with v2.3.1 is recommended for sliding window attention support. 
-
-For regular `position_encoding=True` or Rotary with `max_relative_positions=-1`, `eole` will attempt to use an optimized dot-product path. To use [Flash Attention](https://github.com/Dao-AILab/flash-attention#installation-and-features), install it manually:
+To use [Flash Attention](https://github.com/Dao-AILab/flash-attention#installation-and-features), install it manually:
 ```bash
 pip install flash-attn --no-build-isolation
 ```
-
-If Flash Attention 2 is not installed, `F.scaled_dot_product_attention` from PyTorch 2.x will be used.
-
-For `max_relative_positions > 0` or Alibi `max_relative_positions=-2`, `eole` will use legacy code for matrix multiplications. Flash Attention and `F.scaled_dot_product_attention` offer faster performance and better GPU memory efficiency.
 
 #### AWQ
 

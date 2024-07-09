@@ -125,7 +125,6 @@ model:
     add_estimator: true
     share_decoder_embeddings: true
     share_embeddings: true
-    max_relative_positions: 0
     rotary_interleave: false
     layer_norm: standard
     norm_eps: 1e-5

@@ -135,7 +135,6 @@ share_vocab: true
 # global_attention='general',
 # global_attention_function='softmax',
 # self_attn_type='scaled-dot',
-# max_relative_positions=0,
 # heads=2,
 # transformer_ff=256, 
 # aan_useffn=False,

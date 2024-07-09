@@ -134,7 +134,7 @@ jobs:
           -tgt_vocab /tmp/eole.vocab.tgt \
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
-          -model '{"architecture": "transformer", "layers": 4, "heads": 2, "hidden_size": 16, "transformer_ff": 64, "max_relative_positions": 8, "embeddings": {"word_vec_size": 16}}' \
+          -model '{"architecture": "transformer", "layers": 4, "heads": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16, "position_encoding_type": "Relative", "n_positions": 8}}' \
           -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
           -report_every 2 \
           -valid_metrics "BLEU" "TER" \
@@ -151,7 +151,7 @@ jobs:
           -tgt_vocab /tmp/eole.vocab.tgt \
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
-          -model '{"architecture": "transformer", "layers": 4, "heads": 2, "hidden_size": 16, "transformer_ff": 64, "max_relative_positions": -1, "embeddings": {"word_vec_size": 16}}' \
+          -model '{"architecture": "transformer", "layers": 4, "heads": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16, "position_encoding_type": "Rotary"}}' \
           -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
           -report_every 2 \
           -valid_metrics "BLEU" "TER" \
@@ -168,7 +168,7 @@ jobs:
           -tgt_vocab /tmp/eole.vocab.tgt \
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
-          -model '{"architecture": "transformer", "layers": 4, "heads": 2, "hidden_size": 16, "transformer_ff": 64, "max_relative_positions": -2, "embeddings": {"word_vec_size": 16}}' \
+          -model '{"architecture": "transformer", "layers": 4, "heads": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16, "position_encoding_type": "Alibi"}}' \
           -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
           -report_every 2 \
           -valid_metrics "BLEU" "TER" \

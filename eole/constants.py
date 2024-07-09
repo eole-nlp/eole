@@ -50,6 +50,9 @@ class PositionEncodingType(str, Enum):
     SinusoidalInterleaved = "SinusoidalInterleaved"
     SinusoidalConcat = "SinusoidalConcat"
     Learned = "Learned"
+    Relative = "Relative"
+    Rotary = "Rotary"
+    Alibi = "Alibi"
 
 
 class ActivationFunction(str, Enum):

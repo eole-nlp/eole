@@ -73,7 +73,7 @@ def apply_rotary_emb(query, key, rope, interleave):
         return q_embed.type_as(query), k_embed.type_as(key)
 
 
-# Help functions for max_relative positions
+# Help functions for "Relative" position encoding
 # https://arxiv.org/abs/1803.02155
 
 
@@ -96,7 +96,7 @@ def relative_matmul(x: Tensor, z: Tensor, transpose: bool) -> Tensor:
 
 def gen_relative_positions(
     length: int,
-    max_relative_positions: int,
+    n_positions: int,
     cache: bool = False,
     device: Optional[torch.device] = None,
 ) -> Tensor:
@@ -108,11 +108,9 @@ def gen_relative_positions(
         range_vec = torch.arange(length, device=device)
         range_mat = range_vec.unsqueeze(-1).expand(-1, length).transpose(0, 1)
         distance_mat = range_mat - range_mat.transpose(0, 1)
-    distance_mat_clipped = torch.clamp(
-        distance_mat, min=-max_relative_positions, max=max_relative_positions
-    )
+    distance_mat_clipped = torch.clamp(distance_mat, min=-n_positions, max=n_positions)
     # Shift values to be >= 0
-    final_mat = distance_mat_clipped + max_relative_positions
+    final_mat = distance_mat_clipped + n_positions
     return final_mat
 
 
@@ -179,7 +177,7 @@ def compute_bias(
     query_length,
     key_length,
     is_decoder,
-    max_relative_positions,
+    n_positions,
     relative_positions_buckets,
     device=None,
 ):
@@ -195,7 +193,7 @@ def compute_bias(
         relative_position,  # shape (query_length, key_length)
         bidirectional=(not is_decoder),
         num_buckets=relative_positions_buckets,
-        max_distance=max_relative_positions,
+        max_distance=n_positions,
     )
     return relative_position_bucket
 
@@ -322,13 +320,13 @@ class MultiHeadedAttention(torch.nn.Module):
                 model_config.relative_positions_buckets, self.heads
             )
             self.relative_positions_embeddings = None
-        elif self.max_relative_positions > 0:
+        elif self.position_encoding_type == "Relative":
             # https://arxiv.org/pdf/1803.02155.pdf
             # in the paper they suggest either two embeds
             # relative_key / relative_value or only
             # relative_key. We implemented the same embed
             # for both.
-            vocab_size = model_config.max_relative_positions * 2 + 1
+            vocab_size = model_config.n_positions * 2 + 1
             self.relative_positions_embeddings = nn.Embedding(
                 vocab_size, self.dim_per_head
             )
@@ -337,7 +335,7 @@ class MultiHeadedAttention(torch.nn.Module):
             self.relative_positions_embeddings = None
             self.relative_attention_bias = None
 
-            if self.max_relative_positions == -1:  # rotary embeddings
+            if self.position_encoding_type == "Rotary":
                 if model_config.rotary_dim == 0:
                     self.rotary_dim = self.dim_per_head
                 else:
@@ -351,7 +349,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 self.cos = None
                 self.sin = None
                 self.rotary_interleave = None
-            if model_config.max_relative_positions == -2:  # alibi positional bias
+            if model_config.position_encoding_type == "Alibi":
                 self.alibi = AlibiPositionalBias(self.heads)
 
         self.maybe_ckpt = (
@@ -386,7 +384,7 @@ class MultiHeadedAttention(torch.nn.Module):
         value = shape(value, self.dim_per_head)
         query = shape(query, self.dim_per_head)
 
-        if self.max_relative_positions == -1:  # Rotary Embeddings
+        if self.position_encoding_type == "Rotary":
             start_pos = 0
             seqlen = query.size(2)
             if seqlen > self.rope.size(0):
@@ -445,7 +443,7 @@ class MultiHeadedAttention(torch.nn.Module):
 
         # 2) When standard pos. enc. or rotary, use flash attention or SDPA
         if (
-            self.max_relative_positions in [-1, 0]
+            self.position_encoding_type not in ["Relative", "Alibi"]
             and not return_attn
             and query.device != torch.device("cpu")
         ):
@@ -490,7 +488,7 @@ class MultiHeadedAttention(torch.nn.Module):
                     q_len,
                     key.size(2),
                     self.is_decoder,
-                    self.max_relative_positions,
+                    self.n_positions,
                     self.relative_positions_buckets,
                     device=key.device,
                 )
@@ -509,7 +507,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 # 1 or key_len x key_len
                 relative_positions_matrix = gen_relative_positions(
                     key_len,
-                    self.max_relative_positions,
+                    self.n_positions,
                     cache=self.layer_cache[0],
                     device=key.device,
                 )
@@ -518,7 +516,7 @@ class MultiHeadedAttention(torch.nn.Module):
                     relative_positions_matrix
                 )
                 scores.add_(relative_matmul(query, relations_keys, True))
-            elif self.max_relative_positions == -2:  # Alibi
+            elif self.position_encoding_type == "Alibi":  # Alibi
                 scores = self.alibi(scores)
 
             scores = scores.float()
@@ -560,7 +558,8 @@ class SelfMHA(MultiHeadedAttention):
         running_config=None,
         is_decoder: bool = True,
     ) -> None:
-        self.max_relative_positions = model_config.max_relative_positions
+        self.position_encoding_type = model_config.position_encoding_type
+        self.n_positions = model_config.n_positions
         super(SelfMHA, self).__init__(model_config, running_config, is_decoder)
 
     def forward(
@@ -584,11 +583,11 @@ class SelfMHA(MultiHeadedAttention):
             if (
                 step == 0
                 or not self.flash
-                or self.max_relative_positions not in [0, -1]
+                or self.position_encoding_type in ["Relative", "Alibi"]
                 or query.size(0) > 128  # to check
                 or query.dtype != torch.float16  # to match with flash
             ):
-                if self.max_relative_positions == -1:  # Rotary Embeddings
+                if self.position_encoding_type == "Rotary":
                     if seqlen + start_pos > self.rope.size(0):
                         # Resize rotary embeddings.
                         self.rope, self.cos, self.sin = rotaryembeddings(
@@ -648,7 +647,7 @@ class SelfMHA(MultiHeadedAttention):
                         dim=-2,
                     )
                     if (
-                        self.max_relative_positions == -1
+                        self.position_encoding_type == "Rotary"
                         and start_pos + 32 >= self.rope.size(0)
                     ):
                         # Resize rotary embeddings.
@@ -704,7 +703,8 @@ class ContextMHA(MultiHeadedAttention):
         model_config,
         running_config=None,
     ) -> None:
-        self.max_relative_positions = 0
+        self.position_encoding_type = None
+        self.n_positions = 0
         super(ContextMHA, self).__init__(model_config, running_config, True)
 
     def forward(

@@ -7,9 +7,9 @@ However, even with this, we can use SinusoidalInterleaved (default OpenNMT-py) o
 Do not forget to set also `param_init_glorot: true`
 
 If you prefer to use relative position encoding, we support 3 modes:
-* "Shaw": https://arxiv.org/abs/1803.02155 - you need to set `max_relative_positions: N` where N > 1 (use 16, 20, 32) see paper.
-* "Rope" Rotary Embeddings: https://arxiv.org/abs/2104.09864 - you need to set `max_relative_positions: -1`
-* "Alibi" (used by MPT-7B for example) https://arxiv.org/abs/2108.12409 - you need to set `max_relative_positions: -2`
+* "Shaw": https://arxiv.org/abs/1803.02155 - you need to set `position_encoding_type: 'Relative'` and `n_positions: N` where N > 1 (use 16, 20, 32) see paper.
+* "Rope" Rotary Embeddings: https://arxiv.org/abs/2104.09864 - you need to set `position_encoding_type: 'Rotary'`
+* "Alibi" (used by MPT-7B for example) https://arxiv.org/abs/2108.12409 - you need to set `position_encoding_type: 'Alibi'`
 
 In both cases, it is necessary to set `position_encoding: false`
 
