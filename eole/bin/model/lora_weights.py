@@ -68,14 +68,12 @@ class LoraWeights(BaseBin):
         logger.info("Load state_dict from base_model")
         model.load_safe_state_dict(
             args.base_model,
-            precision=torch.float32,
             device=torch.device("cpu"),
             strict=False,
         )
         logger.info("Load state_dict from lora_weights")
         model.load_safe_state_dict(
             args.lora_weights,
-            precision=torch.float32,
             device=torch.device("cpu"),
             strict=False,
         )

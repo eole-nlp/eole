@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from glob import glob
+from collections import defaultdict
 import os
 
 from eole.utils.logging import logger
@@ -232,7 +233,6 @@ class BaseModel(nn.Module):
         vocabs,
         checkpoint,
         device,
-        precision,
         offset,
         model_path=None,
     ):
@@ -246,7 +246,6 @@ class BaseModel(nn.Module):
             running_config=running_config,
             vocabs=vocabs,
             checkpoint=checkpoint,
-            precision=precision,
             device=device,
             offset=offset,
             strict=strict,
@@ -254,19 +253,6 @@ class BaseModel(nn.Module):
 
     # probably good to refactor in some way, but working for now
     def training_logic(self, running_config, vocabs, checkpoint, device_id):
-        if (
-            running_config.model_dtype == "fp16"
-            and running_config.apex_opt_level not in ["O0", "O1", "O2", "O3"]
-            and running_config.optim == "fusedadam"
-        ):
-            precision = torch.float16
-            logger.info("Switching model to half() for FusedAdam legacy")
-            logger.info("Non quantized layer compute is %s", running_config.model_dtype)
-        else:
-            precision = torch.float32
-            logger.info("Switching model to float32 for amp/apex_amp")
-            logger.info("Non quantized layer compute is %s", running_config.model_dtype)
-
         if (
             running_config.world_size > 1
             and running_config.parallel_mode == "tensor_parallel"
@@ -281,11 +267,9 @@ class BaseModel(nn.Module):
             offset = 0
 
         if checkpoint is not None:
-            self.load_checkpoint(
-                running_config, vocabs, checkpoint, device, precision, offset
-            )
+            self.load_checkpoint(running_config, vocabs, checkpoint, device, offset)
         else:
-            self.to(precision)
+            self.to(running_config.storage_dtype)
             self.to(device)
 
         # currently in TrainingConfig which makes more sense
@@ -305,6 +289,9 @@ class BaseModel(nn.Module):
         training_config.world_size = running_config.world_size
         # retrieve share_vocab flag from checkpoint config
         running_config.share_vocab = checkpoint["config"].share_vocab
+        # retrieve precision from checkpoint config if not explicitly set
+        if "compute_dtype" not in running_config.model_fields_set:
+            running_config.compute_dtype = training_config.compute_dtype
         # in fine we might have some nested Lora/QuantizeConfig that are updated from checkpoint values # noqa: E501
         # should quant type be in model config or running config ?
         if hasattr(training_config, "quant_type") and training_config.quant_type in [
@@ -373,17 +360,14 @@ class BaseModel(nn.Module):
             attention_dropout=[0.0],
         )
         # required to force no dropout at inference with flash
-        precision = torch.float32
 
-        if running_config.precision == "fp16":
-            precision = torch.float16
-        elif running_config.precision == "int8":
-            if running_config.gpu >= 0:
-                raise ValueError("Dynamic 8-bit quantization is not supported on GPU")
-            else:
-                precision = torch.float32
-
-        return model_config, running_config, vocabs, device, precision, offset
+        return (
+            model_config,
+            running_config,
+            vocabs,
+            device,
+            offset,
+        )
 
     @classmethod
     def build_base_model(cls, config, vocabs, running_config=None):
@@ -448,7 +432,6 @@ class BaseModel(nn.Module):
                 running_config,
                 vocabs,
                 device,
-                precision,
                 offset,
             ) = cls.inference_logic(checkpoint, running_config, vocabs, device_id)
         model = cls.build_blocks(
@@ -504,10 +487,9 @@ class BaseModel(nn.Module):
                 vocabs,
                 checkpoint,
                 device,
-                precision,
                 offset,
             )
-            if running_config.precision == torch.int8:
+            if running_config.compute_dtype == torch.int8:
                 torch.quantization.quantize_dynamic(
                     model, dtype=torch.qint8, inplace=True
                 )
@@ -619,7 +601,6 @@ class BaseModel(nn.Module):
         running_config=None,
         vocabs=None,
         checkpoint=None,
-        precision=torch.float32,
         device=torch.device("cpu"),
         offset=0,
         strict=False,
@@ -628,9 +609,12 @@ class BaseModel(nn.Module):
 
         Args:
             model_path: Model path
-            precision: same as above
-            device: same as above
-            strict: same as above
+            running_config: RunningConfig (either training or predict)
+            vocabs: src/tgt vocabs
+            checkpoint: config/vocabs loaded from checkpoint
+            device: device to move parameters to
+            offset: for tensor_parallel
+            strict: stric loading of all parameters
         """
         # bitsandbytes quantize weights when .cuda() is called
         # for huge models we need to save Ram
@@ -721,10 +705,12 @@ class BaseModel(nn.Module):
                             + "."
                             + param_name
                         )
-                    if precision == torch.int8:
+                    if getattr(running_config, "compute_dtype", None) == torch.int8:
                         torch.quantization.quantize_dynamic(module, inplace=True)
                     else:
-                        module.to(precision)
+                        module.to(
+                            getattr(running_config, "storage_dtype", torch.float32)
+                        )
                     module.to(device)
         for key in keys_shard.keys():
             if key not in keyfound.keys() and key not in buf_list:
@@ -739,7 +725,8 @@ class BaseModel(nn.Module):
         Returns: (int, int)
             encoder side parameter count
             decoder side parameter count"""
-
+        trainable = defaultdict(int)
+        non_trainable = defaultdict(int)
         emb, enc, dec, gen, other = 0, 0, 0, 0, 0
         for name, param in self.named_parameters():
             if "encoder" in name:
@@ -753,6 +740,10 @@ class BaseModel(nn.Module):
             else:
                 # mostly zero, but might be useful to grab edge cases
                 other += param.nelement()
+            if param.requires_grad:
+                trainable[str(param.dtype)] += param.numel()
+            else:
+                non_trainable[str(param.dtype)] += param.numel()
 
         if callable(log):
             log("embeddings: {}".format(emb))
@@ -761,6 +752,8 @@ class BaseModel(nn.Module):
             log("generator: {}".format(gen))
             log("other: {}".format(other))
             log("* number of parameters: {}".format(emb + enc + dec + gen + other))
+            log("Trainable parameters = %s" % str(dict(trainable)))
+            log("Non trainable parameters = %s" % str(dict(non_trainable)))
 
 
 class EncoderDecoderModel(BaseModel):

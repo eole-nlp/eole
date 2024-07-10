@@ -245,7 +245,7 @@ class XgenConverter(BaseBin):
                 add_ffnbias=False,
             ),
             training=TrainingConfig(
-                model_dtype="fp16",
+                compute_dtype="fp16",
                 batch_size=896,
                 batch_size_multiple=1,
                 batch_type="tokens",

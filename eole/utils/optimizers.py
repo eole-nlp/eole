@@ -101,7 +101,7 @@ def build_torch_optimizer(model, config):
                     keep_batchnorm_fp32=None,
                 )
         else:
-            if config.model_dtype == "fp16":
+            if config.compute_dtype == torch.float16:
                 # In this case use the old FusedAdam with
                 # FP16_optimizer wrapper
                 static_loss_scale = config.loss_scale
@@ -349,7 +349,7 @@ class Optimizer(object):
             learning_rate_decay_fn=make_learning_rate_decay_fn(config),
             max_grad_norm=running_config.max_grad_norm,
         )
-        if running_config.model_dtype == "fp16":
+        if running_config.compute_dtype in [torch.float16, torch.bfloat16]:
             if running_config.optim == "fusedadam":
                 if running_config.apex_opt_level in ["O0", "O1", "O2", "O3"]:
                     optimizer._fp16 = "apex.amp"

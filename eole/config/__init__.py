@@ -1,4 +1,5 @@
 import os
+import torch
 from collections import OrderedDict
 from eole.config.config import Config
 from eole.utils.logging import logger
@@ -76,6 +77,9 @@ def recursive_model_fields_set(model):
             if _fields != {}:
                 fields[field] = _fields
         else:
+            if isinstance(field_value, torch.dtype):
+                # torch.dtype is not serializable
+                field_value = str(field_value)
             fields[field] = field_value
     return reorder_fields(fields)
 
