@@ -125,14 +125,12 @@ model:
     add_estimator: true
     share_decoder_embeddings: true
     share_embeddings: true
-    max_relative_positions: 0
     rotary_interleave: false
     layer_norm: standard
     norm_eps: 1e-5
     embeddings:
         freeze_word_vecs_enc: true
         word_vec_size: 2560
-        position_encoding: true
         position_encoding_type: Learned
         n_positions: 514
         position_shift: 2

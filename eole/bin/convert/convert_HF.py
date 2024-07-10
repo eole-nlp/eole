@@ -535,8 +535,10 @@ class LlamaHFConverter(BaseBin):
         add_ffnbias = False
         rotary_interleave = False
         shared_layer_norm = False
-        max_relative_positions = -1
-        position_encoding = {}
+        position_encoding = {
+            "position_encoding_type": "Rotary",
+            "n_positions": 0,
+        }
         left_pad = True
 
         # ALL THESE IF SHOULD BE HANDLED IN MAPPINGS
@@ -551,9 +553,7 @@ class LlamaHFConverter(BaseBin):
             shared_layer_norm = True
             add_qkvbias = True
             add_ffnbias = True
-            max_relative_positions = 0
             position_encoding = {
-                "position_encoding": True,
                 "position_encoding_type": "Learned",
                 "n_positions": 1024,
             }
@@ -561,9 +561,7 @@ class LlamaHFConverter(BaseBin):
         if arch == "XLMRobertaXLForMaskedLM":
             add_qkvbias = True
             add_ffnbias = True
-            max_relative_positions = 0
             position_encoding = {
-                "position_encoding": True,
                 "position_encoding_type": "Learned",
                 "n_positions": 514,
                 "position_shift": 2,
@@ -986,7 +984,6 @@ class LlamaHFConverter(BaseBin):
                 layer_norm=layer_norm,
                 norm_eps=norm_eps,
                 mlp_activation_fn=mlp_activation_fn,
-                max_relative_positions=max_relative_positions,
                 rotary_interleave=rotary_interleave,
                 rotary_theta=rope_theta,
                 rotary_dim=rotary_dim,

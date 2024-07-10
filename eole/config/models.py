@@ -31,14 +31,17 @@ class EmbeddingsConfig(Config):
         description="Absolute position encoding, see position_encoding_type. "
         "Necessary for non-RNN style models.",
     )
-    position_encoding_type: PositionEncodingType = Field(
+    position_encoding_type: PositionEncodingType | None = Field(
         default=PositionEncodingType.SinusoidalInterleaved,
         description="Type of positional encoding.",
     )
     n_positions: int | None = Field(
         default=None,
-        description="Absolute number of positions to learn "
-        "position embeddings on (position_encoding_type: Learned)",
+        description="Two cases"
+        "Case 1: Absolute number of positions to learn "
+        "position embeddings on (position_encoding_type: Learned)"
+        "Case 2: Max Relative Positions"
+        "In the case of position_encoding_type: Relative",
     )
     position_shift: int | None = Field(
         default=0,
@@ -48,10 +51,13 @@ class EmbeddingsConfig(Config):
 
     @model_validator(mode="after")
     def validate_embeddings(self):
-        if self.position_encoding_type == PositionEncodingType.Learned:
+        if self.position_encoding_type in [
+            PositionEncodingType.Learned,
+            PositionEncodingType.Relative,
+        ]:
             assert self.n_positions is not None, (
                 "n_positions must be set if position_encoding_type "
-                f"is {PositionEncodingType.Learned}"
+                f"is {PositionEncodingType.Learned} or {PositionEncodingType.Relative}"
             )
         return self
 
@@ -167,14 +173,6 @@ class TransformerConfig(Config):
     transformer_ff: int = Field(
         default=2048, description="Size of hidden transformer feed-forward."
     )
-    max_relative_positions: int = Field(
-        default=0,
-        description="This setting enables relative position encoding. "
-        "We support two types of encoding: "
-        "-1 enables Rotary Embeddings (https://arxiv.org/abs/2104.09864), "
-        "> 0 (e.g. 16 or 32) enables maximum distance between inputs "
-        "in relative positions representations (https://arxiv.org/pdf/1803.02155.pdf)",
-    )
     relative_positions_buckets: int = Field(
         default=0,
         description="Enable relative position bias "
@@ -232,6 +230,19 @@ class TransformerConfig(Config):
     num_experts: int = Field(default=0, description="Number of experts for MoE models.")
     num_experts_per_tok: int = Field(
         default=2, description="Number of experts per token."
+    )
+    # These fields are set at EmbeddingsConfig level but will be copied here to be accessible in MHA
+    position_encoding_type: PositionEncodingType | None = Field(
+        default=PositionEncodingType.SinusoidalInterleaved,
+        description="Type of positional encoding.",
+    )
+    n_positions: int | None = Field(
+        default=None,
+        description="Two cases"
+        "Case 1: Absolute number of positions to learn "
+        "position embeddings on (position_encoding_type: Learned)"
+        "Case 2: Max Relative Positions"
+        "In the case of position_encoding_type: Relative",
     )
 
 
@@ -443,8 +454,21 @@ class BaseModelConfig(Config):
 
         if self.encoder is not None:
             self.encoder.src_word_vec_size = self.embeddings.src_word_vec_size
+            if getattr(self.encoder, "encoder_type", None) == "transformer":
+                self.encoder.position_encoding_type = (
+                    self.embeddings.position_encoding_type
+                )
+                self.encoder.n_positions = self.embeddings.n_positions
         if self.decoder is not None:
             self.decoder.tgt_word_vec_size = self.embeddings.tgt_word_vec_size
+            if getattr(self.decoder, "decoder_type", None) in [
+                "transformer",
+                "transformer_lm",
+            ]:
+                self.decoder.position_encoding_type = (
+                    self.embeddings.position_encoding_type
+                )
+                self.decoder.n_positions = self.embeddings.n_positions
 
         # causing some weird recursion issue in unit test, to investigate
         # if self.encoder is not None:
@@ -593,17 +617,6 @@ class TransformerModelConfig(TransformerConfig, BaseModelConfig):
 
     @model_validator(mode="after")
     def _validate_transformer(self):
-        if (
-            getattr(self.embeddings, "position_encoding", False)
-            and self.max_relative_positions != 0
-        ):
-            raise ValueError(
-                "Cannot use absolute and relative position encoding at the"
-                "same time. Use either --position_encoding=true for legacy"
-                "absolute position encoding or --max_realtive_positions with"
-                " -1 for Rotary, or > 0 for Relative Position Representations"
-                "as in https://arxiv.org/pdf/1803.02155.pdf"
-            )
         return self
 
 
@@ -641,17 +654,6 @@ class TransformerLMModelConfig(TransformerConfig, BaseModelConfig):
     @model_validator(mode="after")
     def _validate_transformer(self):
         # duplicate with TransformerModelConfig, might merge at some point
-        if (
-            getattr(self.embeddings, "position_encoding", False)
-            and self.max_relative_positions != 0
-        ):
-            raise ValueError(
-                "Cannot use absolute and relative position encoding at the"
-                "same time. Use either --position_encoding=true for legacy"
-                "absolute position encoding or --max_realtive_positions with"
-                " -1 for Rotary, or > 0 for Relative Position Representations"
-                "as in https://arxiv.org/pdf/1803.02155.pdf"
-            )
         return self
 
 
