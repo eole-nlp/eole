@@ -71,4 +71,4 @@ model:
     transformer_ff: 4096
     embeddings:
         word_vec_size: 1024
-        position_encoding: true
+        position_encoding_type: "SinusoidalInterleaved"

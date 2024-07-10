@@ -9,7 +9,7 @@ import eole
 from eole.modules.sparse_losses import SparsemaxLoss
 from eole.modules.sparse_activations import LogSparsemax
 from eole.constants import DefaultTokens
-from eole.models import DecoderModel
+from eole.models.model import DecoderModel
 
 try:
     import ctranslate2

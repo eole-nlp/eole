@@ -38,7 +38,7 @@ eole convert HF --model_dir facebook/xlm-roberta-xxl --output $EOLE_MODEL_DIR/xl
 The facebook original model is stored in FP32 but we convert it to FP16 at conversion.
 
 XXL is a 10.7G params model hence will save a 21.4GB file on disk (safetensors format)
-XL is a 3.5GB params model hence will save a 7.0GGB file on disk
+XL is a 3.5GB params model hence will save a 7.0GB file on disk
 
 After conversion in `$EOLE_MODEL_DIR` you will get the following files:
 config.json

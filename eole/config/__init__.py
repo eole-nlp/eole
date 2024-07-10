@@ -1,7 +1,6 @@
 import os
 import torch
 from collections import OrderedDict
-from pydantic import Field
 from eole.config.config import Config
 from eole.utils.logging import logger
 
@@ -113,13 +112,3 @@ def get_non_default_values(parsed_args, defaults):
         if value != defaults.get(key, None):
             non_default_values[key] = value
     return non_default_values
-
-
-# tentative wrapper functions to lighten definitions below
-def field_with_default(default, description, **kwargs):
-    return Field(default=default, description=description, **kwargs)
-
-
-def required_field(description, **kwargs):
-    # no default
-    return Field(description=description, **kwargs)

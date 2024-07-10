@@ -17,7 +17,8 @@
     "embeddings": {
       "tgt_word_vec_size": 256,
       "src_word_vec_size": 256,
-      "word_vec_size": 256
+      "word_vec_size": 256,
+      "position_encoding_type": null
     }
   },
   "src_vocab": "dummy",

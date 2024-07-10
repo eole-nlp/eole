@@ -59,7 +59,6 @@ def build_src_emb(model_config, vocabs, running_config=None):
     # Build embeddings.
     src_emb = Embeddings(
         word_vec_size=model_config.embeddings.src_word_vec_size,
-        position_encoding=model_config.embeddings.position_encoding,
         position_encoding_type=model_config.embeddings.position_encoding_type,
         position_shift=model_config.embeddings.position_shift,
         dropout=getattr(running_config, "dropout", [0.0])[0],
@@ -78,7 +77,6 @@ def build_tgt_emb(
     # Build embeddings.
     tgt_emb = Embeddings(
         word_vec_size=model_config.embeddings.tgt_word_vec_size,
-        position_encoding=model_config.embeddings.position_encoding,
         position_encoding_type=model_config.embeddings.position_encoding_type,
         position_shift=model_config.embeddings.position_shift,
         dropout=getattr(running_config, "dropout", [0.0])[0],
