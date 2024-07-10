@@ -536,7 +536,6 @@ class LlamaHFConverter(BaseBin):
         rotary_interleave = False
         shared_layer_norm = False
         position_encoding = {
-            "position_encoding": False,
             "position_encoding_type": "Rotary",
             "n_positions": 0,
         }
@@ -555,7 +554,6 @@ class LlamaHFConverter(BaseBin):
             add_qkvbias = True
             add_ffnbias = True
             position_encoding = {
-                "position_encoding": True,
                 "position_encoding_type": "Learned",
                 "n_positions": 1024,
             }
@@ -564,7 +562,6 @@ class LlamaHFConverter(BaseBin):
             add_qkvbias = True
             add_ffnbias = True
             position_encoding = {
-                "position_encoding": True,
                 "position_encoding_type": "Learned",
                 "n_positions": 514,
                 "position_shift": 2,

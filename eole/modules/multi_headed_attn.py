@@ -11,6 +11,7 @@ from torch.nn.utils import skip_init
 from .alibi_position_bias import AlibiPositionalBias
 from torch.distributed import all_reduce
 from importlib import import_module
+from eole.constants import PositionEncodingType
 
 # Help functions for Rotary Embeddings
 # https://arxiv.org/pdf/2104.09864.pdf
@@ -320,7 +321,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 model_config.relative_positions_buckets, self.heads
             )
             self.relative_positions_embeddings = None
-        elif self.position_encoding_type == "Relative":
+        elif self.position_encoding_type == PositionEncodingType.Relative:
             # https://arxiv.org/pdf/1803.02155.pdf
             # in the paper they suggest either two embeds
             # relative_key / relative_value or only
@@ -335,7 +336,7 @@ class MultiHeadedAttention(torch.nn.Module):
             self.relative_positions_embeddings = None
             self.relative_attention_bias = None
 
-            if self.position_encoding_type == "Rotary":
+            if self.position_encoding_type == PositionEncodingType.Rotary:
                 if model_config.rotary_dim == 0:
                     self.rotary_dim = self.dim_per_head
                 else:
@@ -349,7 +350,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 self.cos = None
                 self.sin = None
                 self.rotary_interleave = None
-            if model_config.position_encoding_type == "Alibi":
+            if model_config.position_encoding_type == PositionEncodingType.Alibi:
                 self.alibi = AlibiPositionalBias(self.heads)
 
         self.maybe_ckpt = (
@@ -384,7 +385,7 @@ class MultiHeadedAttention(torch.nn.Module):
         value = shape(value, self.dim_per_head)
         query = shape(query, self.dim_per_head)
 
-        if self.position_encoding_type == "Rotary":
+        if self.position_encoding_type == PositionEncodingType.Rotary:
             start_pos = 0
             seqlen = query.size(2)
             if seqlen > self.rope.size(0):
@@ -443,7 +444,8 @@ class MultiHeadedAttention(torch.nn.Module):
 
         # 2) When standard pos. enc. or rotary, use flash attention or SDPA
         if (
-            self.position_encoding_type not in ["Relative", "Alibi"]
+            self.position_encoding_type
+            not in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
             and not return_attn
             and query.device != torch.device("cpu")
         ):
@@ -516,7 +518,7 @@ class MultiHeadedAttention(torch.nn.Module):
                     relative_positions_matrix
                 )
                 scores.add_(relative_matmul(query, relations_keys, True))
-            elif self.position_encoding_type == "Alibi":  # Alibi
+            elif self.position_encoding_type == PositionEncodingType.Alibi:
                 scores = self.alibi(scores)
 
             scores = scores.float()
@@ -583,11 +585,12 @@ class SelfMHA(MultiHeadedAttention):
             if (
                 step == 0
                 or not self.flash
-                or self.position_encoding_type in ["Relative", "Alibi"]
+                or self.position_encoding_type
+                in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
                 or query.size(0) > 128  # to check
                 or query.dtype != torch.float16  # to match with flash
             ):
-                if self.position_encoding_type == "Rotary":
+                if self.position_encoding_type == PositionEncodingType.Rotary:
                     if seqlen + start_pos > self.rope.size(0):
                         # Resize rotary embeddings.
                         self.rope, self.cos, self.sin = rotaryembeddings(
@@ -647,7 +650,7 @@ class SelfMHA(MultiHeadedAttention):
                         dim=-2,
                     )
                     if (
-                        self.position_encoding_type == "Rotary"
+                        self.position_encoding_type == PositionEncodingType.Rotary
                         and start_pos + 32 >= self.rope.size(0)
                     ):
                         # Resize rotary embeddings.

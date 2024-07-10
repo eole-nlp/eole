@@ -388,7 +388,6 @@ class T5Converter(BaseBin):
                 vocabfile.write(tok + "\n")
 
         position_encoding = {
-            "position_encoding": False,
             "position_encoding_type": "Relative",
             "n_positions": params["relative_attention_max_distance"],
         }

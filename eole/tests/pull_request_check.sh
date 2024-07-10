@@ -110,7 +110,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5, "position_encoding_type": None}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -report_every 5 \
             -tensorboard \
@@ -127,7 +127,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5, "position_encoding_type": None}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
             -report_every 2 \
             -tensorboard \
@@ -146,7 +146,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "lambda_align": 0.05, "alignment_layer": 2, "alignment_heads": 0, "heads": 2}}' \
+            -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16, "position_encoding_type": None}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "lambda_align": 0.05, "alignment_layer": 2, "alignment_heads": 0, "heads": 2}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -report_every 5 \
             >> ${LOG_FILE} 2>&1
@@ -160,7 +160,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder": {"coverage_attn": True, "lambda_coverage": 0.1}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5, "position_encoding_type": None}, "decoder": {"coverage_attn": True, "lambda_coverage": 0.1}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -report_every 5 \
             >> ${LOG_FILE} 2>&1
@@ -174,7 +174,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 16, "embeddings": {"word_vec_size": 16, "position_encoding": True}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "heads": 2,}}' \
+            -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 16, "embeddings": {"word_vec_size": 16, "position_encoding_type": "SinusoidalInterleaved"}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "heads": 2,}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
             -report_every 2 \
             -valid_metrics "BLEU" "TER" \
@@ -272,7 +272,7 @@ ${PYTHON} eole/bin/main.py train \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 -tgt_vocab_size 1000 \
-            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5, "position_encoding_type": None}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "model_path": "'"$TMP_OUT_DIR"'/eole.model", "save_checkpoint_steps": 10}' \
             -report_every 5 \
             >> ${LOG_FILE} 2>&1

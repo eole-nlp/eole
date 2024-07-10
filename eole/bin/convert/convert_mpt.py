@@ -189,7 +189,6 @@ class MPTConverter(BaseBin):
                 vocabfile.write(tok + "\n")
 
         position_encoding = {
-            "position_encoding": False,
             "position_encoding_type": "Alibi",
             "n_positions": 0,
         }

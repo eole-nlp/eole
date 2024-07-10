@@ -127,7 +127,6 @@ model:
     embeddings:
         freeze_word_vecs_enc: true
         word_vec_size: 4096
-        position_encoding: true
         position_encoding_type: Learned
         n_positions: 514
         position_shift: 2

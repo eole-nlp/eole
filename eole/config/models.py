@@ -31,7 +31,7 @@ class EmbeddingsConfig(Config):
         description="Absolute position encoding, see position_encoding_type. "
         "Necessary for non-RNN style models.",
     )
-    position_encoding_type: PositionEncodingType = Field(
+    position_encoding_type: PositionEncodingType | None = Field(
         default=PositionEncodingType.SinusoidalInterleaved,
         description="Type of positional encoding.",
     )
@@ -51,10 +51,13 @@ class EmbeddingsConfig(Config):
 
     @model_validator(mode="after")
     def validate_embeddings(self):
-        if self.position_encoding_type == PositionEncodingType.Learned:
+        if self.position_encoding_type in [
+            PositionEncodingType.Learned,
+            PositionEncodingType.Relative,
+        ]:
             assert self.n_positions is not None, (
                 "n_positions must be set if position_encoding_type "
-                f"is {PositionEncodingType.Learned}"
+                f"is {PositionEncodingType.Learned} or {PositionEncodingType.Relative}"
             )
         return self
 
@@ -229,7 +232,7 @@ class TransformerConfig(Config):
         default=2, description="Number of experts per token."
     )
     # These fields are set at EmbeddingsConfig level but will be copied here to be accessible in MHA
-    position_encoding_type: PositionEncodingType = Field(
+    position_encoding_type: PositionEncodingType | None = Field(
         default=PositionEncodingType.SinusoidalInterleaved,
         description="Type of positional encoding.",
     )
@@ -614,19 +617,6 @@ class TransformerModelConfig(TransformerConfig, BaseModelConfig):
 
     @model_validator(mode="after")
     def _validate_transformer(self):
-        """
-        if (
-            getattr(self.embeddings, "position_encoding", False)
-            and self.max_relative_positions != 0
-        ):
-            raise ValueError(
-                "Cannot use absolute and relative position encoding at the"
-                "same time. Use either --position_encoding=true for legacy"
-                "absolute position encoding or --max_realtive_positions with"
-                " -1 for Rotary, or > 0 for Relative Position Representations"
-                "as in https://arxiv.org/pdf/1803.02155.pdf"
-            )
-        """
         return self
 
 
@@ -664,19 +654,6 @@ class TransformerLMModelConfig(TransformerConfig, BaseModelConfig):
     @model_validator(mode="after")
     def _validate_transformer(self):
         # duplicate with TransformerModelConfig, might merge at some point
-        """
-        if (
-            getattr(self.embeddings, "position_encoding", False)
-            and self.max_relative_positions != 0
-        ):
-            raise ValueError(
-                "Cannot use absolute and relative position encoding at the"
-                "same time. Use either --position_encoding=true for legacy"
-                "absolute position encoding or --max_realtive_positions with"
-                " -1 for Rotary, or > 0 for Relative Position Representations"
-                "as in https://arxiv.org/pdf/1803.02155.pdf"
-            )
-        """
         return self
 
 

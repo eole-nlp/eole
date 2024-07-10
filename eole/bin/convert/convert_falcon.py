@@ -347,7 +347,6 @@ class FalconConverter(BaseBin):
                 vocabfile.write(tok + "\n")
 
         position_encoding = {
-            "position_encoding": False,
             "position_encoding_type": "Rotary",
             "n_positions": 0,
         }
