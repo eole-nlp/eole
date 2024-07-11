@@ -92,7 +92,7 @@ class EnsembleDecoder(DecoderBase):
                     enc_out=None if enc_out is None else enc_out[i],
                     src_len=src_len,
                     step=step,
-                    **kwargs
+                    **kwargs,
                 )
                 for i, model_decoder in enumerate(self.model_decoders)
             ]
