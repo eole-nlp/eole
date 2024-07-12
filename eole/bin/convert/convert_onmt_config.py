@@ -22,7 +22,23 @@ KEY_MAP = {
     "dec_layers": ["model", "decoder", "layers"],
     "heads": ["model", "heads"],
     "model_dtype": ["training", "compute_dtype"],
+    "max_relative_positions": ["model", "embeddins", "n_positions"],
+    "num_kv": ["model", "heads_kv"],
+    "pos_ffn_activation_fn": ["model", "mlp_activation_fn"],
 }
+
+
+def custom_mapping(k, v, config):
+    # to be extended
+    match k, v:
+        case "max_relative_positions", -1:
+            config["model"]["embeddings"]["position_encoding_type"] = "Rotary"
+        case "max_relative_positions", -2:
+            config["model"]["embeddings"]["position_encoding_type"] = "Alibi"
+        case "max_relative_positions", _ if v > 0:
+            config["model"]["embeddings"]["positions_encoding_type"] = "Relative"
+        case "max_relative_positions", 0:
+            config["model"]["embeddings"]["position_encoding_type"] = "Absolute"
 
 
 def set_nested_value(d, keys, value):
