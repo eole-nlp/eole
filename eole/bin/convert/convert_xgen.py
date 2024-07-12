@@ -239,7 +239,6 @@ class XgenConverter(BaseBin):
                 # tgt_word_vec_size=tgt_word_vec_size,
                 layer_norm="rms",
                 pos_ffn_activation_fn="silu",
-                self_attn_type="scaled-dot",
                 parallel_residual=False,
                 add_qkvbias=False,
                 add_ffnbias=False,
@@ -253,7 +252,6 @@ class XgenConverter(BaseBin):
                 accum_count=[32],
                 accum_steps=[0],
                 valid_batch_size=256,
-                optim="fusedadam",
             ),
         )
 

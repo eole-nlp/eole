@@ -381,7 +381,6 @@ class FalconConverter(BaseBin):
                 # tgt_word_vec_size=tgt_word_vec_size,
                 model_type="text",
                 pos_ffn_activation_fn="gelu",
-                self_attn_type="scaled-dot",  # not sure if scaled-dot-flash is fine
                 num_kv=num_kv,
                 parallel_residual=True,
                 shared_layer_norm=shared_layer,
@@ -397,7 +396,6 @@ class FalconConverter(BaseBin):
                 accum_count=[32],
                 accum_steps=[0],
                 valid_batch_size=256,
-                optim="fusedadam",
             ),
         )
 
