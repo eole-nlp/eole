@@ -281,7 +281,6 @@ class RedPajamaConverter(BaseBin):
                 # tgt_word_vec_size=tgt_word_vec_size,
                 layer_norm="standard",
                 pos_ffn_activation_fn="gelu",
-                self_attn_type="scaled-dot",
                 parallel_residual=False,
                 add_qkvbias=True,
                 add_ffnbias=True,
@@ -295,7 +294,6 @@ class RedPajamaConverter(BaseBin):
                 accum_count=[32],
                 accum_steps=[0],
                 valid_batch_size=256,
-                optim="fusedadam",
             ),
         )
 

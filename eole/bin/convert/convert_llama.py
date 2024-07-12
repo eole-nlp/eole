@@ -374,7 +374,6 @@ class LlamaLegacyConverter(BaseBin):
                 layer_norm="rms",
                 norm_eps=norm_eps,
                 pos_ffn_activation_fn="silu",
-                self_attn_type="scaled-dot",
                 rotary_interleave=True,
                 rotary_theta=10000,
                 rotary_dim=0,
@@ -393,7 +392,6 @@ class LlamaLegacyConverter(BaseBin):
                 accum_count=[32],
                 accum_steps=[0],
                 valid_batch_size=256,
-                optim="fusedadam",
             ),
         )
 

@@ -420,7 +420,6 @@ class T5Converter(BaseBin):
                 ),
                 layer_norm="rms",
                 pos_ffn_activation_fn="gated-gelu",
-                self_attn_type="scaled-dot",
                 relative_positions_buckets=params["relative_attention_num_buckets"],
                 parallel_residual=False,
                 add_qkvbias=False,
@@ -437,7 +436,6 @@ class T5Converter(BaseBin):
                 accum_count=[32],
                 accum_steps=[0],
                 valid_batch_size=256,
-                optim="fusedadam",
             ),
         )
 
