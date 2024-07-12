@@ -1029,7 +1029,6 @@ class LlamaHFConverter(BaseBin):
                 quant_type=quant_type,
                 w_bit=w_bit,
                 group_size=group_size,
-                optim="fusedadam",
             ),
         )
         config_dict = recursive_model_fields_set(config)
