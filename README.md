@@ -53,14 +53,16 @@ To facilitate setup and reproducibility, we provide Docker images via the GitHub
 
 You can customize the workflow and build your own images based on specific needs using `build.sh` and `Dockerfile` in the `docker` directory of the repository.
 
+There are two images with CUDA 11.8 and 12.1 prebuilt, change the -cudaXX.X to your desired version when pulling the Docker images
+
 To pull the Docker image:
 ```bash
-docker pull ghcr.io/eole-nlp/eole:0.0.1-ubuntu22.04-cuda12.1
+docker pull ghcr.io/eole-nlp/eole:0.0.1-torch2.3.0-ubuntu22.04-cuda12.1 
 ```
 
 Example one-liner to run a container and open a bash shell within it:
 ```bash
-docker run --rm -it --runtime=nvidia ghcr.io/eole-nlp/eole:0.0.1-ubuntu22.04-cuda12.1
+docker run --rm -it --runtime=nvidia ghcr.io/eole-nlp/eole:0.0.1-torch2.3.0-ubuntu22.04-cuda12.1 
 ```
 
 > **Note**: Ensure you have the [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (formerly nvidia-docker) installed to take advantage of CUDA/GPU features.
