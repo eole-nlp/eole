@@ -29,6 +29,7 @@ setup(
         "pyonmttok>=1.37,<2",
         "pyyaml",
         "rapidfuzz",
+        "rich",
         "sacrebleu",
         "safetensors",
         "sentencepiece",
