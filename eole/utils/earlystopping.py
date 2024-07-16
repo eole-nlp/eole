@@ -75,10 +75,10 @@ class TERScorer(Scorer):
         super(TERScorer, self).__init__(float("inf"), "bleu")
 
     def is_improving(self, stats):
-        return stats.computed_metric("TER") > self.best_score
+        return stats.computed_metric("TER") < self.best_score
 
     def is_decreasing(self, stats):
-        return stats.computed_metric("TER") < self.best_score
+        return stats.computed_metric("TER") > self.best_score
 
     def _caller(self, stats):
         return stats.computed_metric("TER")
