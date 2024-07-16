@@ -56,6 +56,7 @@ class AccuracyScorer(Scorer):
     def _caller(self, stats):
         return stats.accuracy()
 
+
 class BLEUScorer(Scorer):
     def __init__(self):
         super(BLEUScorer, self).__init__(float("-inf"), "bleu")
@@ -83,10 +84,16 @@ class TERScorer(Scorer):
     def _caller(self, stats):
         return stats.computed_metric("TER")
 
+
 DEFAULT_SCORERS = [PPLScorer(), AccuracyScorer()]
 
 
-SCORER_BUILDER = {"ppl": PPLScorer, "accuracy": AccuracyScorer, "BLEU": BLEUScorer, "TER": TERScorer}
+SCORER_BUILDER = {
+    "ppl": PPLScorer,
+    "accuracy": AccuracyScorer,
+    "BLEU": BLEUScorer,
+    "TER": TERScorer,
+}
 
 
 def scorers_from_config(config):

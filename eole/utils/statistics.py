@@ -1,4 +1,5 @@
 """ Statistics calculation utility """
+
 import time
 import math
 import sys
@@ -105,7 +106,7 @@ class Statistics(object):
         """check if metric(TER/BLEU) is computed and return it"""
         assert metric in self.computed_metrics, "Metric {} not found".format(metric)
         return self.computed_metrics[metric]
-    
+
     def accuracy(self):
         """compute accuracy"""
         return 100 * (self.n_correct / self.n_words)
