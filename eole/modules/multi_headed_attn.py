@@ -267,7 +267,15 @@ class MultiHeadedAttention(torch.nn.Module):
         running_config=None,
         is_decoder: bool = True,
     ) -> None:
-        self.dim_per_head = model_config.hidden_size // model_config.heads
+        if hasattr(model_config, "head_dim"):
+            self.dim_per_head = (
+                model_config.head_dim
+                if model_config.head_dim is not None
+                else model_config.hidden_size // model_config.heads
+            )
+        else:
+            self.dim_per_head = model_config.hidden_size // model_config.heads
+
         super(MultiHeadedAttention, self).__init__()
         self.heads = model_config.heads
         self.heads_kv = (
@@ -297,7 +305,7 @@ class MultiHeadedAttention(torch.nn.Module):
         self.linear_query = skip_init(
             nn.Linear,
             in_features=model_config.hidden_size,
-            out_features=model_config.hidden_size // self.parallel_gpu,
+            out_features=self.dim_per_head * self.heads // self.parallel_gpu,
             bias=model_config.add_qkvbias,
         )
         self.softmax = nn.Softmax(dim=-1)
@@ -306,7 +314,7 @@ class MultiHeadedAttention(torch.nn.Module):
 
         self.final_linear = skip_init(
             nn.Linear,
-            in_features=model_config.hidden_size // self.parallel_gpu,
+            in_features=self.dim_per_head * self.heads // self.parallel_gpu,
             out_features=model_config.hidden_size,
             bias=model_config.add_qkvbias,
         )

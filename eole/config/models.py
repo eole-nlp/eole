@@ -219,6 +219,10 @@ class TransformerConfig(Config):
         description="Number of heads for KV. heads_kv=heads if None, else number of heads for KV"
         "(e.g. Falcon 40B)",
     )
+    head_dim: int | None = Field(
+        default=None,
+        description="Head dimension when this needs to be different vs hidden_size // heads",
+    )
     add_ffnbias: bool = Field(
         default=False, description="Add bias to nn.Linear of MLP FFN."
     )
