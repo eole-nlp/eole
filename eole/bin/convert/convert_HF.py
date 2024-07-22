@@ -448,6 +448,11 @@ class LlamaHFConverter(BaseBin):
         else:
             heads_kv = heads
 
+        if "head_dim" in config.keys():
+            head_dim = config["head_dim"]
+        else:
+            head_dim = None
+
         if "parallel_attn" in config.keys():
             parallel_residual = config["parallel_attn"]
         else:
@@ -1008,6 +1013,7 @@ class LlamaHFConverter(BaseBin):
                 rotary_dim=rotary_dim,
                 sliding_window=sliding_window,
                 heads_kv=heads_kv,
+                head_dim=head_dim,
                 parallel_residual=parallel_residual,
                 shared_layer_norm=shared_layer_norm,
                 add_qkvbias=add_qkvbias,
