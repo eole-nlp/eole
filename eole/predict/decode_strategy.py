@@ -85,7 +85,10 @@ class DecodeStrategy(object):
         # magic indices
         self.pad = pad
         self.bos = bos
-        self.eos = eos
+        if isinstance(eos, int):
+            self.eos = [eos]
+        else:
+            self.eos = eos
         self.unk = unk
         self.start = start
 
@@ -180,7 +183,8 @@ class DecodeStrategy(object):
 
     def ensure_min_length(self, log_probs):
         if len(self) <= self.min_length:
-            log_probs[:, self.eos] = -65504  # -1e20
+            for eos in self.eos:
+                log_probs[:, eos] = -65504  # -1e20
 
     def ensure_unk_removed(self, log_probs):
         if self.ban_unk_token:
@@ -278,12 +282,12 @@ class DecodeStrategy(object):
             pick_coo = [
                 [path_i, pick]
                 for path_i, pick in enumerate(pick_idx)
-                if pick not in [self.eos, self.pad]
+                if pick not in [*self.eos, self.pad]
             ]
             mask_pathid = [
                 path_i
                 for path_i, pick in enumerate(pick_idx)
-                if pick in [self.eos, self.pad]
+                if pick in [*self.eos, self.pad]
             ]
             if len(pick_coo) > 0:
                 pick_coo = torch.tensor(pick_coo).to(self.target_prefix)

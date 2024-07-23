@@ -99,6 +99,10 @@ class PredictConfig(
         None  # patch for CT2 inference engine (to improve later)
     )
     model: ModelConfig | None = None
+    optional_eos: List[str] | None = Field(
+        default=[],
+        description="Optional EOS tokens that would stop generation, e.g. <|eot_id|> for Llama3",
+    )
 
     @model_validator(mode="after")
     def _validate_predict_config(self):
