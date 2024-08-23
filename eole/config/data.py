@@ -87,10 +87,29 @@ class Dataset(Config):
     )
     path_align: str | None = None
     # optional stuff for some transforms
+    # TODO: define a better mechanism to support such settings
     src_prefix: str | None = None
     tgt_prefix: str | None = None
     src_suffix: str | None = None
     tgt_suffix: str | None = None
+    # normalize
+    src_lang: str | None = None
+    tgt_lang: str | None = None
+    penn: bool | None = True
+    norm_quote_commas: bool | None = True
+    norm_numbers: bool | None = True
+    pre_replace_unicode_punct: bool | None = False
+    post_remove_control_chars: bool | None = False
+    # clean
+    src_eq_tgt: bool | None = True
+    same_char: bool | None = True
+    same_word: bool | None = True
+    scripts_ok: List[str] | None = ["Latin", "Common"]
+    scripts_nok: List[str] | None = []
+    src_tgt_ratio: float | None = 2
+    avg_tok_min: float | None = 3
+    avg_tok_max: float | None = 20
+    lang_id: List[str] | None = ["en", "fr"]
 
 
 # add all opts from all transforms (like in eole.opts._add_transform_opt)
