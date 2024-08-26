@@ -373,10 +373,25 @@ class MultiHeadedAttention(torch.nn.Module):
         self.dropout.p = dropout
         self.dropout_p = dropout
 
-    def _forward1(
+    def _prepare_inputs(
         self, key: Tensor, value: Tensor, query: Tensor
     ) -> Tuple[Tensor, Tensor, Tensor]:
-        """ """
+        """
+        Prepare inputs for attention computation.
+        This method performs the following steps:
+        1. Applies linear transformations to key, value, and query inputs.
+        2. Reshapes the tensors to the multi-head attention format.
+        3. Applies rotary position encoding if configured.
+
+        Args:
+            key (Tensor): The key tensor of shape [batch_size, seq_len, hidden_size].
+            value (Tensor): The value tensor of shape [batch_size, seq_len, hidden_size].
+            query (Tensor): The query tensor of shape [batch_size, seq_len, hidden_size].
+
+        Returns:
+            Tuple[Tensor, Tensor, Tensor]: Processed key, value, and query tensors, each of shape 
+            [batch_size, num_heads, seq_len, dim_per_head].
+        """
         # Retrieve keys and values from linear layers (training mode).
         key = self.maybe_ckpt(self.linear_keys, key)
         value = self.maybe_ckpt(self.linear_values, value)
@@ -402,7 +417,7 @@ class MultiHeadedAttention(torch.nn.Module):
             )
         return key, value, query
 
-    def _forward2(
+    def _compute_attention(
         self,
         key: Tensor,
         value: Tensor,
@@ -417,13 +432,13 @@ class MultiHeadedAttention(torch.nn.Module):
 
         Args:
            key (Tensor): set of `key_len`
-               key vectors ``(batch, key_len, dim)``
+               key vectors ``(batch, head, key_len, dim)``
            value (Tensor): set of `key_len`
-               value vectors ``(batch, key_len, dim)``
+               value vectors ``(batch, head, key_len, dim)``
            query (Tensor): set of `query_len`
-               query vectors  ``(batch, query_len, dim)``
+               query vectors  ``(batch, head, query_len, dim)``
            mask: binary mask 1/0 indicating which keys have
-               zero / non-zero attention ``(batch, query_len, key_len)``
+               zero / non-zero attention ``(batch, 1, query_len, key_len)``
         Returns:
            (Tensor, Tensor):
 
@@ -687,9 +702,9 @@ class SelfMHA(MultiHeadedAttention):
                 return attn_output, None
 
         else:
-            key, value, query = super()._forward1(query, query, query)
+            key, value, query = super()._prepare_inputs(query, query, query)
 
-        return super()._forward2(
+        return super()._compute_attention(
             key,
             value,
             query,
@@ -734,9 +749,9 @@ class ContextMHA(MultiHeadedAttention):
             )
         else:
             # training: we project key, value query and apply rotary if required
-            key, value, query = super()._forward1(key, value, query)
+            key, value, query = super()._prepare_inputs(key, value, query)
 
-        return super()._forward2(
+        return super()._compute_attention(
             key,
             value,
             query,
