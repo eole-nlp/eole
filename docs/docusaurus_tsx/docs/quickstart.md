@@ -74,19 +74,20 @@ To train a model, we need to **add the following to the YAML configuration file*
 ```yaml
 # toy_en_de.yaml
 
-# Vocabulary files that were just created
-src_vocab: toy-ende/run/example.vocab.src
-tgt_vocab: toy-ende/run/example.vocab.tgt
+# Model architecture
+model:
+  architecture: transformer
 
 # Train on a single GPU
-world_size: 1
-gpu_ranks: [0]
-
-# Where to save the checkpoints
-model_path: toy-ende/run/model
-save_checkpoint_steps: 500
-train_steps: 1000
-valid_steps: 500
+training:
+  world_size: 1
+  gpu_ranks: [0]
+  model_path: toy-ende/run/model
+  save_checkpoint_steps: 500
+  train_steps: 1000
+  valid_steps: 500
+  # adapt dataloading defaults to very small dataset
+  bucket_size: 1000
 ```
 
 Then you can simply run:
@@ -95,7 +96,7 @@ Then you can simply run:
 eole train -config toy_en_de.yaml
 ```
 
-This configuration will run the default model, which consists of a 2-layer LSTM with 500 hidden units on both the encoder and decoder. It will run on a single GPU (`world_size 1` & `gpu_ranks [0]`).
+This configuration will run a default transformer model. It will run on a single GPU (`world_size 1` & `gpu_ranks [0]`).
 
 Before the training process actually starts, it is possible to generate transformed samples to simplify any potentially required visual inspection. The number of sample lines to dump per corpus is set with the `-n_sample` flag.
 
@@ -104,7 +105,7 @@ Before the training process actually starts, it is possible to generate transfor
 ### Step 3: Translate
 
 ```bash
-eole translate -model_path toy-ende/run/model_step_1000.pt -src toy-ende/src-test.txt -output toy-ende/pred_1000.txt -gpu 0 -verbose
+eole predict -model_path toy-ende/run/model -src toy-ende/src-test.txt -output toy-ende/pred_1000.txt -gpu 0 -verbose
 ```
 
 Now you have a model which you can use to predict on new data. We do this by running beam search. This will output predictions into `toy-ende/pred_1000.txt`.
