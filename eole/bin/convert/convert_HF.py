@@ -471,6 +471,18 @@ class LlamaHFConverter(BaseBin):
             rotary_dim = int(config["partial_rotary_factor"] * (hidden_size // heads))
         else:
             rotary_dim = 0
+        if "rope_scaling" in config.keys():
+            rope_scaling_type = config["rope_scaling"].get("rope_type", None)
+            rope_scaling_factor = config["rope_scaling"].get("factor", 8.0)
+            rope_scaling_low_freq_factor = config["rope_scaling"].get(
+                "low_freq_factor", 1.0
+            )
+            rope_scaling_high_freq_factor = config["rope_scaling"].get(
+                "high_freq_factor", 4.0
+            )
+            rope_scaling_original_max_position_embeddings = config["rope_scaling"].get(
+                "original_max_position_embeddings", 8192
+            )
         if "sliding_window" in config.keys():
             sliding_window = config["sliding_window"]
             if sliding_window is None:
@@ -972,6 +984,19 @@ class LlamaHFConverter(BaseBin):
             for tok in vocab_dict["src"]:
                 vocabfile.write(tok + "\n")
 
+        rope_config = None
+        if position_encoding["position_encoding_type"] == "Rotary":
+            rope_config = {
+                "rotary_theta": rope_theta,
+                "rotary_dim": rotary_dim,
+                "rotary_interleave": rotary_interleave,
+                "scaling_type": rope_scaling_type,
+                "scaling_factor": rope_scaling_factor,
+                "low_freq_factor": rope_scaling_low_freq_factor,
+                "high_freq_factor": rope_scaling_high_freq_factor,
+                "original_max_position_embeddings": rope_scaling_original_max_position_embeddings,
+            }
+
         config = TrainConfig(
             data=None,
             skip_empty_level="silent",  # default is "warning"
@@ -1003,9 +1028,7 @@ class LlamaHFConverter(BaseBin):
                 layer_norm=layer_norm,
                 norm_eps=norm_eps,
                 mlp_activation_fn=mlp_activation_fn,
-                rotary_interleave=rotary_interleave,
-                rotary_theta=rope_theta,
-                rotary_dim=rotary_dim,
+                rope_config=rope_config,
                 sliding_window=sliding_window,
                 heads_kv=heads_kv,
                 parallel_residual=parallel_residual,

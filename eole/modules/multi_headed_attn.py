@@ -15,23 +15,6 @@ from eole.constants import PositionEncodingType
 
 # Help functions for Rotary Embeddings
 # https://arxiv.org/pdf/2104.09864.pdf
-# too convoluted to make maxseqlen a parameter.
-# we suppose src_seq_len at training and max_length at inference
-# are both < 2048 tokens.
-
-
-def rotaryembeddings(dim: int, maxseqlen=2048, base=10000, device=None):
-    inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
-    tmax = torch.arange(maxseqlen, device=inv_freq.device)
-    rope = torch.outer(tmax, inv_freq).float()
-    # rope is now matrix [maxseqlen, dim/2]
-    rope = torch.polar(torch.ones_like(rope), rope)
-    rope = torch.cat((rope, rope), dim=1)
-    if device is not None:
-        rope = rope.to(device)
-    cos = rope[:, : rope.size(1) // 2].real.contiguous().half()
-    sin = rope[:, : rope.size(1) // 2].imag.contiguous().half()
-    return rope, cos, sin
 
 
 def rotate_half(x):
@@ -316,6 +299,10 @@ class MultiHeadedAttention(torch.nn.Module):
             False,
             {"keys": torch.tensor([]), "values": torch.tensor([])},
         )
+        # TODO find a cleaner way to initialize?
+        self.relative_positions_embeddings = None
+        self.relative_attention_bias = None
+        self.rotary_interleave = None
         if model_config.relative_positions_buckets > 0:
             self.relative_attention_bias = nn.Embedding(
                 model_config.relative_positions_buckets, self.heads
@@ -331,27 +318,14 @@ class MultiHeadedAttention(torch.nn.Module):
             self.relative_positions_embeddings = nn.Embedding(
                 vocab_size, self.dim_per_head
             )
-            self.relative_attention_bias = None
-        else:
-            self.relative_positions_embeddings = None
-            self.relative_attention_bias = None
-
-            if self.position_encoding_type == PositionEncodingType.Rotary:
-                if model_config.rotary_dim == 0:
-                    self.rotary_dim = self.dim_per_head
-                else:
-                    self.rotary_dim = model_config.rotary_dim
-                self.rope, self.cos, self.sin = rotaryembeddings(
-                    self.rotary_dim, base=model_config.rotary_theta
-                )
-                self.rotary_interleave = model_config.rotary_interleave
-                self.rotary_theta = model_config.rotary_theta
+        elif self.position_encoding_type == PositionEncodingType.Rotary:
+            if model_config.rope_config.rotary_dim == 0:
+                self.rotary_dim = self.dim_per_head
             else:
-                self.cos = None
-                self.sin = None
-                self.rotary_interleave = None
-            if model_config.position_encoding_type == PositionEncodingType.Alibi:
-                self.alibi = AlibiPositionalBias(self.heads)
+                self.rotary_dim = model_config.rope_config.rotary_dim
+            self.rotary_interleave = model_config.rope_config.rotary_interleave
+        elif model_config.position_encoding_type == PositionEncodingType.Alibi:
+            self.alibi = AlibiPositionalBias(self.heads)
 
         self.maybe_ckpt = (
             checkpoint
@@ -374,7 +348,11 @@ class MultiHeadedAttention(torch.nn.Module):
         self.dropout_p = dropout
 
     def _prepare_inputs(
-        self, key: Tensor, value: Tensor, query: Tensor
+        self,
+        key: Tensor,
+        value: Tensor,
+        query: Tensor,
+        position_embeddings=None,
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Prepare inputs for attention computation.
@@ -389,7 +367,7 @@ class MultiHeadedAttention(torch.nn.Module):
             query (Tensor): The query tensor of shape [batch_size, seq_len, hidden_size].
 
         Returns:
-            Tuple[Tensor, Tensor, Tensor]: Processed key, value, and query tensors, each of shape 
+            Tuple[Tensor, Tensor, Tensor]: Processed key, value, and query tensors, each of shape
             [batch_size, num_heads, seq_len, dim_per_head].
         """
         # Retrieve keys and values from linear layers (training mode).
@@ -401,19 +379,8 @@ class MultiHeadedAttention(torch.nn.Module):
         query = shape(query, self.dim_per_head)
 
         if self.position_encoding_type == PositionEncodingType.Rotary:
-            start_pos = 0
-            seqlen = query.size(2)
-            if seqlen > self.rope.size(0):
-                # Resize rotary embeddings.
-                self.rope, self.cos, self.sin = rotaryembeddings(
-                    self.rotary_dim,
-                    maxseqlen=(seqlen + 2048),
-                    base=self.rotary_theta,
-                    device=query.device,
-                )
-            rope = self.rope[start_pos : start_pos + seqlen].to(query.device)
             query, key = apply_rotary_emb(
-                query, key, rope, interleave=self.rotary_interleave
+                query, key, position_embeddings, interleave=self.rotary_interleave
             )
         return key, value, query
 
@@ -579,6 +546,46 @@ class SelfMHA(MultiHeadedAttention):
         self.n_positions = model_config.n_positions
         super(SelfMHA, self).__init__(model_config, running_config, is_decoder)
 
+    def _prepare_inputs_w_cache(
+        self,
+        query,
+        key,
+        value,
+        step: Optional[int] = 0,
+        sliding_window: Optional[int] = 0,
+        position_embeddings=None,
+    ):
+        start_pos = step
+        seqlen = query.size(2)
+        if self.position_encoding_type == PositionEncodingType.Rotary:
+            if position_embeddings is not None:
+                position_embeddings = position_embeddings[
+                    start_pos : start_pos + seqlen
+                ]
+            query, key = apply_rotary_emb(
+                query, key, position_embeddings, interleave=self.rotary_interleave
+            )
+        # update the cache
+        if self.layer_cache[1]["keys"].numel() != 0:
+            key = torch.cat((self.layer_cache[1]["keys"], key), dim=2)
+            value = torch.cat((self.layer_cache[1]["values"], value), dim=2)
+            if sliding_window > 0 and key.size(2) > sliding_window:
+                key = key[:, :, 1:, :]
+                value = value[:, :, 1:, :]
+        # mask values for LM left padding by batch
+        if step == 0:
+            key_pad_mask = self.layer_cache[1].get("key_pad_mask", None)
+            if key_pad_mask is not None:
+                x = key_pad_mask.expand(-1, value.size(1), -1)
+                x = x.unsqueeze(3)
+                x = x.expand(-1, -1, -1, value.size(3))
+                value = value.masked_fill(x, 0)
+
+        self.layer_cache[1]["keys"] = key
+        self.layer_cache[1]["values"] = value
+
+        return key, value, query
+
     def forward(
         self,
         query: Tensor,
@@ -586,6 +593,7 @@ class SelfMHA(MultiHeadedAttention):
         sliding_window: Optional[int] = 0,
         step: Optional[int] = 0,
         return_attn: Optional[bool] = False,
+        position_embeddings=None,
     ) -> Tuple[Tensor, Tensor]:
         if self.layer_cache[0]:
             # Inference step decoding
@@ -596,7 +604,6 @@ class SelfMHA(MultiHeadedAttention):
             value = shape(value, self.dim_per_head)
             query = shape(query, self.dim_per_head)
             start_pos = step
-            seqlen = query.size(2)
             if (
                 step == 0
                 or not self.flash
@@ -605,38 +612,14 @@ class SelfMHA(MultiHeadedAttention):
                 or query.size(0) > 128  # to check
                 or query.dtype != torch.float16  # to match with flash
             ):
-                if self.position_encoding_type == PositionEncodingType.Rotary:
-                    if seqlen + start_pos > self.rope.size(0):
-                        # Resize rotary embeddings.
-                        self.rope, self.cos, self.sin = rotaryembeddings(
-                            self.rotary_dim,
-                            maxseqlen=(seqlen + start_pos + 2048),
-                            base=self.rotary_theta,
-                            device=self.rope.device,
-                        )
-                    rope = self.rope[start_pos : start_pos + seqlen]
-                    query, key = apply_rotary_emb(
-                        query, key, rope, interleave=self.rotary_interleave
-                    )
-                # update the cache
-                if self.layer_cache[1]["keys"].numel() != 0:
-                    key = torch.cat((self.layer_cache[1]["keys"], key), dim=2)
-                    value = torch.cat((self.layer_cache[1]["values"], value), dim=2)
-                    if sliding_window > 0 and key.size(2) > sliding_window:
-                        key = key[:, :, 1:, :]
-                        value = value[:, :, 1:, :]
-                # mask values for LM left padding by batch
-                if step == 0:
-                    key_pad_mask = self.layer_cache[1].get("key_pad_mask", None)
-                    if key_pad_mask is not None:
-                        x = key_pad_mask.expand(-1, value.size(1), -1)
-                        x = x.unsqueeze(3)
-                        x = x.expand(-1, -1, -1, value.size(3))
-                        value = value.masked_fill(x, 0)
-
-                self.layer_cache[1]["keys"] = key
-                self.layer_cache[1]["values"] = value
-
+                key, value, query = self._prepare_inputs_w_cache(
+                    query,
+                    key,
+                    value,
+                    step=step,
+                    sliding_window=sliding_window,
+                    position_embeddings=position_embeddings,
+                )
             else:
                 # Fast path with flash_attn_with_kvcache
                 if start_pos >= self.layer_cache[1]["keys"].size(2):
@@ -664,20 +647,6 @@ class SelfMHA(MultiHeadedAttention):
                         ],
                         dim=-2,
                     )
-                    if (
-                        self.position_encoding_type == PositionEncodingType.Rotary
-                        and start_pos + 32 >= self.rope.size(0)
-                    ):
-                        # Resize rotary embeddings.
-                        # We take a margin of 32 tokens as the kv_cache
-                        #   is incremented by 32 tokens every 32 tokens.
-                        self.rope, self.cos, self.sin = rotaryembeddings(
-                            self.rotary_dim,
-                            maxseqlen=(start_pos + 2048),
-                            base=self.rotary_theta,
-                            device=self.rope.device,
-                        )
-
                 if sliding_window > 0 and key.size(2) > sliding_window:
                     self.layer_cache[1]["keys"] = self.layer_cache[1]["keys"][
                         :, :, 1:, :
@@ -685,14 +654,25 @@ class SelfMHA(MultiHeadedAttention):
                     self.layer_cache[1]["values"] = self.layer_cache[1]["values"][
                         :, :, 1:, :
                     ]
+                if position_embeddings is not None:
+                    cos = (
+                        position_embeddings[:, : position_embeddings.size(1) // 2]
+                        .real.contiguous()
+                        .half()
+                    )
+                    sin = (
+                        position_embeddings[:, : position_embeddings.size(1) // 2]
+                        .imag.contiguous()
+                        .half()
+                    )
                 context = self.flash_attn_with_kvcache(
                     query.transpose(1, 2),
                     self.layer_cache[1]["keys"].transpose(1, 2),
                     self.layer_cache[1]["values"].transpose(1, 2),
                     key.transpose(1, 2),
                     value.transpose(1, 2),
-                    rotary_cos=self.cos,
-                    rotary_sin=self.sin,
+                    rotary_cos=cos,
+                    rotary_sin=sin,
                     cache_seqlens=step,
                     rotary_interleaved=self.rotary_interleave,
                 ).transpose(1, 2)
@@ -702,7 +682,9 @@ class SelfMHA(MultiHeadedAttention):
                 return attn_output, None
 
         else:
-            key, value, query = super()._prepare_inputs(query, query, query)
+            key, value, query = super()._prepare_inputs(
+                query, query, query, position_embeddings=position_embeddings
+            )
 
         return super()._compute_attention(
             key,
@@ -725,6 +707,19 @@ class ContextMHA(MultiHeadedAttention):
         self.n_positions = 0
         super(ContextMHA, self).__init__(model_config, running_config, True)
 
+    def _prepare_inputs_w_cache(self, key, value, query):
+        query = self.linear_query(query)
+        query = shape(query, self.dim_per_head)
+        if self.layer_cache[1]["keys"].numel() == 0:
+            key, value = self.linear_keys(key), self.linear_values(value)
+            self.layer_cache[1]["keys"] = shape(key, self.dim_per_head)
+            self.layer_cache[1]["values"] = shape(value, self.dim_per_head)
+        key, value = (
+            self.layer_cache[1]["keys"],
+            self.layer_cache[1]["values"],
+        )
+        return key, value, query
+
     def forward(
         self,
         key: Tensor,
@@ -737,16 +732,7 @@ class ContextMHA(MultiHeadedAttention):
     ) -> Tuple[Tensor, Tensor]:
         if self.layer_cache[0]:
             # inference: we fill the cross-attention cache only once
-            query = self.linear_query(query)
-            query = shape(query, self.dim_per_head)
-            if self.layer_cache[1]["keys"].numel() == 0:
-                key, value = self.linear_keys(key), self.linear_values(value)
-                self.layer_cache[1]["keys"] = shape(key, self.dim_per_head)
-                self.layer_cache[1]["values"] = shape(value, self.dim_per_head)
-            key, value = (
-                self.layer_cache[1]["keys"],
-                self.layer_cache[1]["values"],
-            )
+            key, value, query = self._prepare_inputs_w_cache(key, value, query)
         else:
             # training: we project key, value query and apply rotary if required
             key, value, query = super()._prepare_inputs(key, value, query)

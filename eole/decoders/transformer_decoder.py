@@ -10,7 +10,8 @@ from eole.decoders.transformer_base import (
     TransformerDecoderBase,
 )
 from eole.modules.multi_headed_attn import ContextMHA
-from eole.constants import LayerNorm
+from eole.constants import LayerNorm, PositionEncodingType
+from eole.modules.rope import RotaryPosition
 
 
 class TransformerDecoderLayer(TransformerDecoderLayerBase):
@@ -57,6 +58,7 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
         step=None,
         future=False,
         return_attn=False,
+        position_embeddings=None,
     ):
         """A naive forward pass for transformer decoder.
 
@@ -70,6 +72,7 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
             step (int or None): stepwise decoding counter
             future (bool): If set True, do not apply future_mask.
             return_attn (bool) : if set True requires attns output
+            position_embeddings (FloatTensor): rotary position encodings, if any
 
         Returns:
             (FloatTensor, FloatTensor):
@@ -98,6 +101,7 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
             sliding_window=self.sliding_window,
             step=step,
             return_attn=return_attn,
+            position_embeddings=position_embeddings,
         )
 
         if self.dropout_p > 0:
@@ -149,6 +153,9 @@ class TransformerDecoder(TransformerDecoderBase):
             model_config, running_config=running_config
         )
 
+        if model_config.position_encoding_type == PositionEncodingType.Rotary:
+            self.rope = RotaryPosition(model_config)
+
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerDecoderLayer(
@@ -191,12 +198,29 @@ class TransformerDecoder(TransformerDecoderBase):
                     {"keys": torch.tensor([]), "values": torch.tensor([])},
                 )
 
+        if hasattr(self, "rope"):
+            position_embeddings = self.rope(
+                emb,
+                step=step,
+                device=emb.device,
+                offset=32
+                # TODO: this condition is a bit edgy and should probably be better handled
+                if (
+                    step != 0
+                    and self.transformer_layers[0].self_attn.layer_cache[0]
+                    and self.transformer_layers[0].self_attn.flash
+                )
+                else 0,
+            )
+        else:
+            position_embeddings = None
+
         with_align = kwargs.pop("with_align", False)
         return_attn = with_align or kwargs.pop("return_attn", False)
 
         attn_aligns = []
 
-        for layer in self.transformer_layers:
+        for i, layer in enumerate(self.transformer_layers):
             emb, attn, attn_align = layer(
                 emb,
                 enc_out,
@@ -205,6 +229,7 @@ class TransformerDecoder(TransformerDecoderBase):
                 step=step,
                 with_align=with_align,
                 return_attn=return_attn,
+                position_embeddings=position_embeddings,
             )
             if attn_align is not None:
                 attn_aligns.append(attn_align)

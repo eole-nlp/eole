@@ -10,7 +10,8 @@ from eole.decoders.transformer_base import (
     TransformerDecoderLayerBase,
     TransformerDecoderBase,
 )
-from eole.constants import LayerNorm
+from eole.constants import LayerNorm, PositionEncodingType
+from eole.modules.rope import RotaryPosition
 
 
 class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
@@ -19,7 +20,15 @@ class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
          See TransformerDecoderLayerBase
     """
 
-    def _forward(self, layer_in, pad_mask, step=None, future=False, return_attn=False):
+    def _forward(
+        self,
+        layer_in,
+        pad_mask,
+        step=None,
+        future=False,
+        return_attn=False,
+        position_embeddings=None,
+    ):
         """A naive forward pass for transformer decoder.
 
         # T: could be 1 in the case of stepwise decoding or tgt_len
@@ -31,6 +40,7 @@ class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
             step (int or None): stepwise decoding counter
             future (bool): If set True, do not apply future_mask.
             return_attn (bool): If set True return attn
+            position_embeddings (FloatTensor): rotary position encodings, if any
 
         Returns:
             (FloatTensor, FloatTensor):
@@ -59,6 +69,7 @@ class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
             sliding_window=self.sliding_window,
             step=step,
             return_attn=return_attn,
+            position_embeddings=position_embeddings,
         )
         if self.dropout_p > 0:
             attn_output = self.dropout(attn_output)
@@ -91,6 +102,9 @@ class TransformerLMDecoder(TransformerDecoderBase):
     ):
         super(TransformerLMDecoder, self).__init__(model_config)
 
+        if model_config.position_encoding_type == PositionEncodingType.Rotary:
+            self.rope = RotaryPosition(model_config)
+
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerLMDecoderLayer(
@@ -112,6 +126,24 @@ class TransformerLMDecoder(TransformerDecoderBase):
         pad_mask = kwargs.pop("tgt_pad_mask", None)
         assert pad_mask is not None, "TransformerLMDecoder requires a pad mask"
         step = kwargs.pop("step", None)
+
+        if hasattr(self, "rope"):
+            position_embeddings = self.rope(
+                emb,
+                step=step,
+                device=emb.device,
+                offset=32
+                # TODO: this condition is a bit edgy and should probably be better handled
+                if (
+                    step != 0
+                    and self.transformer_layers[0].self_attn.layer_cache[0]
+                    and self.transformer_layers[0].self_attn.flash
+                )
+                else 0,
+            )
+        else:
+            position_embeddings = None
+
         if step == 0:
             # decoding mode.
             # Initialize KV and key_pad_mask cache.
@@ -140,6 +172,7 @@ class TransformerLMDecoder(TransformerDecoderBase):
                 step=step,
                 with_align=with_align,
                 return_attn=return_attn,
+                position_embeddings=position_embeddings,
             )
 
         emb = self.layer_norm(emb)
