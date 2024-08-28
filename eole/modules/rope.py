@@ -62,6 +62,8 @@ class RotaryPosition(nn.Module):
         # TODO: extend with other scaling types
         if getattr(self.model_config.rope_config, "scaling_type", None) == "llama3":
             self.llama3_scaling()
+        # cache rope tensor to limit unnecessary computations
+        self.rope = None
 
     def llama3_scaling(self):
         """
@@ -106,7 +108,7 @@ class RotaryPosition(nn.Module):
         inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
         self.inv_freq = inv_freq_llama
 
-    def forward(self, emb, step=0, device=None, offset=0):
+    def forward(self, emb, step=0, device=None, offset=0, prefetch=1024):
         """
         Computes the rotary position embeddings for a given input.
 
@@ -128,9 +130,15 @@ class RotaryPosition(nn.Module):
             - The output tensor's dimensions are `[maxseqlen, dim]`, where `dim` is
               twice the size of the original inverse frequency tensor (`inv_freq`).
         """
-        maxseqlen = emb.size(1)
         if step is None:
             step = 0
+        maxseqlen = emb.size(1)
+        # This could probably a bit cleaner/homogenized with the offset case
+        if self.rope is not None:
+            if self.rope.size(0) >= max(offset + step, 0) + maxseqlen:
+                return self.rope
+            else:
+                maxseqlen = maxseqlen + prefetch
         tmax = torch.arange(
             max(offset + step, 0) + maxseqlen, device=self.inv_freq.device
         )
@@ -143,4 +151,5 @@ class RotaryPosition(nn.Module):
         # cos = rope[:, : rope.size(1) // 2].real.contiguous().half()
         # sin = rope[:, : rope.size(1) // 2].imag.contiguous().half()
         # return rope, cos, sin
+        self.rope = rope
         return rope

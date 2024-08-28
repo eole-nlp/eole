@@ -379,6 +379,11 @@ class MultiHeadedAttention(torch.nn.Module):
         query = shape(query, self.dim_per_head)
 
         if self.position_encoding_type == PositionEncodingType.Rotary:
+            start_pos = 0
+            seqlen = query.size(2)
+            position_embeddings = position_embeddings[
+                start_pos : start_pos + seqlen
+            ].to(query.device)
             query, key = apply_rotary_emb(
                 query, key, position_embeddings, interleave=self.rotary_interleave
             )
