@@ -94,7 +94,7 @@ class RotaryPosition(nn.Module):
         inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
         self.inv_freq = inv_freq_llama
 
-    def forward(self, emb, step=0, device=None, offset=0, prefetch=1024):
+    def forward(self, emb, step=0, device=None, prefetch=1024):
         """
         Computes the rotary position embeddings for a given input.
 
@@ -119,6 +119,9 @@ class RotaryPosition(nn.Module):
         if step is None:
             step = 0
         maxseqlen = emb.size(1)
+        offset = (
+            32  # make sure we have at least 32 positions for flash_attn_with_kvcache
+        )
         # This could probably a bit cleaner/homogenized with the offset case
         if self.rope is not None:
             if self.rope.size(0) >= max(offset + step, 0) + maxseqlen:

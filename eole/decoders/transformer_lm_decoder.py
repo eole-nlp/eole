@@ -132,14 +132,6 @@ class TransformerLMDecoder(TransformerDecoderBase):
                 emb,
                 step=step,
                 device=emb.device,
-                offset=32
-                # TODO: this condition is a bit edgy and should probably be better handled
-                if (
-                    step != 0
-                    and self.transformer_layers[0].self_attn.layer_cache[0]
-                    and self.transformer_layers[0].self_attn.flash
-                )
-                else 0,
             )
         else:
             position_embeddings = None
