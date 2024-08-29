@@ -553,6 +553,7 @@ class LlamaHFConverter(BaseBin):
         add_qkvbias = False
         add_ffnbias = False
         shared_layer_norm = False
+        rope_config["rotary_interleave"] = False
         position_encoding = {
             "position_encoding_type": "Rotary",
             "n_positions": 0,
@@ -565,6 +566,7 @@ class LlamaHFConverter(BaseBin):
             shared_layer_norm = True
             add_qkvbias = True
             add_ffnbias = True
+            rope_config["rotary_interleave"] = False
         if arch == "GPT2LMHeadModel":
             parallel_residual = False
             shared_layer_norm = True
