@@ -220,7 +220,7 @@ class TransformerDecoder(TransformerDecoderBase):
 
         attn_aligns = []
 
-        for i, layer in enumerate(self.transformer_layers):
+        for layer in self.transformer_layers:
             emb, attn, attn_align = layer(
                 emb,
                 enc_out,
