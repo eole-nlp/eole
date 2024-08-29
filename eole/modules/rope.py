@@ -3,20 +3,6 @@ import torch.nn as nn
 import math
 
 
-def rotaryembeddings(dim: int, maxseqlen=2048, base=10000, device=None):
-    inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
-    tmax = torch.arange(maxseqlen, device=inv_freq.device)
-    rope = torch.outer(tmax, inv_freq).float()
-    # rope is now matrix [maxseqlen, dim/2]
-    rope = torch.polar(torch.ones_like(rope), rope)
-    rope = torch.cat((rope, rope), dim=1)
-    if device is not None:
-        rope = rope.to(device)
-    cos = rope[:, : rope.size(1) // 2].real.contiguous().half()
-    sin = rope[:, : rope.size(1) // 2].imag.contiguous().half()
-    return rope, cos, sin
-
-
 class RotaryPosition(nn.Module):
     """
     Handles rotary position embeddings for transformer models.

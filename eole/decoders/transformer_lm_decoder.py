@@ -193,7 +193,3 @@ class TransformerLMDecoder(TransformerDecoderBase):
                         "key_pad_mask": mask,
                     },
                 )
-                if hasattr(layer.self_attn, "rope"):
-                    layer.self_attn.rope = layer.self_attn.rope.to(device)
-                    layer.self_attn.cos = layer.self_attn.cos.to(device)
-                    layer.self_attn.sin = layer.self_attn.sin.to(device)
