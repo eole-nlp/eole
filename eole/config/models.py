@@ -3,6 +3,7 @@ from pydantic import (
     Field,
     field_validator,
     model_validator,
+    computed_field,
 )  # , TypeAdapter
 
 from eole.constants import PositionEncodingType, ActivationFunction, ModelType
@@ -219,6 +220,10 @@ class TransformerConfig(Config):
         description="Number of heads for KV. heads_kv=heads if None, else number of heads for KV"
         "(e.g. Falcon 40B)",
     )
+    head_dim: int | None = Field(
+        default=None,
+        description="Head dimension when this needs to be different vs hidden_size // heads",
+    )
     add_ffnbias: bool = Field(
         default=False, description="Add bias to nn.Linear of MLP FFN."
     )
@@ -244,6 +249,14 @@ class TransformerConfig(Config):
         "Case 2: Max Relative Positions"
         "In the case of position_encoding_type: Relative",
     )
+
+    @computed_field
+    @property
+    def dim_per_head(self) -> int:
+        if self.head_dim is not None:
+            return self.head_dim
+        else:
+            return self.hidden_size // self.heads
 
 
 # could eole.encoders.TransformerEncoder class inherit from this? (it seems not unfortunately)
