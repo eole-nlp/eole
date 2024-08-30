@@ -267,16 +267,8 @@ class MultiHeadedAttention(torch.nn.Module):
         running_config=None,
         is_decoder: bool = True,
     ) -> None:
-        if hasattr(model_config, "head_dim"):
-            self.dim_per_head = (
-                model_config.head_dim
-                if model_config.head_dim is not None
-                else model_config.hidden_size // model_config.heads
-            )
-        else:
-            self.dim_per_head = model_config.hidden_size // model_config.heads
-
         super(MultiHeadedAttention, self).__init__()
+        self.dim_per_head = model_config.dim_per_head
         self.heads = model_config.heads
         self.heads_kv = (
             model_config.heads_kv
