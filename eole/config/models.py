@@ -157,6 +157,47 @@ class MeanEncoderConfig(EncoderConfig):
     encoder_type: Literal["mean"] = Field(default="mean")
 
 
+class RotaryPositionConfig(Config):
+    """
+    Configuration for rotary position embeddings used in transformer models.
+    """
+
+    rotary_interleave: bool = Field(
+        default=True,
+        description="Interleave the head dimensions when rotary embeddings are applied. "
+        "Otherwise the head dimensions are sliced in half. "
+        "(True=default Llama from Meta (original), "
+        "False= used by all HuggingFace models)",
+    )
+    rotary_theta: int = Field(
+        default=10000,
+        description="Rotary theta base length, 1e4 for Llama2.Mistral, 1e6 for Mixtral",
+    )
+    rotary_dim: int = Field(
+        default=0,
+        description="Rotary dim when model requires it to be different to head dim.",
+    )
+    scaling_type: str | None = Field(
+        default=None,
+        description="Specifies the type of RoPE scaling to be applied, if any.",
+    )
+    scaling_factor: float | None = Field(
+        default=8.0, description="Factor by which to scale RoPE embeddings."
+    )
+    low_freq_factor: float | None = Field(
+        default=1.0,
+        description="Scaling factor applied to the lower frequency components of RoPE.",
+    )
+    high_freq_factor: float | None = Field(
+        default=4.0,
+        description="Scaling factor applied to the higher frequency components of RoPE.",
+    )
+    original_max_position_embeddings: int | None = Field(
+        default=8192,
+        description="Original maximum position embeddings for RoPE scaling.",
+    )
+
+
 class TransformerConfig(Config):
     """
     This base TransformerConfig class regroups parameters than can
@@ -182,21 +223,6 @@ class TransformerConfig(Config):
     mlp_activation_fn: ActivationFunction = Field(
         default=ActivationFunction.relu,
         description="The activation function to use in MLP layer.",
-    )
-    rotary_interleave: bool = Field(
-        default=True,
-        description="Interleave the head dimensions when rotary embeddings are applied. "
-        "Otherwise the head dimensions are sliced in half. "
-        "(True=default Llama from Meta (original), "
-        "False= used by all HuggingFace models)",
-    )
-    rotary_theta: int = Field(
-        default=10000,
-        description="Rotary theta base length, 1e4 for Llama2.Mistral, 1e6 for Mixtral",
-    )
-    rotary_dim: int = Field(
-        default=0,
-        description="Rotary dim when model requires it to be different to head dim.",
     )
     layer_norm: Literal["standard", "rms"] = Field(
         default="standard",
@@ -249,6 +275,16 @@ class TransformerConfig(Config):
         "Case 2: Max Relative Positions"
         "In the case of position_encoding_type: Relative",
     )
+    rope_config: RotaryPositionConfig | None = Field(
+        default=None, description="Rotary position config, if relevant."
+    )
+
+    @model_validator(mode="after")
+    def _validate_transformer_config(self):
+        if self.position_encoding_type == PositionEncodingType.Rotary:
+            if self.rope_config is None:
+                self.rope_config = RotaryPositionConfig()
+        return self
 
     @computed_field
     @property

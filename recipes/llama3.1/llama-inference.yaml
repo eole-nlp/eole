@@ -3,13 +3,13 @@ transforms: [onmt_tokenize]
 transforms_configs:
   onmt_tokenize:
     src_subword_type: bpe
-    src_subword_model: "${EOLE_MODEL_DIR}/llama3-8b-instruct/bpe.model"
+    src_subword_model: "${EOLE_MODEL_DIR}/llama3.1-8b/bpe.model"
     tgt_subword_type: bpe
-    tgt_subword_model: "${EOLE_MODEL_DIR}/llama3-8b-instruct/bpe.model"
+    tgt_subword_model: "${EOLE_MODEL_DIR}/llama3.1-8b/bpe.model"
     gpt2_pretok: true
 
 # Model info
-model_path: "${EOLE_MODEL_DIR}/llama3-8b-instruct"
+model_path: "${EOLE_MODEL_DIR}/llama3.1-8b"
 
 # Inference
 seed: 42
@@ -25,7 +25,7 @@ gpu_ranks: [0]
 # parallel_mode: "tensor_parallel"
 # quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
 # quant_type: "bnb_NF4"
-compute_dtype: fp16
+compute_dtype: bf16
 #random_sampling_topk: 1
 #random_sampling_topp: 0.0
 #random_sampling_temp: 0.9
