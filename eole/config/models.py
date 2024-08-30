@@ -254,7 +254,7 @@ class TransformerConfig(Config):
     @property
     def dim_per_head(self) -> int:
         if self.head_dim is not None:
-           return self.head_dim
+            return self.head_dim
         else:
             return self.hidden_size // self.heads
 
