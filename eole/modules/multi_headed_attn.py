@@ -670,6 +670,9 @@ class SelfMHA(MultiHeadedAttention):
                         .imag.contiguous()
                         .half()
                     )
+                else:
+                    cos = None
+                    sin = None
                 context = self.flash_attn_with_kvcache(
                     query.transpose(1, 2),
                     self.layer_cache[1]["keys"].transpose(1, 2),
