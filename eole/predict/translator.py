@@ -64,7 +64,7 @@ class Translator(Inference):
             enc_out=enc_out,
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
-            with_align=True
+            with_align=True,
         )
 
         alignment_attn = attns["align"]  # ``(B, tgt_len-1, src_len)``
