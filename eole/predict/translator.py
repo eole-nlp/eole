@@ -50,20 +50,30 @@ class Translator(Inference):
 
         # (3) Init decoder with n_best src,
         self.model.decoder.init_state(src=src, enc_out=enc_out, enc_states=enc_states)
-        # reshape tgt to ``(len, batch * n_best, nfeat)``
-        # it should be done in a better way
-        tgt = batch_tgt_idxs.view(-1, batch_tgt_idxs.size(-1)).T.unsqueeze(-1)
-        dec_in = tgt[:-1].transpose(0, 1)  # exclude last target from inputs
-        # here dec_in is batch first
-        _, attns = self.model.decoder(dec_in, enc_out, src_len=src_len, with_align=True)
+
+        # (4) reshape and apply pad masking in the target sequence
+        tgt = batch_tgt_idxs.view(-1, batch_tgt_idxs.size(-1))
+        src_pad_idx = self.model.src_emb.word_padding_idx
+        tgt_pad_idx = self.model.tgt_emb.word_padding_idx
+        src_pad_mask = src.eq(src_pad_idx).unsqueeze(1)
+        tgt_pad_mask = tgt[:, :-1].eq(tgt_pad_idx).unsqueeze(1)
+
+        dec_in = tgt[:, :-1]
+        _, attns = self.model.decoder(
+            self.model.tgt_emb(dec_in),
+            enc_out=enc_out,
+            src_pad_mask=src_pad_mask,
+            tgt_pad_mask=tgt_pad_mask,
+            with_align=True
+        )
 
         alignment_attn = attns["align"]  # ``(B, tgt_len-1, src_len)``
         # masked_select
         align_tgt_mask = tgt_mask.view(-1, tgt_mask.size(-1))
         prediction_mask = align_tgt_mask[:, 1:]  # exclude bos to match pred
         # get aligned src id for each prediction's valid tgt tokens
-        alignement = extract_alignment(alignment_attn, prediction_mask, src_len, n_best)
-        return alignement
+        alignment = extract_alignment(alignment_attn, prediction_mask, src_len, n_best)
+        return alignment
 
     def predict_batch(self, batch, attn_debug):
         """Translate a batch of sentences."""
