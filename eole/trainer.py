@@ -16,6 +16,7 @@ import traceback
 import eole.utils
 from eole.utils.loss import LossCompute
 from eole.utils.logging import logger
+from eole.utils.misc import clear_gpu_cache, get_autocast
 from eole.utils.scoring_utils import ScoringPreparator
 from eole.scorers import get_scorers_cls, build_scorers
 
@@ -322,7 +323,7 @@ class Trainer(object):
         report_stats = eole.utils.Statistics()
         self._start_report_manager(start_time=total_stats.start_time)
         # Let's clean the GPUs before training loop
-        torch.cuda.empty_cache()
+        clear_gpu_cache()
 
         for i, (batches, normalization) in enumerate(self._accum_batches(train_iter)):
 
@@ -412,7 +413,7 @@ class Trainer(object):
                 src_len = batch["srclen"]
                 tgt = batch["tgt"]
 
-                with torch.cuda.amp.autocast(enabled=self.optim.amp):
+                with get_autocast(enabled=self.optim.amp):
                     # F-prop through the model.
                     model_out, attns, estim = valid_model(
                         src, tgt, src_len, with_align=self.with_align
@@ -515,7 +516,7 @@ class Trainer(object):
                 if self.accum_count == 1:
                     self.optim.zero_grad(set_to_none=True)
                 try:
-                    with torch.cuda.amp.autocast(enabled=self.optim.amp):
+                    with get_autocast(enabled=self.optim.amp):
                         model_out, attns, estim = self.model(
                             src, tgt, src_len, bptt=bptt, with_align=self.with_align
                         )
@@ -549,7 +550,7 @@ class Trainer(object):
                             "Step %d, cuda OOM - batch removed",
                             self.optim.training_step,
                         )
-                        torch.cuda.empty_cache()
+                        clear_gpu_cache()
                         if self.n_gpu > 1 and self.parallel_mode == "tensor_parallel":
                             torch.distributed.destroy_process_group()
                             sys.exit()

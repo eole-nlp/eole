@@ -11,7 +11,7 @@ from eole.inputters.text_utils import (
 )
 from eole.config.data import Dataset
 from eole.utils.logging import init_logger, logger
-from eole.utils.misc import RandomShuffler
+from eole.utils.misc import RandomShuffler, get_device
 from torch.utils.data import DataLoader
 
 
@@ -446,7 +446,7 @@ def build_dynamic_dataset_iter(
     if corpora is None:
         assert task != CorpusTask.TRAIN, "only valid corpus is ignorable."
         return None
-    device = torch.device(device_id) if device_id >= 0 else torch.device("cpu")
+    device = get_device(device_id=device_id) if device_id >= 0 else torch.device("cpu")
     if hasattr(config, "training"):
         num_workers = getattr(config.training, "num_workers", 0)
     else:

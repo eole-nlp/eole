@@ -2,7 +2,7 @@
 
 import torch
 import random
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import inspect
 import numpy as np
 import os
@@ -70,8 +70,53 @@ def use_gpu(config):
     Creates a boolean if gpu used
     """
     return (hasattr(config, "gpu_ranks") and len(config.gpu_ranks) > 0) or (
-        hasattr(config, "gpu") and config.gpu > -1
+            hasattr(config, "gpu") and config.gpu > -1
     )
+
+
+def clear_gpu_cache():
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+
+
+def get_device_type():
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        return "mps"
+    else:
+        return "cpu"
+
+
+def get_device(device_id=None):
+    if torch.cuda.is_available():
+        if device_id is not None:
+            return torch.device(f"cuda:{device_id}")
+        else:
+            return torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        return torch.device("mps")
+    else:
+        return torch.device("cpu")
+
+
+def get_autocast(enabled=True, device_type="auto"):
+    if not enabled:
+        return nullcontext()
+
+    if device_type == "auto":
+        device_type = get_device_type()
+
+    if device_type == "cuda":
+        return torch.cuda.amp.autocast()
+    elif device_type == "mps":
+        return torch.amp.autocast(device_type='mps')
+    elif device_type == "cpu":
+        return torch.cpu.amp.autocast()
+    else:
+        return nullcontext()
 
 
 def set_random_seed(seed, is_cuda):
