@@ -100,9 +100,7 @@ class Inference(object):
 
         self._gpu = gpu
         self._use_gpu = gpu > -1
-        self._dev = (
-            get_device(self._gpu) if self._use_gpu else torch.device("cpu")
-        )
+        self._dev = get_device(self._gpu) if self._use_gpu else torch.device("cpu")
 
         self.n_best = n_best
         self.max_length = max_length

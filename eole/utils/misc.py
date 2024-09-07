@@ -70,7 +70,7 @@ def use_gpu(config):
     Creates a boolean if gpu used
     """
     return (hasattr(config, "gpu_ranks") and len(config.gpu_ranks) > 0) or (
-            hasattr(config, "gpu") and config.gpu > -1
+        hasattr(config, "gpu") and config.gpu > -1
     )
 
 
@@ -112,7 +112,7 @@ def get_autocast(enabled=True, device_type="auto"):
     if device_type == "cuda":
         return torch.cuda.amp.autocast()
     elif device_type == "mps":
-        return torch.amp.autocast(device_type='mps')
+        return torch.amp.autocast(device_type="mps")
     elif device_type == "cpu":
         return torch.cpu.amp.autocast()
     else:
