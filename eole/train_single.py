@@ -138,7 +138,6 @@ def main(config, device_id):
     # config is the full TrainConfig namespace here
 
     configure_process(config, device_id)
-    print("** Device ID " + str(device_id))
     init_logger(config.log_file)
     checkpoint, vocabs, transforms, config = _init_train(config)
 

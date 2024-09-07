@@ -113,10 +113,8 @@ def get_autocast(enabled=True, device_type="auto"):
         return torch.cuda.amp.autocast()
     elif device_type == "mps":
         return torch.amp.autocast(device_type="mps")
-    elif device_type == "cpu":
-        return torch.cpu.amp.autocast()
     else:
-        return nullcontext()
+        return torch.cpu.amp.autocast()
 
 
 def set_random_seed(seed, is_cuda):
