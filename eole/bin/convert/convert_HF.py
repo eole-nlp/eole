@@ -297,14 +297,15 @@ class LlamaHFConverter(BaseBin):
                     args.model_dir, "sentencepiece.bpe.model"
                 )
             else:
-                if os.path.exists(os.path.join(args.model_dir, "tokenizer.json")):
-                    tokenizer_json = os.path.join(args.model_dir, "tokenizer.json")
-                    tokenizer_model = None
-                else:
-                    raise ValueError(
-                        "You used a local directory but tokenizer.model",
-                        " and/or tokenizer.json are missing",
-                    )
+                tokenizer_model = None
+            if os.path.exists(os.path.join(args.model_dir, "tokenizer.json")):
+                tokenizer_json = os.path.join(args.model_dir, "tokenizer.json")
+
+            elif tokenizer_model is None:
+                raise ValueError(
+                    "You used a local directory but tokenizer.model",
+                    " and/or tokenizer.json are missing",
+                )
             if os.path.exists(os.path.join(args.model_dir, "tokenizer_config.json")):
                 tokenizer_config_json = os.path.join(
                     args.model_dir, "tokenizer_config.json"
@@ -330,18 +331,20 @@ class LlamaHFConverter(BaseBin):
                         local_dir=args.output,
                     )
                 except huggingface_hub.utils.EntryNotFoundError:
-                    try:
-                        tokenizer_json = huggingface_hub.hf_hub_download(
-                            repo_id=args.model_dir,
-                            filename="tokenizer.json",
-                            token=args.token,
-                            local_dir=args.output,
-                        )
-                        tokenizer_model = None
-                    except huggingface_hub.utils.EntryNotFoundError:
-                        raise huggingface_hub.utils.EntryNotFoundError(
-                            "Make sure the repo contains tokenizer.model or tokenizer.json"
-                        )
+                    tokenizer_model = None
+            try:
+                tokenizer_json = huggingface_hub.hf_hub_download(
+                    repo_id=args.model_dir,
+                    filename="tokenizer.json",
+                    token=args.token,
+                    local_dir=args.output,
+                )
+            except huggingface_hub.utils.EntryNotFoundError:
+                tokenizer_json = None
+                if tokenizer_model is None:
+                    raise huggingface_hub.utils.EntryNotFoundError(
+                        "Make sure the repo contains tokenizer.model or tokenizer.json"
+                    )
             try:
                 config_path = huggingface_hub.hf_hub_download(
                     repo_id=args.model_dir,
@@ -919,7 +922,18 @@ class LlamaHFConverter(BaseBin):
         ):  # sentencepiece mode (might be good to check it's a SP model)
             tokenizer = Tokenizer(model_path=tokenizer_model)
             vocab = tokenizer.vocab
-            # vocab[3] = DefaultTokens.PAD
+            if tokenizer_json is not None:
+                # We need to add 'added_tokens' that are not in the SP model
+                with open(tokenizer_json, encoding="utf-8") as f:
+                    data = json.load(f)
+                newtokens = [
+                    tok["content"]
+                    for tok in data["added_tokens"]
+                    if tok["content"] not in vocab
+                ]
+                vocab.extend(newtokens)
+                for tok in data["added_tokens"]:
+                    vocab[tok["id"]] = tok["content"]
             if "<|startoftext|>" in vocab:
                 index = vocab.index("<|startoftext|>")
                 vocab[index] = DefaultTokens.BOS
@@ -931,7 +945,6 @@ class LlamaHFConverter(BaseBin):
                 vocab[index] = DefaultTokens.PAD
             src_vocab = pyonmttok.build_vocab_from_tokens(
                 vocab,
-                maximum_size=tokenizer.n_words,
                 special_tokens=specials_table[arch],
             )
         else:  # # BPE mode - we leverage the HF tokenizer.json info
