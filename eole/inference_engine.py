@@ -206,7 +206,7 @@ class InferenceEnginePY(InferenceEngine):
         assert self.config.world_size > 1, "World size must be greater than 1."
         for device_id in range(self.config.world_size):
             self.queue_instruct[device_id].put(("infer_list", src))
-        scores, preds = [], []
+        scores, estims, preds = [], [], []
         for device_id in range(self.config.world_size):
             scores.append(self.queue_result[device_id].get())
             estims.append(self.queue_result[device_id].get())
