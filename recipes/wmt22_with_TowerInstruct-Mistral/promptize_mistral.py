@@ -13,5 +13,5 @@ with open(input_file_path, "r") as input_file, open(
         # This is due to a specific behavior of onmt_tokenize
         # HF tokenizer has a similar strange behavior
         # https://github.com/huggingface/transformers/issues/31513#issuecomment-2340151976
-        prompt = f"<|im_start|> user｟newline｠Translate the following text from English into German.｟newline｠English: {line.strip()}｟newline｠German:<|im_end|> ｟newline｠<|im_start|> assistant｟newline｠" # noqa: E501
+        prompt = f"<|im_start|> user｟newline｠Translate the following text from English into German.｟newline｠English: {line.strip()}｟newline｠German:<|im_end|> ｟newline｠<|im_start|> assistant｟newline｠"  # noqa: E501
         output_file.write(prompt + "\n")
