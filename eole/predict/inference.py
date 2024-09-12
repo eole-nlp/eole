@@ -86,11 +86,14 @@ class Inference(object):
         with_score=False,
         return_gold_log_probs=False,
         add_estimator=False,
+        optional_eos=[],
     ):
         self.model = model
         self.vocabs = vocabs
         self._tgt_vocab = vocabs["tgt"]
-        self._tgt_eos_idx = vocabs["tgt"].lookup_token(DefaultTokens.EOS)
+        self._tgt_eos_idx = [vocabs["tgt"].lookup_token(DefaultTokens.EOS)] + [
+            vocabs["tgt"].lookup_token(tok) for tok in optional_eos
+        ]
         self._tgt_pad_idx = vocabs["tgt"].lookup_token(DefaultTokens.PAD)
         self._tgt_bos_idx = vocabs["tgt"].lookup_token(DefaultTokens.BOS)
         self._tgt_unk_idx = vocabs["tgt"].lookup_token(DefaultTokens.UNK)
@@ -224,6 +227,7 @@ class Inference(object):
             seed=config.seed,
             with_score=config.with_score,
             add_estimator=model_config.add_estimator,
+            optional_eos=config.optional_eos,
         )
 
     def _log(self, msg):
@@ -275,6 +279,7 @@ class Inference(object):
             self.n_best,
             self.replace_unk,
             self.phrase_table,
+            self._tgt_eos_idx,
         )
 
         # Statistics
