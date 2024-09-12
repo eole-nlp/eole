@@ -9,7 +9,8 @@ with open(input_file_path, "r") as input_file, open(
     # Loop through each line in the input file
     for line in input_file:
         # Set up the prompt provided by Lama3 with the current line's content
-        # PLEASE note the space between "<|start_header_id|> user" and "<|start_header_id|> assistant"
+        # PLEASE note the space between "<|start_header_id|> user"
+        # and "<|start_header_id|> assistant"
         # This is due to a specific behavior of onmt_tokenize
         # HF tokenizer has a similar strange behavior:
         # https://github.com/huggingface/transformers/issues/31513#issuecomment-2340151976
