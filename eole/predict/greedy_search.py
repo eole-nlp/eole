@@ -171,6 +171,7 @@ class GreedySearch(DecodeStrategy):
         if device is None:
             device = self.get_device_from_enc_out(enc_out)
 
+        self.eos_t = torch.tensor(self.eos).to(device)
         super(GreedySearch, self).initialize(device, target_prefix)
         self.select_indices = torch.arange(
             self.batch_size * self.beam_size, dtype=torch.long, device=device
