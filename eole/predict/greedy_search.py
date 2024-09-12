@@ -235,7 +235,7 @@ class GreedySearch(DecodeStrategy):
         topk_ids, self.topk_scores = self._pick(log_probs)
         self.beams_scores += self.topk_scores
 
-        self.is_finished_list = topk_ids.eq(self.eos).tolist()
+        self.is_finished_list = torch.isin(topk_ids, self.eos_t).tolist()
 
         self.alive_seq = torch.cat([self.alive_seq, topk_ids], -1)
         if self.return_attention:
@@ -301,7 +301,7 @@ class GreedySearchLM(GreedySearch):
 
         if device is None:
             device = src.device
-
+        self.eos_t = torch.tensor(self.eos).to(device)
         (fn_map_state, _) = super(GreedySearchLM, self).initialize(
             None, src_len, device, target_prefix
         )
