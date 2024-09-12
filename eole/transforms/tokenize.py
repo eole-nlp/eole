@@ -502,8 +502,9 @@ class ONMTTokenizerTransform(TokenizerTransform):
     def tokenize_string(self, sentence, side="src", is_train=False):
         tokenizer = self.load_models[side]
 
-        for mapped_toks in self.mapped_tokens:
-            sentence = sentence.replace(mapped_toks[0], mapped_toks[1])
+        if self.mapped_tokens is not None:
+            for mapped_toks in self.mapped_tokens:
+                sentence = sentence.replace(mapped_toks[0], mapped_toks[1])
 
         if self.gpt2_pretok:
             sentence = "".join(
@@ -528,8 +529,9 @@ class ONMTTokenizerTransform(TokenizerTransform):
         else:
             segmented = tokenizer(sentence)
 
-        mapped_dict = {b: a for a, b in self.mapped_tokens}
-        segmented = [mapped_dict.get(tok, tok) for tok in segmented]
+        if self.mapped_tokens is not None:
+            mapped_dict = {b: a for a, b in self.mapped_tokens}
+            segmented = [mapped_dict.get(tok, tok) for tok in segmented]
         return segmented
 
     def _detokenize(self, tokens, side="src", is_train=False):
