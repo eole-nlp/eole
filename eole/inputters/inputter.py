@@ -81,10 +81,10 @@ def build_vocab(config, specials):
 
     vocabs["decoder_start_token"] = config.decoder_start_token
     vocabs["specials"] = {
-        "pad_token": config.pad_token,
-        "unk_token": config.unk_token,
         "bos_token": config.bos_token,
+        "pad_token": config.pad_token,
         "eos_token": config.eos_token,
+        "unk_token": config.unk_token,
     }
     return vocabs
 

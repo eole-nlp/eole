@@ -62,10 +62,10 @@ def load_checkpoint(model_path):
             # use default specials if not specified
             if "specials" not in checkpoint["vocab"].keys():
                 checkpoint["vocab"]["specials"] = {
-                    "pad_token": DefaultTokens.PAD,
-                    "unk_token": DefaultTokens.UNK,
                     "bos_token": DefaultTokens.BOS,
+                    "pad_token": DefaultTokens.PAD,
                     "eos_token": DefaultTokens.EOS,
+                    "unk_token": DefaultTokens.UNK,
                 }
         else:
             raise FileNotFoundError(f"{model_path} does not contain vocab.json")
