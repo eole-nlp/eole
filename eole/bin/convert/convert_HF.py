@@ -919,7 +919,8 @@ class LlamaHFConverter(BaseBin):
                 if isinstance(eos_token_id, list):
                     print(data["added_tokens_decoder"])
                     optional_eos = [
-                        data["added_tokens_decoder"][str(index)]["content"] for index in eos_token_id[1:]
+                        data["added_tokens_decoder"][str(index)]["content"]
+                        for index in eos_token_id[1:]
                     ]
         else:
             add_bos_token = True
@@ -1095,7 +1096,7 @@ class LlamaHFConverter(BaseBin):
                     "gpt2_pretok": gpt2_pretok,
                 }
             },
-            "optional_eos": optional_eos
+            "optional_eos": optional_eos,
         }
 
         with open(
