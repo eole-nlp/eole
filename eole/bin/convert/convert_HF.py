@@ -567,6 +567,7 @@ class LlamaHFConverter(BaseBin):
             "n_positions": 0,
         }
         left_pad = True
+        optional_eos = []
 
         # ALL THESE IF SHOULD BE HANDLED IN MAPPINGS
         if arch == "PhiForCausalLM":
@@ -913,6 +914,13 @@ class LlamaHFConverter(BaseBin):
                     add_bos_token = True
                 else:
                     add_bos_token = False
+                # Not sure if we could do much cleaner to retrieve optional eos tokens
+                eos_token_id = config.get("eos_token_id", None)
+                if isinstance(eos_token_id, list):
+                    print(data["added_tokens_decoder"])
+                    optional_eos = [
+                        data["added_tokens_decoder"][str(index)]["content"] for index in eos_token_id[1:]
+                    ]
         else:
             add_bos_token = True
 
@@ -1087,6 +1095,7 @@ class LlamaHFConverter(BaseBin):
                     "gpt2_pretok": gpt2_pretok,
                 }
             },
+            "optional_eos": optional_eos
         }
 
         with open(
