@@ -268,6 +268,13 @@ class InferenceEngineCT2(InferenceEngine):
         vocabs["src"] = src_vocab
         vocabs["tgt"] = src_vocab
         vocabs["decoder_start_token"] = "<s>"
+        # TODO: this should be loaded from model config
+        vocabs["specials"] = {
+            "bos_token": DefaultTokens.BOS,
+            "pad_token": DefaultTokens.PAD,
+            "eos_token": DefaultTokens.EOS,
+            "unk_token": DefaultTokens.UNK,
+        }
         self.vocabs = vocabs
         # Build transform pipe
         transforms = make_transforms(config, self.transforms_cls, self.vocabs)
@@ -280,7 +287,10 @@ class InferenceEngineCT2(InferenceEngine):
             _input_tokens = [
                 self.vocabs["src"].lookup_index(id)
                 for id in start_ids
-                if id != self.vocabs["src"].lookup_token(DefaultTokens.PAD)
+                if id
+                != self.vocabs["src"].lookup_token(
+                    self.vocabs["specials"].get("pad_token", DefaultTokens.PAD)
+                )
             ]
             input_tokens.append(_input_tokens)
         if self.model_type == ModelType.DECODER:

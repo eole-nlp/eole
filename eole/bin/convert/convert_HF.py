@@ -970,18 +970,6 @@ class LlamaHFConverter(BaseBin):
                     vocab.append(DefaultTokens.VOCAB_PAD + str(i))
             for tok in data["added_tokens"]:
                 vocab[tok["id"]] = tok["content"]
-            if "<|startoftext|>" in vocab:
-                index = vocab.index("<|startoftext|>")
-                vocab[index] = DefaultTokens.BOS
-            if "<|endoftext|>" in vocab:
-                index = vocab.index("<|endoftext|>")
-                vocab[index] = DefaultTokens.EOS
-            if "<|begin_of_text|>" in vocab:
-                index = vocab.index("<|begin_of_text|>")
-                vocab[index] = DefaultTokens.BOS
-            if "<|end_of_text|>" in vocab:
-                index = vocab.index("<|end_of_text|>")
-                vocab[index] = DefaultTokens.EOS
 
             src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
 
