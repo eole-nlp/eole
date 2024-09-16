@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import re
 import json
 import torch
 import pyonmttok
@@ -568,6 +569,7 @@ class LlamaHFConverter(BaseBin):
         }
         left_pad = True
         optional_eos = []
+        mapped_tokens = []
 
         # ALL THESE IF SHOULD BE HANDLED IN MAPPINGS
         if arch == "PhiForCausalLM":
@@ -917,11 +919,18 @@ class LlamaHFConverter(BaseBin):
                 # Not sure if we could do much cleaner to retrieve optional eos tokens
                 eos_token_id = config.get("eos_token_id", None)
                 if isinstance(eos_token_id, list):
-                    print(data["added_tokens_decoder"])
                     optional_eos = [
                         data["added_tokens_decoder"][str(index)]["content"]
                         for index in eos_token_id[1:]
                     ]
+                # Automatically convert added_tokens into mapped_tokens
+                mapped_tokens = [
+                    (
+                        token["content"],
+                        re.sub(r"<\|([^|]*)\|>", "\uff5f\\1\uff60", token["content"]),
+                    )
+                    for token in data["added_tokens_decoder"].values()
+                ]
         else:
             add_bos_token = True
 
@@ -1094,6 +1103,7 @@ class LlamaHFConverter(BaseBin):
                         "${MODEL_PATH}", tokenizer_basename
                     ),
                     "gpt2_pretok": gpt2_pretok,
+                    "mapped_tokens": mapped_tokens,
                 }
             },
             "optional_eos": optional_eos,
