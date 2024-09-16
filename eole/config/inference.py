@@ -1,8 +1,9 @@
+import torch
 from typing import List, Literal
-from pydantic import Field, model_validator, field_validator
+from pydantic import Field, model_validator, field_validator, computed_field
 
 from eole.config.common import RunningConfig, LoRaConfig, QuantizeConfig
-from eole.config.config import Config
+from eole.config.config import Config, get_config_dict
 
 
 class DecodingConfig(Config):
@@ -99,6 +100,10 @@ class DecodingConfig(Config):
 
 # in legacy opts, decoding config is separated (probably to be used elsewhere)
 class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig):
+
+    model_config = get_config_dict()
+    model_config["arbitrary_types_allowed"] = True  # to allow torch.dtype
+
     # TODO: clarify models vs model (model config retrieved from checkpoint)
     model_path: str | List[str] = Field(
         description="Path to model .pt file(s). "
@@ -135,13 +140,6 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     gpu: int = Field(
         default=-1, description="Device to run on. -1 will default to CPU."
     )
-    precision: Literal["", "fp32", "fp16", "int8"] = Field(
-        default="",
-        description="Precision to run inference. "
-        "Default will use model.dtype, "
-        "fp32 to force slow fp16 model on gtx1080, "
-        "int8 to enable pytorch native 8-bit quantization (cpu only).",
-    )
     avg_raw_probs: bool = Field(
         default=False,
         description="If set, during ensembling scores from different models will be combined "
@@ -174,4 +172,16 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
             assert self.tgt, "-tgt should be specified with -gold_align"
         # originally in validate_translate_opts_dynamic, not sure why
         # self.__dict__["share_vocab"] = False
+        if self.compute_dtype == torch.int8:
+            assert self.gpu < 0, "Dynamic 8-bit quantization is not supported on GPU"
         return self
+
+    @computed_field
+    @property
+    def storage_dtype(self) -> torch.dtype:
+        """
+        Deduce which dtype to use for main model parameters.
+        """
+        if self.compute_dtype == torch.int8:
+            return torch.float32
+        return self.compute_dtype

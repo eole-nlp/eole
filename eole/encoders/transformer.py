@@ -7,7 +7,8 @@ import torch.nn as nn
 from eole.encoders.encoder import EncoderBase
 from eole.modules.multi_headed_attn import SelfMHA
 from eole.modules.transformer_mlp import MLP
-from eole.constants import LayerNorm
+from eole.constants import LayerNorm, PositionEncodingType
+from eole.modules.rope import RotaryPosition
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -45,18 +46,21 @@ class TransformerEncoderLayer(nn.Module):
             running_config=running_config,
         )
 
-    def forward(self, layer_in, mask):
+    def forward(self, layer_in, mask, position_embeddings=None):
         """
         Args:
             layer_in (FloatTensor): ``(batch_size, src_len, model_dim)``
             mask (LongTensor): ``(batch_size, 1, src_len)``
+            position_embeddings (FloatTensor): rotary position encodings, if any
 
         Returns:
             (FloatTensor):
             * layer_out ``(batch_size, src_len, model_dim)``
         """
         norm_layer_in = self.input_layernorm(layer_in)
-        context, _ = self.self_attn(norm_layer_in, mask=mask)
+        context, _ = self.self_attn(
+            norm_layer_in, mask=mask, position_embeddings=position_embeddings
+        )
         if self.dropout_p > 0:
             context = self.dropout(context)
         if self.parallel_residual:
@@ -98,6 +102,9 @@ class TransformerEncoder(EncoderBase):
     ):
         super(TransformerEncoder, self).__init__()
 
+        if model_config.position_encoding_type == PositionEncodingType.Rotary:
+            self.rope = RotaryPosition(model_config)
+
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerEncoderLayer(
@@ -130,8 +137,13 @@ class TransformerEncoder(EncoderBase):
         # 1 to be expanded to number of heads in MHA
         # Run the forward pass of every layer of the tranformer.
 
+        if hasattr(self, "rope"):
+            position_embeddings = self.rope(emb, step=0, device=emb.device)
+        else:
+            position_embeddings = None
+
         for layer in self.transformer_layers:
-            enc_out = layer(enc_out, mask)
+            enc_out = layer(enc_out, mask, position_embeddings=position_embeddings)
         enc_out = self.layer_norm(enc_out)
         return enc_out, None
 

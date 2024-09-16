@@ -1,8 +1,8 @@
 from typing import List, Literal
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator, computed_field
 import torch
 
-from eole.config.config import Config
+from eole.config.config import Config, get_config_dict
 from eole.config.common import RunningConfig, LoRaConfig, QuantizeConfig
 from eole.utils.logging import logger
 
@@ -12,7 +12,7 @@ class OptimizerConfig(Config):
     Everything related to optimizers.
     Might be split into multiple subclasses later.
     Note: not fully sufficient (yet) to replace full opt namespace in build_torch_optimizer.
-    Some other parameters (hidden_size, model_dtype, apex_opt_level, etc.) are accessed.
+    Some other parameters (hidden_size, compute_dtype, apex_opt_level, etc.) are accessed.
     """
 
     optim: Literal[
@@ -88,6 +88,10 @@ class TrainingConfig(
     LoRaConfig,
     QuantizeConfig,
 ):
+
+    model_config = get_config_dict()
+    model_config["arbitrary_types_allowed"] = True  # to allow torch.dtype
+
     # Init stuff
     param_init: float = Field(
         default=0.1,
@@ -228,9 +232,6 @@ class TrainingConfig(
         description="Step for moving average. Default is every update if average_decay is set.",
     )
 
-    model_dtype: Literal["fp32", "fp16"] = Field(
-        default="fp16", description="Data type of the model."
-    )
     loss_scale: float = Field(
         default=0.0,
         description="For FP16 training, the static loss scale to use. "
@@ -268,6 +269,28 @@ class TrainingConfig(
     score_threshold: float = Field(
         default=0.68, description="Threshold to filterout data"
     )
+
+    @computed_field
+    @property
+    def storage_dtype(self) -> torch.dtype:
+        """
+        Deduce which dtype to use for main model parameters.
+        E.g. with mixed precision a copy is kept in float32.
+        """
+        if (
+            self.compute_dtype == torch.float16
+            and self.apex_opt_level not in ["O0", "O1", "O2", "O3"]
+            and self.optim == "fusedadam"
+        ):
+            dtype = torch.float16
+            logger.info("Switching model to half() for FusedAdam legacy")
+            logger.info("Non quantized layer compute is %s", self.compute_dtype)
+        else:
+            dtype = torch.float32
+            if self.compute_dtype == torch.float16:
+                logger.info("Switching model to float32 for amp/apex_amp")
+                logger.info("Non quantized layer compute is %s", self.compute_dtype)
+        return dtype
 
     @field_validator("use_ckpting", mode="after")
     @classmethod
@@ -327,4 +350,11 @@ class TrainingConfig(
                 "states",
                 "all",
             ], '-update_vocab needs -reset_optim "states" or "all"'
+        if self.optim == "fusedadam":
+            assert (
+                self.compute_dtype == torch.float16
+            ), "optim: fusedam requires fp16 compute_dtype"
+        assert (
+            self.compute_dtype != torch.int8
+        ), "int8 compute_dtype is currently only used for inference dynamic quantization"
         return self

@@ -212,7 +212,7 @@ Common options for the tokenization transforms are the following:
 
 #### [OpenNMT Tokenizer](https://github.com/opennmt/Tokenizer)
 
-Transform name: `eole_tokenize`
+Transform name: `onmt_tokenize`
 
 Class: `eole.transforms.tokenize.OnmtTokenizerTransform`
 

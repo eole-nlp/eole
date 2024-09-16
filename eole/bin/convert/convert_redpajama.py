@@ -246,6 +246,11 @@ class RedPajamaConverter(BaseBin):
             for tok in vocab_dict["src"]:
                 vocabfile.write(tok + "\n")
 
+        position_encoding = {
+            "position_encoding_type": "Rotary",
+            "n_positions": 0,
+        }
+
         config = TrainConfig(
             data=None,
             skip_empty_level="silent",  # default is "warning"
@@ -270,19 +275,18 @@ class RedPajamaConverter(BaseBin):
                 embeddings=EmbeddingsConfig(
                     src_word_vec_size=src_word_vec_size,
                     tgt_word_vec_size=tgt_word_vec_size,
+                    **position_encoding,
                 ),
                 # src_word_vec_size=src_word_vec_size,
                 # tgt_word_vec_size=tgt_word_vec_size,
                 layer_norm="standard",
                 pos_ffn_activation_fn="gelu",
-                self_attn_type="scaled-dot",
-                max_relative_positions=-1,
                 parallel_residual=False,
                 add_qkvbias=True,
                 add_ffnbias=True,
             ),
             training=TrainingConfig(
-                model_dtype="fp16",
+                compute_dtype="fp16",
                 batch_size=896,
                 batch_size_multiple=1,
                 batch_type="tokens",
@@ -290,7 +294,6 @@ class RedPajamaConverter(BaseBin):
                 accum_count=[32],
                 accum_steps=[0],
                 valid_batch_size=256,
-                optim="fusedadam",
             ),
         )
 

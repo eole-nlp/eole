@@ -94,8 +94,6 @@ class Inference(object):
         self._tgt_eos_idx = [
             vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("eos_token", ""))
         ] + [vocabs["tgt"].lookup_token(eos_token) for eos_token in optional_eos]
-        print(self._tgt_eos_idx)
-        print(vocabs.get("specials"))
         self._tgt_pad_idx = vocabs["tgt"].lookup_token(
             vocabs.get("specials", {}).get("pad_token", "")
         )
@@ -287,6 +285,7 @@ class Inference(object):
             self.n_best,
             self.replace_unk,
             self.phrase_table,
+            self._tgt_eos_idx,
         )
 
         # Statistics

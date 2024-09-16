@@ -9,7 +9,7 @@ import eole
 from eole.modules.sparse_losses import SparsemaxLoss
 from eole.modules.sparse_activations import LogSparsemax
 from eole.constants import DefaultTokens
-from eole.models import DecoderModel
+from eole.models.model import DecoderModel
 
 try:
     import ctranslate2
@@ -109,8 +109,6 @@ class LossCompute(nn.Module):
             if config.training.lm_prior_model[-3:] == ".pt":
                 # TODO: we should probably find a way around this
                 config.gpu = 0
-                config.fp32 = False
-                config.int8 = False
                 _, lm_prior_model, lm_model_config = DecoderModel.load_test_model(
                     config, model_path=config.training.lm_prior_model
                 )  # lm_model_config does not seem used

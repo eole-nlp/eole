@@ -98,7 +98,6 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
         model_saver=model_saver,
         average_decay=average_decay,
         average_every=average_every,
-        model_dtype=running_config.model_dtype,
         earlystopper=earlystopper,
         dropout=dropout,
         attention_dropout=attention_dropout,
@@ -141,7 +140,6 @@ class Trainer(object):
           Thus nothing will be saved if this parameter is None.
         average_decay (float): cf opt.average_decay
         average_every (int): average model every x steps.
-        model_dtype (str): fp32 or fp16.
         earlystopper (:obj:`eole.utils.EarlyStopping`): add early
           stopping mecanism
         dropout (float): dropout value in RNN or FF layers.
@@ -172,7 +170,6 @@ class Trainer(object):
         model_saver=None,
         average_decay=0,
         average_every=1,
-        model_dtype="fp32",
         earlystopper=None,
         dropout=[0.3],
         attention_dropout=[0.1],
@@ -207,7 +204,6 @@ class Trainer(object):
         self.average_decay = average_decay
         self.moving_average = None
         self.average_every = average_every
-        self.model_dtype = model_dtype
         self.earlystopper = earlystopper
         self.dropout = dropout
         self.attention_dropout = attention_dropout
@@ -408,8 +404,6 @@ class Trainer(object):
         # Set model in validating mode.
         valid_model.eval()
 
-        # raw_srcs = []
-        # raw_refs = []
         with torch.no_grad():
             stats = eole.utils.Statistics()
             start = time.time()

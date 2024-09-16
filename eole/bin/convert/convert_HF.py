@@ -10,7 +10,7 @@ from safetensors.torch import save_file
 from sentencepiece import SentencePieceProcessor
 
 from eole.inputters.inputter import vocabs_to_dict
-from eole.constants import DefaultTokens
+from eole.constants import DefaultTokens, TORCH_DTYPES
 from eole.config.models import (
     EmbeddingsConfig,
     TransformerEncoderModelConfig,
@@ -251,6 +251,14 @@ class LlamaHFConverter(BaseBin):
             default="",
             help="""HF token""",
         )
+        parser.add_argument(
+            "--dtype",
+            type=str,
+            default=None,
+            choices=TORCH_DTYPES.keys(),
+            help="Specify which dtype to save model parameters into, "
+            "default will keep the same as the input.",
+        )
 
     @classmethod
     def run(cls, args):
@@ -289,14 +297,15 @@ class LlamaHFConverter(BaseBin):
                     args.model_dir, "sentencepiece.bpe.model"
                 )
             else:
-                if os.path.exists(os.path.join(args.model_dir, "tokenizer.json")):
-                    tokenizer_json = os.path.join(args.model_dir, "tokenizer.json")
-                    tokenizer_model = None
-                else:
-                    raise ValueError(
-                        "You used a local directory but tokenizer.model",
-                        " and/or tokenizer.json are missing",
-                    )
+                tokenizer_model = None
+            if os.path.exists(os.path.join(args.model_dir, "tokenizer.json")):
+                tokenizer_json = os.path.join(args.model_dir, "tokenizer.json")
+
+            elif tokenizer_model is None:
+                raise ValueError(
+                    "You used a local directory but tokenizer.model",
+                    " and/or tokenizer.json are missing",
+                )
             if os.path.exists(os.path.join(args.model_dir, "tokenizer_config.json")):
                 tokenizer_config_json = os.path.join(
                     args.model_dir, "tokenizer_config.json"
@@ -322,18 +331,20 @@ class LlamaHFConverter(BaseBin):
                         local_dir=args.output,
                     )
                 except huggingface_hub.utils.EntryNotFoundError:
-                    try:
-                        tokenizer_json = huggingface_hub.hf_hub_download(
-                            repo_id=args.model_dir,
-                            filename="tokenizer.json",
-                            token=args.token,
-                            local_dir=args.output,
-                        )
-                        tokenizer_model = None
-                    except huggingface_hub.utils.EntryNotFoundError:
-                        raise huggingface_hub.utils.EntryNotFoundError(
-                            "Make sure the repo contains tokenizer.model or tokenizer.json"
-                        )
+                    tokenizer_model = None
+            try:
+                tokenizer_json = huggingface_hub.hf_hub_download(
+                    repo_id=args.model_dir,
+                    filename="tokenizer.json",
+                    token=args.token,
+                    local_dir=args.output,
+                )
+            except huggingface_hub.utils.EntryNotFoundError:
+                tokenizer_json = None
+                if tokenizer_model is None:
+                    raise huggingface_hub.utils.EntryNotFoundError(
+                        "Make sure the repo contains tokenizer.model or tokenizer.json"
+                    )
             try:
                 config_path = huggingface_hub.hf_hub_download(
                     repo_id=args.model_dir,
@@ -440,6 +451,11 @@ class LlamaHFConverter(BaseBin):
         else:
             heads_kv = heads
 
+        if "head_dim" in config.keys():
+            head_dim = config["head_dim"]
+        else:
+            head_dim = None
+
         if "parallel_attn" in config.keys():
             parallel_residual = config["parallel_attn"]
         else:
@@ -453,16 +469,27 @@ class LlamaHFConverter(BaseBin):
             norm_eps = config["layer_norm_eps"]
         else:
             norm_eps = 1e-6
+        rope_config = {}
         if "rope_theta" in config.keys():
-            rope_theta = config["rope_theta"]
-        else:
-            rope_theta = 1e4
+            rope_config["rotary_theta"] = config["rope_theta"]
         if "rotary_dim" in config.keys():
-            rotary_dim = config["rotary_dim"]
+            rope_config["rotary_dim"] = config["rotary_dim"]
         elif "partial_rotary_factor" in config.keys():
-            rotary_dim = int(config["partial_rotary_factor"] * (hidden_size // heads))
-        else:
-            rotary_dim = 0
+            rope_config["rotary_dim"] = int(
+                config["partial_rotary_factor"] * (hidden_size // heads)
+            )
+        if config.get("rope_scaling", None) is not None:
+            rope_config["scaling_type"] = config["rope_scaling"].get("rope_type", None)
+            rope_config["scaling_factor"] = config["rope_scaling"].get("factor", 8.0)
+            rope_config["low_freq_factor"] = config["rope_scaling"].get(
+                "low_freq_factor", 1.0
+            )
+            rope_config["high_freq_factor"] = config["rope_scaling"].get(
+                "high_freq_factor", 4.0
+            )
+            rope_config["original_max_position_embeddings"] = config[
+                "rope_scaling"
+            ].get("original_max_position_embeddings", 8192)
         if "sliding_window" in config.keys():
             sliding_window = config["sliding_window"]
             if sliding_window is None:
@@ -533,10 +560,12 @@ class LlamaHFConverter(BaseBin):
 
         add_qkvbias = False
         add_ffnbias = False
-        rotary_interleave = False
         shared_layer_norm = False
-        max_relative_positions = -1
-        position_encoding = {}
+        rope_config["rotary_interleave"] = False
+        position_encoding = {
+            "position_encoding_type": "Rotary",
+            "n_positions": 0,
+        }
         left_pad = True
 
         # ALL THESE IF SHOULD BE HANDLED IN MAPPINGS
@@ -545,15 +574,13 @@ class LlamaHFConverter(BaseBin):
             shared_layer_norm = True
             add_qkvbias = True
             add_ffnbias = True
-            rotary_interleave = False
+            rope_config["rotary_interleave"] = False
         if arch == "GPT2LMHeadModel":
             parallel_residual = False
             shared_layer_norm = True
             add_qkvbias = True
             add_ffnbias = True
-            max_relative_positions = 0
             position_encoding = {
-                "position_encoding": True,
                 "position_encoding_type": "Learned",
                 "n_positions": 1024,
             }
@@ -561,9 +588,7 @@ class LlamaHFConverter(BaseBin):
         if arch == "XLMRobertaXLForMaskedLM":
             add_qkvbias = True
             add_ffnbias = True
-            max_relative_positions = 0
             position_encoding = {
-                "position_encoding": True,
                 "position_encoding_type": "Learned",
                 "n_positions": 514,
                 "position_shift": 2,
@@ -615,6 +640,14 @@ class LlamaHFConverter(BaseBin):
                     else:
                         return None
 
+        # Deduce dtype from args or config, or default to fp16
+        if args.dtype is not None:
+            compute_dtype = args.dtype
+        elif "torch_dtype" in config.keys():
+            compute_dtype = config["torch_dtype"]
+        else:
+            compute_dtype = "fp16"
+
         for shard in range(args.nshards):
 
             print("starting output shard: %d/%d" % (shard + 1, args.nshards))
@@ -645,10 +678,11 @@ class LlamaHFConverter(BaseBin):
                         if w is not None:
                             eole_safetensor[target] = w
 
+                        # not sure why we're doing this if generator.bias not in key_map
                         if target == "generator.weight" and w is not None:
                             eole_safetensor["generator.bias"] = torch.zeros(
                                 eole_safetensor["generator.weight"].size(0),
-                                dtype=torch.float16,
+                                dtype=TORCH_DTYPES[compute_dtype],
                             )
 
             if wmap_path:
@@ -854,11 +888,13 @@ class LlamaHFConverter(BaseBin):
                                             + p
                                         ] = w
 
-            # if shard == 0:
-            #     vocab_size = eole_safetensor["generator.weight"].size(0)
+            # Convert to another dtype if specified
+            if args.dtype is not None:
+                for key in eole_safetensor.keys():
+                    eole_safetensor[key] = eole_safetensor[key].to(
+                        TORCH_DTYPES[compute_dtype]
+                    )
             print("Saving output model shard: %d" % shard)
-            for key in eole_safetensor.keys():
-                eole_safetensor[key] = eole_safetensor[key].to(torch.float16)
             save_file(
                 eole_safetensor,
                 os.path.join(args.output, "model.{:02d}.safetensors".format(shard)),
@@ -886,7 +922,18 @@ class LlamaHFConverter(BaseBin):
         ):  # sentencepiece mode (might be good to check it's a SP model)
             tokenizer = Tokenizer(model_path=tokenizer_model)
             vocab = tokenizer.vocab
-            # vocab[3] = DefaultTokens.PAD
+            if tokenizer_json is not None:
+                # We need to add 'added_tokens' that are not in the SP model
+                with open(tokenizer_json, encoding="utf-8") as f:
+                    data = json.load(f)
+                newtokens = [
+                    tok["content"]
+                    for tok in data["added_tokens"]
+                    if tok["content"] not in vocab
+                ]
+                vocab.extend(newtokens)
+                for tok in data["added_tokens"]:
+                    vocab[tok["id"]] = tok["content"]
             if "<|startoftext|>" in vocab:
                 index = vocab.index("<|startoftext|>")
                 vocab[index] = DefaultTokens.BOS
@@ -898,7 +945,6 @@ class LlamaHFConverter(BaseBin):
                 vocab[index] = DefaultTokens.PAD
             src_vocab = pyonmttok.build_vocab_from_tokens(
                 vocab,
-                maximum_size=tokenizer.n_words,
                 special_tokens=specials_table[arch],
             )
         else:  # # BPE mode - we leverage the HF tokenizer.json info
@@ -986,12 +1032,10 @@ class LlamaHFConverter(BaseBin):
                 layer_norm=layer_norm,
                 norm_eps=norm_eps,
                 mlp_activation_fn=mlp_activation_fn,
-                max_relative_positions=max_relative_positions,
-                rotary_interleave=rotary_interleave,
-                rotary_theta=rope_theta,
-                rotary_dim=rotary_dim,
+                rope_config=rope_config,
                 sliding_window=sliding_window,
                 heads_kv=heads_kv,
+                head_dim=head_dim,
                 parallel_residual=parallel_residual,
                 shared_layer_norm=shared_layer_norm,
                 add_qkvbias=add_qkvbias,
@@ -1001,7 +1045,7 @@ class LlamaHFConverter(BaseBin):
                 left_pad=left_pad,
             ),
             training=TrainingConfig(
-                model_dtype="fp16",
+                compute_dtype=compute_dtype,
                 batch_size=896,
                 batch_size_multiple=1,
                 batch_type="tokens",
@@ -1013,7 +1057,6 @@ class LlamaHFConverter(BaseBin):
                 quant_type=quant_type,
                 w_bit=w_bit,
                 group_size=group_size,
-                optim="fusedadam",
             ),
         )
         config_dict = recursive_model_fields_set(config)

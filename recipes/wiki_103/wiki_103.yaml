@@ -1,6 +1,6 @@
 seed: 42
 share_vocab: true
-# save_data: data/wikitext/wikitext-103-raw-v1/run/example
+# save_data: data/wikitext-103-raw-v1/run/example
 src_vocab_size: 60000
 tgt_vocab_size: 60000
 
@@ -8,11 +8,11 @@ tgt_vocab_size: 60000
 overwrite: True
 
 # Vocabulary file(s) created/used
-src_vocab: data/wikitext/wikitext-103-raw-v1/run/example.vocab.src
+src_vocab: data/wikitext-103-raw-v1/run/example.vocab.src
 
 # tensorboard/logging stuff
 tensorboard: true
-tensorboard_log_dir: data/wikitext/wikitext-103-raw-v1/run/tensorboard
+tensorboard_log_dir: data/wikitext-103-raw-v1/run/tensorboard
 report_every: 100
 
 # transforms related stuff
@@ -20,7 +20,7 @@ transforms: [onmt_tokenize, filtertoolong]
 transforms_configs:
   onmt_tokenize:
     src_subword_type: bpe
-    src_subword_model: data/wikitext/wikitext-103-raw-v1/subwords.bpe
+    src_subword_model: data/wikitext-103-raw-v1/subwords.bpe
     src_onmttok_kwargs: {"mode": "aggressive", "joiner_annotate": True, "preserve_placeholders":
     True, "case_markup": True, "soft_case_regions": True, "preserve_segmented_tokens":
     True}
@@ -31,9 +31,9 @@ transforms_configs:
 # Corpus opts:
 data:
     corpus_1:
-        path_src: data/wikitext/wikitext-103-raw-v1/train.txt
+        path_src: data/wikitext-103-raw-v1/train.txt
     valid:
-        path_src: data/wikitext/wikitext-103-raw-v1/validation.txt
+        path_src: data/wikitext-103-raw-v1/validation.txt
 
 training:
     # Train on a single GPU
@@ -49,9 +49,9 @@ training:
     batch_size: 2048
     batch_type: tokens
 
-    model_dtype: "fp32"
+    compute_dtype: "fp32"
     optim: "adam"
-    # model_dtype: "fp16"
+    # compute_dtype: "fp16"
     # optim: "fusedadam"
     learning_rate: 2
     warmup_steps: 8000
@@ -63,7 +63,7 @@ training:
     param_init_glorot: true
     normalization: "tokens"
     # Where to save the checkpoints
-    model_path: data/wikitext/wikitext-103-raw-v1/run/model-lm
+    model_path: data/wikitext-103-raw-v1/run/model-lm
     save_checkpoint_steps: 5000
     train_steps: 100000
     valid_steps: 5000

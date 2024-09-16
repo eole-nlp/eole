@@ -20,6 +20,7 @@ from eole.bin.run import RunBin
 
 def train(config):
     # config is the full TrainConfig namespace here
+    config._validate_vocab_config()
     init_logger(config.log_file)
     set_random_seed(config.seed, False)
 

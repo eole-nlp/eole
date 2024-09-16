@@ -387,6 +387,11 @@ class T5Converter(BaseBin):
             for tok in vocab_dict["src"]:
                 vocabfile.write(tok + "\n")
 
+        position_encoding = {
+            "position_encoding_type": "Relative",
+            "n_positions": params["relative_attention_max_distance"],
+        }
+
         config = TrainConfig(
             data=None,
             skip_empty_level="silent",  # default is "warning"
@@ -411,11 +416,10 @@ class T5Converter(BaseBin):
                 embeddings=EmbeddingsConfig(
                     src_word_vec_size=src_word_vec_size,
                     tgt_word_vec_size=tgt_word_vec_size,
+                    **position_encoding,
                 ),
                 layer_norm="rms",
                 pos_ffn_activation_fn="gated-gelu",
-                self_attn_type="scaled-dot",
-                max_relative_positions=params["relative_attention_max_distance"],
                 relative_positions_buckets=params["relative_attention_num_buckets"],
                 parallel_residual=False,
                 add_qkvbias=False,
@@ -424,7 +428,7 @@ class T5Converter(BaseBin):
                 decoder={"layers": decoder_layers},
             ),
             training=TrainingConfig(
-                model_dtype="fp16",
+                compute_dtype="fp16",
                 batch_size=896,
                 batch_size_multiple=1,
                 batch_type="tokens",
@@ -432,7 +436,6 @@ class T5Converter(BaseBin):
                 accum_count=[32],
                 accum_steps=[0],
                 valid_batch_size=256,
-                optim="fusedadam",
             ),
         )
 

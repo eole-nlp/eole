@@ -19,11 +19,14 @@ class PredictionBuilder(object):
        replace_unk (bool): replace unknown words using attention
     """
 
-    def __init__(self, vocabs, n_best=1, replace_unk=False, phrase_table=""):
+    def __init__(
+        self, vocabs, n_best=1, replace_unk=False, phrase_table="", tgt_eos_idx=None
+    ):
         self.vocabs = vocabs
         self.n_best = n_best
         self.replace_unk = replace_unk
         self.phrase_table_dict = {}
+        self.tgt_eos_idx = tgt_eos_idx  # List of IDs here
         if phrase_table != "" and os.path.exists(phrase_table):
             with open(phrase_table) as phrase_table_fd:
                 for line in phrase_table_fd:
@@ -33,19 +36,18 @@ class PredictionBuilder(object):
                     self.phrase_table_dict[phrase_src] = phrase_trg
 
     def _build_target_tokens(self, src, srclen, pred, attn, voc, dyn_voc):
+        pred_list = pred.tolist()
+        if pred_list[-1] in self.tgt_eos_idx:
+            pred_list = pred_list[:-1]
         if dyn_voc is None:
-            tokens = [voc[tok] for tok in pred.tolist()]
+            tokens = [voc[tok] for tok in pred_list]
         else:
             tokens = [
                 voc[tok]
                 if tok < len(voc)
                 else dyn_voc.ids_to_tokens[tok - len(self.vocabs["src"].ids_to_tokens)]
-                for tok in pred.tolist()
+                for tok in pred_list
             ]
-        if tokens[-1] == self.vocabs.get("specials", {}).get(
-            "eos_token", DefaultTokens.EOS
-        ):
-            tokens = tokens[:-1]
 
         if self.replace_unk and attn is not None and src is not None:
             for i in range(len(tokens)):
