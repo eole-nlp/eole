@@ -45,7 +45,7 @@ transforms_configs:
 ### Build vocabulary command
 The vocabulary is built using:
 ```bash
-eole build_vocab -config wiki_103.yaml -n_sample -1 # -n_threads 4
+eole build_vocab -config wiki_103.yaml -n_sample -1 # -num_threads 4
 ```
 
 ## Step 3: Train the model
