@@ -26,16 +26,6 @@ class BaseVocabConfig(Config):
         description="Default decoder start token. For most models it is <s> = BOS. "
         "Some fairseq models require </s>.",
     )
-    default_specials: list = Field(
-        default=[
-            constants.DefaultTokens.UNK,
-            constants.DefaultTokens.PAD,
-            constants.DefaultTokens.BOS,
-            constants.DefaultTokens.EOS,
-        ],
-        description="Default specials used for vocab initialization. "
-        "UNK, PAD, BOS, EOS will take IDs 0, 1, 2, 3.",
-    )
     bos_token: str | None = Field(
         default=constants.DefaultTokens.BOS,
     )

@@ -16,6 +16,13 @@ def build_vocab(config, specials):
                  'decoder_start_token': DefaultTokens.BOS
                 }
     """
+    vocabs = {}
+    vocabs["specials"] = {
+        "bos_token": config.bos_token,
+        "pad_token": config.pad_token,
+        "eos_token": config.eos_token,
+        "unk_token": config.unk_token,
+    }
 
     def _pad_vocab_to_multiple(vocab, multiple):
         vocab_size = len(vocab)
@@ -26,8 +33,8 @@ def build_vocab(config, specials):
             vocab.add_token(DefaultTokens.VOCAB_PAD + str(i))
         return vocab
 
-    default_specials = config.default_specials
-    vocabs = {}
+    default_specials = list(vocabs["specials"].values())
+
     src_vocab = _read_vocab_file(config.src_vocab, config.src_words_min_frequency)
 
     src_specials = [
@@ -80,12 +87,6 @@ def build_vocab(config, specials):
         vocabs["tgt"] = tgt_vocab
 
     vocabs["decoder_start_token"] = config.decoder_start_token
-    vocabs["specials"] = {
-        "bos_token": config.bos_token,
-        "pad_token": config.pad_token,
-        "eos_token": config.eos_token,
-        "unk_token": config.unk_token,
-    }
     return vocabs
 
 

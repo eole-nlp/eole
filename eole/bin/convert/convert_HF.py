@@ -199,16 +199,6 @@ decoder_start_table = {
     "XLMRobertaXLForMaskedLM": "<s>",
 }
 
-specials_table = {
-    "LlamaForCausalLM": ["<unk>", "<s>", "</s>"],
-    "MistralForCausalLM": ["<unk>", "<s>", "</s>"],
-    "MixtralForCausalLM": ["<unk>", "<s>", "</s>"],
-    "PhiForCausalLM": ["<unk>", "<s>", "</s>"],
-    "Phi3ForCausalLM": ["<unk>", "<s>", "</s>"],
-    "GPT2LMHeadModel": ["<unk>", "<s>", "</s>"],
-    "XLMRobertaXLForMaskedLM": ["<s>", "<blank>", "</s>", "<unk>"],
-}
-
 
 class Tokenizer:
     def __init__(self, model_path: str):
@@ -312,6 +302,12 @@ class LlamaHFConverter(BaseBin):
                 )
             else:
                 tokenizer_config_json = None
+            if os.path.exists(os.path.join(args.model_dir, "special_tokens_map.json")):
+                tokenizer_config_json = os.path.join(
+                    args.model_dir, "special_tokens_map.json"
+                )
+            else:
+                tokenizer_config_json = None
         else:
             directory_path = args.output
             os.makedirs(directory_path, exist_ok=True)
@@ -398,6 +394,17 @@ class LlamaHFConverter(BaseBin):
                             raise huggingface_hub.utils.EntryNotFoundError(
                                 "No valid model files found"
                             )
+            try:
+                special_tokens_json = huggingface_hub.hf_hub_download(
+                    repo_id=args.model_dir,
+                    filename="special_tokens_map.json",
+                    token=args.token,
+                )
+            except huggingface_hub.utils.EntryNotFoundError:
+                raise huggingface_hub.utils.EntryNotFoundError(
+                    "Something went wrong the repo does not contain"
+                    "any special_tokens_map.json file"
+                )
 
         with open(config_path, encoding="utf-8") as fconfig:
             config = json.load(fconfig)
@@ -916,7 +923,19 @@ class LlamaHFConverter(BaseBin):
         else:
             add_bos_token = True
 
-        vocabs = {}
+        vocabs = {"specials": {}}
+
+        if special_tokens_json is not None:
+            with open(special_tokens_json, encoding="utf-8") as f:
+                special_tokens_map = json.load(f)
+                for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
+                    token = special_tokens_map.get(token_name, None)
+                    if isinstance(token, list):
+                        vocabs["specials"][token_name] = token[0]
+                    elif isinstance(token, str):
+                        vocabs["specials"][token_name] = token
+                    elif isinstance(token, dict):
+                        vocabs["specials"][token_name] = token["content"]
         if (
             tokenizer_model is not None
         ):  # sentencepiece mode (might be good to check it's a SP model)
@@ -934,18 +953,8 @@ class LlamaHFConverter(BaseBin):
                 vocab.extend(newtokens)
                 for tok in data["added_tokens"]:
                     vocab[tok["id"]] = tok["content"]
-            if "<|startoftext|>" in vocab:
-                index = vocab.index("<|startoftext|>")
-                vocab[index] = DefaultTokens.BOS
-            if "<|endoftext|>" in vocab and "</s>" not in vocab:
-                index = vocab.index("<|endoftext|>")
-                vocab[index] = DefaultTokens.EOS
-            if "<0x00>" in vocab:
-                index = vocab.index("<0x00>")
-                vocab[index] = DefaultTokens.PAD
             src_vocab = pyonmttok.build_vocab_from_tokens(
                 vocab,
-                special_tokens=specials_table[arch],
             )
         else:  # # BPE mode - we leverage the HF tokenizer.json info
             with open(tokenizer_json, encoding="utf-8") as f:
@@ -1013,6 +1022,7 @@ class LlamaHFConverter(BaseBin):
             tgt_vocab_size=vocab_size,
             vocab_size_multiple=8,
             decoder_start_token=vocabs["decoder_start_token"],
+            **vocabs["specials"],
             transforms=["filtertoolong"],
             transforms_configs={
                 "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}
