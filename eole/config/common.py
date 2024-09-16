@@ -1,8 +1,9 @@
 import torch
-from typing import List, Literal
-from pydantic import Field, model_validator
+from typing import List, Literal, Union
+from pydantic import Field, model_validator, field_validator
 from importlib import import_module
-from eole.config.config import Config
+from eole.config.config import Config, get_config_dict
+from eole.constants import TORCH_DTYPES
 
 # from eole.utils.logging import logger
 
@@ -129,6 +130,9 @@ class RunningConfig(DistributedConfig):
     factorizing common stuff like batch_size etc.
     """
 
+    model_config = get_config_dict()
+    model_config["arbitrary_types_allowed"] = True  # to allow torch.dtype
+
     model_path: str = Field(
         default="model",
         description="Path to directory containing all model components.",
@@ -137,6 +141,24 @@ class RunningConfig(DistributedConfig):
         default="flash",
         description="Self-attention backend.",
     )
+    compute_dtype: Union[Literal["fp32", "fp16", "int8", "bf16"], torch.dtype] = Field(
+        default=torch.float32,
+        description="Compute dtype (precision) to use for main compute. "
+        "Some parameters might have other dtypes for specific cases "
+        "(e.g. torch.amp -- See eole.config.training.TrainingConfig.storage_dtype) "
+        "fp32 to force slow fp16 model on gtx1080, "
+        "int8 to enable pytorch native 8-bit quantization (cpu only).",
+    )
+
+    @field_validator("compute_dtype", mode="before")
+    @classmethod
+    def validate_compute_dtype(cls, v: Union[str, torch.dtype]) -> torch.dtype:
+        if isinstance(v, str):
+            if v in TORCH_DTYPES:
+                return TORCH_DTYPES[v]
+            else:
+                raise ValueError(f"Invalid compute_dtype value: {v}")
+        return v
 
     @model_validator(mode="after")
     def _validate_running_config(self):
@@ -146,6 +168,7 @@ class RunningConfig(DistributedConfig):
                 hasattr(flash_pack, "flash_attn_func")
                 and torch.cuda.get_device_capability()[0] >= 8
                 and self.self_attn_backend == "flash"
+                and self.compute_dtype in [torch.float16, torch.bfloat16]
             ):
                 pass
             else:

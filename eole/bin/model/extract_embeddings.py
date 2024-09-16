@@ -1,5 +1,5 @@
 import torch
-from eole.models import get_model_class
+from eole.models.model import get_model_class
 from eole.models.model_saver import load_checkpoint
 from eole.inputters.inputter import dict_to_vocabs
 

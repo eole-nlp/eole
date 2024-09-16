@@ -1,5 +1,6 @@
 import os
-from pydantic import Field
+import torch
+from collections import OrderedDict
 from eole.config.config import Config
 from eole.utils.logging import logger
 
@@ -7,6 +8,47 @@ from eole.utils.logging import logger
 # default EOLE_MODEL_DIR
 if os.environ.get("EOLE_MODEL_DIR", None) is None:
     os.environ["EOLE_MODEL_DIR"] = os.getcwd()
+
+
+def calculate_depth(value, current_depth=0):
+    if isinstance(value, (dict, Config)):
+        if isinstance(value, Config):
+            value = value.__dict__
+        return (
+            max(calculate_depth(v, current_depth + 1) for v in value.values())
+            if value
+            else current_depth
+        )
+    return current_depth
+
+
+def reorder_fields(fields):
+    """
+    Put non nested fields before nested ones in config json dump,
+    for better readability.
+    """
+    ordered_fields = OrderedDict()
+    non_nested_fields = []
+    nested_fields = []
+
+    for field, value in fields.items():
+        if isinstance(value, dict):
+            nested_fields.append((field, value))
+        else:
+            non_nested_fields.append((field, value))
+
+    # Add non-nested fields first
+    for field, value in non_nested_fields:
+        ordered_fields[field] = value
+
+    # Calculate depths and sort nested fields
+    nested_fields.sort(key=lambda x: calculate_depth(x[1]))
+
+    # Add nested fields
+    for field, value in nested_fields:
+        ordered_fields[field] = reorder_fields(value)
+
+    return ordered_fields
 
 
 def recursive_model_fields_set(model):
@@ -35,8 +77,11 @@ def recursive_model_fields_set(model):
             if _fields != {}:
                 fields[field] = _fields
         else:
+            if isinstance(field_value, torch.dtype):
+                # torch.dtype is not serializable
+                field_value = str(field_value)
             fields[field] = field_value
-    return fields
+    return reorder_fields(fields)
 
 
 def recursive_update_dict(_dict, new_dict, defaults):
@@ -67,13 +112,3 @@ def get_non_default_values(parsed_args, defaults):
         if value != defaults.get(key, None):
             non_default_values[key] = value
     return non_default_values
-
-
-# tentative wrapper functions to lighten definitions below
-def field_with_default(default, description, **kwargs):
-    return Field(default=default, description=description, **kwargs)
-
-
-def required_field(description, **kwargs):
-    # no default
-    return Field(description=description, **kwargs)

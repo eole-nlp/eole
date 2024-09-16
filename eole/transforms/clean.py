@@ -18,6 +18,10 @@ class CleanConfig(TransformConfig):
     )
     scripts_ok: List[str] | None = Field(
         default=["Latin", "Common"],
+        description="list of unicodata scripts accepted",
+    )
+    scripts_nok: List[str] | None = Field(
+        default=[],
         description="list of unicodata scripts not accepted",
     )
     src_tgt_ratio: float | None = Field(
@@ -63,8 +67,8 @@ class CleanTransform(Transform):
     @staticmethod
     def _get_param(corpus, param, def_val):
         """Get param string of a `corpus`."""
-        if "clean" in corpus["transforms"]:
-            value = corpus.get(param, def_val)
+        if "clean" in getattr(corpus, "transforms", []):
+            value = getattr(corpus, param, def_val)
             clean = value
         else:
             clean = None
@@ -88,17 +92,25 @@ class CleanTransform(Transform):
         super().warm_up(None)
         import fasttext
 
-        self.src_eq_tgt_dict = self.get_config_dict(self.config, "src_eq_tgt", True)
-        self.same_char_dict = self.get_config_dict(self.config, "same_char", True)
-        self.same_word_dict = self.get_config_dict(self.config, "same_word", True)
-        self.scripts_ok_dict = self.get_config_dict(
-            self.config, "scripts_ok", ["Latin", "Common"]
+        self.src_eq_tgt_dict = self.get_config_dict(
+            self.full_config, "src_eq_tgt", True
         )
-        self.scripts_nok_dict = self.get_config_dict(self.config, "scripts_nok", [])
-        self.src_tgt_ratio_dict = self.get_config_dict(self.config, "src_tgt_ratio", 2)
-        self.avg_tok_min_dict = self.get_config_dict(self.config, "avg_tok_min", 3)
-        self.avg_tok_max_dict = self.get_config_dict(self.config, "avg_tok_max", 20)
-        self.langid_dict = self.get_config_dict(self.config, "langid", [])
+        self.same_char_dict = self.get_config_dict(self.full_config, "same_char", True)
+        self.same_word_dict = self.get_config_dict(self.full_config, "same_word", True)
+        self.scripts_ok_dict = self.get_config_dict(
+            self.full_config, "scripts_ok", ["Latin", "Common"]
+        )
+        self.scripts_nok_dict = self.get_config_dict(
+            self.full_config, "scripts_nok", []
+        )
+        self.src_tgt_ratio_dict = self.get_config_dict(
+            self.full_config, "src_tgt_ratio", 2
+        )
+        self.avg_tok_min_dict = self.get_config_dict(self.full_config, "avg_tok_min", 3)
+        self.avg_tok_max_dict = self.get_config_dict(
+            self.full_config, "avg_tok_max", 20
+        )
+        self.langid_dict = self.get_config_dict(self.full_config, "langid", [])
         fasttext_loc = f"{os.path.dirname(os.path.abspath(__file__))}/lid.176.ftz"
 
         if not os.path.exists(fasttext_loc):

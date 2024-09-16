@@ -50,7 +50,7 @@ class ScoringPreparator:
         # (take 'inference' field of config if exists?)
         # Set "default" translation options on empty cfgfile
         predict_config = PredictConfig(model_path=["dummy"], src="dummy")
-        # predict_config.gpu = gpu_rank
+        predict_config.compute_dtype = self.config.training.compute_dtype
         if predict_config.transforms_configs.prefix.tgt_prefix != "":
             predict_config.tgt_file_prefix = True
         predict_config.beam_size = 1  # prevent OOM when GPU is almost full at training
@@ -84,6 +84,7 @@ class ScoringPreparator:
         predict_config.src = self.config.data["valid"].path_src
         predict_config.transforms = self.config.transforms
         predict_config.transforms_configs = self.config.transforms_configs
+        predict_config.model = model_config
         # Retrieve raw references and sources
         with codecs.open(
             self.config.data["valid"].path_tgt, "r", encoding="utf-8"

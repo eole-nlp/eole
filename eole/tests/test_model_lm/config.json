@@ -14,7 +14,6 @@
     "encoder": null,
     "embeddings": {
       "tgt_word_vec_size": 64,
-      "position_encoding": true,
       "src_word_vec_size": 64,
       "word_vec_size": 64
     }

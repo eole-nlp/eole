@@ -3,30 +3,37 @@
 
 The code is easily extendable with custom transforms inheriting from the `Transform` base class.
 
-You can for instance have a look at the `FilterTooLongTransform` class as a template:
+You can for instance have a look at the `FilterTooLongTransform` and the corresponding `FilterTooLongConfig` classes as a template:
 
 ```python
-@register_transform(name='filtertoolong')
+class FilterTooLongConfig(TransformConfig):
+    src_seq_length: int | None = Field(
+        default=192, description="Maximum source sequence length."
+    )
+    tgt_seq_length: int | None = Field(
+        default=192, description="Maximum target sequence length."
+    )
+
+...
+
+@register_transform(name="filtertoolong")
 class FilterTooLongTransform(Transform):
     """Filter out sentence that are too long."""
 
-    @classmethod
-    def add_options(cls, parser):
-        """Avalilable options relate to this Transform."""
-        group = parser.add_argument_group("Transform/Filter")
-        group.add("--src_seq_length", "-src_seq_length", type=int, default=200,
-                  help="Maximum source sequence length.")
-        group.add("--tgt_seq_length", "-tgt_seq_length", type=int, default=200,
-                  help="Maximum target sequence length.")
+    config_model = FilterTooLongConfig
 
-    def _parse_opts(self):
-        self.src_seq_length = self.opts.src_seq_length
-        self.tgt_seq_length = self.opts.tgt_seq_length
+    def __init__(self, config):
+        super().__init__(config)
+
+    def _parse_config(self):
+        self.src_seq_length = self.config.src_seq_length
+        self.tgt_seq_length = self.config.tgt_seq_length
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
         """Return None if too long else return as is."""
-        if (len(example['src']) > self.src_seq_length or
-                len(example['tgt']) > self.tgt_seq_length):
+        if len(example["src"]) > self.src_seq_length or (
+            example["tgt"] is not None and len(example["tgt"]) > self.tgt_seq_length - 2
+        ):
             if stats is not None:
                 stats.update(FilterTooLongStats())
             return None
@@ -35,15 +42,13 @@ class FilterTooLongTransform(Transform):
 
     def _repr_args(self):
         """Return str represent key arguments for class."""
-        return '{}={}, {}={}'.format(
-            'src_seq_length', self.src_seq_length,
-            'tgt_seq_length', self.tgt_seq_length
+        return "{}={}, {}={}".format(
+            "src_seq_length", self.src_seq_length, "tgt_seq_length", self.tgt_seq_length
         )
 ```
 
 Methods:
-- `add_options` allows to add custom options that would be necessary for the transform configuration;
-- `_parse_opts` allows to parse options introduced in `add_options` when initialize;
+- `_parse_opts` allows to parse options from the `config_model`;
 - `apply` is where the transform happens;
 - `_repr_args` is for clean logging purposes.
 
@@ -79,5 +84,5 @@ The `example` argument of `apply` is a `dict` of the form:
 }
 ```
 
-This is defined in `onmt.inputters.corpus.ParallelCorpus.load`. This class is not easily extendable for now but it can be considered for future developments. For instance, we could create some `CustomParallelCorpus` class that would handle other kind of inputs.
+This is defined in `eole.inputters.text_corpus.ParallelCorpus.load`. This class is not easily extendable for now but it can be considered for future developments. For instance, we could create some `CustomParallelCorpus` class that would handle other kind of inputs.
 

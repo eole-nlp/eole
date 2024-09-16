@@ -247,8 +247,8 @@ class NormalizeTransform(Transform):
     @staticmethod
     def _get_param(corpus, param, def_val):
         """Get opt string of a `corpus`."""
-        if "normalize" in corpus["transforms"]:
-            value = corpus.get(param, def_val)
+        if "normalize" in getattr(corpus, "transforms", []):
+            value = getattr(corpus, param, def_val)
             normalize = value
         else:
             normalize = None
@@ -271,18 +271,20 @@ class NormalizeTransform(Transform):
     def warm_up(self, vocabs=None):
         """Set options for each dataset."""
         super().warm_up(None)
-        self.src_lang_dict = self.get_config_dict(self.config, "src_lang", "")
-        self.tgt_lang_dict = self.get_config_dict(self.config, "tgt_lang", "")
-        self.penn_dict = self.get_config_dict(self.config, "penn", True)
+        self.src_lang_dict = self.get_config_dict(self.full_config, "src_lang", "")
+        self.tgt_lang_dict = self.get_config_dict(self.full_config, "tgt_lang", "")
+        self.penn_dict = self.get_config_dict(self.full_config, "penn", True)
         self.norm_quote_commas_dict = self.get_config_dict(
-            self.config, "norm_quote_commas", True
+            self.full_config, "norm_quote_commas", True
         )
-        self.norm_numbers_dict = self.get_config_dict(self.config, "norm_numbers", True)
+        self.norm_numbers_dict = self.get_config_dict(
+            self.full_config, "norm_numbers", True
+        )
         self.pre_dict = self.get_config_dict(
-            self.config, "pre_replace_unicode_punct", False
+            self.full_config, "pre_replace_unicode_punct", False
         )
         self.post_dict = self.get_config_dict(
-            self.config, "post_remove_control_chars", False
+            self.full_config, "post_remove_control_chars", False
         )
         self.src_lang_dict["infer"] = self.src_lang
         self.tgt_lang_dict["infer"] = self.tgt_lang

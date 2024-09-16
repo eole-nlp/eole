@@ -241,9 +241,15 @@ class TrainingModelSaver(ModelSaverBase):
         model_path = os.path.join(
             self.model_path, self.step_dir, "model.00.safetensors"
         )
-        if self.config.model.share_embeddings:
+        if (
+            self.config.model.share_embeddings
+            and "tgt_emb.embeddings.weight" in model_state_dict
+        ):
             model_state_dict.pop("tgt_emb.embeddings.weight")
-        if self.config.model.share_decoder_embeddings:
+        if (
+            self.config.model.share_decoder_embeddings
+            and "generator.weight" in model_state_dict
+        ):
             model_state_dict.pop("generator.weight")
         save_file(model_state_dict, model_path)
         self._make_symlink("model.00.safetensors")

@@ -9,7 +9,8 @@
     "embeddings": {
       "tgt_word_vec_size": 100,
       "src_word_vec_size": 100,
-      "word_vec_size": 100
+      "word_vec_size": 100,
+      "position_encoding_type": null
     },
     "architecture": "custom",
     "encoder": {

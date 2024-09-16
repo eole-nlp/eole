@@ -28,7 +28,7 @@ class PositionalEncoding(nn.Module):
                 "Cannot use sin/cos positional encoding with "
                 "odd dim (got dim={:d})".format(dim)
             )
-        if enc_type == "SinusoidalInterleaved":
+        if enc_type == PositionEncodingType.SinusoidalInterleaved:
             pe = torch.zeros(max_len, dim)
             position = torch.arange(0, max_len).unsqueeze(1)
             div_term = torch.exp(
@@ -39,7 +39,7 @@ class PositionalEncoding(nn.Module):
             )
             pe[:, 0::2] = torch.sin(position.float() * div_term)
             pe[:, 1::2] = torch.cos(position.float() * div_term)
-        elif enc_type == "SinusoidalConcat":
+        elif enc_type == PositionEncodingType.SinusoidalConcat:
             half_dim = dim // 2
             pe = math.log(10000) / (half_dim - 1)
             pe = torch.exp(torch.arange(half_dim, dtype=torch.float) * -pe)
@@ -84,10 +84,12 @@ class Embeddings(nn.Module):
         word_vec_size (int): size of the dictionary of embeddings.
         word_vocab_size (int): size of dictionary of embeddings for words.
         word_padding_idx (int): padding index for words in the embeddings.
-        position_encoding (bool): see :class:`~eole.modules.PositionalEncoding`
+        position_encoding_type (str): see :constants:`~eole.constants.PositionEncodingType`
+        position_shift (int): patch int for xlm-roberta-xl
         dropout (float): dropout probability.
         sparse (bool): sparse embbedings default False
         freeze_word_vecs (bool): freeze weights of word vectors.
+        n_positions (int): number of positions for Learned position embeddings
     """
 
     def __init__(
@@ -95,8 +97,8 @@ class Embeddings(nn.Module):
         word_vec_size,
         word_vocab_size,
         word_padding_idx,
-        position_encoding=False,
         position_encoding_type="SinusoidalInterleaved",
+        position_shift=0,
         dropout=0,
         sparse=False,
         freeze_word_vecs=False,
@@ -120,14 +122,20 @@ class Embeddings(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         self.dropout_p = dropout
 
-        self.position_encoding = position_encoding
         self.position_encoding_type = position_encoding_type
+        self.position_shift = position_shift
 
         if self.position_encoding_type == PositionEncodingType.Learned:
             self.pe = nn.Embedding(n_positions, word_vec_size)
             self.past_length = 0
-        elif self.position_encoding:
+        elif self.position_encoding_type in [
+            PositionEncodingType.SinusoidalInterleaved,
+            PositionEncodingType.SinusoidalConcat,
+        ]:
             self.pe = PositionalEncoding(word_vec_size, position_encoding_type)
+        else:
+            # Rotary, Alibi, Relative are handled in MHA
+            pass
 
         if freeze_word_vecs:
             self.embeddings.weight.requires_grad = False
@@ -174,14 +182,17 @@ class Embeddings(nn.Module):
                 dtype=torch.long,
                 device=source.device,
             )
-            position_ids = position_ids.unsqueeze(0)
+            position_ids = position_ids.unsqueeze(0) + self.position_shift
             position_emb = self.pe(position_ids)
             emb += position_emb
             if self.past_length == 0:
                 self.past_length += source.size(-1)
             else:
                 self.past_length += 1
-        elif self.position_encoding:
+        elif self.position_encoding_type in [
+            PositionEncodingType.SinusoidalInterleaved,
+            PositionEncodingType.SinusoidalConcat,
+        ]:
             emb = self.pe(emb, step)
 
         if self.dropout_p > 0:

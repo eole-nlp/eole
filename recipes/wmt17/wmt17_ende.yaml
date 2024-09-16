@@ -48,7 +48,7 @@ training:
     dropout_steps: [0]
     dropout: [0.1]
     attention_dropout: [0.1]
-    model_dtype: "fp16"
+    compute_dtype: "fp16"
     #apex_opt_level: "O2"
     optim: "fusedadam"
     learning_rate: 2
@@ -71,4 +71,4 @@ model:
     transformer_ff: 4096
     embeddings:
         word_vec_size: 1024
-        position_encoding: true
+        position_encoding_type: "SinusoidalInterleaved"

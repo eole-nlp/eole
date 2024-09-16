@@ -40,9 +40,9 @@ class SubwordMarker(str, Enum):
     BEGIN_CASED = "｟mrk_case_modifier_C｠"
 
 
-class ModelTask(str, Enum):
-    LANGUAGE_MODEL = "lm"
-    SEQ2SEQ = "seq2seq"
+class ModelType(str, Enum):
+    DECODER = "decoder"
+    ENCODER_DECODER = "encoder_decoder"
     ENCODER = "encoder"
 
 
@@ -50,6 +50,9 @@ class PositionEncodingType(str, Enum):
     SinusoidalInterleaved = "SinusoidalInterleaved"
     SinusoidalConcat = "SinusoidalConcat"
     Learned = "Learned"
+    Relative = "Relative"
+    Rotary = "Rotary"
+    Alibi = "Alibi"
 
 
 class ActivationFunction(str, Enum):
@@ -70,3 +73,18 @@ ACTIVATION_FUNCTIONS = {
 
 
 LayerNorm = {"standard": torch.nn.LayerNorm, "rms": RMSNorm}
+
+
+TORCH_DTYPES = {
+    "fp32": torch.float32,
+    "fp16": torch.float16,
+    "bf16": torch.bfloat16,
+    "int8": torch.int8,
+    "torch.float32": torch.float32,
+    "torch.float16": torch.float16,
+    "torch.bfloat16": torch.bfloat16,
+    "torch.int8": torch.int8,
+    "float32": torch.float32,
+    "float16": torch.float16,
+    "bfloat16": torch.bfloat16,
+}

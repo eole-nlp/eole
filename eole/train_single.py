@@ -11,15 +11,15 @@ from eole.transforms import (
     get_specials,
     get_transforms_cls,
 )
-from eole.inputters import build_vocab
-from eole.inputters.inputter import vocabs_to_dict  # , dict_to_vocabs
+from eole.inputters.inputter import vocabs_to_dict, build_vocab, dict_to_vocabs
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.inputters.text_corpus import save_transformed_sample
 from eole.models.model_saver import load_checkpoint
 from eole.utils.optimizers import Optimizer
 from eole.utils.misc import set_random_seed
 from eole.trainer import build_trainer
-from eole.models import build_model_saver, get_model_class
+from eole.models.model_saver import build_model_saver
+from eole.models.model import get_model_class
 from eole.modules.embeddings import prepare_pretrained_embeddings
 
 from eole.config import (
@@ -64,10 +64,10 @@ def _init_train(config):
     transforms_cls = get_transforms_cls(config._all_transform)
 
     if config.training.train_from:
-        # Load checkpoint if we resume from a previous training.
         checkpoint = load_checkpoint(config.training.train_from)
-        # vocabs = dict_to_vocabs(checkpoint["vocab"])
-        # TODO: clarify and adapt this?
+
+        # TODO: reinstate this?
+        # the point is to outline the diff between config and ckpt config
         # if (
         #     hasattr(checkpoint["config"], "_all_transform")
         #     and len(
@@ -89,16 +89,16 @@ def _init_train(config):
         #     if len(old_transf) != 0:
         #         _msg += f" -{old_transf}."
         #     logger.warning(_msg)
-        #     vocabs, transforms = prepare_transforms_vocabs(config, transforms_cls)
-        # if config.training.update_vocab:
-        #     logger.info("Updating checkpoint vocabulary with new vocabulary")
-        #     vocabs, transforms = prepare_transforms_vocabs(config, transforms_cls)
     else:
         checkpoint = None
-        # vocabs, transforms = prepare_transforms_vocabs(config, transforms_cls)
-    vocabs, transforms = prepare_transforms_vocabs(config, transforms_cls)
 
-    return checkpoint, vocabs, transforms
+    config = update_config_with_checkpoint(config, checkpoint=checkpoint)
+    vocabs, transforms = prepare_transforms_vocabs(config, transforms_cls)
+    if config.training.train_from and not config.training.update_vocab:
+        logger.info("Keeping checkpoint vocabulary")
+        vocabs = dict_to_vocabs(checkpoint["vocab"])
+
+    return checkpoint, vocabs, transforms, config
 
 
 def configure_process(config, device_id):
@@ -138,8 +138,7 @@ def main(config, device_id):
 
     configure_process(config, device_id)
     init_logger(config.log_file)
-    checkpoint, vocabs, transforms = _init_train(config)
-    config = update_config_with_checkpoint(config, checkpoint=checkpoint)
+    checkpoint, vocabs, transforms, config = _init_train(config)
 
     # if transform + options set in 'valid' we need to copy in main
     # transform / options for scoring considered as inference
@@ -176,31 +175,12 @@ def main(config, device_id):
     )
 
     model.count_parameters(log=logger.info)
-    trainable = {
-        "torch.float32": 0,
-        "torch.float16": 0,
-        "torch.uint8": 0,
-        "torch.int8": 0,
-    }
-    non_trainable = {
-        "torch.float32": 0,
-        "torch.float16": 0,
-        "torch.uint8": 0,
-        "torch.int8": 0,
-    }
-    for n, p in model.named_parameters():
-        if p.requires_grad:
-            trainable[str(p.dtype)] += p.numel()
-        else:
-            non_trainable[str(p.dtype)] += p.numel()
-    logger.info("Trainable parameters = %s" % str(trainable))
-    logger.info("Non trainable parameters = %s" % str(non_trainable))
+
     logger.info(" * src vocab size = %d" % len(vocabs["src"]))
     logger.info(" * tgt vocab size = %d" % len(vocabs["tgt"]))
 
     # Build optimizer.
     optim = Optimizer.from_config(model, config, checkpoint=checkpoint)
-
     del checkpoint
 
     # Build model saver

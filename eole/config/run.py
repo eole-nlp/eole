@@ -1,5 +1,6 @@
 from typing import Dict, List, Any
 
+from eole.config.config import get_config_dict
 from eole.config.training import TrainingConfig
 from eole.config.inference import InferenceConfig
 from eole.config.common import MiscConfig, LoggingConfig
@@ -74,6 +75,11 @@ class TrainConfig(
                 "You should either finetune from an existing model, "
                 "or specify a model configuration."
             )
+        if self.n_sample != 0:
+            assert (
+                self.save_data
+            ), "-save_data should be set if \
+                want save samples."
         return self
 
 
@@ -93,6 +99,10 @@ class PredictConfig(
         None  # patch for CT2 inference engine (to improve later)
     )
     model: ModelConfig | None = None
+    optional_eos: List[str] | None = Field(
+        default=[],
+        description="Optional EOS tokens that would stop generation, e.g. <|eot_id|> for Llama3",
+    )
 
     @model_validator(mode="after")
     def _validate_predict_config(self):
@@ -104,6 +114,9 @@ class PredictConfig(
 class BuildVocabConfig(
     DataConfig, MiscConfig, BaseVocabConfig
 ):  # , AllTransformsConfig):
+
+    model_config = get_config_dict()
+    model_config["extra"] = "ignore"
 
     # some specific items related to build_vocab_only flag
     dump_samples: bool = Field(

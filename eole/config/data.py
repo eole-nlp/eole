@@ -87,10 +87,29 @@ class Dataset(Config):
     )
     path_align: str | None = None
     # optional stuff for some transforms
+    # TODO: define a better mechanism to support such settings
     src_prefix: str | None = None
     tgt_prefix: str | None = None
     src_suffix: str | None = None
     tgt_suffix: str | None = None
+    # normalize
+    src_lang: str | None = None
+    tgt_lang: str | None = None
+    penn: bool | None = True
+    norm_quote_commas: bool | None = True
+    norm_numbers: bool | None = True
+    pre_replace_unicode_punct: bool | None = False
+    post_remove_control_chars: bool | None = False
+    # clean
+    src_eq_tgt: bool | None = True
+    same_char: bool | None = True
+    same_word: bool | None = True
+    scripts_ok: List[str] | None = ["Latin", "Common"]
+    scripts_nok: List[str] | None = []
+    src_tgt_ratio: float | None = 2
+    avg_tok_min: float | None = 3
+    avg_tok_max: float | None = 20
+    lang_id: List[str] | None = ["en", "fr"]
 
 
 # add all opts from all transforms (like in eole.opts._add_transform_opt)
@@ -150,33 +169,6 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
     overwrite: bool = Field(
         default=False, description="Overwrite existing objects if any."
     )
-
-    data_task: constants.ModelTask | None = Field(
-        default=None,
-        description="set data_task manually for now, might be handled upstream in validation",
-    )
-
-    def _data_task(self) -> str:
-        # Note: this now works thanks to patch in validate_data/text_corpus (path_tgt is kept None)
-        # TO BE REVIEWED FOR ENCODER ONLY MODEL/TASK
-        if self.data_task is not None:
-            return self.data_task
-        for cname, corpus in self.data.items():
-            # Check path
-            if corpus.path_src is None:
-                raise ValueError(
-                    f"Corpus {cname} src path is required."
-                    "tgt path is also required for non language"
-                    " modeling tasks."
-                )
-            else:
-                if corpus.path_tgt is None:
-                    logger.debug(
-                        "path_tgt is None, it should be set unless the task"
-                        " is language modeling"
-                    )
-                    return constants.ModelTask.LANGUAGE_MODEL
-                return constants.ModelTask.SEQ2SEQ
 
     @field_validator("transforms_configs", mode="before")
     @classmethod
@@ -248,8 +240,11 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
     @staticmethod
     def _validate_file(file_path, info):
         """Check `file_path` is valid or raise `IOError`."""
-        if not os.path.isfile(file_path):
-            raise IOError(f"Please check path of your {info} file!")
+        if file_path == "dummy":
+            # hack to allow creating objects with required fields
+            pass
+        elif not os.path.isfile(file_path):
+            raise IOError(f"Please check path of your {info} file! ({file_path})")
 
     def _validate_data(self):
         """Parse corpora specified in data field of YAML file."""
@@ -322,20 +317,13 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
             logger.info(f"Parsed {len(corpora)} corpora from -data.")
         # self.data = corpora
         self.__dict__["data"] = corpora  # skip validation to avoid recursion error
-        if self.data_task is None:
-            self.__dict__["data_task"] = self._data_task()
 
     @model_validator(mode="after")
     def _validate_data_config(self, build_vocab_only=False):
-        if self.n_sample != 0:
-            assert (
-                self.save_data
-            ), "-save_data should be set if \
-                want save samples."
         if self.data is not None:  # patch to allow None data
             self._validate_data()
         self._get_all_transform()
-        # not sure about validate_vocab_opts (especially for "build_vocab_only" case)
-        self._validate_vocab_config(build_vocab_only=build_vocab_only)
-        self.__dict__["data_task"] = self._data_task()
+        # this is manually triggered where needed, to allow instanciation of
+        # TrainConfig without existing files (e.g. inference)
+        # self._validate_vocab_config(build_vocab_only=build_vocab_only)
         return self

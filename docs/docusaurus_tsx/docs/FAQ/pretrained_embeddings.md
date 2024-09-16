@@ -40,7 +40,7 @@ word_vec_size: 100
 3. Train:
 
 ```bash
-onmt_train -config <your_config>.yaml
+eole train -config <your_config>.yaml
 ```
 
 Notes:

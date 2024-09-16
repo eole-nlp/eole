@@ -9,7 +9,7 @@ import eole
 from eole.modules.sparse_losses import SparsemaxLoss
 from eole.modules.sparse_activations import LogSparsemax
 from eole.constants import DefaultTokens
-from eole.models import DecoderModel
+from eole.models.model import DecoderModel
 
 try:
     import ctranslate2
@@ -76,11 +76,21 @@ class LossCompute(nn.Module):
         )
         padding_idx = vocab[DefaultTokens.PAD]
 
-        if config.model.decoder.lambda_coverage != 0:
-            assert config.model.decoder.coverage_attn, (
-                "--coverage_attn needs to be set in "
-                "order to use --lambda_coverage != 0"
-            )
+        if config.model.decoder is not None:
+            lambda_align = getattr(
+                config.model.decoder, "lambda_align", 0.0
+            )  # patch to support non transformer configs
+            if config.model.decoder.lambda_coverage != 0:
+                lambda_coverage = config.model.decoder.lambda_coverage
+                assert config.model.decoder.coverage_attn, (
+                    "--coverage_attn needs to be set in "
+                    "order to use --lambda_coverage != 0"
+                )
+            else:
+                lambda_coverage = 0
+        else:
+            lambda_coverage = 0
+            lambda_align = 0.0
 
         tgt_shift_idx = model.tgt_shift
 
@@ -97,10 +107,6 @@ class LossCompute(nn.Module):
         lm_prior_tau = config.training.lm_prior_tau
         if config.training.lm_prior_model:
             if config.training.lm_prior_model[-3:] == ".pt":
-                # TODO: we should probably find a way around this
-                # config.gpu = 0
-                config.fp32 = False
-                config.int8 = False
                 _, lm_prior_model, lm_model_config = DecoderModel.load_test_model(
                     config, model_path=config.training.lm_prior_model
                 )  # lm_model_config does not seem used
@@ -126,10 +132,8 @@ class LossCompute(nn.Module):
         compute = cls(
             criterion,
             model.generator,
-            lambda_coverage=config.model.decoder.lambda_coverage,
-            lambda_align=getattr(
-                config.model.decoder, "lambda_align", 0.0
-            ),  # patch to support non transformer configs
+            lambda_coverage=lambda_coverage,
+            lambda_align=lambda_align,
             tgt_shift_index=tgt_shift_idx,
             vocab=vocab,
             lm_generator=lm_generator,

@@ -1,6 +1,6 @@
 import torch
 from eole.predict.inference import Inference
-from eole.constants import ModelTask
+from eole.constants import ModelType
 from eole.predict.greedy_search import GreedySearch
 from eole.predict.beam_search import BeamSearch
 from eole.utils.misc import sequence_mask
@@ -9,10 +9,10 @@ from eole.utils.misc import sequence_mask
 class Encoder(Inference):
     @classmethod
     def validate_task(cls, task):
-        if task != ModelTask.ENCODER:
+        if task != ModelType.ENCODER:
             raise ValueError(
                 f"Encoder does not support task {task}."
-                f" Tasks supported: {ModelTask.ENCODER}"
+                f" Tasks supported: {ModelType.ENCODER}"
             )
 
     def predict_batch(self, batch, attn_debug):
@@ -113,14 +113,16 @@ class Encoder(Inference):
         )
 
         if self.add_estimator:
+            """
+            # Version with encoder out average
             pad_mask1 = ~src.eq(1)
             in_estim1 = (enc_out * pad_mask1.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask1.sum(dim=1, keepdim=True).float()
             estim = self.model.estimator(in_estim1.half()).squeeze(-1)
-            # estim = self.model.estimator(
-            #    enc_out[:, 0, :]
-            # ).squeeze(-1)
+            """
+            # Version with first token embedding (same as COMET)
+            estim = self.model.estimator(enc_out[:, 0, :]).squeeze(-1)
         else:
             estim = torch.ones([enc_out.size(0)])
         estim = [[item] for item in estim.tolist()]

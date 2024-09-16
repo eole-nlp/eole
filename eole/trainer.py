@@ -38,6 +38,7 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
     train_loss = LossCompute.from_config(config, model, vocabs["tgt"])
     valid_loss = LossCompute.from_config(config, model, vocabs["tgt"], train=False)
     estim_loss_lambda = config.training.estim_loss_lambda
+    estim_loss_lambda_steps = config.training.estim_loss_lambda_steps
 
     scoring_preparator = ScoringPreparator(vocabs, config)
     validset_transforms = getattr(config.data.get("valid", None), "transforms", None)
@@ -97,13 +98,13 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
         model_saver=model_saver,
         average_decay=average_decay,
         average_every=average_every,
-        model_dtype=running_config.model_dtype,
         earlystopper=earlystopper,
         dropout=dropout,
         attention_dropout=attention_dropout,
         dropout_steps=dropout_steps,
         zero_out_prompt_loss=zero_out_prompt_loss,
         estim_loss_lambda=estim_loss_lambda,
+        estim_loss_lambda_steps=estim_loss_lambda_steps,
     )
     return trainer
 
@@ -139,7 +140,6 @@ class Trainer(object):
           Thus nothing will be saved if this parameter is None.
         average_decay (float): cf opt.average_decay
         average_every (int): average model every x steps.
-        model_dtype (str): fp32 or fp16.
         earlystopper (:obj:`eole.utils.EarlyStopping`): add early
           stopping mecanism
         dropout (float): dropout value in RNN or FF layers.
@@ -147,7 +147,8 @@ class Trainer(object):
         dropout_steps (list): dropout values scheduling in steps.
         zero_out_prompt_loss (bool): whether to zero-out the prompt loss
             (mostly for LLM finetuning).
-        estim_loss_lambda (float): weight applied to estimator loss"""
+        estim_loss_lambda (List[float]): weight applied to estimator loss
+        estim_loss_lambda_steps (List[int]): steps to apply to estimator values"""
 
     def __init__(
         self,
@@ -169,19 +170,21 @@ class Trainer(object):
         model_saver=None,
         average_decay=0,
         average_every=1,
-        model_dtype="fp32",
         earlystopper=None,
         dropout=[0.3],
         attention_dropout=[0.1],
         dropout_steps=[0],
         zero_out_prompt_loss=False,
-        estim_loss_lambda=1.0,
+        estim_loss_lambda=[1.0],
+        estim_loss_lambda_steps=[0],
     ):
         # Basic attributes.
 
         self.model = model
         self.train_loss = train_loss
-        self.estim_loss_lambda = estim_loss_lambda
+        self.estim_loss_lambda_l = estim_loss_lambda
+        self.estim_loss_lambda = estim_loss_lambda[0]
+        self.estim_loss_lambda_steps = estim_loss_lambda_steps
         self.valid_loss = valid_loss
 
         self.scoring_preparator = scoring_preparator
@@ -201,7 +204,6 @@ class Trainer(object):
         self.average_decay = average_decay
         self.moving_average = None
         self.average_every = average_every
-        self.model_dtype = model_dtype
         self.earlystopper = earlystopper
         self.dropout = dropout
         self.attention_dropout = attention_dropout
@@ -239,6 +241,15 @@ class Trainer(object):
                 logger.info(
                     "Updated dropout/attn dropout to %f %f at step %d"
                     % (self.dropout[i], self.attention_dropout[i], step)
+                )
+
+    def _maybe_update_estim_lambda(self, step):
+        for i in range(len(self.estim_loss_lambda_steps)):
+            if step > 1 and step == self.estim_loss_lambda_steps[i] + 1:
+                self.estim_loss_lambda = self.estim_loss_lambda_l[i]
+                logger.info(
+                    "Updated estimator lambda to %f at step %d"
+                    % (self.estim_loss_lambda_l[i], step)
                 )
 
     def _accum_batches(self, iterator):
@@ -318,6 +329,7 @@ class Trainer(object):
             step = self.optim.training_step
             # UPDATE DROPOUT
             self._maybe_update_dropout(step)
+            self._maybe_update_estim_lambda(step)
 
             if self.n_gpu > 1 and self.parallel_mode == "data_parallel":
                 normalization = sum(
@@ -392,8 +404,6 @@ class Trainer(object):
         # Set model in validating mode.
         valid_model.eval()
 
-        # raw_srcs = []
-        # raw_refs = []
         with torch.no_grad():
             stats = eole.utils.Statistics()
             start = time.time()
@@ -548,7 +558,7 @@ class Trainer(object):
                         raise exc
 
                 # If truncated, don't backprop fully.
-                if hasattr(self.model, "decoder") and self.model.decoder.state != {}:
+                if self.model.decoder is not None and self.model.decoder.state != {}:
                     self.model.decoder.detach_state()
 
         # in case of multi step gradient accumulation,

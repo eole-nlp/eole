@@ -382,7 +382,7 @@ class BeamSearchBase(DecodeStrategy):
             )
             self.topk_scores -= cov_penalty.view(_B, self.beam_size).float()
 
-        self.is_finished_list = self.topk_ids.eq(self.eos).tolist()
+        self.is_finished_list = torch.isin(self.topk_ids, self.eos_t).tolist()
 
         self.ensure_max_length()
 
@@ -403,6 +403,7 @@ class BeamSearch(BeamSearchBase):
         if device is None:
             device = self.get_device_from_enc_out(enc_out)
 
+        self.eos_t = torch.tensor(self.eos).to(device)
         super(BeamSearch, self).initialize_(enc_out, device, target_prefix)
 
         return fn_map_state, enc_out
@@ -423,6 +424,7 @@ class BeamSearchLM(BeamSearchBase):
         if device is None:
             device = src.device
 
+        self.eos_t = torch.tensor(self.eos).to(device)
         super(BeamSearchLM, self).initialize_(
             None,
             device=device,

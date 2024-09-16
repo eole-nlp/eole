@@ -29,9 +29,9 @@ echo "Downloading and extracting WikiText-103 (183 MB) for training and inferenc
 # unzip wikitext-103-raw-v1.zip
 # rm wikitext-103-raw-v1.zip
 # cd wikitext-103-raw
-huggingface-cli download wikitext --repo-type dataset --local-dir $DATA_PATH --revision f5562967961a45407fa15044c5535a607200983f
-python3 parse_wikitext_103_parquet.py $DATA_PATH/wikitext/wikitext-103-raw-v1
-cd $DATA_PATH/wikitext/wikitext-103-raw-v1
+huggingface-cli download wikitext --repo-type dataset --local-dir $DATA_PATH --revision b08601e04326c79dfdd32d625aee71d232d685c3
+python3 parse_wikitext_103_parquet.py $DATA_PATH/wikitext-103-raw-v1
+cd $DATA_PATH/wikitext-103-raw-v1
 
 
 echo "Removing empty lines and shuffling training data"
@@ -41,4 +41,4 @@ sed -r '/^\s*$/d' -i test.txt # wiki.test.raw
 sort --random-source=<(get_seeded_random 42) -R -o train.txt train.txt # wiki.train.raw wiki.train.raw
 
 cd $CUR_DIR
-python3 learn_bpe.py $DATA_PATH/wikitext/wikitext-103-raw-v1
+python3 learn_bpe.py $DATA_PATH/wikitext-103-raw-v1

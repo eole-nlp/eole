@@ -58,9 +58,8 @@ class FilterTooLongTransform(Transform):
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
         """Return None if too long else return as is."""
-        if (
-            len(example["src"]) > self.src_seq_length
-            or len(example["tgt"]) > self.tgt_seq_length - 2
+        if len(example["src"]) > self.src_seq_length or (
+            example["tgt"] is not None and len(example["tgt"]) > self.tgt_seq_length - 2
         ):
             if stats is not None:
                 stats.update(FilterTooLongStats())
@@ -147,7 +146,7 @@ class PrefixTransform(Transform):
     def _prepend(self, example, prefix):
         """Prepend `prefix` to `tokens`."""
         for side, side_prefix in prefix.items():
-            if example.get(side) is not None:
+            if example.get(side) is not None and len(side_prefix) > 0:
                 example[side] = side_prefix.split(" ") + example[side]
             elif len(side_prefix) > 0:
                 example[side] = side_prefix.split(" ")
@@ -168,7 +167,7 @@ class PrefixTransform(Transform):
 
     def apply_reverse(self, predicted):
         def _removeprefix(s, prefix):
-            if s.startswith(prefix) and len(prefix) > 0:
+            if len(prefix) > 0 and s.startswith(prefix):
                 return s[len(prefix) + 1 :]
             else:
                 return s
@@ -250,7 +249,7 @@ class SuffixTransform(Transform):
     def _append(self, example, suffix):
         """Prepend `suffix` to `tokens`."""
         for side, side_suffix in suffix.items():
-            if example.get(side) is not None:
+            if example.get(side) is not None and len(side_suffix) > 0:
                 example[side] = example[side] + side_suffix.split(" ")
             elif len(side_suffix) > 0:
                 example[side] = side_suffix.split(" ")

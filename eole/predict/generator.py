@@ -1,6 +1,6 @@
 import torch
 from eole.predict.inference import Inference
-from eole.constants import ModelTask
+from eole.constants import ModelType
 from eole.predict.greedy_search import GreedySearchLM
 from eole.predict.beam_search import BeamSearchLM
 
@@ -8,10 +8,10 @@ from eole.predict.beam_search import BeamSearchLM
 class GeneratorLM(Inference):
     @classmethod
     def validate_task(cls, task):
-        if task != ModelTask.LANGUAGE_MODEL:
+        if task != ModelType.DECODER:
             raise ValueError(
                 f"GeneratorLM does not support task {task}."
-                f" Tasks supported: {ModelTask.LANGUAGE_MODEL}"
+                f" Tasks supported: {ModelType.DECODER}"
             )
 
     def _align_forward(self, batch, predictions):
