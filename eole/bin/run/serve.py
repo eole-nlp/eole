@@ -12,13 +12,14 @@ import uvicorn
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from eole.inference_engine import InferenceEnginePY
 from eole.config.run import PredictConfig
 from eole.config.inference import DecodingConfig
 from eole.bin import register_bin, BaseBin
 from eole.utils.logging import logger
+from eole.constants import DefaultTokens
 
 STATUS_OK = "ok"
 STATUS_ERROR = "error"
@@ -36,6 +37,14 @@ class TextRequest(DecodingConfig):
         "A single string will be automatically cast to a single item list."
     )
 
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "model": "llama3-8b-instruct",
+                "inputs": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>You are a funny guy.<|eot_id|><|start_header_id|>user<|end_header_id|>Tell me a joke :)<|eot_id|><|start_header_id|>assistant<|end_header_id|>",  # noqa: E501
+            }
+        }
+
 
 class TextResponse(BaseModel):
     """
@@ -48,6 +57,30 @@ class TextResponse(BaseModel):
     scores: List[List[float]] = Field(
         description="Pred scores from the model for each prediction."
     )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "predictions": [
+                    [
+                        "\n\nHere's one:\n\nWhy couldn't the bicycle stand up by itself?\n\n(wait for it...)\n\nBecause it was two-tired!\n\nHope that made you laugh!"  # noqa: E501
+                    ]
+                ],
+                "scores": [[-0.040771484375]],
+            }
+        }
+
+    @model_validator(mode="after")
+    def _validate_response(self):
+        """
+        Automatically apply some formatting to the provided text response.
+        This logic might be moved elsewhere at some point.
+        """
+        self.predictions = [
+            [pred.replace(DefaultTokens.SEP, "\n") for pred in preds]
+            for preds in self.predictions
+        ]
+        return self
 
 
 # class ChatRequest(DecodingConfig):
@@ -210,8 +243,8 @@ def create_app(config_file):
         out["status"] = STATUS_OK
         return out
 
-    @app.post("/infer")
-    def infer(request: TextRequest, response_model=TextResponse):
+    @app.post("/infer", response_model=TextResponse)
+    def infer(request: TextRequest):
         if isinstance(request.inputs, str):
             request.inputs = [request.inputs]
         model_id = request.model

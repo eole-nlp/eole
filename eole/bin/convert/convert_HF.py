@@ -313,6 +313,12 @@ class LlamaHFConverter(BaseBin):
                 )
             else:
                 tokenizer_config_json = None
+            if os.path.exists(os.path.join(args.model_dir, "generation_config.json")):
+                generation_config_json = os.path.join(
+                    args.model_dir, "generation_config.json"
+                )
+            else:
+                generation_config_json = None
         else:
             directory_path = args.output
             os.makedirs(directory_path, exist_ok=True)
@@ -365,6 +371,16 @@ class LlamaHFConverter(BaseBin):
             except huggingface_hub.utils.EntryNotFoundError:
                 raise huggingface_hub.utils.EntryNotFoundError(
                     "Something went wrong the repo does not contain any tokenizer_config.json file"
+                )
+            try:
+                generation_config_json = huggingface_hub.hf_hub_download(
+                    repo_id=args.model_dir,
+                    filename="generation_config.json",
+                    token=args.token,
+                )
+            except huggingface_hub.utils.EntryNotFoundError:
+                raise huggingface_hub.utils.EntryNotFoundError(
+                    "Something went wrong the repo does not contain any generation_config.json file"
                 )
             try:
                 wmap_path = huggingface_hub.hf_hub_download(
@@ -940,6 +956,16 @@ class LlamaHFConverter(BaseBin):
         else:
             add_bos_token = True
 
+        if generation_config_json is not None:
+            with open(generation_config_json, encoding="utf-8") as f:
+                data = json.load(f)
+                generation_config_dict = {}
+                # we probably need a better mapping at some point
+                keys = ["top_k", "top_p", "temperature", "max_length"]
+                for key in keys:
+                    if key in data.keys():
+                        generation_config_dict[key] = data[key]
+
         vocabs = {}
         if (
             tokenizer_model is not None
@@ -1106,6 +1132,7 @@ class LlamaHFConverter(BaseBin):
         inference_dict = {
             "optional_eos": optional_eos,
             # TODO: map other settings from HF decoding_config.json
+            **generation_config_dict,
         }
 
         config_dict["inference"] = inference_dict

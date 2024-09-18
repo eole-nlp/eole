@@ -141,8 +141,6 @@ class PredictConfig(
             if key not in self.model_fields_set:
                 setattr(self, key, value)
 
-        print("Updated inference config:", self)
-
 
 class BuildVocabConfig(
     DataConfig, MiscConfig, BaseVocabConfig
