@@ -1042,9 +1042,17 @@ class LlamaHFConverter(BaseBin):
             tgt_vocab_size=vocab_size,
             vocab_size_multiple=8,
             decoder_start_token=vocabs["decoder_start_token"],
-            transforms=["filtertoolong"],
+            transforms=["onmt_tokenize", "filtertoolong"],
             transforms_configs={
-                "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}
+                "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512},
+                "onmt_tokenize": {
+                    "src_subword_type": src_subword_type,
+                    "src_subword_model": os.path.join(
+                        "${MODEL_PATH}", tokenizer_basename
+                    ),
+                    "gpt2_pretok": gpt2_pretok,
+                    "mapped_tokens": mapped_tokens,
+                },
             },
             model=arch_table[arch](
                 layers=n_layers,
@@ -1089,27 +1097,15 @@ class LlamaHFConverter(BaseBin):
             ),
         )
         config_dict = recursive_model_fields_set(config)
+
+        inference_dict = {
+            "optional_eos": optional_eos,
+            # TODO: map other settings from HF decoding_config.json
+        }
+
+        config_dict["inference"] = inference_dict
+
         with open(
             os.path.join(directory_path, "config.json"), "w", encoding="utf-8"
         ) as f:
             json.dump(config_dict, f, indent=2, ensure_ascii=False)
-
-        inference_dict = {
-            "transforms": ["onmt_tokenize"],
-            "transforms_configs": {
-                "onmt_tokenize": {
-                    "src_subword_type": src_subword_type,
-                    "src_subword_model": os.path.join(
-                        "${MODEL_PATH}", tokenizer_basename
-                    ),
-                    "gpt2_pretok": gpt2_pretok,
-                    "mapped_tokens": mapped_tokens,
-                }
-            },
-            "optional_eos": optional_eos,
-        }
-
-        with open(
-            os.path.join(directory_path, "inference.json"), "w", encoding="utf-8"
-        ) as f:
-            json.dump(inference_dict, f, indent=2, ensure_ascii=False)

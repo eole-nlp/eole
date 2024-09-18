@@ -50,6 +50,9 @@ def load_checkpoint(model_path):
                 config_dict = json.load(f)
                 # drop data to prevent validation issues
                 config_dict["data"] = {}
+                # drop inference to prevent validation issues
+                if "inference" in config_dict.keys():
+                    config_dict.pop("inference")
                 _config = TrainConfig(**config_dict)
                 checkpoint["config"] = _config
         else:

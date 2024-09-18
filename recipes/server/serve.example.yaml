@@ -4,8 +4,8 @@ models:
 # local model
 - id: "llama3-8b-instruct"
   path: "${EOLE_MODEL_DIR}/llama3-8b-instruct"
-  preload: false
+  preload: true
 # HF repo id, automatically downloaded to models_root
 - id: "llama3-8b-instruct-hf"
   path: "fhdz/llama3-8b-instruct-TEST1"
-  preload: true
+  preload: false

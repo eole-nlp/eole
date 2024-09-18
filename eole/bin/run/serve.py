@@ -108,11 +108,22 @@ class Model(object):
 
     def get_config(self):
         # look for inference config supposedly in model_dir/inference.json
-        config_path = os.path.join(self.local_path, "inference.json")
+        config_path = os.path.join(self.local_path, "config.json")
+        print(config_path)
         if os.path.exists(config_path):
             with open(config_path) as f:
                 os.environ["MODEL_PATH"] = self.local_path
                 config_dict = json.loads(os.path.expandvars(f.read()))
+
+        # What to grab from config?
+        # transforms -> remove "training only"
+        # transforms_config
+        # inference settings
+        transforms = config_dict.get("transforms", [])
+        if "filtertoolong" in transforms:
+            transforms.remove("filtertoolong")
+        transforms_configs = config_dict.get("transforms_configs", {})
+        inference_dict = config_dict.get("inference", {})
 
         self.config = PredictConfig(
             src="dummy",
@@ -120,8 +131,10 @@ class Model(object):
             # TODO improve this
             gpu_ranks=[0],
             world_size=1,
-            precision="fp16",
-            **config_dict,
+            compute_dtype=config_dict.get("training", {}).get("compute_dtype", "fp16"),
+            transforms=transforms,
+            transforms_configs=transforms_configs,
+            **inference_dict,
         )
 
     def override_opts(self):
@@ -137,9 +150,11 @@ class Model(object):
         try:
             hf_api.model_info(self.model_path)
         except Exception:
-            self.local_path = self.model_path
+            self.local_path = os.path.expandvars(self.model_path)
         else:
-            self.local_path = os.path.join(self.models_root, self.model_path)
+            self.local_path = os.path.expandvars(
+                os.path.join(self.models_root, self.model_path)
+            )
             logger.info(
                 f"Downloading {self.model_path} from huggingface, "
                 f"to local directory {self.local_path}"
@@ -230,8 +245,8 @@ def create_app(config_file):
             k: v for k, v in request.model_dump().items() if k not in non_settings_keys
         }
         scores, preds = server.models[model_id].infer(inputs, settings=settings)
-        # returned scores are tensors which we need to cast
-        scores = [[score.item() for score in score_list] for score_list in scores]
+        # returned scores are tensors which we need to cast (not anymore?)
+        # scores = [[score.item() for score in score_list] for score_list in scores]
         response = {"predictions": preds, "scores": scores}
         return response
 
