@@ -10,10 +10,13 @@ from typing import List, Union
 import torch
 import uvicorn
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Body
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, model_validator
+from jinja2.exceptions import TemplateError
+from jinja2.sandbox import ImmutableSandboxedEnvironment
 
+import eole
 from eole.inference_engine import InferenceEnginePY
 from eole.config.run import PredictConfig
 from eole.config.inference import DecodingConfig
@@ -83,11 +86,25 @@ class TextResponse(BaseModel):
         return self
 
 
-# class ChatRequest(DecodingConfig):
-#     model: str
-#     messages: List[dict]
+class ChatRequest(DecodingConfig):
+    model: int | str = Field(description="Model identifier from server configuration.")
+    messages: List[dict] = Field(
+        description="List of message dictionaries with 'role' and 'content' keys."
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "model": "llama3-8b-instruct",
+                "messages": [
+                    {"role": "system", "content": "You are a funny guy."},
+                    {"role": "user", "content": "Tell me a joke :)"},
+                ],
+            }
+        }
 
 
+# TODO: specific response model for chat mode?
 # class ChatResponse(BaseModel):
 #     choices: List[dict]
 
@@ -115,6 +132,7 @@ class Server(object):
                 model_path=model_path,
                 models_root=self.models_root,
                 model_type=model.get("model_type", "default"),
+                pre_config=model.get("config", {}),
             )
             if model.get("preload", False):
                 self.models[model_id].start_engine()
@@ -128,7 +146,12 @@ class Server(object):
 
 class Model(object):
     def __init__(
-        self, model_path=None, preload=False, models_root=None, model_type=False
+        self,
+        model_path=None,
+        preload=False,
+        models_root=None,
+        model_type=False,
+        pre_config={},
     ):
         self.loaded = False
         self.engine = None
@@ -137,6 +160,7 @@ class Model(object):
         self.model_path = model_path
         self.local_path = None
         self.model_type = model_type
+        self.pre_config = pre_config
 
     def get_config(self):
         # transforms and inference settings are retrieved from the model config for now
@@ -146,6 +170,7 @@ class Model(object):
             # TODO improve this
             gpu_ranks=[0],
             world_size=1,
+            **self.pre_config,
         )
 
     def override_opts(self):
@@ -193,17 +218,44 @@ class Model(object):
         self.engine = None
         self.loaded = False
 
-    def infer(self, inputs, settings={}):
+    def apply_chat_template(self, inputs):
+        # needed to render some chat_templates
+        def raise_exception(message):
+            raise TemplateError(message)
+
+        jinja_env = ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True)
+        jinja_env.globals["raise_exception"] = raise_exception
+        template = jinja_env.from_string(self.config.chat_template)
+        rendered_output = template.render(
+            **{
+                "messages": inputs,
+                "bos_token": "",  # handled in numericalize
+                "add_generation_prompt": True,
+            }
+        )
+        return rendered_output
+
+    def infer(self, inputs, settings={}, is_chat=False):
         if type(inputs) == str:
             inputs = [inputs]
         if not (self.loaded):
             self.start_engine()
+        if is_chat:
+            assert hasattr(
+                self.config, "chat_template"
+            ), "Chat requests can't be performed without a chat_template."
+            inputs = [self.apply_chat_template(inputs)]
         scores, _, preds = self.engine.infer_list(inputs, settings=settings)
         return scores, preds
 
 
 def create_app(config_file):
-    app = FastAPI()
+    app = FastAPI(
+        title="Eole Inference Server",
+        version=eole.__version__,
+        summary="A simple inference server to expose various models.",
+        description="",  # TODO
+    )
 
     server = Server()
     server.start(config_file)
@@ -244,18 +296,41 @@ def create_app(config_file):
         return out
 
     @app.post("/infer", response_model=TextResponse)
-    def infer(request: TextRequest):
-        if isinstance(request.inputs, str):
-            request.inputs = [request.inputs]
+    def infer(
+        request: Union[TextRequest, ChatRequest] = Body(
+            openapi_examples={
+                "text_request": {
+                    "summary": "Text Request Example",
+                    "description": "A sample text request",
+                    "value": TextRequest.Config.json_schema_extra["example"],
+                },
+                "chat_request": {
+                    "summary": "Chat Request Example",
+                    "description": "A sample chat request",
+                    "value": ChatRequest.Config.json_schema_extra["example"],
+                },
+            },
+        ),
+    ):
+        if isinstance(request, TextRequest):
+            inputs = (
+                request.inputs if isinstance(request.inputs, list) else [request.inputs]
+            )
+        else:  # ChatRequest
+            # no batch support right now
+            inputs = request.messages
         model_id = request.model
-        inputs = request.inputs
         # automatically grab anything that is not model/inputs
         # (we could probably rely on pydantic model once properly implemented)
-        non_settings_keys = ["inputs", "model"]
+        non_settings_keys = ["inputs", "messages", "model"]
         settings = {
             k: v for k, v in request.model_dump().items() if k not in non_settings_keys
         }
-        scores, preds = server.models[model_id].infer(inputs, settings=settings)
+        scores, preds = server.models[model_id].infer(
+            inputs,
+            settings=settings,
+            is_chat=isinstance(request, ChatRequest),
+        )
         # returned scores are tensors which we need to cast (not anymore?)
         # scores = [[score.item() for score in score_list] for score_list in scores]
         response = {"predictions": preds, "scores": scores}

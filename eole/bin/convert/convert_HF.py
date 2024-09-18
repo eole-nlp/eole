@@ -933,6 +933,10 @@ class LlamaHFConverter(BaseBin):
                     add_bos_token = True
                 else:
                     add_bos_token = False
+                if "chat_template" in data.keys():
+                    chat_template = {"chat_template": data["chat_template"]}
+                else:
+                    chat_template = {}
                 # Not sure if we could do much cleaner to retrieve optional eos tokens
                 eos_token_id = config.get("eos_token_id", None)
                 if isinstance(eos_token_id, list):
@@ -1133,6 +1137,7 @@ class LlamaHFConverter(BaseBin):
             "optional_eos": optional_eos,
             # TODO: map other settings from HF decoding_config.json
             **generation_config_dict,
+            **chat_template,
         }
 
         config_dict["inference"] = inference_dict

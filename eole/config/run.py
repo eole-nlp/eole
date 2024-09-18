@@ -98,6 +98,7 @@ class PredictConfig(
         None  # patch for CT2 inference engine (to improve later)
     )
     model: ModelConfig | None = None
+    chat_template: str | None = None
     optional_eos: List[str] | None = Field(
         default=[],
         description="Optional EOS tokens that would stop generation, e.g. <|eot_id|> for Llama3",
