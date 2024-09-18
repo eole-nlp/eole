@@ -19,7 +19,7 @@ parallel_mode: "tensor_parallel"
 #quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
 #quant_layers: ['gate_up_proj', 'down_proj', 'up_proj']
 #quant_type: "bnb_sparse"
-precision: fp16
+compute_dtype: fp16
 #random_sampling_topk: 1
 #random_sampling_topp: 0.6
 #random_sampling_temp: 0.9
