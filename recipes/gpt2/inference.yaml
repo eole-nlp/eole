@@ -20,7 +20,7 @@ n_best: 5
 
 seed: 42
 self_attn_backend: "pytorch"
-precision: fp32
+compute_dtype: fp32
 
 max_length: 30
 

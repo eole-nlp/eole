@@ -5,7 +5,7 @@ transforms_configs:
     tgt_subword_model: "${EOLE_MODEL_DIR}/llama2-7b-chat-hf/tokenizer.model"
 
 # Model
-model_path: "${EOLE_MODEL_DIR}/llama2-7b-chat-hf/model.pt"
+model_path: "${EOLE_MODEL_DIR}/llama2-7b-chat-hf"
 
 # Inference
 seed: 42
@@ -17,7 +17,7 @@ gpu_ranks: [0, 1]
 parallel_mode: "tensor_parallel"
 quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
 quant_type: "bnb_NF4"
-precision: fp16
+compute_dtype: fp16
 top_k: 5
 top_p: 0.8
 temperature: 0.9
