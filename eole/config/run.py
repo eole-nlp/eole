@@ -1,3 +1,5 @@
+import os
+import json
 from typing import Dict, List, Any
 
 from eole.config.config import get_config_dict
@@ -23,9 +25,6 @@ class TrainConfig(
         description="Number of transformed samples per corpus to use to build the vocabulary. "
         "Set to -1 to use the full corpora.",
     )  # not sure how to handle the legacy build_vocab_only flag here (different default value in both cases) # noqa: E501
-    override_opts: bool = Field(
-        default=False, description="Allow to override some checkpoint opts."
-    )  # this should probably be clarified down the line
     verbose: bool = Field(
         default=False,
         description="Print data loading and statistics for all process "
@@ -106,9 +105,43 @@ class PredictConfig(
 
     @model_validator(mode="after")
     def _validate_predict_config(self):
+        self._update_with_model_config()
+        # TODO: do we really need this _all_transform?
         if self._all_transform is None:
             self._all_transform = self.transforms
         return self
+
+    def _update_with_model_config(self):
+        # Note: in case of ensemble decoding, grabbing the first model's
+        # config and artifacts by default
+        os.environ["MODEL_PATH"] = self.model_path[0]
+        config_path = os.path.join(self.model_path[0], "config.json")
+        print("config_path:", config_path)
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                config_dict = json.loads(os.path.expandvars(f.read()))
+        else:
+            config_dict = {}
+        transforms = config_dict.get("transforms", [])
+        if "filtertoolong" in transforms:
+            transforms.remove("filtertoolong")
+        transforms_configs = config_dict.get("transforms_configs", {})
+        inference_dict = config_dict.get("inference", {})
+
+        if "transforms" not in self.model_fields_set:
+            self.transforms = transforms
+            self._all_transform = transforms
+        if "transforms_configs" not in self.model_fields_set:
+            self.transforms_configs = transforms_configs
+        if "compute_dtype" not in self.model_fields_set:
+            self.compute_dtype = config_dict.get("training", {}).get(
+                "compute_dtype", "fp16"
+            )
+        for key, value in inference_dict.items():
+            if key not in self.model_fields_set:
+                setattr(self, key, value)
+
+        print("Updated inference config:", self)
 
 
 class BuildVocabConfig(

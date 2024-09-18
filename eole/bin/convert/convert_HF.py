@@ -568,6 +568,7 @@ class LlamaHFConverter(BaseBin):
             "n_positions": 0,
         }
         left_pad = True
+        eos_token = None
         optional_eos = []
         mapped_tokens = []
 
@@ -923,6 +924,11 @@ class LlamaHFConverter(BaseBin):
                         data["added_tokens_decoder"][str(index)]["content"]
                         for index in eos_token_id[1:]
                     ]
+                    eos_token = optional_eos[0]
+                elif isinstance(eos_token_id, int):
+                    eos_token = data["added_tokens_decoder"][str(eos_token_id)][
+                        "content"
+                    ]
                 # Automatically convert added_tokens into mapped_tokens
                 mapped_tokens = [
                     (
@@ -957,9 +963,10 @@ class LlamaHFConverter(BaseBin):
             if "<|startoftext|>" in vocab:
                 index = vocab.index("<|startoftext|>")
                 vocab[index] = DefaultTokens.BOS
-            if "<|endoftext|>" in vocab and "</s>" not in vocab:
-                index = vocab.index("<|endoftext|>")
-                vocab[index] = DefaultTokens.EOS
+            if eos_token is not None:
+                if eos_token in vocab and "</s>" not in vocab:
+                    index = vocab.index(eos_token)
+                    vocab[index] = DefaultTokens.EOS
             if "<0x00>" in vocab:
                 index = vocab.index("<0x00>")
                 vocab[index] = DefaultTokens.PAD
@@ -991,15 +998,13 @@ class LlamaHFConverter(BaseBin):
             if "<|startoftext|>" in vocab:
                 index = vocab.index("<|startoftext|>")
                 vocab[index] = DefaultTokens.BOS
-            if "<|endoftext|>" in vocab:
-                index = vocab.index("<|endoftext|>")
-                vocab[index] = DefaultTokens.EOS
             if "<|begin_of_text|>" in vocab:
                 index = vocab.index("<|begin_of_text|>")
                 vocab[index] = DefaultTokens.BOS
-            if "<|end_of_text|>" in vocab:
-                index = vocab.index("<|end_of_text|>")
-                vocab[index] = DefaultTokens.EOS
+            if eos_token is not None:
+                if eos_token in vocab and "</s>" not in vocab:
+                    index = vocab.index(eos_token)
+                    vocab[index] = DefaultTokens.EOS
 
             src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
 

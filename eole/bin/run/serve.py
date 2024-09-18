@@ -3,7 +3,6 @@
 import os
 import time
 import gc
-import json
 import yaml
 
 from typing import List, Union
@@ -107,34 +106,13 @@ class Model(object):
         self.model_type = model_type
 
     def get_config(self):
-        # look for inference config supposedly in model_dir/inference.json
-        config_path = os.path.join(self.local_path, "config.json")
-        print(config_path)
-        if os.path.exists(config_path):
-            with open(config_path) as f:
-                os.environ["MODEL_PATH"] = self.local_path
-                config_dict = json.loads(os.path.expandvars(f.read()))
-
-        # What to grab from config?
-        # transforms -> remove "training only"
-        # transforms_config
-        # inference settings
-        transforms = config_dict.get("transforms", [])
-        if "filtertoolong" in transforms:
-            transforms.remove("filtertoolong")
-        transforms_configs = config_dict.get("transforms_configs", {})
-        inference_dict = config_dict.get("inference", {})
-
+        # transforms and inference settings are retrieved from the model config for now
         self.config = PredictConfig(
             src="dummy",
             model_path=self.local_path,
             # TODO improve this
             gpu_ranks=[0],
             world_size=1,
-            compute_dtype=config_dict.get("training", {}).get("compute_dtype", "fp16"),
-            transforms=transforms,
-            transforms_configs=transforms_configs,
-            **inference_dict,
         )
 
     def override_opts(self):
