@@ -87,6 +87,10 @@ class TextResponse(BaseModel):
 
 
 class ChatRequest(DecodingConfig):
+    """
+    Request format for chat-based interactions.
+    """
+
     model: int | str = Field(description="Model identifier from server configuration.")
     messages: List[dict] = Field(
         description="List of message dictionaries with 'role' and 'content' keys."
@@ -120,12 +124,14 @@ class Server(object):
         self.models_root = None
 
     def start(self, server_config_path):
+        """
+        Initialize the server with the given configuration.
+        """
         with open(server_config_path) as f:
             server_config = yaml.safe_load(f)
         self.models_root = server_config["models_root"]
         for model in server_config["models"]:
             # instantiate models
-            # add some safeguards here, download from HF, etc.
             model_id = model["id"]
             model_path = model["path"]
             self.models[model_id] = Model(
@@ -135,9 +141,12 @@ class Server(object):
                 pre_config=model.get("config", {}),
             )
             if model.get("preload", False):
-                self.models[model_id].start_engine()
+                self.models[model_id].load()
 
     def available_models(self):
+        """
+        Return a list of available models.
+        """
         models = []
         for model_id, model in self.models.items():
             models.append({"id": model_id})
@@ -145,6 +154,10 @@ class Server(object):
 
 
 class Model(object):
+    """
+    Represents a single model in the server.
+    """
+
     def __init__(
         self,
         model_path=None,
@@ -163,6 +176,9 @@ class Model(object):
         self.pre_config = pre_config
 
     def get_config(self):
+        """
+        Instanciate the configuration for the model.
+        """
         # transforms and inference settings are retrieved from the model config for now
         self.config = PredictConfig(
             src="dummy",
@@ -173,13 +189,10 @@ class Model(object):
             **self.pre_config,
         )
 
-    def override_opts(self):
-        """
-        Potentially override some opts from a config file?
-        """
-        pass
-
     def maybe_retrieve_model(self):
+        """
+        Download the model if it's not available locally.
+        """
         from huggingface_hub import HfApi, snapshot_download
 
         hf_api = HfApi()
@@ -197,9 +210,9 @@ class Model(object):
             )
             snapshot_download(repo_id=self.model_path, local_dir=self.local_path)
 
-    def start_engine(self):
+    def load(self):
         """
-        We might want to call this "load"...
+        Create the inference engine.
         """
 
         self.maybe_retrieve_model()
@@ -209,7 +222,6 @@ class Model(object):
 
     def unload(self):
         """
-        stop_engine if start_engine is not renamed...
         Not super clean, we might want to do better some day...
         """
         del self.engine
@@ -219,7 +231,11 @@ class Model(object):
         self.loaded = False
 
     def apply_chat_template(self, inputs):
-        # needed to render some chat_templates
+        """
+        Render the model input based on the model chat template
+        and the request inputs.
+        """
+
         def raise_exception(message):
             raise TemplateError(message)
 
@@ -236,10 +252,13 @@ class Model(object):
         return rendered_output
 
     def infer(self, inputs, settings={}, is_chat=False):
+        """
+        Run inference on the given inputs.
+        """
         if type(inputs) == str:
             inputs = [inputs]
         if not (self.loaded):
-            self.start_engine()
+            self.load()
         if is_chat:
             assert hasattr(
                 self.config, "chat_template"
@@ -250,6 +269,9 @@ class Model(object):
 
 
 def create_app(config_file):
+    """
+    Create and configure the FastAPI application.
+    """
     app = FastAPI(
         title="Eole Inference Server",
         version=eole.__version__,
@@ -262,6 +284,9 @@ def create_app(config_file):
 
     @app.get("/")
     def root(request: Request):
+        """
+        Root endpoint returning HTML content to help users find the docs.
+        """
         html_content = f"""
         <html>
             <head>
@@ -287,10 +312,16 @@ def create_app(config_file):
 
     @app.post("/unload_model")
     def unload_model(model_id):
+        """
+        Unload a specific model.
+        """
         server.models[model_id].unload()
 
     @app.get("/health")
     def health():
+        """
+        Health check endpoint.
+        """
         out = {}
         out["status"] = STATUS_OK
         return out
@@ -312,6 +343,9 @@ def create_app(config_file):
             },
         ),
     ):
+        """
+        Run inference on the given input.
+        """
         if isinstance(request, TextRequest):
             inputs = (
                 request.inputs if isinstance(request.inputs, list) else [request.inputs]
@@ -342,8 +376,6 @@ def create_app(config_file):
     #     Simulate an OpenAI Request.
     #     The idea is to make this a viable alternative as a drop-in
     #     replacement for OpenAI or other LLM stacks.
-    #     The actual chat -> prompt conversion might depend on the model,
-    # and could be defined in the inference.json config for instance.
     #     """
     #     pass
 
