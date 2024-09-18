@@ -163,7 +163,7 @@ max_length: 256
 gpu: 0
 batch_type: sents
 batch_size: 1
-precision: fp16
+compute_dtype: fp16
 #random_sampling_topk: 40
 #random_sampling_topp: 0.75
 #random_sampling_temp: 0.1
@@ -195,7 +195,7 @@ max_length: 1
 gpu: 0
 batch_type: sents
 batch_size: 1
-precision: fp16
+compute_dtype: fp16
 #random_sampling_topk: 40
 #random_sampling_topp: 0.75
 #random_sampling_temp: 0.8
