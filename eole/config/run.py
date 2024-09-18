@@ -117,7 +117,6 @@ class PredictConfig(
         # config and artifacts by default
         os.environ["MODEL_PATH"] = self.model_path[0]
         config_path = os.path.join(self.model_path[0], "config.json")
-        print("config_path:", config_path)
         if os.path.exists(config_path):
             with open(config_path) as f:
                 config_dict = json.loads(os.path.expandvars(f.read()))
