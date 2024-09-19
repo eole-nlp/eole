@@ -72,3 +72,8 @@ The following command will provide inference with nucleus sampling of p=0.9 and 
 ```bash
 eole predict -config inference.yaml -model_path data/wikitext/wikitext-103-raw-v1/run/model-lm/step_1000000 -src data/wikitext/wikitext-103-raw-v1/test_input.txt -output data/wikitext/wikitext-103-raw-v1/test_pred.txt
 ```
+
+**Note**: main transform-related settings are now stored within the model and its configuration, which makes the (rather complex) `inference.yaml` config not strictly necessary anymore. The above command can be converted to a simple command line with the desired settings:
+```bash
+eole predict -model_path data/wikitext/wikitext-103-raw-v1/run/model-lm/step_1000000 -src data/wikitext/wikitext-103-raw-v1/test_input.txt -output data/wikitext/wikitext-103-raw-v1/test_pred.txt -world_size 1 -gpu_ranks 0 -n_best 3 -top_p 0.9 -beam_size 10
+```
