@@ -587,6 +587,7 @@ class LlamaHFConverter(BaseBin):
         eos_token = None
         optional_eos = []
         mapped_tokens = []
+        gpt2_pretok = False
 
         # ALL THESE IF SHOULD BE HANDLED IN MAPPINGS
         if arch == "PhiForCausalLM":
@@ -940,23 +941,34 @@ class LlamaHFConverter(BaseBin):
                 # Not sure if we could do much cleaner to retrieve optional eos tokens
                 eos_token_id = config.get("eos_token_id", None)
                 if isinstance(eos_token_id, list):
-                    optional_eos = [
-                        data["added_tokens_decoder"][str(index)]["content"]
-                        for index in eos_token_id[1:]
-                    ]
+                    if "added_tokens_decoder" in data.keys():
+                        optional_eos = [
+                            data["added_tokens_decoder"][str(index)]["content"]
+                            for index in eos_token_id[1:]
+                        ]
                     eos_token = optional_eos[0]
                 elif isinstance(eos_token_id, int):
-                    eos_token = data["added_tokens_decoder"][str(eos_token_id)][
-                        "content"
-                    ]
+                    if "eos_token" in data.keys():
+                        if isinstance(data["eos_token"], dict):
+                            # Llama2 style
+                            eos_token = data["eos_token"]["content"]
+                        elif isinstance(data["eos_token"], str):
+                            eos_token = data["eos_token"]
+                    elif "added_tokens_decoder" in data.keys():
+                        eos_token = data["added_tokens_decoder"][str(eos_token_id)][
+                            "content"
+                        ]
                 # Automatically convert added_tokens into mapped_tokens
-                mapped_tokens = [
-                    (
-                        token["content"],
-                        re.sub(r"<\|([^|]*)\|>", "\uff5f\\1\uff60", token["content"]),
-                    )
-                    for token in data["added_tokens_decoder"].values()
-                ]
+                if "added_tokens_decoder" in data.keys():
+                    mapped_tokens = [
+                        (
+                            token["content"],
+                            re.sub(
+                                r"<\|([^|]*)\|>", "\uff5f\\1\uff60", token["content"]
+                            ),
+                        )
+                        for token in data["added_tokens_decoder"].values()
+                    ]
         else:
             add_bos_token = True
 
@@ -1009,7 +1021,6 @@ class LlamaHFConverter(BaseBin):
             with open(tokenizer_json, encoding="utf-8") as f:
                 data = json.load(f)
                 # gpt2_pretok
-                gpt2_pretok = False
                 pretokenizers = data.get("pre_tokenizer", {}).get("pretokenizers", [{}])
                 for pretokenizer in pretokenizers:
                     if pretokenizer.get("type", None) == "ByteLevel":
