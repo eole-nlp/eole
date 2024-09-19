@@ -1,5 +1,6 @@
 from typing import List, Literal
 from pydantic import Field, field_validator, model_validator, computed_field
+from functools import cached_property
 import torch
 
 from eole.config.config import Config, get_config_dict
@@ -271,7 +272,7 @@ class TrainingConfig(
     )
 
     @computed_field
-    @property
+    @cached_property
     def storage_dtype(self) -> torch.dtype:
         """
         Deduce which dtype to use for main model parameters.

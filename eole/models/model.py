@@ -284,9 +284,10 @@ class BaseModel(nn.Module):
         model_config = checkpoint["config"].model
         # here we need a running config updated in the same way
         training_config = checkpoint["config"].training
-        # override gpu_ranks/world_size to prevent warnings IT BREAKS WHEN ADDING THESE LINES
-        # training_config.gpu_ranks = running_config.gpu_ranks
-        # training_config.world_size = running_config.world_size
+        # override gpu_ranks/world_size to prevent warnings
+        training_config.update(
+            world_size=running_config.world_size, gpu_ranks=running_config.gpu_ranks
+        )
         # retrieve share_vocab flag from checkpoint config
         running_config.share_vocab = checkpoint["config"].share_vocab
         # retrieve precision from checkpoint config if not explicitly set
