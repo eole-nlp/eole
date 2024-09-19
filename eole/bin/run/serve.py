@@ -135,6 +135,7 @@ class Server(object):
             model_id = model["id"]
             model_path = model["path"]
             self.models[model_id] = Model(
+                model_id=model_id,
                 model_path=model_path,
                 models_root=self.models_root,
                 model_type=model.get("model_type", "default"),
@@ -152,6 +153,14 @@ class Server(object):
             models.append({"id": model_id})
         return models
 
+    def maybe_load_model(self, model_id_to_load):
+        """
+        Very naive method to ensure a single model is loaded for now.
+        """
+        for model_id, model in self.models.items():
+            if model_id != model_id_to_load:
+                model.unload()
+
 
 class Model(object):
     """
@@ -160,6 +169,7 @@ class Model(object):
 
     def __init__(
         self,
+        model_id=None,
         model_path=None,
         preload=False,
         models_root=None,
@@ -168,6 +178,7 @@ class Model(object):
     ):
         self.loaded = False
         self.engine = None
+        self.model_id = model_id
         self.preload = preload
         self.models_root = models_root
         self.model_path = model_path
@@ -214,11 +225,11 @@ class Model(object):
         """
         Create the inference engine.
         """
-
         self.maybe_retrieve_model()
         self.get_config()
         self.engine = InferenceEnginePY(self.config)
         self.loaded = True
+        logger.info(f"Loaded model {self.model_id} from: {self.model_path}")
 
     def unload(self):
         """
@@ -229,6 +240,7 @@ class Model(object):
         torch.cuda.empty_cache()
         self.engine = None
         self.loaded = False
+        logger.info(f"Unloaded model {self.model_id}")
 
     def apply_chat_template(self, inputs):
         """
@@ -360,6 +372,8 @@ def create_app(config_file):
         settings = {
             k: v for k, v in request.model_dump().items() if k not in non_settings_keys
         }
+        # TODO: move this in some `infer` method in the `Server` class?
+        server.maybe_load_model(model_id)
         scores, preds = server.models[model_id].infer(
             inputs,
             settings=settings,
