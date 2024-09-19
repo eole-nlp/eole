@@ -13,6 +13,8 @@ from eole.config.data import (
     VocabConfig,
     NestedAllTransformsConfig,
 )
+from eole.transforms import get_transforms_cls
+from eole.constants import TransformType
 from pydantic import Field, field_validator, model_validator
 
 
@@ -106,6 +108,7 @@ class PredictConfig(
 
     @model_validator(mode="after")
     def _validate_predict_config(self):
+        # Not sure we want to call this at every validation
         self._update_with_model_config()
         # TODO: do we really need this _all_transform?
         if self._all_transform is None:
@@ -122,22 +125,22 @@ class PredictConfig(
                 config_dict = json.loads(os.path.expandvars(f.read()))
         else:
             config_dict = {}
+        # Filter out Train transforms
         transforms = config_dict.get("transforms", [])
-        if "filtertoolong" in transforms:
-            transforms.remove("filtertoolong")
-        transforms_configs = config_dict.get("transforms_configs", {})
-        inference_dict = config_dict.get("inference", {})
+        transforms_cls = get_transforms_cls(transforms)
+        transforms = [
+            t for t in transforms if transforms_cls[t].type != TransformType.Train
+        ]
 
         if "transforms" not in self.model_fields_set:
-            self.transforms = transforms
-            self._all_transform = transforms
+            self.transforms = self._all_transform = transforms
         if "transforms_configs" not in self.model_fields_set:
-            self.transforms_configs = transforms_configs
+            self.transforms_configs = config_dict.get("transforms_configs", {})
         if "compute_dtype" not in self.model_fields_set:
             self.compute_dtype = config_dict.get("training", {}).get(
                 "compute_dtype", "fp16"
             )
-        for key, value in inference_dict.items():
+        for key, value in config_dict.get("inference", {}).items():
             if key not in self.model_fields_set:
                 setattr(self, key, value)
 

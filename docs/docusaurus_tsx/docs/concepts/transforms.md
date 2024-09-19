@@ -9,6 +9,16 @@ It's your lucky day! We already embedded several transforms that can be used eas
 
 Note: all the details about every flag and options for each transform can be found in the [train](#train) section.
 
+### Transform Types
+
+The concept of `TransformType` was introduced to facilitate transparent configuration management. The underlying issue at stake is that all transforms are not meant to be used in the same concept. For instance, the `filtertoolong` transform is meant as a "safeguard" to limit the size of training batches. Enabling this transform when predicting can introduce some unwanted behaviours and poor results.
+For now, the possible transform types are:
+- `Default` // `"any"`: usable in any context (default unless specified otherwise in the transform class definition);
+- `Train` // `"train"`: usable only in training context;
+- `Predict` // `"predict"`: usable only in prediction context.
+
+This concept might be extended later for various needs, such as different data types, etc.
+
 ### General purpose
 
 #### Filter examples by length

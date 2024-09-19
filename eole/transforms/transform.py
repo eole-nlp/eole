@@ -5,6 +5,7 @@ import copy
 from eole.utils.logging import logger
 
 from eole.config import Config
+from eole.constants import TransformType
 
 
 class TransformConfig(Config):
@@ -19,6 +20,7 @@ class Transform(object):
     """A Base class that every transform method should derived from."""
 
     name = None  # set in register_transform wrapper
+    type = TransformType.Default
 
     def __init__(self, config):
         """Initialize Transform by parsing `opts` and add them as attribute."""
@@ -28,6 +30,7 @@ class Transform(object):
         self.artifacts = []
         # retain a copy of the full config for some specific cases (seed, share_vocab, etc.)
         self.full_config = config
+        # restrict usage to some context
         self._parse_config()
 
     def _set_seed(self, seed):
