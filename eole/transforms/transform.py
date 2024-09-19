@@ -1,11 +1,10 @@
 """Base Transform class and relate utils."""
 import os
-import json
 import shutil
 import copy
 from eole.utils.logging import logger
 
-from eole.config import Config, recursive_model_fields_set
+from eole.config import Config
 
 
 class TransformConfig(Config):
@@ -69,11 +68,7 @@ class Transform(object):
                     artifact,
                     os.path.join("${MODEL_PATH}", os.path.basename(maybe_artifact)),
                 )
-        config_path = os.path.join(model_path, f"{self.name}.json")
-        with open(config_path, "w") as f:
-            json.dump(
-                recursive_model_fields_set(save_config), f, indent=2, ensure_ascii=False
-            )
+        return save_config
 
     @classmethod
     def add_options(cls, parser):

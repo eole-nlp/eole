@@ -274,7 +274,12 @@ class TrainingModelSaver(ModelSaverBase):
     def _save_transforms_artifacts(self):
         if self.transforms is not None:
             for transform_name, transform in self.transforms.items():
-                transform._save_artifacts(self.model_path)
+                transform_save_config = transform._save_artifacts(self.model_path)
+                setattr(
+                    self.config.transforms_configs,
+                    transform_name,
+                    transform_save_config,
+                )
                 # we probably do not need to save transforms artifacts for each checkpoint
                 # transform._save_artifacts(os.path.join(self.model_path, self.step_dir))
 
@@ -296,9 +301,6 @@ class TrainingModelSaver(ModelSaverBase):
 
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             self.update_step_dir(step)
-            logger.info(f"Saving config and vocab to {self.model_path}")
-            self._save_vocab()
-            self._save_config()
             logger.info(
                 f"Saving optimizer and weights to {self.step_dir}, and symlink to {self.model_path}"
             )
@@ -306,6 +308,9 @@ class TrainingModelSaver(ModelSaverBase):
             self._save_weights(model_state_dict)
             logger.info(f"Saving transforms artifacts, if any, to {self.model_path}")
             self._save_transforms_artifacts()
+            logger.info(f"Saving config and vocab to {self.model_path}")
+            self._save_vocab()
+            self._save_config()
             self.cleanup()
             # we shall trigger optional saves from transforms here + some default inference config ?
         if torch.distributed.is_initialized():
