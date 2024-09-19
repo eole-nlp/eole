@@ -63,6 +63,12 @@ class ActivationFunction(str, Enum):
     gated_silu = "gated-silu"
 
 
+class TransformType(str, Enum):
+    Default = "any"
+    Train = "train"
+    Predict = "predict"
+
+
 ACTIVATION_FUNCTIONS = {
     ActivationFunction.relu: F.relu,
     ActivationFunction.gelu: F.gelu,

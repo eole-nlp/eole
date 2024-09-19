@@ -1,13 +1,3 @@
-transforms: [onmt_tokenize]
-
-transforms_configs:
-  onmt_tokenize:
-    src_subword_type: bpe
-    src_subword_model: "${EOLE_MODEL_DIR}/llama3.1-8b/bpe.model"
-    tgt_subword_type: bpe
-    tgt_subword_model: "${EOLE_MODEL_DIR}/llama3.1-8b/bpe.model"
-    gpt2_pretok: true
-
 # Model info
 model_path: "${EOLE_MODEL_DIR}/llama3.1-8b"
 

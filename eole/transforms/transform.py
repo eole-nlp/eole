@@ -1,11 +1,11 @@
 """Base Transform class and relate utils."""
 import os
-import json
 import shutil
 import copy
 from eole.utils.logging import logger
 
-from eole.config import Config, recursive_model_fields_set
+from eole.config import Config
+from eole.constants import TransformType
 
 
 class TransformConfig(Config):
@@ -20,6 +20,7 @@ class Transform(object):
     """A Base class that every transform method should derived from."""
 
     name = None  # set in register_transform wrapper
+    type = TransformType.Default
 
     def __init__(self, config):
         """Initialize Transform by parsing `opts` and add them as attribute."""
@@ -29,6 +30,7 @@ class Transform(object):
         self.artifacts = []
         # retain a copy of the full config for some specific cases (seed, share_vocab, etc.)
         self.full_config = config
+        # restrict usage to some context
         self._parse_config()
 
     def _set_seed(self, seed):
@@ -69,11 +71,7 @@ class Transform(object):
                     artifact,
                     os.path.join("${MODEL_PATH}", os.path.basename(maybe_artifact)),
                 )
-        config_path = os.path.join(model_path, f"{self.name}.json")
-        with open(config_path, "w") as f:
-            json.dump(
-                recursive_model_fields_set(save_config), f, indent=2, ensure_ascii=False
-            )
+        return save_config
 
     @classmethod
     def add_options(cls, parser):

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import re
 import json
 import torch
 import pyonmttok
@@ -312,6 +313,12 @@ class LlamaHFConverter(BaseBin):
                 )
             else:
                 tokenizer_config_json = None
+            if os.path.exists(os.path.join(args.model_dir, "generation_config.json")):
+                generation_config_json = os.path.join(
+                    args.model_dir, "generation_config.json"
+                )
+            else:
+                generation_config_json = None
         else:
             directory_path = args.output
             os.makedirs(directory_path, exist_ok=True)
@@ -364,6 +371,16 @@ class LlamaHFConverter(BaseBin):
             except huggingface_hub.utils.EntryNotFoundError:
                 raise huggingface_hub.utils.EntryNotFoundError(
                     "Something went wrong the repo does not contain any tokenizer_config.json file"
+                )
+            try:
+                generation_config_json = huggingface_hub.hf_hub_download(
+                    repo_id=args.model_dir,
+                    filename="generation_config.json",
+                    token=args.token,
+                )
+            except huggingface_hub.utils.EntryNotFoundError:
+                raise huggingface_hub.utils.EntryNotFoundError(
+                    "Something went wrong the repo does not contain any generation_config.json file"
                 )
             try:
                 wmap_path = huggingface_hub.hf_hub_download(
@@ -567,6 +584,9 @@ class LlamaHFConverter(BaseBin):
             "n_positions": 0,
         }
         left_pad = True
+        eos_token = None
+        optional_eos = []
+        mapped_tokens = []
 
         # ALL THESE IF SHOULD BE HANDLED IN MAPPINGS
         if arch == "PhiForCausalLM":
@@ -913,13 +933,49 @@ class LlamaHFConverter(BaseBin):
                     add_bos_token = True
                 else:
                     add_bos_token = False
+                if "chat_template" in data.keys():
+                    chat_template = {"chat_template": data["chat_template"]}
+                else:
+                    chat_template = {}
+                # Not sure if we could do much cleaner to retrieve optional eos tokens
+                eos_token_id = config.get("eos_token_id", None)
+                if isinstance(eos_token_id, list):
+                    optional_eos = [
+                        data["added_tokens_decoder"][str(index)]["content"]
+                        for index in eos_token_id[1:]
+                    ]
+                    eos_token = optional_eos[0]
+                elif isinstance(eos_token_id, int):
+                    eos_token = data["added_tokens_decoder"][str(eos_token_id)][
+                        "content"
+                    ]
+                # Automatically convert added_tokens into mapped_tokens
+                mapped_tokens = [
+                    (
+                        token["content"],
+                        re.sub(r"<\|([^|]*)\|>", "\uff5f\\1\uff60", token["content"]),
+                    )
+                    for token in data["added_tokens_decoder"].values()
+                ]
         else:
             add_bos_token = True
+
+        if generation_config_json is not None:
+            with open(generation_config_json, encoding="utf-8") as f:
+                data = json.load(f)
+                generation_config_dict = {}
+                # we probably need a better mapping at some point
+                keys = ["top_k", "top_p", "temperature", "max_length"]
+                for key in keys:
+                    if key in data.keys():
+                        generation_config_dict[key] = data[key]
 
         vocabs = {}
         if (
             tokenizer_model is not None
         ):  # sentencepiece mode (might be good to check it's a SP model)
+            src_subword_type = "sentencepiece"
+            tokenizer_basename = os.path.basename(tokenizer_model)
             tokenizer = Tokenizer(model_path=tokenizer_model)
             vocab = tokenizer.vocab
             if tokenizer_json is not None:
@@ -937,9 +993,10 @@ class LlamaHFConverter(BaseBin):
             if "<|startoftext|>" in vocab:
                 index = vocab.index("<|startoftext|>")
                 vocab[index] = DefaultTokens.BOS
-            if "<|endoftext|>" in vocab and "</s>" not in vocab:
-                index = vocab.index("<|endoftext|>")
-                vocab[index] = DefaultTokens.EOS
+            if eos_token is not None:
+                if eos_token in vocab and "</s>" not in vocab:
+                    index = vocab.index(eos_token)
+                    vocab[index] = DefaultTokens.EOS
             if "<0x00>" in vocab:
                 index = vocab.index("<0x00>")
                 vocab[index] = DefaultTokens.PAD
@@ -948,13 +1005,20 @@ class LlamaHFConverter(BaseBin):
                 special_tokens=specials_table[arch],
             )
         else:  # # BPE mode - we leverage the HF tokenizer.json info
+            src_subword_type = "bpe"
             with open(tokenizer_json, encoding="utf-8") as f:
                 data = json.load(f)
-            vocab = [
-                tok if tok != "Ā" else DefaultTokens.PAD
-                # "Ā" is '\x00' in unicode (cf tokenize.py gpt2 mapping)
-                for tok in data["model"]["vocab"]
-            ]
+                # gpt2_pretok
+                gpt2_pretok = False
+                pretokenizers = data.get("pre_tokenizer", {}).get("pretokenizers", [{}])
+                for pretokenizer in pretokenizers:
+                    if pretokenizer.get("type", None) == "ByteLevel":
+                        gpt2_pretok = True
+                vocab = [
+                    tok if tok != "Ā" else DefaultTokens.PAD
+                    # "Ā" is '\x00' in unicode (cf tokenize.py gpt2 mapping)
+                    for tok in data["model"]["vocab"]
+                ]
             voc_size = len(vocab)
             if vocab_size > voc_size:
                 for i in range(vocab_size - voc_size):
@@ -964,20 +1028,20 @@ class LlamaHFConverter(BaseBin):
             if "<|startoftext|>" in vocab:
                 index = vocab.index("<|startoftext|>")
                 vocab[index] = DefaultTokens.BOS
-            if "<|endoftext|>" in vocab:
-                index = vocab.index("<|endoftext|>")
-                vocab[index] = DefaultTokens.EOS
             if "<|begin_of_text|>" in vocab:
                 index = vocab.index("<|begin_of_text|>")
                 vocab[index] = DefaultTokens.BOS
-            if "<|end_of_text|>" in vocab:
-                index = vocab.index("<|end_of_text|>")
-                vocab[index] = DefaultTokens.EOS
+            if eos_token is not None:
+                if eos_token in vocab and "</s>" not in vocab:
+                    index = vocab.index(eos_token)
+                    vocab[index] = DefaultTokens.EOS
 
             src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
 
+            tokenizer_basename = "bpe.model"
+
             with open(
-                os.path.join(directory_path, "bpe.model"), "w", encoding="utf-8"
+                os.path.join(directory_path, tokenizer_basename), "w", encoding="utf-8"
             ) as bpemodel:
                 bpemodel.write("v3;false;false;false;Ġ;Ġ\n")
                 for merge in data["model"]["merges"]:
@@ -1013,9 +1077,17 @@ class LlamaHFConverter(BaseBin):
             tgt_vocab_size=vocab_size,
             vocab_size_multiple=8,
             decoder_start_token=vocabs["decoder_start_token"],
-            transforms=["filtertoolong"],
+            transforms=["onmt_tokenize", "filtertoolong"],
             transforms_configs={
-                "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}
+                "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512},
+                "onmt_tokenize": {
+                    "src_subword_type": src_subword_type,
+                    "src_subword_model": os.path.join(
+                        "${MODEL_PATH}", tokenizer_basename
+                    ),
+                    "gpt2_pretok": gpt2_pretok,
+                    "mapped_tokens": mapped_tokens,
+                },
             },
             model=arch_table[arch](
                 layers=n_layers,
@@ -1060,6 +1132,16 @@ class LlamaHFConverter(BaseBin):
             ),
         )
         config_dict = recursive_model_fields_set(config)
+
+        inference_dict = {
+            "optional_eos": optional_eos,
+            # TODO: map other settings from HF decoding_config.json
+            **generation_config_dict,
+            **chat_template,
+        }
+
+        config_dict["inference"] = inference_dict
+
         with open(
             os.path.join(directory_path, "config.json"), "w", encoding="utf-8"
         ) as f:

@@ -50,7 +50,6 @@ class ScoringPreparator:
         # (take 'inference' field of config if exists?)
         # Set "default" translation options on empty cfgfile
         predict_config = PredictConfig(model_path=["dummy"], src="dummy")
-        predict_config.gpu = gpu_rank
         predict_config.compute_dtype = self.config.training.compute_dtype
         if predict_config.transforms_configs.prefix.tgt_prefix != "":
             predict_config.tgt_file_prefix = True
@@ -67,6 +66,7 @@ class ScoringPreparator:
                 self.vocabs,
                 predict_config,
                 model_config,
+                device_id=gpu_rank,
                 global_scorer=scorer,
                 out_file=out_file,
                 report_align=predict_config.report_align,
@@ -101,7 +101,7 @@ class ScoringPreparator:
             translator.vocabs,
             task=CorpusTask.INFER,
             tgt="",  # This force to clear the target side (needed when using tgt_file_prefix)
-            device_id=predict_config.gpu,
+            device_id=gpu_rank,
         )
 
         # ########### #

@@ -28,9 +28,11 @@ class Inference(object):
         max_length (int): See
             :class:`eole.predict.decode_strategy.DecodeStrategy`.
         beam_size (int): Number of beams.
-        random_sampling_topk (int): See
+        top_p (float): See
             :class:`eole.predict.greedy_search.GreedySearch`.
-        random_sampling_temp (float): See
+        top_k (int): See
+            :class:`eole.predict.greedy_search.GreedySearch`.
+        temperature (float): See
             :class:`eole.predict.greedy_search.GreedySearch`.
         stepwise_penalty (bool): Whether coverage penalty is applied every step
             or not.
@@ -62,9 +64,9 @@ class Inference(object):
         max_length_ratio=1.5,
         ratio=0.0,
         beam_size=30,
-        random_sampling_topk=0,
-        random_sampling_topp=0.0,
-        random_sampling_temp=1.0,
+        top_k=0,
+        top_p=0.0,
+        temperature=1.0,
         stepwise_penalty=None,
         dump_beam=False,
         block_ngram_repeat=0,
@@ -112,9 +114,9 @@ class Inference(object):
         self.max_length_ratio = max_length_ratio
 
         self.beam_size = beam_size
-        self.random_sampling_temp = random_sampling_temp
-        self.sample_from_topk = random_sampling_topk
-        self.sample_from_topp = random_sampling_topp
+        self.temperature = temperature
+        self.top_k = top_k
+        self.top_p = top_p
 
         self.min_length = min_length
         self.ban_unk_token = ban_unk_token
@@ -169,6 +171,7 @@ class Inference(object):
         vocabs,
         config,  # running/predict config
         model_config,
+        device_id=0,
         global_scorer=None,
         out_file=None,
         report_align=False,
@@ -197,16 +200,16 @@ class Inference(object):
         return cls(
             model,
             vocabs,
-            gpu=config.gpu,
+            gpu=device_id,
             n_best=config.n_best,
             min_length=config.min_length,
             max_length=config.max_length,
             max_length_ratio=config.max_length_ratio,
             ratio=config.ratio,
             beam_size=config.beam_size,
-            random_sampling_topk=config.random_sampling_topk,
-            random_sampling_topp=config.random_sampling_topp,
-            random_sampling_temp=config.random_sampling_temp,
+            top_k=config.top_k,
+            top_p=config.top_p,
+            temperature=config.temperature,
             stepwise_penalty=config.stepwise_penalty,
             dump_beam=config.dump_beam,
             block_ngram_repeat=config.block_ngram_repeat,
@@ -246,6 +249,12 @@ class Inference(object):
             gs = [0] * batch_size
             glp = None
         return gs, glp
+
+    def update_settings(self, **kwargs):
+        # we probably would need some validation at some point
+        for k, v in kwargs.items():
+            if hasattr(self, k):
+                setattr(self, k, v)
 
     def _predict(
         self,
