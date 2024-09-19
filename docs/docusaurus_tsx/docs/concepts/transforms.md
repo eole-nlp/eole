@@ -7,7 +7,7 @@ description: Recap of available on-the-fly data transforms.
 
 It's your lucky day! We already embedded several transforms that can be used easily.
 
-Note: all the details about every flag and options for each transform can be found in the [train](#train) section.
+Note: all the details about every flag and options for each transform can be found in the [Transforms Config](/reference/Config/transforms) section.
 
 ### Transform Types
 
