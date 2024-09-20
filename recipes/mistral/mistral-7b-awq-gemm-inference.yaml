@@ -10,7 +10,6 @@ model_path: "$EOLE_MODEL_DIR/mistral-7b-v0.3"
 # Inference
 seed: 42
 max_length: 256
-gpu: 0
 batch_type: sents
 batch_size: 8
 world_size: 1
@@ -22,9 +21,9 @@ gpu_ranks: [0]
 #quant_type: "bnb_NF4"
 # precision: fp16
 precision: fp16
-#random_sampling_topk: 1
-#random_sampling_topp: 0.6
-#random_sampling_temp: 0.9
+#top_k: 1
+#top_p: 0.6
+#temperature: 0.9
 beam_size: 1
 n_best: 1
 profile: false

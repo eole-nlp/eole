@@ -541,6 +541,7 @@ class ONMTTokenizerTransform(TokenizerTransform):
         if self.mapped_tokens is not None:
             mapped_dict = {b: a for a, b in self.mapped_tokens}
             segmented = [mapped_dict.get(tok, tok) for tok in segmented]
+
         return segmented
 
     def _detokenize(self, tokens, side="src", is_train=False):

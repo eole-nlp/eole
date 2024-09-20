@@ -1,19 +1,19 @@
+# Note: keeping for reference, but not needed anymore since transforms are loaded transparently from the model's config.json
 # transforms related stuff
-transforms: [onmt_tokenize]
-transforms_configs:
-  onmt_tokenize:
-    src_subword_type: bpe
-    src_subword_model: data/wikitext/wikitext-103-raw-v1/subwords.bpe
-    src_onmttok_kwargs: {"mode": "aggressive", "joiner_annotate": True, "preserve_placeholders":
-    True, "case_markup": True, "soft_case_regions": True, "preserve_segmented_tokens":
-    True}
+# transforms: [onmt_tokenize]
+# transforms_configs:
+#   onmt_tokenize:
+#     src_subword_type: bpe
+#     src_subword_model: data/wikitext/wikitext-103-raw-v1/subwords.bpe
+#     src_onmttok_kwargs: {"mode": "aggressive", "joiner_annotate": True, "preserve_placeholders":
+#     True, "case_markup": True, "soft_case_regions": True, "preserve_segmented_tokens":
+#     True}
 
 verbose: false
 n_best: 3
-random_sampling_topp: 0.9
+top_p: 0.9
 beam_size: 10
 
-gpu: 0
 world_size: 1
 gpu_ranks: [0]
 
