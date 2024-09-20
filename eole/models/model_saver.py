@@ -53,6 +53,10 @@ def load_checkpoint(model_path):
                 # drop inference to prevent validation issues
                 if "inference" in config_dict.keys():
                     config_dict.pop("inference")
+                if "training" in config_dict.keys():
+                    config_dict["training"]["dummy_load"] = True
+                else:
+                    config_dict["training"] = {"dummy_load": True}
                 _config = TrainConfig(**config_dict)
                 checkpoint["config"] = _config
         else:
