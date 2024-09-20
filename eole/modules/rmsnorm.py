@@ -24,7 +24,8 @@ class RMSNorm(torch.nn.Module):
         self.weight = nn.Parameter(torch.ones(hidden_size))
 
     def forward(self, hidden_states):
-        if AWQ_EXT and not self.training:
+        dtype = next(self.parameters()).dtype
+        if AWQ_EXT and not self.training and dtype == torch.float16:
             inp_type = hidden_states.dtype
             output = torch.empty_like(hidden_states).to(inp_type)
             if hidden_states.dim() == 2:  # patch for multi experts
