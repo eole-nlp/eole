@@ -270,6 +270,11 @@ class TrainingConfig(
     score_threshold: float = Field(
         default=0.68, description="Threshold to filterout data"
     )
+    dummy_load: bool | None = Field(
+        default=False,
+        description="Ignore some warnings if we are only loading the configuration "
+        "prior to other operations, e.g. in `train_from` context.",
+    )
 
     @computed_field
     @cached_property
@@ -316,6 +321,7 @@ class TrainingConfig(
             torch.cuda.is_available()
             and not self.gpu_ranks
             and self.model_fields_set != set()
+            and not self.dummy_load
         ):
             logger.warn("You have a CUDA device, should run with -gpu_ranks")
         if self.world_size < len(self.gpu_ranks):
