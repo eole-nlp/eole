@@ -944,7 +944,7 @@ class LlamaHFConverter(BaseBin):
                     if "added_tokens_decoder" in data.keys():
                         eos_tokens = [
                             data["added_tokens_decoder"][str(index)]["content"]
-                            for index in eos_token_id[1:]
+                            for index in eos_token_id
                         ]
                         optional_eos = eos_tokens[1:]
                         eos_token = eos_tokens[0]
