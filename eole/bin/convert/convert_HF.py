@@ -981,7 +981,9 @@ class LlamaHFConverter(BaseBin):
                 vocab = {v: k for k, v in data["model"]["vocab"].items()}
                 for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
                     if f"{token_name}_id" in config.keys():
-                        vocabs["specials"][token_name] = vocab[config[f"{token_name}_id"]]
+                        vocabs["specials"][token_name] = vocab[
+                            config[f"{token_name}_id"]
+                        ]
 
         if generation_config_json is not None:
             with open(generation_config_json, encoding="utf-8") as f:
@@ -1032,6 +1034,8 @@ class LlamaHFConverter(BaseBin):
                     # "Ā" is '\x00' in unicode (cf tokenize.py gpt2 mapping)
                     for tok in data["model"]["vocab"]
                 ]
+                if DefaultTokens.PAD in vocab:
+                    vocabs["specials"]["pad_token"] = DefaultTokens.PAD
             voc_size = len(vocab)
             if vocab_size > voc_size:
                 for i in range(vocab_size - voc_size):

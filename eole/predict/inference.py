@@ -96,8 +96,9 @@ class Inference(object):
         self._tgt_eos_idx = [
             vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("eos_token", ""))
         ] + [vocabs["tgt"].lookup_token(eos_token) for eos_token in optional_eos]
+        # defaulting to DefaultTokens.PAD might not always work
         self._tgt_pad_idx = vocabs["tgt"].lookup_token(
-            vocabs.get("specials", {}).get("pad_token", "")
+            vocabs.get("specials", {}).get("pad_token", DefaultTokens.PAD)
         )
         self._tgt_bos_idx = vocabs["tgt"].lookup_token(
             vocabs.get("specials", {}).get("bos_token", "")
