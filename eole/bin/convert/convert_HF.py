@@ -942,11 +942,12 @@ class LlamaHFConverter(BaseBin):
                 eos_token_id = config.get("eos_token_id", None)
                 if isinstance(eos_token_id, list):
                     if "added_tokens_decoder" in data.keys():
-                        optional_eos = [
+                        eos_tokens = [
                             data["added_tokens_decoder"][str(index)]["content"]
                             for index in eos_token_id[1:]
                         ]
-                    eos_token = optional_eos[0]
+                        optional_eos = eos_tokens[1:]
+                        eos_token = eos_tokens[0]
                 elif isinstance(eos_token_id, int):
                     if "eos_token" in data.keys():
                         if isinstance(data["eos_token"], dict):
