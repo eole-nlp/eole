@@ -52,6 +52,10 @@ class LoraWeights(BaseBin):
     @classmethod
     def run(cls, args):
         init_logger()
+        config_path = os.path.join(args.base_model, "config.json")
+        with open(config_path) as f:
+            config = json.load(f)
+            inference_config = config.get("inference", None)
         base_checkpoint = load_checkpoint(args.base_model)
         lora_checkpoint = load_checkpoint(args.lora_weights)
         vocabs = dict_to_vocabs(lora_checkpoint["vocab"])
@@ -84,6 +88,8 @@ class LoraWeights(BaseBin):
             optim = None
             model_state_dict = model.state_dict()
             new_config = base_checkpoint["config"]
+            # use compute_dtype from lora finetuning
+            new_config.training.compute_dtype = config.training.compute_dtype
         elif args.action == "concat":
             model.half()  # We keep FP16 for all
             optim = lora_checkpoint["optim"]
@@ -101,6 +107,8 @@ class LoraWeights(BaseBin):
             json.dump(vocab_dict, f, indent=2, ensure_ascii=False)
         # save config
         config_dict = recursive_model_fields_set(new_config)
+        if inference_config is not None:
+            config_dict["inference"] = inference_config
         with open(os.path.join(args.output, "config.json"), "w", encoding="utf-8") as f:
             json.dump(config_dict, f, indent=2, ensure_ascii=False)
         shards = glob.glob(os.path.join(args.base_model, "model.*.safetensors"))
