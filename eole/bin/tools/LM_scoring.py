@@ -82,7 +82,8 @@ class LMScoring(BaseBin):
             )
 
         vocabs, model, model_opt = config.model.model_class.load_test_model(config)
-        padding_idx = vocabs["tgt"][DefaultTokens.PAD]
+        pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
+        padding_idx = vocabs["tgt"][pad_token]
         criterion = torch.nn.CrossEntropyLoss(
             ignore_index=padding_idx, reduction="none"
         )

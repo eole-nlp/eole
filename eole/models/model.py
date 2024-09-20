@@ -57,12 +57,13 @@ def build_decoder(model_config, running_config=None):
 
 def build_src_emb(model_config, vocabs, running_config=None):
     # Build embeddings.
+    pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
     src_emb = Embeddings(
         word_vec_size=model_config.embeddings.src_word_vec_size,
         position_encoding_type=model_config.embeddings.position_encoding_type,
         position_shift=model_config.embeddings.position_shift,
         dropout=getattr(running_config, "dropout", [0.0])[0],
-        word_padding_idx=vocabs["src"][DefaultTokens.PAD],
+        word_padding_idx=vocabs["tgt"][pad_token],
         word_vocab_size=len(vocabs["src"]),
         sparse=getattr(running_config, "optim", None) == "sparseadam",
         freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
@@ -75,12 +76,13 @@ def build_tgt_emb(
     model_config, vocabs, running_config=None, share_embeddings=False, src_emb=None
 ):
     # Build embeddings.
+    pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
     tgt_emb = Embeddings(
         word_vec_size=model_config.embeddings.tgt_word_vec_size,
         position_encoding_type=model_config.embeddings.position_encoding_type,
         position_shift=model_config.embeddings.position_shift,
         dropout=getattr(running_config, "dropout", [0.0])[0],
-        word_padding_idx=vocabs["tgt"][DefaultTokens.PAD],
+        word_padding_idx=vocabs["tgt"][pad_token],
         word_vocab_size=len(vocabs["tgt"]),
         sparse=getattr(running_config, "optim", None) == "sparseadam",
         freeze_word_vecs=model_config.embeddings.freeze_word_vecs_dec,

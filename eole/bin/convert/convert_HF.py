@@ -190,26 +190,6 @@ arch_table = {
     "XLMRobertaXLForMaskedLM": TransformerEncoderModelConfig,
 }
 
-decoder_start_table = {
-    "LlamaForCausalLM": "<s>",
-    "MistralForCausalLM": "<s>",
-    "MixtralForCausalLM": "<s>",
-    "PhiForCausalLM": "",
-    "Phi3ForCausalLM": "<s>",
-    "GPT2LMHeadModel": "</s>",
-    "XLMRobertaXLForMaskedLM": "<s>",
-}
-
-specials_table = {
-    "LlamaForCausalLM": ["<unk>", "<s>", "</s>"],
-    "MistralForCausalLM": ["<unk>", "<s>", "</s>"],
-    "MixtralForCausalLM": ["<unk>", "<s>", "</s>"],
-    "PhiForCausalLM": ["<unk>", "<s>", "</s>"],
-    "Phi3ForCausalLM": ["<unk>", "<s>", "</s>"],
-    "GPT2LMHeadModel": ["<unk>", "<s>", "</s>"],
-    "XLMRobertaXLForMaskedLM": ["<s>", "<blank>", "</s>", "<unk>"],
-}
-
 
 class Tokenizer:
     def __init__(self, model_path: str):
@@ -310,6 +290,12 @@ class LlamaHFConverter(BaseBin):
             if os.path.exists(os.path.join(args.model_dir, "tokenizer_config.json")):
                 tokenizer_config_json = os.path.join(
                     args.model_dir, "tokenizer_config.json"
+                )
+            else:
+                tokenizer_config_json = None
+            if os.path.exists(os.path.join(args.model_dir, "special_tokens_map.json")):
+                tokenizer_config_json = os.path.join(
+                    args.model_dir, "special_tokens_map.json"
                 )
             else:
                 tokenizer_config_json = None
@@ -415,6 +401,22 @@ class LlamaHFConverter(BaseBin):
                             raise huggingface_hub.utils.EntryNotFoundError(
                                 "No valid model files found"
                             )
+            try:
+                try:
+                    special_tokens_json = huggingface_hub.hf_hub_download(
+                        repo_id=args.model_dir,
+                        filename="special_tokens_map.json",
+                        token=args.token,
+                    )
+                except huggingface_hub.utils.EntryNotFoundError:
+                    raise huggingface_hub.utils.EntryNotFoundError(
+                        "Something went wrong the repo does not contain"
+                        "any special_tokens_map.json file"
+                    )
+            except Exception as e:
+                if isinstance(e, huggingface_hub.utils.EntryNotFoundError):
+                    special_tokens_json = None
+                    print(e)
 
         with open(config_path, encoding="utf-8") as fconfig:
             config = json.load(fconfig)
@@ -584,7 +586,6 @@ class LlamaHFConverter(BaseBin):
             "n_positions": 0,
         }
         left_pad = True
-        eos_token = None
         optional_eos = []
         mapped_tokens = []
         gpt2_pretok = False
@@ -947,18 +948,6 @@ class LlamaHFConverter(BaseBin):
                             for index in eos_token_id
                         ]
                         optional_eos = eos_tokens[1:]
-                        eos_token = eos_tokens[0]
-                elif isinstance(eos_token_id, int):
-                    if "eos_token" in data.keys():
-                        if isinstance(data["eos_token"], dict):
-                            # Llama2 style
-                            eos_token = data["eos_token"]["content"]
-                        elif isinstance(data["eos_token"], str):
-                            eos_token = data["eos_token"]
-                    elif "added_tokens_decoder" in data.keys():
-                        eos_token = data["added_tokens_decoder"][str(eos_token_id)][
-                            "content"
-                        ]
                 # Automatically convert added_tokens into mapped_tokens
                 if "added_tokens_decoder" in data.keys():
                     mapped_tokens = [
@@ -973,6 +962,29 @@ class LlamaHFConverter(BaseBin):
         else:
             add_bos_token = True
 
+        vocabs = {"specials": {}}
+
+        if special_tokens_json is not None:
+            with open(special_tokens_json, encoding="utf-8") as f:
+                special_tokens_map = json.load(f)
+                for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
+                    token = special_tokens_map.get(token_name, None)
+                    if isinstance(token, list):
+                        vocabs["specials"][token_name] = token[0]
+                    elif isinstance(token, str):
+                        vocabs["specials"][token_name] = token
+                    elif isinstance(token, dict):
+                        vocabs["specials"][token_name] = token["content"]
+        elif tokenizer_json is not None:
+            with open(tokenizer_json, encoding="utf-8") as f:
+                data = json.load(f)
+                vocab = {v: k for k, v in data["model"]["vocab"].items()}
+                for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
+                    if f"{token_name}_id" in config.keys():
+                        vocabs["specials"][token_name] = vocab[
+                            config[f"{token_name}_id"]
+                        ]
+
         if generation_config_json is not None:
             with open(generation_config_json, encoding="utf-8") as f:
                 data = json.load(f)
@@ -982,8 +994,6 @@ class LlamaHFConverter(BaseBin):
                 for key in keys:
                     if key in data.keys():
                         generation_config_dict[key] = data[key]
-
-        vocabs = {}
         if (
             tokenizer_model is not None
         ):  # sentencepiece mode (might be good to check it's a SP model)
@@ -1003,19 +1013,8 @@ class LlamaHFConverter(BaseBin):
                 vocab.extend(newtokens)
                 for tok in data["added_tokens"]:
                     vocab[tok["id"]] = tok["content"]
-            if "<|startoftext|>" in vocab:
-                index = vocab.index("<|startoftext|>")
-                vocab[index] = DefaultTokens.BOS
-            if eos_token is not None:
-                if eos_token in vocab and "</s>" not in vocab:
-                    index = vocab.index(eos_token)
-                    vocab[index] = DefaultTokens.EOS
-            if "<0x00>" in vocab:
-                index = vocab.index("<0x00>")
-                vocab[index] = DefaultTokens.PAD
             src_vocab = pyonmttok.build_vocab_from_tokens(
                 vocab,
-                special_tokens=specials_table[arch],
             )
         else:  # # BPE mode - we leverage the HF tokenizer.json info
             src_subword_type = "bpe"
@@ -1023,6 +1022,10 @@ class LlamaHFConverter(BaseBin):
                 data = json.load(f)
                 # gpt2_pretok
                 pretokenizers = data.get("pre_tokenizer", {}).get("pretokenizers", [{}])
+                pre_tokenizer = data.get("pre_tokenizer", None)
+                pretokenizers = pre_tokenizer.get("pretokenizers", None)
+                if pretokenizers is None:
+                    pretokenizers = [pre_tokenizer]
                 for pretokenizer in pretokenizers:
                     if pretokenizer.get("type", None) == "ByteLevel":
                         gpt2_pretok = True
@@ -1031,23 +1034,14 @@ class LlamaHFConverter(BaseBin):
                     # "Ā" is '\x00' in unicode (cf tokenize.py gpt2 mapping)
                     for tok in data["model"]["vocab"]
                 ]
+                if DefaultTokens.PAD in vocab:
+                    vocabs["specials"]["pad_token"] = DefaultTokens.PAD
             voc_size = len(vocab)
             if vocab_size > voc_size:
                 for i in range(vocab_size - voc_size):
                     vocab.append(DefaultTokens.VOCAB_PAD + str(i))
             for tok in data["added_tokens"]:
                 vocab[tok["id"]] = tok["content"]
-            if "<|startoftext|>" in vocab:
-                index = vocab.index("<|startoftext|>")
-                vocab[index] = DefaultTokens.BOS
-            if "<|begin_of_text|>" in vocab:
-                index = vocab.index("<|begin_of_text|>")
-                vocab[index] = DefaultTokens.BOS
-            if eos_token is not None:
-                if eos_token in vocab and "</s>" not in vocab:
-                    index = vocab.index(eos_token)
-                    vocab[index] = DefaultTokens.EOS
-
             src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
 
             tokenizer_basename = "bpe.model"
@@ -1062,7 +1056,7 @@ class LlamaHFConverter(BaseBin):
         vocabs["src"] = src_vocab
         vocabs["tgt"] = src_vocab
         if add_bos_token:
-            vocabs["decoder_start_token"] = decoder_start_table[arch]
+            vocabs["decoder_start_token"] = vocabs["specials"]["bos_token"]
         else:
             vocabs["decoder_start_token"] = ""
         vocab_dict = vocabs_to_dict(vocabs)
@@ -1089,6 +1083,7 @@ class LlamaHFConverter(BaseBin):
             tgt_vocab_size=vocab_size,
             vocab_size_multiple=8,
             decoder_start_token=vocabs["decoder_start_token"],
+            **vocabs["specials"],
             transforms=["onmt_tokenize", "filtertoolong"],
             transforms_configs={
                 "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512},

@@ -93,12 +93,19 @@ class Inference(object):
         self.model = model
         self.vocabs = vocabs
         self._tgt_vocab = vocabs["tgt"]
-        self._tgt_eos_idx = [vocabs["tgt"].lookup_token(DefaultTokens.EOS)] + [
-            vocabs["tgt"].lookup_token(tok) for tok in optional_eos
-        ]
-        self._tgt_pad_idx = vocabs["tgt"].lookup_token(DefaultTokens.PAD)
-        self._tgt_bos_idx = vocabs["tgt"].lookup_token(DefaultTokens.BOS)
-        self._tgt_unk_idx = vocabs["tgt"].lookup_token(DefaultTokens.UNK)
+        self._tgt_eos_idx = [
+            vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("eos_token", ""))
+        ] + [vocabs["tgt"].lookup_token(eos_token) for eos_token in optional_eos]
+        # defaulting to DefaultTokens.PAD might not always work
+        self._tgt_pad_idx = vocabs["tgt"].lookup_token(
+            vocabs.get("specials", {}).get("pad_token", DefaultTokens.PAD)
+        )
+        self._tgt_bos_idx = vocabs["tgt"].lookup_token(
+            vocabs.get("specials", {}).get("bos_token", "")
+        )
+        self._tgt_unk_idx = vocabs["tgt"].lookup_token(
+            vocabs.get("specials", {}).get("unk_token", "")
+        )
         self._tgt_sep_idx = vocabs["tgt"].lookup_token(DefaultTokens.SEP)
         self._tgt_start_with = vocabs["tgt"].lookup_token(vocabs["decoder_start_token"])
         self._tgt_vocab_len = len(self._tgt_vocab)

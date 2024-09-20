@@ -17,7 +17,7 @@ export HF_TOKEN=<your_hf_token>
 ### Download and convert model
 
 ```
-eole convert HF --model_dir TheBloke/Mistral-7B-Instruct-v0.2-AWQ --output ${EOLE_MODEL_DIR}/mistral-7b-instruct-v0.2-awq --token $HF_TOKEN
+eole convert HF --model_dir mistralai/Mistral-7B-v0.3 --output ${EOLE_MODEL_DIR}/mistral-7b-v0.3 --token $HF_TOKEN
 ```
 
 

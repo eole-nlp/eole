@@ -155,6 +155,15 @@ class TokenizerTransform(Transform):
         }
         return ", ".join([f"{kw}={arg}" for kw, arg in kwargs.items()])
 
+    def warm_up(self, vocabs=None):
+        super().warm_up(None)
+        if vocabs is not None:
+            self.pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
+            self.eos_token = vocabs["specials"].get("eos_token", DefaultTokens.EOS)
+        else:
+            self.pad_token = DefaultTokens.PAD
+            self.eos_token = DefaultTokens.EOS
+
     def tokenize_string(self, string, side="src", is_train=False):
         raise NotImplementedError
 
@@ -164,7 +173,7 @@ class TokenizerTransform(Transform):
         # in case the tokenizer doesn't preserve them.
         sentence = " ".join(tokens)
         # Locate the end-of-sentence placeholders.
-        sent_list = sentence.split(DefaultTokens.EOS)
+        sent_list = sentence.split(self.eos_token)
         # Tokenize each sentence separately.
         segmented = []
         for _sentence in sent_list:
@@ -176,10 +185,10 @@ class TokenizerTransform(Transform):
             _sentence_tokens = []
             for _chunk in _sentence_chunks:
                 _sentence_tokens += self.tokenize_string(_chunk, side, is_train) + [
-                    DefaultTokens.PAD
+                    self.pad_token  # not sure this covers all cases
                 ]
             # Re-insert the eos token.
-            segmented += _sentence_tokens[:-1] + [DefaultTokens.EOS]
+            segmented += _sentence_tokens[:-1] + [self.eos_token]
         return segmented[:-1]
 
     def apply(self, example, is_train=False, stats=None, **kwargs):

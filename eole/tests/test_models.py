@@ -58,7 +58,16 @@ class TestModel(unittest.TestCase):
             ],
         )
 
-        vocabs = {"src": src_vocab, "tgt": tgt_vocab}
+        vocabs = {
+            "src": src_vocab,
+            "tgt": tgt_vocab,
+            "specials": {
+                "bos_token": DefaultTokens.BOS,
+                "pad_token": DefaultTokens.PAD,
+                "eos_token": DefaultTokens.EOS,
+                "unk_token": DefaultTokens.UNK,
+            },
+        }
         return vocabs
 
     def get_batch(self, source_l=3, bsize=1):
