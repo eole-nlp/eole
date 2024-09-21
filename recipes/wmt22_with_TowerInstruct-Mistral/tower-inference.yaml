@@ -1,16 +1,3 @@
-
-transforms: [onmt_tokenize]
-transforms_configs:
-  onmt_tokenize:
-    src_subword_type: sentencepiece
-    src_subword_model: "${EOLE_MODEL_DIR}/TowerInstruct-Mistral-7b-v0.2/tokenizer.model"
-    src_onmttok_kwargs: {"mode": "space", "spacer_annotate": True, "preserve_placeholders": True}
-    tgt_subword_type: sentencepiece
-    tgt_subword_model: "${EOLE_MODEL_DIR}/TowerInstruct-Mistral-7b-v0.2/tokenizer.model"
-    tgt_onmttok_kwargs: {"mode": "space", "spacer_annotate": True, "preserve_placeholders": True}
-    mapped_tokens: [['<|im_start|>', '｟im_start｠'], ['<|im_end|>', '｟im_end｠'],]
-optional_eos: ['<|im_end|>']
-
 # Model info
 model_path: ["${EOLE_MODEL_DIR}/TowerInstruct-Mistral-7b-v0.2"]
 
@@ -26,13 +13,11 @@ gpu_ranks: [0]
 #quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
 #quant_type: "bnb_NF4"
 compute_dtype: fp16
-#random_sampling_topk: 1
-#random_sampling_topp: 0.0
-#random_sampling_temp: 0.9
+#top_k: 0
+#top_p: 0.0
+#temperature: 0.9
 beam_size: 1
 n_best: 1
 report_time: true
-#backend: OpenNMT-py
-#backend: CT2
 src: None
 
