@@ -1,6 +1,6 @@
 import os
 from typing import Dict, List, Literal
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator  # , model_validator
 from pydantic import create_model
 
 from eole import constants
@@ -320,7 +320,10 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
         # self.data = corpora
         self.__dict__["data"] = corpora  # skip validation to avoid recursion error
 
-    @model_validator(mode="after")
+    # @model_validator(mode="after")
+    # This needs to be called only after the config is fully up to date,
+    # to prevent setting and keeping some unwanted values
+    # (e.g. transforms [] for datasets)
     def _validate_data_config(self, build_vocab_only=False):
         if self.data is not None:  # patch to allow None data
             self._validate_data()
