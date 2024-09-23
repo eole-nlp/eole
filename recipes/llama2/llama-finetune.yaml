@@ -11,14 +11,14 @@ overwrite: true
 report_every: 10
 
 # transforms config
-transforms: [sentencepiece, filtertoolong]
-transforms_configs:
-  sentencepiece:
-    src_subword_model: "${EOLE_MODEL_DIR}/llama2-7b-chat-hf/tokenizer.model"
-    tgt_subword_model: "${EOLE_MODEL_DIR}/llama2-7b-chat-hf/tokenizer.model"
-  filtertoolong:
-    src_seq_length: 896
-    tgt_seq_length: 896
+# transforms: [sentencepiece, filtertoolong]
+# transforms_configs:
+#   sentencepiece:
+#     src_subword_model: "${EOLE_MODEL_DIR}/llama2-7b-chat-hf/tokenizer.model"
+#     tgt_subword_model: "${EOLE_MODEL_DIR}/llama2-7b-chat-hf/tokenizer.model"
+#   filtertoolong:
+#     src_seq_length: 896
+#     tgt_seq_length: 896
 
 # datasets
 data:
