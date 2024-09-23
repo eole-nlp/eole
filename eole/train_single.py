@@ -61,8 +61,6 @@ def _init_train(config):
     - resume training but transforms have changed
     - resume training but vocab file has been modified
     """
-    transforms_cls = get_transforms_cls(config._all_transform)
-
     if config.training.train_from:
         checkpoint = load_checkpoint(config.training.train_from)
 
@@ -93,6 +91,9 @@ def _init_train(config):
         checkpoint = None
 
     config = update_config_with_checkpoint(config, checkpoint=checkpoint)
+    # explicitly validate data_config after checkpoint update
+    config._validate_data_config()
+    transforms_cls = get_transforms_cls(config._all_transform)
     vocabs, transforms = prepare_transforms_vocabs(config, transforms_cls)
     if config.training.train_from and not config.training.update_vocab:
         logger.info("Keeping checkpoint vocabulary")

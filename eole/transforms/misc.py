@@ -1,5 +1,6 @@
 from eole.utils.logging import logger
 from eole.transforms import register_transform
+from eole.constants import TransformType
 from .transform import Transform, ObservableStats, TransformConfig
 from pydantic import Field
 
@@ -48,6 +49,7 @@ class FilterTooLongTransform(Transform):
     """Filter out sentence that are too long."""
 
     config_model = FilterTooLongConfig
+    type = TransformType.Train
 
     def __init__(self, config):
         super().__init__(config)

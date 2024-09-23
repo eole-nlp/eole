@@ -1,3 +1,5 @@
+import os
+import json
 from typing import Dict, List, Any
 
 from eole.config.config import get_config_dict
@@ -11,6 +13,8 @@ from eole.config.data import (
     VocabConfig,
     NestedAllTransformsConfig,
 )
+from eole.transforms import get_transforms_cls
+from eole.constants import TransformType
 from pydantic import Field, field_validator, model_validator
 
 
@@ -23,9 +27,6 @@ class TrainConfig(
         description="Number of transformed samples per corpus to use to build the vocabulary. "
         "Set to -1 to use the full corpora.",
     )  # not sure how to handle the legacy build_vocab_only flag here (different default value in both cases) # noqa: E501
-    override_opts: bool = Field(
-        default=False, description="Allow to override some checkpoint opts."
-    )  # this should probably be clarified down the line
     verbose: bool = Field(
         default=False,
         description="Print data loading and statistics for all process "
@@ -99,12 +100,49 @@ class PredictConfig(
         None  # patch for CT2 inference engine (to improve later)
     )
     model: ModelConfig | None = None
+    chat_template: str | None = None
+    optional_eos: List[str] | None = Field(
+        default=[],
+        description="Optional EOS tokens that would stop generation, e.g. <|eot_id|> for Llama3",
+    )
 
     @model_validator(mode="after")
     def _validate_predict_config(self):
+        # Not sure we want to call this at every validation
+        self._update_with_model_config()
+        # TODO: do we really need this _all_transform?
         if self._all_transform is None:
             self._all_transform = self.transforms
         return self
+
+    def _update_with_model_config(self):
+        # Note: in case of ensemble decoding, grabbing the first model's
+        # config and artifacts by default
+        os.environ["MODEL_PATH"] = self.model_path[0]
+        config_path = os.path.join(self.model_path[0], "config.json")
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                config_dict = json.loads(os.path.expandvars(f.read()))
+        else:
+            config_dict = {}
+        # Filter out Train transforms
+        transforms = config_dict.get("transforms", [])
+        transforms_cls = get_transforms_cls(transforms)
+        transforms = [
+            t for t in transforms if transforms_cls[t].type != TransformType.Train
+        ]
+
+        if "transforms" not in self.model_fields_set:
+            self.transforms = self._all_transform = transforms
+        if "transforms_configs" not in self.model_fields_set:
+            self.transforms_configs = config_dict.get("transforms_configs", {})
+        if "compute_dtype" not in self.model_fields_set:
+            self.compute_dtype = config_dict.get("training", {}).get(
+                "compute_dtype", "fp16"
+            )
+        for key, value in config_dict.get("inference", {}).items():
+            if key not in self.model_fields_set:
+                setattr(self, key, value)
 
 
 class BuildVocabConfig(

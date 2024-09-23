@@ -36,8 +36,8 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
             used to save the model
     """
 
-    train_loss = LossCompute.from_config(config, model, vocabs["tgt"])
-    valid_loss = LossCompute.from_config(config, model, vocabs["tgt"], train=False)
+    train_loss = LossCompute.from_config(config, model, vocabs)
+    valid_loss = LossCompute.from_config(config, model, vocabs, train=False)
     estim_loss_lambda = config.training.estim_loss_lambda
     estim_loss_lambda_steps = config.training.estim_loss_lambda_steps
 

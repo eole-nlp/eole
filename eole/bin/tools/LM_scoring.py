@@ -70,12 +70,20 @@ class LMScoring(BaseBin):
         set_random_seed(config.seed, False)
         ppl_file = codecs.open(config.output + ".ppl", "w+", "utf-8")
 
+        # no tensor_parallel support
         device = (
-            torch.device("cuda", config.gpu) if config.gpu > -1 else torch.device("cpu")
+            torch.device("cuda", config.gpu_ranks[0])
+            if len(config.gpu_ranks) > 0
+            else torch.device("cpu")
         )
+        if len(config.gpu_ranks) > 1:
+            logger.warning(
+                f"gpu_ranks is {str(config.gpu_ranks)} but only the first one will be used."
+            )
 
         vocabs, model, model_opt = config.model.model_class.load_test_model(config)
-        padding_idx = vocabs["tgt"][DefaultTokens.PAD]
+        pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
+        padding_idx = vocabs["tgt"][pad_token]
         criterion = torch.nn.CrossEntropyLoss(
             ignore_index=padding_idx, reduction="none"
         )

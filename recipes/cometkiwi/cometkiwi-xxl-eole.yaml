@@ -9,7 +9,6 @@ tgt_vocab_size: 250880
 vocab_size_multiple: 1
 report_every: 50
 skip_empty_level: silent
-default_specials: ['<unk>', '<blank>', '<s>', '</s>']
 
 # transforms config
 transforms: [sentencepiece, filtertoolong]

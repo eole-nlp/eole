@@ -4,7 +4,7 @@ from eole.utils.logging import logger
 from eole.transforms import register_transform
 from .transform import Transform, ObservableStats, TransformConfig
 from eole.constants import DefaultTokens
-from typing import Literal
+from typing import Literal, List, Tuple
 from pydantic import model_validator, Field
 
 
@@ -92,6 +92,10 @@ class ONMTTokenizerConfig(BaseTokenizerConfig):
     gpt2_pretok: bool | None = Field(
         default=False, description="Preprocess sentence with byte-level mapping."
     )
+    mapped_tokens: List[Tuple[str, str]] | None = Field(
+        default=None,
+        description="Mapped tokens for placeholders preservation",
+    )
 
     @model_validator(mode="after")
     def check_values(self):
@@ -151,6 +155,15 @@ class TokenizerTransform(Transform):
         }
         return ", ".join([f"{kw}={arg}" for kw, arg in kwargs.items()])
 
+    def warm_up(self, vocabs=None):
+        super().warm_up(None)
+        if vocabs is not None:
+            self.pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
+            self.eos_token = vocabs["specials"].get("eos_token", DefaultTokens.EOS)
+        else:
+            self.pad_token = DefaultTokens.PAD
+            self.eos_token = DefaultTokens.EOS
+
     def tokenize_string(self, string, side="src", is_train=False):
         raise NotImplementedError
 
@@ -160,7 +173,7 @@ class TokenizerTransform(Transform):
         # in case the tokenizer doesn't preserve them.
         sentence = " ".join(tokens)
         # Locate the end-of-sentence placeholders.
-        sent_list = sentence.split(DefaultTokens.EOS)
+        sent_list = sentence.split(self.eos_token)
         # Tokenize each sentence separately.
         segmented = []
         for _sentence in sent_list:
@@ -172,10 +185,10 @@ class TokenizerTransform(Transform):
             _sentence_tokens = []
             for _chunk in _sentence_chunks:
                 _sentence_tokens += self.tokenize_string(_chunk, side, is_train) + [
-                    DefaultTokens.PAD
+                    self.pad_token  # not sure this covers all cases
                 ]
             # Re-insert the eos token.
-            segmented += _sentence_tokens[:-1] + [DefaultTokens.EOS]
+            segmented += _sentence_tokens[:-1] + [self.eos_token]
         return segmented[:-1]
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
@@ -388,6 +401,7 @@ class ONMTTokenizerTransform(TokenizerTransform):
         self.src_other_kwargs = self.config.src_onmttok_kwargs
         self.tgt_other_kwargs = self.config.tgt_onmttok_kwargs
         self.gpt2_pretok = self.config.gpt2_pretok
+        self.mapped_tokens = self.config.mapped_tokens
         self.preserve_placeholders = self.config.tgt_onmttok_kwargs.get(
             "preserve_placeholders", False
         )
@@ -496,11 +510,17 @@ class ONMTTokenizerTransform(TokenizerTransform):
 
     def tokenize_string(self, sentence, side="src", is_train=False):
         tokenizer = self.load_models[side]
+
+        if self.mapped_tokens is not None:
+            for mapped_toks in self.mapped_tokens:
+                sentence = sentence.replace(mapped_toks[0], mapped_toks[1])
+
         if self.gpt2_pretok:
             sentence = "".join(
                 self.maptable[b]
                 for b in sentence.replace(DefaultTokens.SEP, "\n").encode("utf-8")
             )
+            sentence = sentence.replace("ï½Ł", "\uff5f").replace("ï½ł", "\uff60")
             segmented1 = tokenizer(sentence)
             segmented = []
             # ugly patch to make sure "\n\n" is split in two items
@@ -510,12 +530,18 @@ class ONMTTokenizerTransform(TokenizerTransform):
                 else:
                     segmented.append(s)
         elif (
-            self.src_subword_type == "sentencepiece" and not self.preserve_placeholders
+            self.src_subword_type
+            == "sentencepiece"  # and not self.preserve_placeholders
         ):
             sentence = sentence.replace(DefaultTokens.SEP, "\n")
             segmented = tokenizer(sentence)
         else:
             segmented = tokenizer(sentence)
+
+        if self.mapped_tokens is not None:
+            mapped_dict = {b: a for a, b in self.mapped_tokens}
+            segmented = [mapped_dict.get(tok, tok) for tok in segmented]
+
         return segmented
 
     def _detokenize(self, tokens, side="src", is_train=False):

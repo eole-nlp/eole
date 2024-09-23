@@ -8,6 +8,7 @@ from eole.inputters.inputter import vocabs_to_dict
 from eole.modules.lora import lora_state_dict
 from eole.config import recursive_model_fields_set
 from eole.config.run import TrainConfig
+from eole.constants import DefaultTokens
 
 try:
     from safetensors.torch import save_file
@@ -41,15 +42,23 @@ def load_checkpoint(model_path):
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"{model_path} does not seem to exist.")
     elif os.path.isdir(model_path):
+        os.environ["MODEL_PATH"] = model_path
         logger.info("Loading checkpoint from %s" % model_path)
         # checkpoint = torch.load(ckpt_path, map_location=torch.device("cpu"))
         checkpoint = {}
         config_path = os.path.join(model_path, "config.json")
         if os.path.exists(config_path):
             with open(config_path) as f:
-                config_dict = json.load(f)
+                config_dict = json.loads(os.path.expandvars(f.read()))
                 # drop data to prevent validation issues
                 config_dict["data"] = {}
+                # drop inference to prevent validation issues
+                if "inference" in config_dict.keys():
+                    config_dict.pop("inference")
+                if "training" in config_dict.keys():
+                    config_dict["training"]["dummy_load"] = True
+                else:
+                    config_dict["training"] = {"dummy_load": True}
                 _config = TrainConfig(**config_dict)
                 checkpoint["config"] = _config
         else:
@@ -58,6 +67,14 @@ def load_checkpoint(model_path):
         if os.path.exists(vocab_path):
             with open(vocab_path) as f:
                 checkpoint["vocab"] = json.load(f)
+            # use default specials if not specified
+            if "specials" not in checkpoint["vocab"].keys():
+                checkpoint["vocab"]["specials"] = {
+                    "bos_token": DefaultTokens.BOS,
+                    "pad_token": DefaultTokens.PAD,
+                    "eos_token": DefaultTokens.EOS,
+                    "unk_token": DefaultTokens.UNK,
+                }
         else:
             raise FileNotFoundError(f"{model_path} does not contain vocab.json")
         optim_path = os.path.join(model_path, "optimizer.pt")
@@ -271,7 +288,12 @@ class TrainingModelSaver(ModelSaverBase):
     def _save_transforms_artifacts(self):
         if self.transforms is not None:
             for transform_name, transform in self.transforms.items():
-                transform._save_artifacts(self.model_path)
+                transform_save_config = transform._save_artifacts(self.model_path)
+                setattr(
+                    self.config.transforms_configs,
+                    transform_name,
+                    transform_save_config,
+                )
                 # we probably do not need to save transforms artifacts for each checkpoint
                 # transform._save_artifacts(os.path.join(self.model_path, self.step_dir))
 
@@ -293,9 +315,6 @@ class TrainingModelSaver(ModelSaverBase):
 
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             self.update_step_dir(step)
-            logger.info(f"Saving config and vocab to {self.model_path}")
-            self._save_vocab()
-            self._save_config()
             logger.info(
                 f"Saving optimizer and weights to {self.step_dir}, and symlink to {self.model_path}"
             )
@@ -303,6 +322,9 @@ class TrainingModelSaver(ModelSaverBase):
             self._save_weights(model_state_dict)
             logger.info(f"Saving transforms artifacts, if any, to {self.model_path}")
             self._save_transforms_artifacts()
+            logger.info(f"Saving config and vocab to {self.model_path}")
+            self._save_vocab()
+            self._save_config()
             self.cleanup()
             # we shall trigger optional saves from transforms here + some default inference config ?
         if torch.distributed.is_initialized():

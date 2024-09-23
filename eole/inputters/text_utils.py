@@ -68,7 +68,9 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
             numeric["tgt"]["tgt_ids"] = []
             tgt_text = example["tgt"]["tgt"].split(" ")
             numeric["tgt"]["tgt_ids"] = vocabs["tgt"](
-                [decoder_start_token] + tgt_text + [DefaultTokens.EOS]
+                [decoder_start_token]
+                + tgt_text
+                + [vocabs["specials"].get("eos_token", "")]
             )
 
     elif model_type == ModelType.DECODER:
@@ -79,7 +81,9 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
         if example["tgt"] is not None:
             numeric["tgt"]["tgt_ids"] = []
             tgt_text = example["tgt"]["tgt"].split(" ")
-            numeric["tgt"]["tgt_ids"] = vocabs["tgt"](tgt_text + [DefaultTokens.EOS])
+            numeric["tgt"]["tgt_ids"] = vocabs["tgt"](
+                tgt_text + [vocabs["specials"].get("eos_token", "")]
+            )
             if decoder_start_token == "":
                 numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
 
@@ -88,17 +92,21 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
         if example["tgt"] is not None:  # TO BE DISCUSSED
             tgt_text = example["tgt"]["tgt"].split(" ")
             txt = (
-                [DefaultTokens.BOS]
+                [vocabs["specials"].get("bos_token", "")]
                 + tgt_text
-                + [DefaultTokens.EOS]
-                + [DefaultTokens.EOS]
+                + [vocabs["specials"].get("eos_token", "")]
+                + [vocabs["specials"].get("eos_token", "")]
                 + src_text
-                + [DefaultTokens.EOS]
+                + [vocabs["specials"].get("eos_token", "")]
             )
             numeric["src"]["src_ids"] = vocabs["src"](txt)
             numeric["tgt"]["tgt_ids"] = vocabs["src"](txt)
         else:
-            txt = [DefaultTokens.BOS] + src_text + [DefaultTokens.EOS]
+            txt = (
+                [vocabs["specials"].get("bos_token", "")]
+                + src_text
+                + [vocabs["specials"].get("eos_token", "")]
+            )
             numeric["src"]["src_ids"] = vocabs["src"](txt)
 
     else:

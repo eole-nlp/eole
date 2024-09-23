@@ -1,5 +1,6 @@
 from typing import List, Literal
 from pydantic import Field, field_validator, model_validator, computed_field
+from functools import cached_property
 import torch
 
 from eole.config.config import Config, get_config_dict
@@ -269,9 +270,14 @@ class TrainingConfig(
     score_threshold: float = Field(
         default=0.68, description="Threshold to filterout data"
     )
+    dummy_load: bool | None = Field(
+        default=False,
+        description="Ignore some warnings if we are only loading the configuration "
+        "prior to other operations, e.g. in `train_from` context.",
+    )
 
     @computed_field
-    @property
+    @cached_property
     def storage_dtype(self) -> torch.dtype:
         """
         Deduce which dtype to use for main model parameters.
@@ -315,6 +321,7 @@ class TrainingConfig(
             torch.cuda.is_available()
             and not self.gpu_ranks
             and self.model_fields_set != set()
+            and not self.dummy_load
         ):
             logger.warn("You have a CUDA device, should run with -gpu_ranks")
         if self.world_size < len(self.gpu_ranks):

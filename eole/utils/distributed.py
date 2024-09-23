@@ -186,7 +186,9 @@ def spawned_train(process_fn, config, device_id, error_queue):  # noqa: E501
         error_queue.put((config.training.gpu_ranks[device_id], traceback.format_exc()))
 
 
-def spawned_infer(config, device_id, error_queue, queue_instruct, queue_result):
+def spawned_infer(
+    config, device_id, error_queue, queue_instruct, queue_result, queue_settings=None
+):
     """Run various functions for prediction in spawned process on `device_id`."""
     try:
         running_config = (
@@ -205,6 +207,9 @@ def spawned_infer(config, device_id, error_queue, queue_instruct, queue_result):
         transforms = make_transforms(config, transforms_cls, predictor.vocabs)
         while True:
             instruction = queue_instruct.get()
+            if queue_settings is not None:
+                settings = queue_settings.get()
+                predictor.update_settings(**settings)
             if instruction[0] == "stop":
                 break
             elif instruction[0] == "infer_list":
@@ -217,13 +222,14 @@ def spawned_infer(config, device_id, error_queue, queue_instruct, queue_result):
                     src=src,
                     device_id=device_id,
                 )
-                scores, preds = predictor._predict(
+                scores, estims, preds = predictor._predict(
                     infer_iter,
                     infer_iter.transforms,
                     config.attn_debug,
                     config.align_debug,
                 )
                 queue_result.put(scores)
+                queue_result.put(estims)
                 queue_result.put(preds)
             elif instruction[0] == "infer_file":
                 config.src = instruction[1].src
@@ -234,13 +240,14 @@ def spawned_infer(config, device_id, error_queue, queue_instruct, queue_result):
                     task=CorpusTask.INFER,
                     device_id=device_id,
                 )
-                scores, preds = predictor._predict(
+                scores, estims, preds = predictor._predict(
                     infer_iter,
                     infer_iter.transforms,
                     config.attn_debug,
                     config.align_debug,
                 )
                 queue_result.put(scores)
+                queue_result.put(estims)
                 queue_result.put(preds)
             elif instruction[0] == "score_list":
                 tgt = instruction[1]
