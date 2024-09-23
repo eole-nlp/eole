@@ -24,10 +24,16 @@ class Translator(Inference):
             batch_tgt_idxs = self._align_pad_prediction(
                 predictions, bos=self._tgt_bos_idx, pad=self._tgt_pad_idx
             )
+
         tgt_mask = (
             batch_tgt_idxs.eq(self._tgt_pad_idx)
-            | batch_tgt_idxs.eq(self._tgt_eos_idx)
             | batch_tgt_idxs.eq(self._tgt_bos_idx)
+            | torch.any(
+                torch.stack(
+                    [batch_tgt_idxs.eq(eos_idx) for eos_idx in self._tgt_eos_idx]
+                ),
+                dim=0,
+            )
         )
 
         n_best = batch_tgt_idxs.size(1)
