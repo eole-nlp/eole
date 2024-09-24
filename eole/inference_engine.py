@@ -1,7 +1,8 @@
 import json
 from eole.constants import CorpusTask, DefaultTokens, ModelType
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
-from eole.utils.distributed import ErrorHandler, spawned_infer
+from eole.utils.distributed import ErrorHandler
+from eole.utils.distributed_workers import spawned_infer
 from eole.utils.logging import init_logger
 from eole.transforms import get_transforms_cls, make_transforms, TransformPipe
 

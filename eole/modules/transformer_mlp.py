@@ -4,7 +4,7 @@ import torch.nn as nn
 
 from torch.utils.checkpoint import checkpoint
 from torch.nn.utils import skip_init
-from torch.distributed import all_reduce
+from eole.utils.distributed import all_reduce_and_rescale_tensors
 from eole.constants import ACTIVATION_FUNCTIONS
 
 
@@ -81,7 +81,7 @@ class MLP(nn.Module):
             mlp_out = self.dropout_2(mlp_out)
 
         if self.parallel_gpu > 1:
-            all_reduce(mlp_out)
+            all_reduce_and_rescale_tensors(mlp_out, 1.0)
 
         return mlp_out
 

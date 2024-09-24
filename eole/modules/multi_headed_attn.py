@@ -9,7 +9,7 @@ from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.utils.checkpoint import checkpoint
 from torch.nn.utils import skip_init
 from .alibi_position_bias import AlibiPositionalBias
-from torch.distributed import all_reduce
+from eole.utils.distributed import all_reduce_and_rescale_tensors
 from importlib import import_module
 from eole.constants import PositionEncodingType
 
@@ -535,7 +535,7 @@ class MultiHeadedAttention(torch.nn.Module):
             attn_output = self.maybe_ckpt(self.final_linear, context)
 
         if self.parallel_gpu > 1:
-            all_reduce(attn_output)
+            all_reduce_and_rescale_tensors(attn_output, 1)
 
         return attn_output, attn
 
@@ -686,7 +686,7 @@ class SelfMHA(MultiHeadedAttention):
                 ).transpose(1, 2)
                 attn_output = self.final_linear(unshape(context))
                 if self.parallel_gpu > 1:
-                    all_reduce(attn_output)
+                    all_reduce_and_rescale_tensors(attn_output, 1)
                 return attn_output, None
 
         else:
