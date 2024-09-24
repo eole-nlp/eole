@@ -46,11 +46,6 @@ def prepare_transforms_vocabs(config, transforms_cls):
         save_transformed_sample(config, transforms, n_sample=config.n_sample)
         logger.info("Sample saved, please check it before restart training.")
         sys.exit()
-    logger.info(
-        "The first 10 tokens of the vocabs are:"
-        f"{vocabs_to_dict(vocabs)['src'][0:10]}"
-    )
-    logger.info(f"The decoder start token is: {config.decoder_start_token}")
     return vocabs, transforms
 
 
@@ -98,7 +93,23 @@ def _init_train(config):
     if config.training.train_from and not config.training.update_vocab:
         logger.info("Keeping checkpoint vocabulary")
         vocabs = dict_to_vocabs(checkpoint["vocab"])
-
+    logger.info(
+        "The first 10 tokens of the vocabs are:"
+        f"{vocabs_to_dict(vocabs)['src'][0:10]}"
+    )
+    logger.info(f"The decoder start token is: {config.decoder_start_token}")
+    logger.info(
+        f"bos_token token is: {config.bos_token} id: {vocabs['src']([config.bos_token])}"
+    )
+    logger.info(
+        f"eos_token token is: {config.eos_token} id: {vocabs['src']([config.eos_token])}"
+    )
+    logger.info(
+        f"pad_token token is: {config.pad_token} id: {vocabs['src']([config.pad_token])}"
+    )
+    logger.info(
+        f"unk_token token is: {config.unk_token} id: {vocabs['src']([config.unk_token])}"
+    )
     return checkpoint, vocabs, transforms, config
 
 
