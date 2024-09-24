@@ -9,7 +9,7 @@ import pickle
 import torch.distributed
 
 
-def all_reduce_and_rescale_tensors(tensors, rescale_denom, buffer_size=104857600):
+def all_reduce_and_rescale_tensors(tensors, rescale_denom, buffer_size=10485760):
     """All-reduce and rescale tensors in chunks of the specified size.
 
     Args:
@@ -39,10 +39,7 @@ def all_reduce_and_rescale_tensors(tensors, rescale_denom, buffer_size=104857600
         offset = 0
         for t in buffer:
             numel = t.numel()
-            # t.view(-1).copy_(buffer_t[offset : offset + numel])
-            t = (
-                buffer_t[offset : offset + numel].view_as(t).clone()
-            )  # Clone to create a separate tensor
+            t.view(-1).copy_(buffer_t[offset : offset + numel])
             offset += numel
 
     filled = 0
