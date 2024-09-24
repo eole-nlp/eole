@@ -434,7 +434,7 @@ class MultiHeadedAttention(torch.nn.Module):
             self.position_encoding_type
             not in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
             and not return_attn
-            and query.device.type == "cuda"
+            and query.device.type != "cpu"
         ):
             causal = self.is_decoder and attn_type == "self" and mask is not None
             # keeping this (vs sdpa below) only because it handles windows_size
@@ -460,26 +460,10 @@ class MultiHeadedAttention(torch.nn.Module):
                         query,
                         key,
                         value,
-                        ~mask if (mask is not None and not causal) else None,
+                        ~mask if mask is not None else None,
                         self.dropout_p,
-                        is_causal=causal,
+                        is_causal=False,
                     )
-            attn = None
-        elif (
-            self.position_encoding_type
-            not in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
-            and not return_attn
-            and query.device.type == "mps"
-        ):
-            causal = self.is_decoder and attn_type == "self" and mask is not None
-            attn_output = scaled_dot_product_attention(
-                query,
-                key,
-                value,
-                ~mask if (mask is not None and not causal) else None,
-                self.dropout_p,
-                is_causal=causal,
-            )
             attn = None
         else:
             query /= sqrt(self.dim_per_head)
