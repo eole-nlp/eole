@@ -10,7 +10,8 @@ To make your life easier, run these commands from the recipe directory (here `re
 WMT17 English-German data set:
 
 ```bash
-cd recipes/wmt17
+cd /eole/recipes/wmt17
+apt-get install wget
 bash prepare_wmt_ende_data.sh
 ```
 

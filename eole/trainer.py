@@ -216,7 +216,7 @@ class Trainer(object):
         # Set model in training mode.
         self.model.train()
 
-    def _eval_handler(self, scorer, preds, texts_ref):
+    def _eval_handler(self, scorer, preds, texts_ref, texts_src):
         """Trigger metrics calculations
 
         Args:
@@ -226,7 +226,7 @@ class Trainer(object):
         Returns:
             The metric calculated by the scorer."""
 
-        return scorer.compute_score(preds, texts_ref)
+        return scorer.compute_score(preds, texts_ref, texts_src)
 
     def _accum_count(self, step):
         for i in range(len(self.accum_steps)):
@@ -437,7 +437,7 @@ class Trainer(object):
             if len(self.valid_scorers) > 0:
                 computed_metrics = {}
                 start = time.time()
-                preds, texts_ref = self.scoring_preparator.translate(
+                preds, texts_ref, texts_src = self.scoring_preparator.translate(
                     model=self.model,
                     gpu_rank=self.gpu_rank,
                     step=self.optim.training_step,
@@ -454,6 +454,7 @@ class Trainer(object):
                         scorer=self.valid_scorers[metric]["scorer"],
                         preds=preds,
                         texts_ref=texts_ref,
+                        texts_src=texts_src
                     )
                     computed_metrics[metric] = self.valid_scorers[metric]["value"]
                     logger.info(

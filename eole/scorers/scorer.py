@@ -8,7 +8,7 @@ class Scorer(object):
         # not used by any scorer for now it seems, but why not
         self.config = config
 
-    def compute_score(self, preds, texts_refs):
+    def compute_score(self, preds, texts_refs, texts_srcs):
         raise NotImplementedError
 
 
