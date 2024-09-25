@@ -359,13 +359,14 @@ class BeamSearchBase(DecodeStrategy):
             current_attn = attn[self.select_indices]
             if step == 1:
                 # update global state (step == 1)
-                self.alive_attn = current_attn
+                if self.return_attention:
+                    self.alive_attn = current_attn
                 if self._cov_pen:  # coverage penalty
                     self._prev_penalty = torch.zeros_like(self.topk_log_probs)
                     self._coverage = torch.zeros(
                         [self.beam_size * _B, 1, attn.size(-1)], device=attn.device
                     )
-            else:
+            elif self.return_attention:
                 self.alive_attn = self.alive_attn[self.select_indices]
                 self.alive_attn = torch.cat([self.alive_attn, current_attn], 1)
 
