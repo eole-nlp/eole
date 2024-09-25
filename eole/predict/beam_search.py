@@ -306,9 +306,8 @@ class BeamSearchBase(DecodeStrategy):
 
         if self._stepwise_cov_pen and self._prev_penalty is not None:
             self.topk_log_probs += self._prev_penalty
-            self.topk_log_probs -= self.global_scorer.cov_penalty(
-                self._coverage + attn, self.global_scorer.beta
-            ).view(_B, self.beam_size)
+            cov_penalty = self.global_scorer.cov_penalty(attn, self.global_scorer.beta)
+            self.topk_log_probs -= cov_penalty.view(_B, self.beam_size)
 
         # force the output to be longer than self.min_length
         step = len(self)
@@ -357,30 +356,23 @@ class BeamSearchBase(DecodeStrategy):
         self.maybe_update_forbidden_tokens()
 
         if self.return_attention or self._cov_pen:
-            current_attn = attn[self.select_indices]
             if step == 1:
-                self.alive_attn = current_attn
                 # update global state (step == 1)
                 if self._cov_pen:  # coverage penalty
                     self._prev_penalty = torch.zeros_like(self.topk_log_probs)
-                    self._coverage = current_attn
-            else:
-                self.alive_attn = self.alive_attn[self.select_indices]
-                self.alive_attn = torch.cat([self.alive_attn, current_attn], 1)
-                # update global state (step > 1)
-                if self._cov_pen:
-                    self._coverage = self._coverage[self.select_indices]
-                    self._coverage += current_attn
-                    self._prev_penalty = self.global_scorer.cov_penalty(
-                        self._coverage, beta=self.global_scorer.beta
-                    ).view(_B, self.beam_size)
+                    self._coverage = torch.zeros(
+                        [self.beam_size * _B, 1, attn.size(-1)], device=attn.device
+                    )
 
-        if self._vanilla_cov_pen:
+        if self._vanilla_cov_pen and step > 1:
             # shape: (batch_size x beam_size, 1)
+            self._coverage = torch.cat(
+                [self._coverage, attn[:, :, : self._coverage.size(-1)]], dim=1
+            )
             cov_penalty = self.global_scorer.cov_penalty(
                 self._coverage, beta=self.global_scorer.beta
             )
-            self.topk_scores -= cov_penalty.view(_B, self.beam_size).float()
+            self.topk_scores += cov_penalty.view(_B, self.beam_size).float()
 
         self.is_finished_list = torch.isin(self.topk_ids, self.eos_t).tolist()
 

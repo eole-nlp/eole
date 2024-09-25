@@ -65,7 +65,7 @@ class PenaltyBuilder(object):
         then the ``seq_len`` axis probably sums to (almost) 1.
         """
 
-        penalty = -torch.min(cov, cov.clone().fill_(1.0)).log().sum(-1)
+        penalty = torch.min(cov.sum(1), cov.clone().sum(1).fill_(1.0)).log().sum(1)
         return beta * penalty
 
     def coverage_summary(self, cov, beta=0.0):
