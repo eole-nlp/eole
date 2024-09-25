@@ -6,7 +6,7 @@ seed: 42
 max_length: 384
 
 batch_type: tokens
-batch_size: 512
+batch_size: 4096
 #world_size: 1
 #gpu_ranks: [0]
 world_size: 2
