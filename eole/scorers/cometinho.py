@@ -21,7 +21,8 @@ class CometinhoScorer(Scorer):
             data.append(curr)
         if len(preds) > 0:
             score = self.comet_model.predict(
-                data, batch_size=64, gpus=0, num_workers=0, progress_bar=True)
+                data, batch_size=64, gpus=0, num_workers=0, progress_bar=True
+            )
             score = score.system_score
         else:
             score = 0

@@ -14,8 +14,10 @@ class CometKiwiScorer(Scorer):
         try:
             comet_model_path = download_model(comet_model_name)
         except KeyError:
-            raise PermissionError("Use your hugginface token to download comet-kiwi:\n"
-                                  "huggingface-cli login --token hf_token")
+            raise PermissionError(
+                "Use your hugginface token to download comet-kiwi:\n"
+                "huggingface-cli login --token hf_token"
+            )
         self.comet_model = load_from_checkpoint(comet_model_path)
 
     def compute_score(self, preds, texts_refs, texts_srcs):
@@ -25,7 +27,8 @@ class CometKiwiScorer(Scorer):
             data.append(curr)
         if len(preds) > 0:
             score = self.comet_model.predict(
-                data, batch_size=64, gpus=0, num_workers=0, progress_bar=True)
+                data, batch_size=64, gpus=0, num_workers=0, progress_bar=True
+            )
             score = score.system_score
         else:
             score = 0

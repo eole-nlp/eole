@@ -454,7 +454,7 @@ class Trainer(object):
                         scorer=self.valid_scorers[metric]["scorer"],
                         preds=preds,
                         texts_ref=texts_ref,
-                        texts_src=texts_src
+                        texts_src=texts_src,
                     )
                     computed_metrics[metric] = self.valid_scorers[metric]["value"]
                     logger.info(
