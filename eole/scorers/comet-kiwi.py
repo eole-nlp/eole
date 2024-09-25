@@ -5,10 +5,10 @@ from comet import download_model, load_from_checkpoint
 
 @register_scorer(metric="COMET-KIWI")
 class CometKiwiScorer(Scorer):
-    """COMET scorer class."""
+    """Comet-kiwi scorer class."""
 
     def __init__(self, config):
-        """Initialize necessary options for sentencepiece."""
+        """Download if needed and load Comet-kiwi model."""
         super().__init__(config)
         comet_model_name = "Unbabel/wmt22-cometkiwi-da"
         try:

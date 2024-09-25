@@ -5,10 +5,10 @@ from comet import download_model, load_from_checkpoint
 
 @register_scorer(metric="COMETINHO")
 class CometinhoScorer(Scorer):
-    """COMET scorer class."""
+    """Cometinho scorer class."""
 
     def __init__(self, config):
-        """Initialize necessary options for sentencepiece."""
+        """Download if needed and load Cometinho model."""
         super().__init__(config)
         comet_model_name = "Unbabel/eamt22-cometinho-da"
         comet_model_path = download_model(comet_model_name)
