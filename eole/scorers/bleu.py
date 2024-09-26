@@ -7,9 +7,9 @@ from sacrebleu import corpus_bleu
 class BleuScorer(Scorer):
     """BLEU scorer class."""
 
-    def __init__(self, config):
+    def __init__(self, config, model_name):
         """Initialize necessary options for sentencepiece."""
-        super().__init__(config)
+        super().__init__(config, model_name)
 
     def compute_score(self, preds, texts_refs, texts_srcs):
         if len(preds) > 0:
