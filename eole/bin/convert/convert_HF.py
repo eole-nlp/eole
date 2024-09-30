@@ -589,6 +589,7 @@ class LlamaHFConverter(BaseBin):
         optional_eos = []
         mapped_tokens = []
         gpt2_pretok = False
+        share_decoder_embeddings = False
 
         # ALL THESE IF SHOULD BE HANDLED IN MAPPINGS
         if arch == "PhiForCausalLM":
@@ -699,6 +700,9 @@ class LlamaHFConverter(BaseBin):
                         w = get_weight(checkpoint, source)
                         if w is not None:
                             eole_safetensor[target] = w
+                        elif target == "generator.weight":
+                            # lm_head is not in HF safetensors -> share from embeddings matrix
+                            share_decoder_embeddings = True
 
                         # not sure why we're doing this if generator.bias not in key_map
                         if target == "generator.weight" and w is not None:
@@ -706,6 +710,11 @@ class LlamaHFConverter(BaseBin):
                                 eole_safetensor["generator.weight"].size(0),
                                 dtype=TORCH_DTYPES[compute_dtype],
                             )
+                if torch.equal(
+                    eole_safetensor.get("generator.weight", None),
+                    eole_safetensor["tgt_emb.embeddings.weight"],
+                ):
+                    share_decoder_embeddings = True
 
             if wmap_path:
                 weightmap = wmap["weight_map"]
@@ -987,7 +996,9 @@ class LlamaHFConverter(BaseBin):
 
         if generation_config_json is not None:
             with open(generation_config_json, encoding="utf-8") as f:
-                data = json.load(f)
+                data = json.loads(
+                    f.read().replace(",\n}", "\n}")
+                )  # dirty patch to remove trailing comma...
                 generation_config_dict = {}
                 # we probably need a better mapping at some point
                 keys = ["top_k", "top_p", "temperature", "max_length"]
@@ -1122,6 +1133,7 @@ class LlamaHFConverter(BaseBin):
                 num_experts=num_experts,
                 num_experts_per_tok=num_experts_per_tok,
                 left_pad=left_pad,
+                share_decoder_embeddings=share_decoder_embeddings,
             ),
             training=TrainingConfig(
                 compute_dtype=compute_dtype,
