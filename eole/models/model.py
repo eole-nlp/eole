@@ -864,6 +864,7 @@ class DecoderModel(BaseModel):
             decoder=decoder,
             tgt_emb=tgt_emb,
             add_estimator=model_config.add_estimator,
+            hidden_size=model_config.decoder.hidden_size,
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 

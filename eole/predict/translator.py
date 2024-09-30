@@ -245,7 +245,9 @@ class Translator(Inference):
             ]
 
             # Prepare estimator input = decoder out of each pred with initial enc_out
-            dec_in = pad_sequence(dec_in, batch_first=True, padding_value=1)
+            dec_in = pad_sequence(
+                dec_in, batch_first=True, padding_value=self._tgt_pad_idx
+            )
             prepend_value = torch.full(
                 (dec_in.size(0), 1),
                 self._tgt_bos_idx,
