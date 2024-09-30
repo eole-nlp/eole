@@ -225,6 +225,7 @@ class BaseModel(nn.Module):
             nn.Linear,
             in_features=model_config.decoder.hidden_size,
             out_features=len(vocabs["tgt"]),
+            bias=model_config.generator_bias,
         )
         if model_config.share_decoder_embeddings:
             generator.weight = self.tgt_emb.embeddings.weight

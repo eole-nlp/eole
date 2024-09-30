@@ -433,6 +433,10 @@ class BaseModelConfig(Config):
         description="Which function to use for generating probabilities "
         "over the target vocabulary.",
     )
+    generator_bias: bool = Field(
+        default=True,
+        description="Control whether or not the generator Linear module has bias weights.",
+    )
     add_estimator: bool = Field(default=False, description="Add estimator layer")
 
     left_pad: bool = Field(

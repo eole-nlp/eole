@@ -590,6 +590,7 @@ class LlamaHFConverter(BaseBin):
         mapped_tokens = []
         gpt2_pretok = False
         share_decoder_embeddings = False
+        generator_bias = False
 
         # ALL THESE IF SHOULD BE HANDLED IN MAPPINGS
         if arch == "PhiForCausalLM":
@@ -704,12 +705,9 @@ class LlamaHFConverter(BaseBin):
                             # lm_head is not in HF safetensors -> share from embeddings matrix
                             share_decoder_embeddings = True
 
-                        # not sure why we're doing this if generator.bias not in key_map
-                        if target == "generator.weight" and w is not None:
-                            eole_safetensor["generator.bias"] = torch.zeros(
-                                eole_safetensor["generator.weight"].size(0),
-                                dtype=TORCH_DTYPES[compute_dtype],
-                            )
+                        if target == "generator.bias":
+                            generator_bias = True
+
                 if torch.equal(
                     eole_safetensor.get("generator.weight", None),
                     eole_safetensor["tgt_emb.embeddings.weight"],
@@ -1134,6 +1132,7 @@ class LlamaHFConverter(BaseBin):
                 num_experts_per_tok=num_experts_per_tok,
                 left_pad=left_pad,
                 share_decoder_embeddings=share_decoder_embeddings,
+                generator_bias=generator_bias,
             ),
             training=TrainingConfig(
                 compute_dtype=compute_dtype,
