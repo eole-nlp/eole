@@ -29,7 +29,7 @@ class ExtractEmbeddings(BaseBin):
     @classmethod
     def run(cls, args):
         args.cuda = args.gpu > -1
-        if args.cuda:
+        if args.cuda and torch.cuda.is_available():
             torch.cuda.set_device(args.gpu)
 
         # Add in default model arguments, possibly added since training.

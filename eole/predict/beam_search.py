@@ -138,6 +138,14 @@ class BeamSearchBase(DecodeStrategy):
         self.topk_scores = torch.empty(
             (self.batch_size, self.beam_size), dtype=torch.float, device=device
         )
+        # MPS doesn't support torch.isin() in Torch 2.3
+        # Avoiding need to CPU fallback by adding alternative implementation
+        # Can be removed when Torch 2.4 is supported
+        self._is_finished_list = (
+            self._is_finished_list_mps
+            if (device is not None and device.type == "mps")
+            else self._is_finished_list_isin
+        )
         """
         self.topk_ids = torch.empty(
             (self.batch_size, self.beam_size), dtype=torch.long, device=device
@@ -382,9 +390,14 @@ class BeamSearchBase(DecodeStrategy):
             )
             self.topk_scores -= cov_penalty.view(_B, self.beam_size).float()
 
-        self.is_finished_list = torch.isin(self.topk_ids, self.eos_t).tolist()
-
+        self.is_finished_list = self._is_finished_list()
         self.ensure_max_length()
+
+    def _is_finished_list_isin(self):
+        return torch.isin(self.topk_ids, self.eos_t).tolist()
+
+    def _is_finished_list_mps(self):
+        return (self.topk_ids.unsqueeze(1) == self.eos_t).sum(dim=1).bool().tolist()
 
 
 class BeamSearch(BeamSearchBase):

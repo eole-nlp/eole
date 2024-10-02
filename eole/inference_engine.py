@@ -4,6 +4,7 @@ from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.utils.distributed import ErrorHandler
 from eole.utils.distributed_workers import spawned_infer
 from eole.utils.logging import init_logger
+from eole.utils.misc import get_device_type
 from eole.transforms import get_transforms_cls, make_transforms, TransformPipe
 
 
@@ -250,7 +251,7 @@ class InferenceEngineCT2(InferenceEngine):
         if config.world_size == 1:
             self.device_id = config.gpu_ranks[0]
             self.device_index = config.gpu_ranks
-            self.device = "cuda"
+            self.device = get_device_type()
         else:
             self.device_id = -1
             self.device_index = 0

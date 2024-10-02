@@ -115,7 +115,8 @@ def _init_train(config):
 
 def configure_process(config, device_id):
     if device_id >= 0:
-        torch.cuda.set_device(device_id)
+        if torch.cuda.is_available():
+            torch.cuda.set_device(device_id)
     set_random_seed(config.seed, device_id >= 0)
 
 

@@ -14,7 +14,7 @@ from eole.modules.lora import (
 )
 from torch.nn.utils import skip_init
 from torch.nn.init import xavier_uniform_, zeros_, uniform_
-from eole.utils.misc import use_gpu, sequence_mask
+from eole.utils.misc import use_gpu, sequence_mask, get_device
 from eole.inputters.inputter import dict_to_vocabs
 
 # copied from model_builder to facilitate tests, but should not live there in the end
@@ -259,11 +259,11 @@ class BaseModel(nn.Module):
             running_config.world_size > 1
             and running_config.parallel_mode == "tensor_parallel"
         ):
-            device = torch.device("cuda")
+            device = get_device()
             offset = device_id
         else:
             if use_gpu(running_config):
-                device = torch.device("cuda")
+                device = get_device()
             else:
                 device = torch.device("cpu")
             offset = 0
@@ -340,7 +340,7 @@ class BaseModel(nn.Module):
             if use_gpu(running_config):
                 if len(running_config.gpu_ranks) > 0:
                     device_id = running_config.gpu_ranks[0]
-                device = torch.device("cuda", device_id)
+                device = get_device(device_id=device_id)
             else:
                 device = torch.device("cpu")
             offset = 0
