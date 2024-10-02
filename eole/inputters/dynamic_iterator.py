@@ -281,6 +281,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
                 bucket.append(
                     numericalize(self.vocabs, example, model_type=self.model_type)
                 )
+
         return bucket
 
     def _add_indice(self, bucket):

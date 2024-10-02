@@ -35,7 +35,7 @@ __all__ = [
 def register_transform(name):
     """Transform register that can be used to add new transform class."""
 
-    def register_transfrom_cls(cls):
+    def register_transform_cls(cls):
         if name in AVAILABLE_TRANSFORMS:
             raise ValueError("Cannot register duplicate transform ({})".format(name))
         if not issubclass(cls, Transform):
@@ -47,7 +47,7 @@ def register_transform(name):
         cls.name = name
         return cls
 
-    return register_transfrom_cls
+    return register_transform_cls
 
 
 # Auto import python files in this directory
