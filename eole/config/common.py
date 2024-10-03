@@ -78,7 +78,7 @@ class QuantizeConfig(Config):
         default=[], description="List of layers to be compressed in 4/8bit."
     )  # validate against list of layers names ?
     quant_type: Literal[
-        "", "bnb_9bit", "bnb_FP4", "bnb_NF4", "awq_gemm", "awq_gemv"
+        "", "bnb_8bit", "bnb_FP4", "bnb_NF4", "awq_gemm", "awq_gemv"
     ] = Field(default="", description="Type of compression.")
     w_bit: int = Field(
         default=4, description="W_bit quantization"

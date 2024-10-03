@@ -14,7 +14,7 @@ from eole.modules.lora import (
 )
 from torch.nn.utils import skip_init
 from torch.nn.init import xavier_uniform_, zeros_, uniform_
-from eole.utils.misc import use_gpu, sequence_mask
+from eole.utils.misc import use_gpu, sequence_mask, get_device
 from eole.inputters.inputter import dict_to_vocabs
 
 # copied from model_builder to facilitate tests, but should not live there in the end
@@ -113,6 +113,7 @@ class BaseModel(nn.Module):
         self.tgt_emb = kwargs.get("tgt_emb", None)
         self.add_estimator = kwargs.get("add_estimator", False)
         self.hidden_size = kwargs.get("hidden_size", None)
+        self.share_decoder_embeddings = False
         if self.encoder is not None and self.src_emb is None:
             raise ValueError("An Encoder needs source Embeddings")
         if self.decoder is not None and self.tgt_emb is None:
@@ -224,6 +225,7 @@ class BaseModel(nn.Module):
             nn.Linear,
             in_features=model_config.decoder.hidden_size,
             out_features=len(vocabs["tgt"]),
+            bias=model_config.generator_bias,
         )
         if model_config.share_decoder_embeddings:
             generator.weight = self.tgt_emb.embeddings.weight
@@ -259,11 +261,11 @@ class BaseModel(nn.Module):
             running_config.world_size > 1
             and running_config.parallel_mode == "tensor_parallel"
         ):
-            device = torch.device("cuda")
+            device = get_device()
             offset = device_id
         else:
             if use_gpu(running_config):
-                device = torch.device("cuda")
+                device = get_device()
             else:
                 device = torch.device("cpu")
             offset = 0
@@ -341,7 +343,7 @@ class BaseModel(nn.Module):
             if use_gpu(running_config):
                 if len(running_config.gpu_ranks) > 0:
                     device_id = running_config.gpu_ranks[0]
-                device = torch.device("cuda", device_id)
+                device = get_device(device_id=device_id)
             else:
                 device = torch.device("cpu")
             offset = 0
@@ -439,6 +441,8 @@ class BaseModel(nn.Module):
         model = cls.build_blocks(
             model_config, vocabs, running_config=running_config
         )  # corresponds to build_task_specific_model
+        # TODO: handle this better at some point?
+        model.share_decoder_embeddings = model_config.share_decoder_embeddings
         # generator -> shall it be called within build_blocks?
         if model_config.decoder is not None:
             model.build_generator(model_config, vocabs)
@@ -707,6 +711,15 @@ class BaseModel(nn.Module):
                             + "."
                             + param_name
                         )
+                        if (
+                            f"{name}.{param_name}"
+                            in ["generator.weight", "generator.bias"]
+                            and self.share_decoder_embeddings
+                        ):
+                            logger.info(
+                                "└─> Sharing from embeddings matrix since "
+                                "`share_decoder_embeddings` flag is enabled."
+                            )
                     if getattr(running_config, "compute_dtype", None) == torch.int8:
                         torch.quantization.quantize_dynamic(module, inplace=True)
                     else:

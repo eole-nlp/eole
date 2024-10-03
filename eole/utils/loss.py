@@ -10,6 +10,7 @@ from eole.modules.sparse_losses import SparsemaxLoss
 from eole.modules.sparse_activations import LogSparsemax
 from eole.constants import DefaultTokens
 from eole.models.model import DecoderModel
+from eole.utils.misc import get_device
 
 try:
     import ctranslate2
@@ -75,8 +76,9 @@ class LossCompute(nn.Module):
         training/validation logging.
         The Criterion and LossCompute options are triggered by opt settings.
         """
+
         device = torch.device(
-            "cuda" if eole.utils.misc.use_gpu(config.training) else "cpu"
+            get_device() if eole.utils.misc.use_gpu(config.training) else "cpu"
         )
         pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
         padding_idx = vocabs["tgt"][pad_token]
