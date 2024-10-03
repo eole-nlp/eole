@@ -280,6 +280,7 @@ class BaseModel(nn.Module):
 
         if running_config.freeze_decoder:
             self.decoder.requires_grad_(False)
+            self.generator.requires_grad_(False)
 
     @classmethod
     def inference_logic(self, checkpoint, running_config, vocabs, device_id=None):

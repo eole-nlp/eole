@@ -239,7 +239,7 @@ class QLoraLinear(metaclass=QLinear):
 
 def mark_only_lora_as_trainable(model: nn.Module, bias: str = "none") -> None:
     for n, p in model.named_parameters():
-        if "lora_" not in n:
+        if "lora_" not in n and "estimator" not in n:
             p.requires_grad = False
     if bias == "none":
         return
