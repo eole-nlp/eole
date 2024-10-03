@@ -577,6 +577,8 @@ class LlamaHFConverter(BaseBin):
             quant_layers = []
             params = ["weight", "bias"]
 
+        share_decoder_embeddings = config.get("tie_word_embeddings", False)
+
         add_qkvbias = False
         add_ffnbias = False
         shared_layer_norm = False
@@ -589,7 +591,6 @@ class LlamaHFConverter(BaseBin):
         optional_eos = []
         mapped_tokens = []
         gpt2_pretok = False
-        share_decoder_embeddings = False
         generator_bias = False
 
         # ALL THESE IF SHOULD BE HANDLED IN MAPPINGS
@@ -689,6 +690,8 @@ class LlamaHFConverter(BaseBin):
                     "encoder.layer_norm.bias",
                     "generator.weight",
                 ]
+                if share_decoder_embeddings:
+                    targetlist.remove("generator.weight")
                 for target in targetlist:
                     if target in key_maps[arch].keys():
                         source = key_maps[arch][target]
@@ -701,18 +704,9 @@ class LlamaHFConverter(BaseBin):
                         w = get_weight(checkpoint, source)
                         if w is not None:
                             eole_safetensor[target] = w
-                        elif target == "generator.weight":
-                            # lm_head is not in HF safetensors -> share from embeddings matrix
-                            share_decoder_embeddings = True
 
                         if target == "generator.bias":
                             generator_bias = True
-
-                if torch.equal(
-                    eole_safetensor.get("generator.weight", None),
-                    eole_safetensor["tgt_emb.embeddings.weight"],
-                ):
-                    share_decoder_embeddings = True
 
             if wmap_path:
                 weightmap = wmap["weight_map"]
