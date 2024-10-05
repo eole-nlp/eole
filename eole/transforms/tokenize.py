@@ -172,7 +172,9 @@ class TokenizerTransform(Transform):
         # This method embeds a custom logic to correctly handle certain placeholders
         # in case the tokenizer doesn't preserve them.
         sentence = " ".join(tokens)
-        delim_list = [mapped_toks[0] for mapped_toks in self.mapped_tokens] + [self.eos_token]
+        delim_list = [mapped_toks[0] for mapped_toks in self.mapped_tokens] + [
+            self.eos_token
+        ]
         pattern = f"({'|'.join(map(re.escape, delim_list))})"
         # Split sentence on EOS and Added-Tokens
         sent_list = re.split(pattern, sentence)
@@ -194,7 +196,9 @@ class TokenizerTransform(Transform):
                 for _chunk in _sentence_chunks:
                     _sentence_tokens += self.tokenize_string(_chunk, side, is_train)
                     if _chunk[-1] == " ":
-                        trailingspace = self.tokenize_string(" a", side, is_train)[0][:-1]
+                        trailingspace = self.tokenize_string(" a", side, is_train)[0][
+                            :-1
+                        ]
                         _sentence_tokens += [trailingspace]
                     _sentence_tokens += [
                         self.pad_token  # not sure this covers all cases
