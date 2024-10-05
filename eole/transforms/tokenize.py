@@ -172,9 +172,12 @@ class TokenizerTransform(Transform):
         # This method embeds a custom logic to correctly handle certain placeholders
         # in case the tokenizer doesn't preserve them.
         sentence = " ".join(tokens)
-        delim_list = [mapped_toks[0] for mapped_toks in self.mapped_tokens] + [
-            self.eos_token
-        ]
+        if self.mapped_tokens is not None:
+            delim_list = [mapped_toks[0] for mapped_toks in self.mapped_tokens] + [
+                self.eos_token
+            ]
+        else:
+            delim_list = [self.eos_token]
         pattern = f"({'|'.join(map(re.escape, delim_list))})"
         # Split sentence on EOS and Added-Tokens
         sent_list = re.split(pattern, sentence)
