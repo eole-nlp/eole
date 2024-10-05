@@ -249,6 +249,7 @@ class SentencePieceTransform(TokenizerTransform):
     def __init__(self, config):
         """Initialize necessary options for sentencepiece."""
         super().__init__(config)
+        self.mapped_tokens = []
 
     def _set_seed(self, seed):
         """set seed to ensure reproducibility."""
@@ -335,6 +336,7 @@ class BPETransform(TokenizerTransform):
     def _parse_config(self):
         super()._parse_config()
         self.dropout = {"src": self.src_subword_alpha, "tgt": self.tgt_subword_alpha}
+        self.mapped_tokens = []
 
     def _set_seed(self, seed):
         """set seed to ensure reproducibility."""
