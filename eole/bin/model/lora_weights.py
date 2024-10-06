@@ -118,6 +118,10 @@ class LoraWeights(BaseBin):
             f.append(safe_open(shard, framework="pt", device="cpu"))
             for key in f[i].keys():
                 shard_dict[key] = model_state_dict[key]
+            if i == 0:
+                for key in model_state_dict.keys():
+                    if "estimator" in key:
+                        shard_dict[key] = model_state_dict[key]
             logger.info(
                 "saving shard" + args.output + "/model.{:02d}.safetensors".format(i)
             )

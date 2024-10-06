@@ -6,11 +6,11 @@ seed: 42
 max_length: 384
 
 batch_type: tokens
-batch_size: 4096
-#world_size: 1
-#gpu_ranks: [0]
-world_size: 2
-gpu_ranks: [0, 1]
+batch_size: 8192
+world_size: 1
+gpu_ranks: [0]
+#world_size: 2
+#gpu_ranks: [0, 1]
 parallel_mode: "tensor_parallel"
 #quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
 #quant_type: "bnb_NF4"

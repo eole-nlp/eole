@@ -282,6 +282,7 @@ class BaseModel(nn.Module):
 
         if running_config.freeze_decoder:
             self.decoder.requires_grad_(False)
+            self.generator.requires_grad_(False)
 
     @classmethod
     def inference_logic(self, checkpoint, running_config, vocabs, device_id=None):
@@ -834,10 +835,8 @@ class EncoderDecoderModel(BaseModel):
             tgt_pad_mask=tgt_pad_mask,
         )
 
-        if (
-            self.add_estimator
-        ):  # on prend les average de dec_out en tenant compte du mask
-            pad_mask2 = ~dec_in.eq(1)
+        if self.add_estimator:  # we take the average of dec_out using the pad mask
+            pad_mask2 = ~dec_in.eq(pad_idx)
             in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask2.sum(dim=1, keepdim=True).float()
@@ -868,12 +867,19 @@ class DecoderModel(BaseModel):
             raise ValueError("DecoderModel should not be used" "with an encoder")
         if self.decoder is None:
             raise ValueError("DecoderModel requires a Decoder")
+        if self.add_estimator:
+            self.estimator = FeedForward(self.hidden_size)
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         tgt_emb = build_tgt_emb(model_config, vocabs, running_config=running_config)
         decoder = build_decoder(model_config, running_config=running_config)
-        return cls(decoder=decoder, tgt_emb=tgt_emb)
+        return cls(
+            decoder=decoder,
+            tgt_emb=tgt_emb,
+            add_estimator=model_config.add_estimator,
+            hidden_size=model_config.decoder.hidden_size,
+        )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
     def forward(self, src, tgt, src_len, bptt=False, with_align=False):
@@ -892,7 +898,17 @@ class DecoderModel(BaseModel):
             with_align=with_align,
             tgt_pad_mask=pad_mask,
         )
-        return dec_out, attns, None
+
+        if self.add_estimator:  # we take the average of dec_out using the pad mask
+            pad_mask2 = ~src.eq(pad_idx)
+            in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
+                dim=1
+            ) / pad_mask2.sum(dim=1, keepdim=True).float()
+            estim = self.estimator(in_estim2.to(dec_out.dtype)).squeeze(-1)
+        else:
+            estim = None
+
+        return dec_out, attns, estim
 
     def update_dropout(self, dropout, attention_dropout):
         self.decoder.update_dropout(dropout, attention_dropout)
@@ -936,7 +952,8 @@ class EncoderModel(BaseModel):
         if self.add_estimator:
             # Version with average
             """
-            pad_mask1 = ~src.eq(1)
+            pad_idx = self.tgt_emb.word_padding_idx
+            pad_mask1 = ~src.eq(pad_idx)
             in_estim1 = (enc_out * pad_mask1.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask1.sum(dim=1, keepdim=True).float()

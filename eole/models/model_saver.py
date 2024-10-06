@@ -163,6 +163,9 @@ class TrainingModelSaver(ModelSaverBase):
             and self.config.training.lora_embedding
         ):
             model_state_dict = lora_state_dict(model, bias="lora_only")
+            for k, v in model.state_dict().items():
+                if "estimator" in k:
+                    model_state_dict[k] = v
         else:
             model_state_dict = model.state_dict()
         return model_state_dict
