@@ -17,6 +17,6 @@ def build_scorers(config, scorers_cls):
     """Build scorers in `scorers_cls`."""
     scorers = {}
     for metric, scorer_cls in scorers_cls.items():
-        scorer_obj = scorer_cls(config, metric)
+        scorer_obj = scorer_cls(config)
         scorers[metric] = {"scorer": scorer_obj, "value": 0}
     return scorers

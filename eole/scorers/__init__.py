@@ -42,8 +42,10 @@ def register_scorer(metric):
                         metric_name, cls.__name__
                     )
                 )
-            AVAILABLE_SCORERS[metric_name] = cls
-        return cls
+            # ensure each registered scorer to have the correct metric value
+            transformed_cls = type(cls.__name__, (cls,), {"metric": metric_name})
+            AVAILABLE_SCORERS[metric_name] = transformed_cls
+        return transformed_cls
 
     return register_scorer_cls
 

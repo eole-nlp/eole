@@ -7,15 +7,14 @@ from comet import download_model, load_from_checkpoint
 class CometScorer(Scorer):
     """Comet scorer class."""
 
-    def __init__(self, config, model_name):
+    def __init__(self, config):
         """Download if needed and load Comet model."""
-        super().__init__(config, model_name)
-        self.model_name = model_name
-        if self.model_name == "COMET":
+        super().__init__(config)
+        if self.metric == "COMET":
             comet_model_name = "Unbabel/wmt22-comet-da"
-        elif self.model_name == "COMETINHO":
+        elif self.metric == "COMETINHO":
             comet_model_name = "Unbabel/eamt22-cometinho-da"
-        elif self.model_name == "COMET-KIWI":
+        elif self.metric == "COMET-KIWI":
             comet_model_name = "Unbabel/wmt22-cometkiwi-da"
         try:
             comet_model_path = download_model(comet_model_name)
@@ -28,7 +27,7 @@ class CometScorer(Scorer):
 
     def compute_score(self, preds, texts_refs, texts_srcs):
         data = []
-        if self.model_name == "COMET-KIWI":
+        if self.metric == "COMET-KIWI":
             for _src, _hyp in zip(texts_srcs, preds):
                 current_segment = {"src": _src, "mt": _hyp}
                 data.append(current_segment)
