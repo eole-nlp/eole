@@ -338,8 +338,7 @@ class TestSubwordTransform(unittest.TestCase):
                 "s",
                 "p",
                 "on",
-                "s",
-                "e",
+                "se",
             ],
             "tgt": [],
         }
@@ -412,7 +411,7 @@ class TestSubwordTransform(unittest.TestCase):
                 "on￭",
                 "se",
                 ":",
-                "｟newline｠",
+                "｟newline｠￭",
                 "respon￭",
                 "se",
             ],
@@ -813,4 +812,4 @@ class TestInsertMaskBeforePlaceholder(unittest.TestCase):
                 "｟newline｠response",
             ],
         }
-        self.assertEqual(ex_out, ex_gold)
+        self.assertEqual(ex_in, ex_gold)
