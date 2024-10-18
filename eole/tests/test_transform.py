@@ -305,7 +305,7 @@ class TestSubwordTransform(unittest.TestCase):
         # Test mask location
         ex = {
             "src": "### Instruction: ｟newline｠instruction｟newline｠｟newline｠"
-            "### Response : ｟newline｠｟_mask_before_｠response",
+            "### Response : ｟newline｠response",
             "tgt": "",
         }
         ex["src"] = ex["src"].split(" ")
@@ -334,7 +334,6 @@ class TestSubwordTransform(unittest.TestCase):
                 "e",
                 "▁",
                 ":",
-                "<blank>",
                 "▁re",
                 "s",
                 "p",
@@ -384,7 +383,7 @@ class TestSubwordTransform(unittest.TestCase):
         ex = {
             "src": (
                 "### Instruction: ｟newline｠instruction｟newline｠｟newline｠"
-                "### Response : ｟newline｠｟_mask_before_｠response"
+                "### Response : ｟newline｠response"
             ),
             "tgt": "",
         }
@@ -414,7 +413,6 @@ class TestSubwordTransform(unittest.TestCase):
                 "se",
                 ":",
                 "｟newline｠",
-                "<blank>",
                 "respon￭",
                 "se",
             ],
@@ -461,7 +459,7 @@ class TestSubwordTransform(unittest.TestCase):
         ex = {
             "src": (
                 "### Instruction: ｟newline｠instruction｟newline｠｟newline｠"
-                "### Response : ｟newline｠｟_mask_before_｠response"
+                "### Response : ｟newline｠response"
             ),
             "tgt": "",
         }
@@ -491,7 +489,6 @@ class TestSubwordTransform(unittest.TestCase):
                 "se",
                 "▁",
                 ":",
-                "<blank>",
                 "▁re",
                 "s",
                 "p",
@@ -805,7 +802,7 @@ class TestInsertMaskBeforePlaceholder(unittest.TestCase):
                 "｟newline｠instruction｟newline｠｟newline｠###",
                 "Response",
                 ":",
-                "｟newline｠｟_mask_before_｠response",
+                "｟newline｠response",
             ],
             "tgt": [
                 "###",
@@ -813,7 +810,7 @@ class TestInsertMaskBeforePlaceholder(unittest.TestCase):
                 "｟newline｠instruction｟newline｠｟newline｠###",
                 "Response",
                 ":",
-                "｟newline｠｟_mask_before_｠response",
+                "｟newline｠response",
             ],
         }
         self.assertEqual(ex_out, ex_gold)
