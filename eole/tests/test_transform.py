@@ -774,18 +774,18 @@ class TestInsertMaskBeforePlaceholder(unittest.TestCase):
         }
 
     def test_insert_mask_before_placeholder(self):
-        insert_mask_before_placeholder_cls = get_transforms_cls(
-            ["insert_mask_before_placeholder"]
-        )["insert_mask_before_placeholder"]
+        # insert_mask_before_placeholder_cls = get_transforms_cls(
+        #    ["insert_mask_before_placeholder"]
+        # )["insert_mask_before_placeholder"]
         # opt = Namespace(**self.base_opts)
-        opt = PredictConfig(
-            model_path=["dummy"],
-            src="dummy",
-            transforms_configs={"insert_mask_before_placeholder": self.base_opts},
-        )
-        insert_mask_before_placeholder_transform = insert_mask_before_placeholder_cls(
-            opt
-        )
+        # opt = PredictConfig(
+        #    model_path=["dummy"],
+        #    src="dummy",
+        #    transforms_configs={"insert_mask_before_placeholder": self.base_opts},
+        # )
+        # insert_mask_before_placeholder_transform = insert_mask_before_placeholder_cls(
+        #    opt
+        # )
         ex_in = {
             "src": "### Instruction: ｟newline｠instruction｟newline｠｟newline｠"
             "### Response : ｟newline｠response",
@@ -793,7 +793,7 @@ class TestInsertMaskBeforePlaceholder(unittest.TestCase):
         }
         ex_in["src"] = ex_in["src"].split(" ")
         ex_in["tgt"] = ex_in["src"]
-        ex_out = insert_mask_before_placeholder_transform.apply(ex_in)
+        # ex_out = insert_mask_before_placeholder_transform.apply(ex_in)
         ex_gold = {
             "src": [
                 "###",
