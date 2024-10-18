@@ -172,6 +172,8 @@ class TokenizerTransform(Transform):
         # This method embeds a custom logic to correctly handle certain placeholders
         # in case the tokenizer doesn't preserve them.
         sentence = " ".join(tokens)
+        # We need to split sentence on EOS and mapped_tokens
+        # to make sure sentencepiece add a joiner just after special tokens
         if self.mapped_tokens is not None:
             delim_list = [mapped_toks[0] for mapped_toks in self.mapped_tokens] + [
                 self.eos_token
@@ -179,7 +181,6 @@ class TokenizerTransform(Transform):
         else:
             delim_list = [self.eos_token]
         pattern = f"({'|'.join(map(re.escape, delim_list))})"
-        # Split sentence on EOS and Added-Tokens
         sent_list = re.split(pattern, sentence)
         # remove empty elements
         sent_list = [item for item in sent_list if item]
@@ -190,23 +191,11 @@ class TokenizerTransform(Transform):
             if _sentence in delim_list:
                 segmented.append(_sentence)
             else:
-                # Locate the mask-before placeholders
-                # (to zero-out the prompt loss during LM finetuning).
-                _sentence_chunks = _sentence.split(DefaultTokens.MASK_BEFORE)
-                # Tokenize each chunk separately and insert the padding token.
-                # between each sequence of tokens.
-                _sentence_tokens = []
-                for _chunk in _sentence_chunks:
-                    _sentence_tokens += self.tokenize_string(_chunk, side, is_train)
-                    if _chunk[-1] == " ":
-                        trailingspace = self.tokenize_string(" a", side, is_train)[0][
-                            :-1
-                        ]
-                        _sentence_tokens += [trailingspace]
-                    _sentence_tokens += [
-                        self.pad_token  # not sure this covers all cases
-                    ]
-                segmented.extend(_sentence_tokens[:-1])
+                _sentence_tokens = self.tokenize_string(_sentence, side, is_train)
+                if _sentence[-1] == " ":
+                    trailingspace = self.tokenize_string(" a", side, is_train)[0][:-1]
+                    _sentence_tokens += [trailingspace]
+                segmented.extend(_sentence_tokens)
         return segmented
 
     def apply(self, example, is_train=False, stats=None, **kwargs):

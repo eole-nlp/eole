@@ -183,11 +183,11 @@ class GeneratorLM(Inference):
                 return_attn=False,
                 tgt_pad_mask=tgt_pad_mask,
             )
-            pad_mask2 = ~dec_in.eq(self._tgt_pad_idx)
-            in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
+            pad_mask = ~dec_in.eq(self._tgt_pad_idx)
+            in_estim = (dec_out * pad_mask.unsqueeze(-1).float()).sum(
                 dim=1
-            ) / pad_mask2.sum(dim=1, keepdim=True).float()
-            estim = self.model.estimator(in_estim2.to(dec_out.dtype)).squeeze(-1)
+            ) / pad_mask.sum(dim=1, keepdim=True).float()
+            estim = self.model.estimator(in_estim.to(dec_out.dtype)).squeeze(-1)
             estim = [
                 [estim[i].item() for i in range(j, j + self.beam_size)]
                 for j in range(0, len(estim), self.beam_size)
