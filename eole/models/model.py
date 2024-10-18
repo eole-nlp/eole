@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from glob import glob
+from collections import defaultdict
 import os
 
 from eole.utils.logging import logger
@@ -13,7 +14,7 @@ from eole.modules.lora import (
 )
 from torch.nn.utils import skip_init
 from torch.nn.init import xavier_uniform_, zeros_, uniform_, normal_
-from eole.utils.misc import use_gpu, sequence_mask
+from eole.utils.misc import use_gpu, sequence_mask, get_device
 from eole.inputters.inputter import dict_to_vocabs
 
 # copied from model_builder to facilitate tests, but should not live there in the end
@@ -32,11 +33,7 @@ def build_encoder(model_config, running_config=None):
     Args:
         opt: the option in current environment.
     """
-    enc_type = (
-        model_config.encoder.encoder_type
-        if model_config.model_type == "text"
-        else model_config.model.model_type
-    )
+    enc_type = model_config.encoder.encoder_type
     return str2enc[enc_type].from_config(
         model_config.encoder, running_config=running_config
     )  # full config for now
@@ -60,19 +57,18 @@ def build_decoder(model_config, running_config=None):
 
 def build_src_emb(model_config, vocabs, running_config=None):
     # Build embeddings.
-    if model_config.model_type == "text":
-        src_emb = Embeddings(
-            word_vec_size=model_config.embeddings.src_word_vec_size,
-            position_encoding=model_config.embeddings.position_encoding,
-            position_encoding_type=model_config.embeddings.position_encoding_type,
-            dropout=getattr(running_config, "dropout", [0.0])[0],
-            word_padding_idx=vocabs["src"][DefaultTokens.PAD],
-            word_vocab_size=len(vocabs["src"]),
-            sparse=getattr(running_config, "optim", None) == "sparseadam",
-            freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
-        )
-    else:
-        src_emb = None
+    pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
+    src_emb = Embeddings(
+        word_vec_size=model_config.embeddings.src_word_vec_size,
+        position_encoding_type=model_config.embeddings.position_encoding_type,
+        position_shift=model_config.embeddings.position_shift,
+        dropout=getattr(running_config, "dropout", [0.0])[0],
+        word_padding_idx=vocabs["tgt"][pad_token],
+        word_vocab_size=len(vocabs["src"]),
+        sparse=getattr(running_config, "optim", None) == "sparseadam",
+        freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
+        n_positions=model_config.embeddings.n_positions,
+    )
     return src_emb
 
 
@@ -80,15 +76,17 @@ def build_tgt_emb(
     model_config, vocabs, running_config=None, share_embeddings=False, src_emb=None
 ):
     # Build embeddings.
+    pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
     tgt_emb = Embeddings(
         word_vec_size=model_config.embeddings.tgt_word_vec_size,
-        position_encoding=model_config.embeddings.position_encoding,
         position_encoding_type=model_config.embeddings.position_encoding_type,
+        position_shift=model_config.embeddings.position_shift,
         dropout=getattr(running_config, "dropout", [0.0])[0],
-        word_padding_idx=vocabs["tgt"][DefaultTokens.PAD],
+        word_padding_idx=vocabs["tgt"][pad_token],
         word_vocab_size=len(vocabs["tgt"]),
         sparse=getattr(running_config, "optim", None) == "sparseadam",
         freeze_word_vecs=model_config.embeddings.freeze_word_vecs_dec,
+        n_positions=model_config.embeddings.n_positions,
     )
 
     if share_embeddings:
@@ -115,6 +113,7 @@ class BaseModel(nn.Module):
         self.tgt_emb = kwargs.get("tgt_emb", None)
         self.add_estimator = kwargs.get("add_estimator", False)
         self.hidden_size = kwargs.get("hidden_size", None)
+        self.share_decoder_embeddings = False
         if self.encoder is not None and self.src_emb is None:
             raise ValueError("An Encoder needs source Embeddings")
         if self.decoder is not None and self.tgt_emb is None:
@@ -181,8 +180,9 @@ class BaseModel(nn.Module):
             hasattr(running_config, "lora_layers")
             and len(running_config.lora_layers) > 0
         ):
-            if running_config.freeze_encoder or running_config.freeze_decoder:
-                raise ValueError("Cannot use LoRa with Enc/Dec-oder freezing")
+            # I think we need to allow encoder freezing while training LoRa
+            # if running_config.freeze_encoder or running_config.freeze_decoder:
+            #    raise ValueError("Cannot use LoRa with Enc/Dec-oder freezing")
             for layer in running_config.lora_layers:
                 if (
                     hasattr(running_config, "quant_layers")
@@ -225,6 +225,7 @@ class BaseModel(nn.Module):
             nn.Linear,
             in_features=model_config.decoder.hidden_size,
             out_features=len(vocabs["tgt"]),
+            bias=model_config.generator_bias,
         )
         if model_config.share_decoder_embeddings:
             generator.weight = self.tgt_emb.embeddings.weight
@@ -236,7 +237,6 @@ class BaseModel(nn.Module):
         vocabs,
         checkpoint,
         device,
-        precision,
         offset,
         model_path=None,
     ):
@@ -250,7 +250,6 @@ class BaseModel(nn.Module):
             running_config=running_config,
             vocabs=vocabs,
             checkpoint=checkpoint,
-            precision=precision,
             device=device,
             offset=offset,
             strict=strict,
@@ -259,47 +258,31 @@ class BaseModel(nn.Module):
     # probably good to refactor in some way, but working for now
     def training_logic(self, running_config, vocabs, checkpoint, device_id):
         if (
-            running_config.model_dtype == "fp16"
-            and running_config.apex_opt_level not in ["O0", "O1", "O2", "O3"]
-            and running_config.optim == "fusedadam"
-        ):
-            precision = torch.float16
-            logger.info("Switching model to half() for FusedAdam legacy")
-            logger.info("Non quantized layer compute is %s", running_config.model_dtype)
-        else:
-            precision = torch.float32
-            logger.info("Switching model to float32 for amp/apex_amp")
-            logger.info("Non quantized layer compute is %s", running_config.model_dtype)
-
-        if (
             running_config.world_size > 1
             and running_config.parallel_mode == "tensor_parallel"
         ):
-            device = torch.device("cuda")
+            device = get_device()
             offset = device_id
         else:
             if use_gpu(running_config):
-                device = torch.device("cuda")
+                device = get_device()
             else:
                 device = torch.device("cpu")
             offset = 0
 
         if checkpoint is not None:
-            self.load_checkpoint(
-                running_config, vocabs, checkpoint, device, precision, offset
-            )
+            self.load_checkpoint(running_config, vocabs, checkpoint, device, offset)
         else:
-            self.to(precision)
+            self.to(running_config.storage_dtype)
             self.to(device)
 
         # currently in TrainingConfig which makes more sense
         if running_config.freeze_encoder:
             self.encoder.requires_grad_(False)
-            self.src_emb.requires_grad_()
 
         if running_config.freeze_decoder:
             self.decoder.requires_grad_(False)
-            self.tgt_emb.requires_grad_()
+            self.generator.requires_grad_(False)
 
     @classmethod
     def inference_logic(self, checkpoint, running_config, vocabs, device_id=None):
@@ -307,8 +290,14 @@ class BaseModel(nn.Module):
         # here we need a running config updated in the same way
         training_config = checkpoint["config"].training
         # override gpu_ranks/world_size to prevent warnings
-        training_config.gpu_ranks = running_config.gpu_ranks
-        training_config.world_size = running_config.world_size
+        training_config.update(
+            world_size=running_config.world_size, gpu_ranks=running_config.gpu_ranks
+        )
+        # retrieve share_vocab flag from checkpoint config
+        running_config.share_vocab = checkpoint["config"].share_vocab
+        # retrieve precision from checkpoint config if not explicitly set
+        if "compute_dtype" not in running_config.model_fields_set:
+            running_config.compute_dtype = training_config.compute_dtype
         # in fine we might have some nested Lora/QuantizeConfig that are updated from checkpoint values # noqa: E501
         # should quant type be in model config or running config ?
         if hasattr(training_config, "quant_type") and training_config.quant_type in [
@@ -354,9 +343,7 @@ class BaseModel(nn.Module):
             if use_gpu(running_config):
                 if len(running_config.gpu_ranks) > 0:
                     device_id = running_config.gpu_ranks[0]
-                elif running_config.gpu > -1:
-                    device_id = running_config.gpu
-                device = torch.device("cuda", device_id)
+                device = get_device(device_id=device_id)
             else:
                 device = torch.device("cpu")
             offset = 0
@@ -377,24 +364,24 @@ class BaseModel(nn.Module):
             attention_dropout=[0.0],
         )
         # required to force no dropout at inference with flash
-        precision = torch.float32
 
-        if running_config.precision == "fp16":
-            precision = torch.float16
-        elif running_config.precision == "int8":
-            if running_config.gpu >= 0:
-                raise ValueError("Dynamic 8-bit quantization is not supported on GPU")
-            else:
-                precision = torch.float32
-
-        return model_config, running_config, vocabs, device, precision, offset
+        return (
+            model_config,
+            running_config,
+            vocabs,
+            device,
+            offset,
+        )
 
     @classmethod
     def build_base_model(cls, config, vocabs, running_config=None):
         model = cls.build_blocks(config, vocabs, running_config=running_config)
         model.maybe_quantize(running_config)
         model.maybe_lora(running_config)
-        model.build_generator(config, vocabs)
+        if config.decoder is not None:
+            model.build_generator(config, vocabs)
+        else:
+            model.generator = None
         return model
 
     @classmethod
@@ -474,14 +461,18 @@ class BaseModel(nn.Module):
                 running_config,
                 vocabs,
                 device,
-                precision,
                 offset,
             ) = cls.inference_logic(checkpoint, running_config, vocabs, device_id)
         model = cls.build_blocks(
             model_config, vocabs, running_config=running_config
         )  # corresponds to build_task_specific_model
+        # TODO: handle this better at some point?
+        model.share_decoder_embeddings = model_config.share_decoder_embeddings
         # generator -> shall it be called within build_blocks?
-        model.build_generator(model_config, vocabs)
+        if model_config.decoder is not None:
+            model.build_generator(model_config, vocabs)
+        else:
+            model.generator = None
         # 1 build_base_model
         # quantization stuff
         model.maybe_quantize(
@@ -514,10 +505,9 @@ class BaseModel(nn.Module):
                 vocabs,
                 checkpoint,
                 device,
-                precision,
                 offset,
             )
-            if running_config.precision == torch.int8:
+            if running_config.compute_dtype == torch.int8:
                 torch.quantization.quantize_dynamic(
                     model, dtype=torch.qint8, inplace=True
                 )
@@ -586,7 +576,10 @@ class BaseModel(nn.Module):
                     col_slice_start:col_slice_end,
                     row_slice_start:row_slice_end,
                 ].size()
-            ), "An error in model's partition and checkpoint's slice was detected"
+            ), (
+                "An error in model's partition and checkpoint's slice was detected, "
+                f"[{name}, {module}, {param_name}, {param.data.size()}, {ckpt_t.size()}]"
+            )
             if name + "." + param_name in buf_list:
                 if module.__class__.__name__ == "WQLinear_GEMM":
                     module.register_buffer(
@@ -626,7 +619,6 @@ class BaseModel(nn.Module):
         running_config=None,
         vocabs=None,
         checkpoint=None,
-        precision=torch.float32,
         device=torch.device("cpu"),
         offset=0,
         strict=False,
@@ -635,9 +627,12 @@ class BaseModel(nn.Module):
 
         Args:
             model_path: Model path
-            precision: same as above
-            device: same as above
-            strict: same as above
+            running_config: RunningConfig (either training or predict)
+            vocabs: src/tgt vocabs
+            checkpoint: config/vocabs loaded from checkpoint
+            device: device to move parameters to
+            offset: for tensor_parallel
+            strict: stric loading of all parameters
         """
         # bitsandbytes quantize weights when .cuda() is called
         # for huge models we need to save Ram
@@ -722,16 +717,27 @@ class BaseModel(nn.Module):
                     elif strict and (
                         "lora" not in param_name and "slopes" not in param_name
                     ):
-                        pass  # TO FIX - patch for estimator
-                        # raise ValueError(
-                        #     "Missing key in safetensors checkpoint: %s" % name
-                        #     + "."
-                        #     + param_name
-                        # )
-                    if precision == torch.int8:
+                        # Let's warn instead of just passing
+                        logger.info(
+                            "Missing key in safetensors checkpoint: %s" % name
+                            + "."
+                            + param_name
+                        )
+                        if (
+                            f"{name}.{param_name}"
+                            in ["generator.weight", "generator.bias"]
+                            and self.share_decoder_embeddings
+                        ):
+                            logger.info(
+                                "└─> Sharing from embeddings matrix since "
+                                "`share_decoder_embeddings` flag is enabled."
+                            )
+                    if getattr(running_config, "compute_dtype", None) == torch.int8:
                         torch.quantization.quantize_dynamic(module, inplace=True)
                     else:
-                        module.to(precision)
+                        module.to(
+                            getattr(running_config, "storage_dtype", torch.float32)
+                        )
                     module.to(device)
         for key in keys_shard.keys():
             if key not in keyfound.keys() and key not in buf_list:
@@ -746,7 +752,8 @@ class BaseModel(nn.Module):
         Returns: (int, int)
             encoder side parameter count
             decoder side parameter count"""
-
+        trainable = defaultdict(int)
+        non_trainable = defaultdict(int)
         emb, enc, dec, gen, other = 0, 0, 0, 0, 0
         for name, param in self.named_parameters():
             if "encoder" in name:
@@ -760,6 +767,10 @@ class BaseModel(nn.Module):
             else:
                 # mostly zero, but might be useful to grab edge cases
                 other += param.nelement()
+            if param.requires_grad:
+                trainable[str(param.dtype)] += param.numel()
+            else:
+                non_trainable[str(param.dtype)] += param.numel()
 
         if callable(log):
             log("embeddings: {}".format(emb))
@@ -768,6 +779,8 @@ class BaseModel(nn.Module):
             log("generator: {}".format(gen))
             log("other: {}".format(other))
             log("* number of parameters: {}".format(emb + enc + dec + gen + other))
+            log("Trainable parameters = %s" % str(dict(trainable)))
+            log("Non trainable parameters = %s" % str(dict(non_trainable)))
 
 
 class EncoderDecoderModel(BaseModel):
@@ -834,10 +847,8 @@ class EncoderDecoderModel(BaseModel):
             tgt_pad_mask=tgt_pad_mask,
         )
 
-        if (
-            self.add_estimator
-        ):  # on prend les average de dec_out en tenant compte du mask
-            pad_mask2 = ~dec_in.eq(1)
+        if self.add_estimator:  # we take the average of dec_out using the pad mask
+            pad_mask2 = ~dec_in.eq(pad_idx)
             in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask2.sum(dim=1, keepdim=True).float()
@@ -868,12 +879,19 @@ class DecoderModel(BaseModel):
             raise ValueError("DecoderModel should not be used" "with an encoder")
         if self.decoder is None:
             raise ValueError("DecoderModel requires a Decoder")
+        if self.add_estimator:
+            self.estimator = FeedForward(self.hidden_size)
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         tgt_emb = build_tgt_emb(model_config, vocabs, running_config=running_config)
         decoder = build_decoder(model_config, running_config=running_config)
-        return cls(decoder=decoder, tgt_emb=tgt_emb)
+        return cls(
+            decoder=decoder,
+            tgt_emb=tgt_emb,
+            add_estimator=model_config.add_estimator,
+            hidden_size=model_config.decoder.hidden_size,
+        )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
     def forward(self, src, tgt, src_len, bptt=False, with_align=False):
@@ -892,7 +910,17 @@ class DecoderModel(BaseModel):
             with_align=with_align,
             tgt_pad_mask=pad_mask,
         )
-        return dec_out, attns, None
+
+        if self.add_estimator:  # we take the average of dec_out using the pad mask
+            pad_mask2 = ~src.eq(pad_idx)
+            in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
+                dim=1
+            ) / pad_mask2.sum(dim=1, keepdim=True).float()
+            estim = self.estimator(in_estim2.to(dec_out.dtype)).squeeze(-1)
+        else:
+            estim = None
+
+        return dec_out, attns, estim
 
     def update_dropout(self, dropout, attention_dropout):
         self.decoder.update_dropout(dropout, attention_dropout)
@@ -933,13 +961,18 @@ class EncoderModel(BaseModel):
 
         mask = sequence_mask(src_len)
         enc_out, enc_final_hs = self.encoder(self.src_emb(src), mask=mask)
-        if self.add_estimator:  # on prend en compte les average de enc_out et dec_out
-            pad_mask1 = ~src[:, :, 0].eq(1)
+        if self.add_estimator:
+            # Version with average
+            """
+            pad_idx = self.tgt_emb.word_padding_idx
+            pad_mask1 = ~src.eq(pad_idx)
             in_estim1 = (enc_out * pad_mask1.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask1.sum(dim=1, keepdim=True).float()
             estim = self.estimator(in_estim1.half()).squeeze(-1)
-            # estim = self.estimator(enc_out[:, 0, :]).squeeze(-1)
+            """
+            # Version with first token
+            estim = self.estimator(enc_out[:, 0, :]).squeeze(-1)
         else:
             estim = None
 

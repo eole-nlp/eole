@@ -18,20 +18,20 @@ find . -name "*.md" -print0 | xargs -0 sed -i 's/<\/p>/<\/p>\n/g'
 # escape some conflicting html tags for proper render
 find . -name "*.md" -print0 | xargs -0 sed -i 's/<s>/\&lt;s\&gt;/g'
 find . -name "*.md" -print0 | xargs -0 sed -i 's/<\/s>/\&lt;\/s\&gt;/g'
-rm ref.md # only used to build bibliography.md with pandoc
+[ -f ref.md ] && rm ref.md # only used to build bibliography.md with pandoc
 
 cd ../..
 
 # 2 - link sphinx markdown build to proper place
 cd docusaurus_tsx/docs
-[ -f reference ] && rm reference && ln -s ../../sphinx_markdown/markdown reference
+[ -L reference ] && rm reference; ln -s ../../sphinx_markdown/markdown reference
 cd ../..
 
 # 3 - link recipes directory to proper place
 cd docusaurus_tsx/docs
-[ -f recipes ] && rm recipes && ln -s ../../../recipes
-[ -f index.md ] && rm index.md && ln -s ../../../README.md index.md
-[ -f contributing.md ] && rm contributing.md && ln -s ../../../CONTRIBUTING.md contributing.md
+[ -L recipes ] && rm recipes; ln -s ../../../recipes
+[ -f index.md ] && rm index.md; ln -s ../../../README.md index.md
+[ -f contributing.md ] && rm contributing.md; ln -s ../../../CONTRIBUTING.md contributing.md
 
 cd ../..
 

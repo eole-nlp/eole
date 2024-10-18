@@ -1,17 +1,19 @@
 import torch
+from torch.nn.utils.rnn import pad_sequence
 from eole.predict.inference import Inference
-from eole.constants import ModelTask
+from eole.constants import ModelType
 from eole.predict.greedy_search import GreedySearchLM
 from eole.predict.beam_search import BeamSearchLM
+from eole.utils.misc import tile
 
 
 class GeneratorLM(Inference):
     @classmethod
     def validate_task(cls, task):
-        if task != ModelTask.LANGUAGE_MODEL:
+        if task != ModelType.DECODER:
             raise ValueError(
                 f"GeneratorLM does not support task {task}."
-                f" Tasks supported: {ModelTask.LANGUAGE_MODEL}"
+                f" Tasks supported: {ModelType.DECODER}"
             )
 
     def _align_forward(self, batch, predictions):
@@ -25,7 +27,7 @@ class GeneratorLM(Inference):
         """Predict a batch of sentences."""
         max_length = 0 if scoring else self.max_length
         with torch.no_grad():
-            if self.sample_from_topk != 0 or self.sample_from_topp != 0:
+            if self.top_k != 0 or self.top_p != 0:
                 decode_strategy = GreedySearchLM(
                     pad=self._tgt_pad_idx,
                     bos=self._tgt_bos_idx,
@@ -40,9 +42,9 @@ class GeneratorLM(Inference):
                     block_ngram_repeat=self.block_ngram_repeat,
                     exclusion_tokens=self._exclusion_idxs,
                     return_attention=attn_debug or self.replace_unk,
-                    sampling_temp=self.random_sampling_temp,
-                    keep_topk=self.sample_from_topk,
-                    keep_topp=self.sample_from_topp,
+                    temperature=self.temperature,
+                    top_k=self.top_k,
+                    top_p=self.top_p,
                     beam_size=self.beam_size,
                     ban_unk_token=self.ban_unk_token,
                 )
@@ -67,6 +69,7 @@ class GeneratorLM(Inference):
                     stepwise_penalty=self.stepwise_penalty,
                     ratio=self.ratio,
                     ban_unk_token=self.ban_unk_token,
+                    add_estimator=self.add_estimator,
                 )
             return self._predict_batch_with_strategy(batch, decode_strategy)
 
@@ -162,7 +165,35 @@ class GeneratorLM(Inference):
             # if step == 0:
             #    print("step0 time: ", time() - beg_time)
 
-        estim = [[1.0 for _ in range(self.beam_size)] for _ in range(batch_size)]
+        if self.add_estimator:
+            # Prepare estimator input = decoder out of each pred with initial enc_out
+            dec_in = [
+                item for sublist in decode_strategy.predictions for item in sublist
+            ]
+            src = tile(src, parallel_paths, dim=0)
+            dec_in = pad_sequence(
+                dec_in, batch_first=True, padding_value=self._tgt_pad_idx
+            )
+            dec_in = torch.cat((src, dec_in), 1)
+            tgt_pad_mask = dec_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, T_tgt]
+            emb = self.model.tgt_emb(dec_in)
+            dec_out, _ = self.model.decoder(
+                emb,
+                enc_out=None,
+                return_attn=False,
+                tgt_pad_mask=tgt_pad_mask,
+            )
+            pad_mask = ~dec_in.eq(self._tgt_pad_idx)
+            in_estim = (dec_out * pad_mask.unsqueeze(-1).float()).sum(
+                dim=1
+            ) / pad_mask.sum(dim=1, keepdim=True).float()
+            estim = self.model.estimator(in_estim.to(dec_out.dtype)).squeeze(-1)
+            estim = [
+                [estim[i].item() for i in range(j, j + self.beam_size)]
+                for j in range(0, len(estim), self.beam_size)
+            ]
+        else:
+            estim = [[1.0 for _ in range(self.beam_size)] for _ in range(batch_size)]
 
         return self.report_results(
             gold_score,
@@ -186,7 +217,8 @@ class GeneratorLM(Inference):
         )
 
         log_probs[:, :, self._tgt_pad_idx] = 0
-        gold_log_probs = log_probs.gather(2, tgt)
+        tgt = tgt.unsqueeze(2)
+        gold_log_probs = log_probs.gather(2, tgt).squeeze(-1)
         gold_scores = gold_log_probs.sum(dim=1).view(-1)
 
         if self.return_gold_log_probs:

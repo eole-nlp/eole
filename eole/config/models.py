@@ -1,7 +1,12 @@
 from typing import Dict, Union, Literal, Any, Annotated
-from pydantic import Field, field_validator, model_validator  # , TypeAdapter
+from pydantic import (
+    Field,
+    field_validator,
+    model_validator,
+    computed_field,
+)  # , TypeAdapter
 
-from eole.constants import PositionEncodingType, ActivationFunction
+from eole.constants import PositionEncodingType, ActivationFunction, ModelType
 from eole.config.config import Config
 
 
@@ -24,13 +29,38 @@ class EmbeddingsConfig(Config):
     )
     position_encoding: bool = Field(
         default=False,
-        description="Use a sin to mark relative words positions. "
+        description="Absolute position encoding, see position_encoding_type. "
         "Necessary for non-RNN style models.",
     )
-    position_encoding_type: PositionEncodingType = Field(
+    position_encoding_type: PositionEncodingType | None = Field(
         default=PositionEncodingType.SinusoidalInterleaved,
         description="Type of positional encoding.",
     )
+    n_positions: int | None = Field(
+        default=None,
+        description="Two cases"
+        "Case 1: Absolute number of positions to learn "
+        "position embeddings on (position_encoding_type: Learned)"
+        "Case 2: Max Relative Positions"
+        "In the case of position_encoding_type: Relative",
+    )
+    position_shift: int | None = Field(
+        default=0,
+        description="Positions IDS shift before making position embed "
+        "dirty patch to cover for xlm-roberta-xl",
+    )
+
+    @model_validator(mode="after")
+    def validate_embeddings(self):
+        if self.position_encoding_type in [
+            PositionEncodingType.Learned,
+            PositionEncodingType.Relative,
+        ]:
+            assert self.n_positions is not None, (
+                "n_positions must be set if position_encoding_type "
+                f"is {PositionEncodingType.Learned} or {PositionEncodingType.Relative}"
+            )
+        return self
 
 
 class EncoderConfig(Config):
@@ -127,6 +157,47 @@ class MeanEncoderConfig(EncoderConfig):
     encoder_type: Literal["mean"] = Field(default="mean")
 
 
+class RotaryPositionConfig(Config):
+    """
+    Configuration for rotary position embeddings used in transformer models.
+    """
+
+    rotary_interleave: bool = Field(
+        default=True,
+        description="Interleave the head dimensions when rotary embeddings are applied. "
+        "Otherwise the head dimensions are sliced in half. "
+        "(True=default Llama from Meta (original), "
+        "False= used by all HuggingFace models)",
+    )
+    rotary_theta: int = Field(
+        default=10000,
+        description="Rotary theta base length, 1e4 for Llama2.Mistral, 1e6 for Mixtral",
+    )
+    rotary_dim: int = Field(
+        default=0,
+        description="Rotary dim when model requires it to be different to head dim.",
+    )
+    scaling_type: str | None = Field(
+        default=None,
+        description="Specifies the type of RoPE scaling to be applied, if any.",
+    )
+    scaling_factor: float | None = Field(
+        default=8.0, description="Factor by which to scale RoPE embeddings."
+    )
+    low_freq_factor: float | None = Field(
+        default=1.0,
+        description="Scaling factor applied to the lower frequency components of RoPE.",
+    )
+    high_freq_factor: float | None = Field(
+        default=4.0,
+        description="Scaling factor applied to the higher frequency components of RoPE.",
+    )
+    original_max_position_embeddings: int | None = Field(
+        default=8192,
+        description="Original maximum position embeddings for RoPE scaling.",
+    )
+
+
 class TransformerConfig(Config):
     """
     This base TransformerConfig class regroups parameters than can
@@ -144,14 +215,6 @@ class TransformerConfig(Config):
     transformer_ff: int = Field(
         default=2048, description="Size of hidden transformer feed-forward."
     )
-    max_relative_positions: int = Field(
-        default=0,
-        description="This setting enables relative position encoding. "
-        "We support two types of encoding: "
-        "-1 enables Rotary Embeddings (https://arxiv.org/abs/2104.09864), "
-        "> 0 (e.g. 16 or 32) enables maximum distance between inputs "
-        "in relative positions representations (https://arxiv.org/pdf/1803.02155.pdf)",
-    )
     relative_positions_buckets: int = Field(
         default=0,
         description="Enable relative position bias "
@@ -160,21 +223,6 @@ class TransformerConfig(Config):
     mlp_activation_fn: ActivationFunction = Field(
         default=ActivationFunction.relu,
         description="The activation function to use in MLP layer.",
-    )
-    rotary_interleave: bool = Field(
-        default=True,
-        description="Interleave the head dimensions when rotary embeddings are applied. "
-        "Otherwise the head dimensions are sliced in half. "
-        "(True=default Llama from Meta (original), "
-        "False= used by all HuggingFace models)",
-    )
-    rotary_theta: int = Field(
-        default=10000,
-        description="Rotary theta base length, 1e4 for Llama2.Mistral, 1e6 for Mixtral",
-    )
-    rotary_dim: int = Field(
-        default=0,
-        description="Rotary dim when model requires it to be different to head dim.",
     )
     layer_norm: Literal["standard", "rms"] = Field(
         default="standard",
@@ -198,6 +246,10 @@ class TransformerConfig(Config):
         description="Number of heads for KV. heads_kv=heads if None, else number of heads for KV"
         "(e.g. Falcon 40B)",
     )
+    head_dim: int | None = Field(
+        default=None,
+        description="Head dimension when this needs to be different vs hidden_size // heads",
+    )
     add_ffnbias: bool = Field(
         default=False, description="Add bias to nn.Linear of MLP FFN."
     )
@@ -210,6 +262,37 @@ class TransformerConfig(Config):
     num_experts_per_tok: int = Field(
         default=2, description="Number of experts per token."
     )
+    # These fields are set at EmbeddingsConfig level but will be copied here to be accessible in MHA
+    position_encoding_type: PositionEncodingType | None = Field(
+        default=PositionEncodingType.SinusoidalInterleaved,
+        description="Type of positional encoding.",
+    )
+    n_positions: int | None = Field(
+        default=None,
+        description="Two cases"
+        "Case 1: Absolute number of positions to learn "
+        "position embeddings on (position_encoding_type: Learned)"
+        "Case 2: Max Relative Positions"
+        "In the case of position_encoding_type: Relative",
+    )
+    rope_config: RotaryPositionConfig | None = Field(
+        default=None, description="Rotary position config, if relevant."
+    )
+
+    @model_validator(mode="after")
+    def _validate_transformer_config(self):
+        if self.position_encoding_type == PositionEncodingType.Rotary:
+            if self.rope_config is None:
+                self.rope_config = RotaryPositionConfig()
+        return self
+
+    @computed_field
+    @property
+    def dim_per_head(self) -> int:
+        if self.head_dim is not None:
+            return self.head_dim
+        else:
+            return self.hidden_size // self.heads
 
 
 # could eole.encoders.TransformerEncoder class inherit from this? (it seems not unfortunately)
@@ -318,6 +401,9 @@ class BaseModelConfig(Config):
         default=-1,
         description="Size of hidden states. Overwrites [encoder/decoder].hidden_size if set.",
     )
+    word_vec_size: int = Field(
+        default=-1, description="Word embedding size for src and tgt."
+    )
     layers: int = Field(
         default=-1,
         description="Number of layers in both encoder and decoder "
@@ -337,9 +423,6 @@ class BaseModelConfig(Config):
         description="Share the word embeddings between encoder and decoder. "
         "Need to use shared vocabulary for this option.",
     )
-    model_type: Literal[
-        "text"
-    ] | None = "text"  # same (or use only this one maybe, like ludwig)
     input_feed: int = Field(
         default=1,
         description="Feed the context vector at each time step as additional input "
@@ -350,13 +433,30 @@ class BaseModelConfig(Config):
         description="Which function to use for generating probabilities "
         "over the target vocabulary.",
     )
+    generator_bias: bool = Field(
+        default=True,
+        description="Control whether or not the generator Linear module has bias weights.",
+    )
     add_estimator: bool = Field(default=False, description="Add estimator layer")
+
+    left_pad: bool = Field(
+        default=False, description="Enable left-padding, useful for some LLMs."
+    )
 
     # @computed_field()
     # @property
     # def brnn(self) -> bool:
     #     if self.encoder is not None:
     #         return self.encoder.encoder_type == "brnn"
+
+    @property
+    def model_type(self) -> ModelType:
+        if self.decoder is None:
+            return ModelType.ENCODER
+        elif self.encoder is None:
+            return ModelType.DECODER
+        else:
+            return ModelType.ENCODER_DECODER
 
     @field_validator("encoder", "decoder", "embeddings", mode="before")
     @classmethod
@@ -407,8 +507,21 @@ class BaseModelConfig(Config):
 
         if self.encoder is not None:
             self.encoder.src_word_vec_size = self.embeddings.src_word_vec_size
+            if getattr(self.encoder, "encoder_type", None) == "transformer":
+                self.encoder.position_encoding_type = (
+                    self.embeddings.position_encoding_type
+                )
+                self.encoder.n_positions = self.embeddings.n_positions
         if self.decoder is not None:
             self.decoder.tgt_word_vec_size = self.embeddings.tgt_word_vec_size
+            if getattr(self.decoder, "decoder_type", None) in [
+                "transformer",
+                "transformer_lm",
+            ]:
+                self.decoder.position_encoding_type = (
+                    self.embeddings.position_encoding_type
+                )
+                self.decoder.n_positions = self.embeddings.n_positions
 
         # causing some weird recursion issue in unit test, to investigate
         # if self.encoder is not None:
@@ -439,9 +552,6 @@ class BaseModelConfig(Config):
     @model_validator(mode="after")
     def _validate_model_config(self):
         self.update_model_opts()
-        assert self.model_type in ["text"], (
-            "Unsupported model type %s" % self.model_type
-        )
 
         # encoder and decoder should be same sizes
         if self.encoder is not None and self.decoder is not None:
@@ -451,8 +561,10 @@ class BaseModelConfig(Config):
             ), "The encoder and decoder rnns must be the same size for now"
 
         if self.share_embeddings:
-            if self.model_type != "text":
-                raise AssertionError("--share_embeddings requires --model_type text.")
+            if self.encoder is None or self.decoder is None:
+                raise AssertionError(
+                    "--share_embeddings is for EncoderDecoder models only."
+                )
 
         return self
 
@@ -558,17 +670,6 @@ class TransformerModelConfig(TransformerConfig, BaseModelConfig):
 
     @model_validator(mode="after")
     def _validate_transformer(self):
-        if (
-            getattr(self.embeddings, "position_encoding", False)
-            and self.max_relative_positions != 0
-        ):
-            raise ValueError(
-                "Cannot use absolute and relative position encoding at the"
-                "same time. Use either --position_encoding=true for legacy"
-                "absolute position encoding or --max_realtive_positions with"
-                " -1 for Rotary, or > 0 for Relative Position Representations"
-                "as in https://arxiv.org/pdf/1803.02155.pdf"
-            )
         return self
 
 
@@ -606,6 +707,43 @@ class TransformerLMModelConfig(TransformerConfig, BaseModelConfig):
     @model_validator(mode="after")
     def _validate_transformer(self):
         # duplicate with TransformerModelConfig, might merge at some point
+        return self
+
+
+class TransformerEncoderModelConfig(TransformerConfig, BaseModelConfig):
+    """
+    Facilitate setting some transformer specific params at model level.
+    """
+
+    architecture: Literal["transformer_encoder"] = Field(default="transformer_encoder")
+
+    # force decoder to None in TransformerEncoder case
+    decoder: None = Field(default=None, description="Major parameters of a decoder.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def encoder_decoder_type(cls, data: Any) -> Any:
+        # patch to allow transparent setting of encoder/decoder_type
+        if not (isinstance(data, dict)):
+            return data
+        if "encoder" in data.keys():
+            data["encoder"]["encoder_type"] = "transformer"
+        else:
+            data["encoder"] = {"encoder_type": "transformer"}
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_architecture(cls, data: Any) -> Any:
+        if not (isinstance(data, dict)):
+            return data
+        if "architecture" not in data.keys():
+            data["architecture"] = "transformer_encoder"
+        return data
+
+    @model_validator(mode="after")
+    def _validate_transformer(self):
+        # duplicate with TransformerModelConfig, might merge at some point
         if (
             getattr(self.embeddings, "position_encoding", False)
             and self.max_relative_positions != 0
@@ -626,6 +764,7 @@ ModelConfig = Annotated[
     Union[
         TransformerModelConfig,
         TransformerLMModelConfig,
+        TransformerEncoderModelConfig,
         RnnModelConfig,
         CnnModelConfig,
         CustomModelConfig,

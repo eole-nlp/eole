@@ -1,7 +1,7 @@
 """Module that contain iterator used for dynamic data."""
 import torch
 from itertools import cycle
-from eole.constants import CorpusTask, ModelTask
+from eole.constants import CorpusTask
 from eole.inputters.text_corpus import get_corpora, build_corpora_iters
 from eole.inputters.text_utils import (
     text_sort_key,
@@ -11,7 +11,7 @@ from eole.inputters.text_utils import (
 )
 from eole.config.data import Dataset
 from eole.utils.logging import init_logger, logger
-from eole.utils.misc import RandomShuffler
+from eole.utils.misc import RandomShuffler, get_device
 from torch.utils.data import DataLoader
 
 
@@ -136,6 +136,8 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         stride=1,
         offset=0,
         score_threshold=0,
+        left_pad=False,
+        model_type=None,
     ):
         super(DynamicDatasetIter).__init__()
         self.corpora = corpora
@@ -162,14 +164,25 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         self.skip_empty_level = skip_empty_level
         self.random_shuffler = RandomShuffler()
         self.bucket_idx = 0
-        if task != CorpusTask.TRAIN and vocabs["data_task"] == ModelTask.LANGUAGE_MODEL:
+        # TODO: we might want to enable some hybrid mode (default left_pad True for LM, else False)
+        if task != CorpusTask.TRAIN and left_pad:
             self.left_pad = True
         else:
             self.left_pad = False
+        self.model_type = model_type
 
     @classmethod
     def from_config(
-        cls, corpora, transforms, vocabs, config, task, device, stride=1, offset=0
+        cls,
+        corpora,
+        transforms,
+        vocabs,
+        config,
+        task,
+        device,
+        stride=1,
+        offset=0,
+        model_type=None,
     ):
         """Initilize `DynamicDatasetIter` with options parsed from `opt`."""
         from eole.config.run import PredictConfig
@@ -191,7 +204,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             if running_config.batch_size_multiple is not None:
                 batch_size_multiple = running_config.batch_size_multiple
             else:
-                batch_size_multiple = 8 if running_config.model_dtype == "fp16" else 1
+                batch_size_multiple = 8 if running_config.compute_dtype == "fp16" else 1
             corpora_info = config.data
             bucket_size = (
                 running_config.bucket_size
@@ -229,6 +242,10 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             score_threshold=0
             if isinstance(config, PredictConfig)
             else running_config.score_threshold,
+            left_pad=getattr(config.model, "left_pad", False),
+            model_type=model_type
+            if model_type is not None
+            else getattr(config.model, "model_type", None),
         )
 
     def _init_datasets(self, worker_id):
@@ -261,7 +278,9 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         tuple_bucket = transform_bucket(self.task, tuple_bucket, self.score_threshold)
         for example in tuple_bucket:
             if example is not None:
-                bucket.append(numericalize(self.vocabs, example))
+                bucket.append(
+                    numericalize(self.vocabs, example, model_type=self.model_type)
+                )
         return bucket
 
     def _add_indice(self, bucket):
@@ -405,6 +424,7 @@ def build_dynamic_dataset_iter(
     tgt=None,
     align=None,
     device_id=-1,
+    model_type=None,
 ):
     """
     Build `DynamicDatasetIter` from opt.
@@ -426,7 +446,7 @@ def build_dynamic_dataset_iter(
     if corpora is None:
         assert task != CorpusTask.TRAIN, "only valid corpus is ignorable."
         return None
-    device = torch.device(device_id) if device_id >= 0 else torch.device("cpu")
+    device = get_device(device_id=device_id) if device_id >= 0 else torch.device("cpu")
     if hasattr(config, "training"):
         num_workers = getattr(config.training, "num_workers", 0)
     else:
@@ -442,6 +462,7 @@ def build_dynamic_dataset_iter(
             stride=stride,
             offset=offset,
             device=device,
+            model_type=model_type,
         )
         data_iter.num_workers = num_workers
         data_iter._init_datasets(0)  # when workers=0 init_fn not called

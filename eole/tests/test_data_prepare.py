@@ -27,6 +27,7 @@ def get_default_opts():
     from eole.config.data import DataConfig
 
     opt = DataConfig(**default_opts)
+    opt._validate_data_config()
     # Inject some dummy training options that may needed when build fields
     return opt
 

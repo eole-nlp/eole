@@ -3,27 +3,10 @@ from eole.predict.translator import Translator
 from eole.predict.generator import GeneratorLM
 from eole.predict.encoder import Encoder
 
-from eole.predict.beam_search import BeamSearch, GNMTGlobalScorer
-from eole.predict.beam_search import BeamSearchLM
-from eole.predict.decode_strategy import DecodeStrategy
-from eole.predict.greedy_search import GreedySearch, GreedySearchLM
-from eole.predict.penalties import PenaltyBuilder
+from eole.predict.beam_search import GNMTGlobalScorer
 from eole.decoders.ensemble import load_test_model as ensemble_load_test_model
-from eole.models import BaseModel
+from eole.models.model import BaseModel
 import codecs
-
-
-__all__ = [
-    "Translator",
-    "BeamSearch",
-    "GNMTGlobalScorer",
-    "PenaltyBuilder",
-    "DecodeStrategy",
-    "GreedySearch",
-    "GreedySearchLM",
-    "BeamSearchLM",
-    "GeneratorLM",
-]
 
 
 def get_infer_class(model_config):
@@ -48,6 +31,7 @@ def build_predictor(config, device_id=0, report_score=True, logger=None, out_fil
     )
 
     vocabs, model, model_config = load_test_model(config, device_id)
+    config.model = model_config
 
     scorer = GNMTGlobalScorer.from_config(config)
 
@@ -58,6 +42,7 @@ def build_predictor(config, device_id=0, report_score=True, logger=None, out_fil
             vocabs,
             config,
             model_config,
+            device_id=device_id,
             global_scorer=scorer,
             out_file=out_file,
             report_align=config.report_align,

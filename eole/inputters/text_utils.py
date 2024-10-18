@@ -1,5 +1,5 @@
 import torch
-from eole.constants import DefaultTokens, CorpusTask, ModelTask
+from eole.constants import DefaultTokens, CorpusTask, ModelType
 from torch.nn.utils.rnn import pad_sequence
 from eole.utils.logging import logger
 
@@ -56,22 +56,24 @@ def transform_bucket(task, bucket, threshold=0):
         return None
 
 
-def numericalize(vocabs, example):
+def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
     """ """
     decoder_start_token = vocabs["decoder_start_token"]
     numeric = example
     numeric["src"]["src_ids"] = []
-    if vocabs["data_task"] == ModelTask.SEQ2SEQ:
+    if model_type == ModelType.ENCODER_DECODER:
         src_text = example["src"]["src"].split(" ")
         numeric["src"]["src_ids"] = vocabs["src"](src_text)
         if example["tgt"] is not None:
             numeric["tgt"]["tgt_ids"] = []
             tgt_text = example["tgt"]["tgt"].split(" ")
             numeric["tgt"]["tgt_ids"] = vocabs["tgt"](
-                [decoder_start_token] + tgt_text + [DefaultTokens.EOS]
+                [decoder_start_token]
+                + tgt_text
+                + [vocabs["specials"].get("eos_token", "")]
             )
 
-    elif vocabs["data_task"] == ModelTask.LANGUAGE_MODEL:
+    elif model_type == ModelType.DECODER:
         src_text = example["src"]["src"].split(" ")
         if decoder_start_token != "":
             src_text = [decoder_start_token] + src_text
@@ -79,30 +81,36 @@ def numericalize(vocabs, example):
         if example["tgt"] is not None:
             numeric["tgt"]["tgt_ids"] = []
             tgt_text = example["tgt"]["tgt"].split(" ")
-            numeric["tgt"]["tgt_ids"] = vocabs["tgt"](tgt_text + [DefaultTokens.EOS])
+            numeric["tgt"]["tgt_ids"] = vocabs["tgt"](
+                tgt_text + [vocabs["specials"].get("eos_token", "")]
+            )
             if decoder_start_token == "":
                 numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
 
-    elif vocabs["data_task"] == ModelTask.ENCODER:
+    elif model_type == ModelType.ENCODER:
         src_text = example["src"]["src"].split(" ")
         if example["tgt"] is not None:  # TO BE DISCUSSED
             tgt_text = example["tgt"]["tgt"].split(" ")
             txt = (
-                [DefaultTokens.BOS]
+                [vocabs["specials"].get("bos_token", "")]
                 + tgt_text
-                + [DefaultTokens.EOS]
-                + [DefaultTokens.EOS]
+                + [vocabs["specials"].get("eos_token", "")]
+                + [vocabs["specials"].get("eos_token", "")]
                 + src_text
-                + [DefaultTokens.EOS]
+                + [vocabs["specials"].get("eos_token", "")]
             )
             numeric["src"]["src_ids"] = vocabs["src"](txt)
             numeric["tgt"]["tgt_ids"] = vocabs["src"](txt)
         else:
-            txt = [DefaultTokens.BOS] + src_text + [DefaultTokens.EOS]
+            txt = (
+                [vocabs["specials"].get("bos_token", "")]
+                + src_text
+                + [vocabs["specials"].get("eos_token", "")]
+            )
             numeric["src"]["src_ids"] = vocabs["src"](txt)
 
     else:
-        raise ValueError(f"Something went wrong with task {vocabs['data_task']}")
+        raise ValueError(f"Something went wrong with model_type {model_type}")
 
     return numeric
 

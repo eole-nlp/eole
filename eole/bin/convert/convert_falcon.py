@@ -334,7 +334,6 @@ class FalconConverter(BaseBin):
 
         vocabs["src"] = src_vocab
         vocabs["tgt"] = src_vocab
-        vocabs["data_task"] = "lm"
         vocabs["decoder_start_token"] = "</s>"
 
         vocab_dict = vocabs_to_dict(vocabs)
@@ -347,9 +346,13 @@ class FalconConverter(BaseBin):
             for tok in vocab_dict["src"]:
                 vocabfile.write(tok + "\n")
 
+        position_encoding = {
+            "position_encoding_type": "Rotary",
+            "n_positions": 0,
+        }
+
         config = TrainConfig(
             data=None,
-            data_task="lm",
             skip_empty_level="silent",  # default is "warning"
             save_data=None,
             n_sample=0,
@@ -372,13 +375,12 @@ class FalconConverter(BaseBin):
                 embeddings=EmbeddingsConfig(
                     src_word_vec_size=src_word_vec_size,
                     tgt_word_vec_size=tgt_word_vec_size,
+                    **position_encoding,
                 ),
                 # src_word_vec_size=src_word_vec_size,
                 # tgt_word_vec_size=tgt_word_vec_size,
                 model_type="text",
                 pos_ffn_activation_fn="gelu",
-                self_attn_type="scaled-dot",  # not sure if scaled-dot-flash is fine
-                max_relative_positions=-1,
                 num_kv=num_kv,
                 parallel_residual=True,
                 shared_layer_norm=shared_layer,
@@ -386,7 +388,7 @@ class FalconConverter(BaseBin):
                 add_ffnbias=False,
             ),
             training=TrainingConfig(
-                model_dtype="fp16",
+                compute_dtype="fp16",
                 batch_size=896,
                 batch_size_multiple=1,
                 batch_type="tokens",
@@ -394,7 +396,6 @@ class FalconConverter(BaseBin):
                 accum_count=[32],
                 accum_steps=[0],
                 valid_batch_size=256,
-                optim="fusedadam",
             ),
         )
 

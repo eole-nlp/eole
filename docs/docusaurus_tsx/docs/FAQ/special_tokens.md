@@ -1,21 +1,39 @@
 # What special tokens are used?
 
-In the v2, special tokens were different for SEQ2SEQ and LM:
-LM was BOS, PAD, EOS with IDs (0, 1, 2) and the first vocab token started at id=3
-SEQ2SEQ was UNK, PAD, BOS, EOS with IDs (0, 1, 2, 3) and first vocab token started at id=4
+There are 4 main special tokens:
+- BOS for "beginning of sentence";
+- PAD for "padding";
+- EOS for "end of sentence";
+- UNK for "unknown".
 
-In v3 we changed this behavior to align things:
-    group.add(
-        "--default_specials",
-        "-default_specilas",
-        nargs="+",
-        type=str,
-        default=[
-            DefaultTokens.UNK,
-            DefaultTokens.PAD,
-            DefaultTokens.BOS,
-            DefaultTokens.EOS,
-        ])
+## Special tokens actually used
+
+Depending on the context, these tokens can take various values:
+
+1. Default behaviour, training from scratch
+
+Some default values are defined as [constants](https://github.com/eole-nlp/eole/blob/ff39275c50d12951963008da11d029940b590713/eole/constants.py#L8) for the project:
+```python
+class DefaultTokens(object):
+    PAD = "<blank>"
+    BOS = "<s>"
+    EOS = "</s>"
+    UNK = "<unk>"
+```
+
+2. Retrieving a pretrained model from HF
+
+The special tokens will be retrieved and configured from the `special_tokens_map.json` configuration file from the HF model files.
+
+3. Custom behaviour
+
+In any case, these tokens can be overriden via the ad-hoc configuration settings:
+- `bos_token`
+- `pad_token`
+- `eos_token`
+- `unk_token`
+
+## Special tokens behaviour in Eole
 
 When we train a SEQ2SEQ model we use:
 SRC: srctok1 srctok2 srctok3 .... srctokn

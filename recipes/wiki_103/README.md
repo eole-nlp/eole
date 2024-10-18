@@ -45,7 +45,7 @@ transforms_configs:
 ### Build vocabulary command
 The vocabulary is built using:
 ```bash
-eole build_vocab -config wiki_103.yaml -n_sample -1 # -n_threads 4
+eole build_vocab -config wiki_103.yaml -n_sample -1 # -num_threads 4
 ```
 
 ## Step 3: Train the model
@@ -71,4 +71,9 @@ To proceed with LM inference, sampling methods such as top-k sampling or nucleus
 The following command will provide inference with nucleus sampling of p=0.9 and return the 3 sequences with the lowest perplexity out of the 10 generated sequences (see `inference.yaml`):
 ```bash
 eole predict -config inference.yaml -model_path data/wikitext/wikitext-103-raw-v1/run/model-lm/step_1000000 -src data/wikitext/wikitext-103-raw-v1/test_input.txt -output data/wikitext/wikitext-103-raw-v1/test_pred.txt
+```
+
+**Note**: main transform-related settings are now stored within the model and its configuration, which makes the (rather complex) `inference.yaml` config not strictly necessary anymore. The above command can be converted to a simple command line with the desired settings:
+```bash
+eole predict -model_path data/wikitext/wikitext-103-raw-v1/run/model-lm/step_1000000 -src data/wikitext/wikitext-103-raw-v1/test_input.txt -output data/wikitext/wikitext-103-raw-v1/test_pred.txt -world_size 1 -gpu_ranks 0 -n_best 3 -top_p 0.9 -beam_size 10
 ```

@@ -106,15 +106,24 @@ def build_torch_optimizer(model, config):
         if config.apex_opt_level in ["O0", "O1", "O2", "O3"]:
             # we use apex.amp
             loss_scale = "dynamic" if config.loss_scale == 0 else config.loss_scale
-            model, optimizer = apex.amp.initialize(
-                [model, model.generator],
-                optimizer,
-                opt_level=config.apex_opt_level,
-                loss_scale=loss_scale,
-                keep_batchnorm_fp32=None,
-            )
+            if hasattr(model, "generator") and model.generator is not None:
+                model, optimizer = apex.amp.initialize(
+                    [model, model.generator],
+                    optimizer,
+                    opt_level=config.apex_opt_level,
+                    loss_scale=loss_scale,
+                    keep_batchnorm_fp32=None,
+                )
+            else:
+                model, optimizer = apex.amp.initialize(
+                    model,
+                    optimizer,
+                    opt_level=config.apex_opt_level,
+                    loss_scale=loss_scale,
+                    keep_batchnorm_fp32=None,
+                )
         else:
-            if config.model_dtype == "fp16":
+            if config.compute_dtype == torch.float16:
                 # In this case use the old FusedAdam with
                 # FP16_optimizer wrapper
                 static_loss_scale = config.loss_scale
@@ -376,7 +385,7 @@ class Optimizer(object):
             learning_rate_decay_fn=make_learning_rate_decay_fn(config),
             max_grad_norm=running_config.max_grad_norm,
         )
-        if running_config.model_dtype == "fp16":
+        if running_config.compute_dtype in [torch.float16, torch.bfloat16]:
             if running_config.optim == "fusedadam":
                 if running_config.apex_opt_level in ["O0", "O1", "O2", "O3"]:
                     optimizer._fp16 = "apex.amp"

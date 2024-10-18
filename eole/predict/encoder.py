@@ -1,6 +1,6 @@
 import torch
 from eole.predict.inference import Inference
-from eole.constants import ModelTask
+from eole.constants import ModelType
 from eole.predict.greedy_search import GreedySearch
 from eole.predict.beam_search import BeamSearch
 from eole.utils.misc import sequence_mask
@@ -9,10 +9,10 @@ from eole.utils.misc import sequence_mask
 class Encoder(Inference):
     @classmethod
     def validate_task(cls, task):
-        if task != ModelTask.ENCODER:
+        if task != ModelType.ENCODER:
             raise ValueError(
                 f"Encoder does not support task {task}."
-                f" Tasks supported: {ModelTask.ENCODER}"
+                f" Tasks supported: {ModelType.ENCODER}"
             )
 
     def predict_batch(self, batch, attn_debug):
@@ -24,7 +24,7 @@ class Encoder(Inference):
         else:
             max_length = self.max_length
         with torch.no_grad():
-            if self.sample_from_topk != 0 or self.sample_from_topp != 0:
+            if self.top_k != 0 or self.top_p != 0:
                 decode_strategy = GreedySearch(
                     pad=self._tgt_pad_idx,
                     bos=self._tgt_bos_idx,
@@ -39,9 +39,9 @@ class Encoder(Inference):
                     block_ngram_repeat=self.block_ngram_repeat,
                     exclusion_tokens=self._exclusion_idxs,
                     return_attention=attn_debug or self.replace_unk,
-                    sampling_temp=self.random_sampling_temp,
-                    keep_topk=self.sample_from_topk,
-                    keep_topp=self.sample_from_topp,
+                    sampling_temp=self.temperature,
+                    top_k=self.top_k,
+                    top_p=self.top_p,
                     beam_size=self.beam_size,
                     ban_unk_token=self.ban_unk_token,
                 )
@@ -113,14 +113,16 @@ class Encoder(Inference):
         )
 
         if self.add_estimator:
-            pad_mask1 = ~src.eq(1)
+            """
+            # Version with encoder out average
+            pad_mask1 = ~src.eq(self._tgt_pad_idx)
             in_estim1 = (enc_out * pad_mask1.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask1.sum(dim=1, keepdim=True).float()
             estim = self.model.estimator(in_estim1.half()).squeeze(-1)
-            # estim = self.model.estimator(
-            #    enc_out[:, 0, :]
-            # ).squeeze(-1)
+            """
+            # Version with first token embedding (same as COMET)
+            estim = self.model.estimator(enc_out[:, 0, :]).squeeze(-1)
         else:
             estim = torch.ones([enc_out.size(0)])
         estim = [[item] for item in estim.tolist()]

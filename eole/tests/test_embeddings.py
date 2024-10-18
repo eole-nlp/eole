@@ -1,5 +1,6 @@
 import unittest
 from eole.modules.embeddings import Embeddings
+from eole.constants import PositionEncodingType
 
 import itertools
 from copy import deepcopy
@@ -16,7 +17,7 @@ class TestEmbeddings(unittest.TestCase):
             word_vec_size=[172],
             word_vocab_size=[319],
             word_padding_idx=[17],
-            position_encoding=[False, True],
+            position_encoding_type=[PositionEncodingType.SinusoidalInterleaved, None],
             dropout=[0, 0.5],
             freeze_word_vecs=[False, True],
         )
@@ -81,7 +82,7 @@ class TestEmbeddings(unittest.TestCase):
                         continue
                     if key.endswith("pe.pe"):
                         # ok: positional encodings shouldn't be trainable
-                        assert init_case["position_encoding"]
+                        assert init_case["position_encoding_type"]
                         continue
                     else:
                         self.fail(
@@ -96,7 +97,7 @@ class TestEmbeddings(unittest.TestCase):
                     ),
                     "Word embedding is trainable but word vecs are freezed.",
                 )
-            if init_case["position_encoding"]:
+            if init_case["position_encoding_type"]:
                 self.assertFalse(
                     any(
                         trainable_p.endswith(".pe.pe")

@@ -53,14 +53,16 @@ To facilitate setup and reproducibility, we provide Docker images via the GitHub
 
 You can customize the workflow and build your own images based on specific needs using `build.sh` and `Dockerfile` in the `docker` directory of the repository.
 
+There are two images with CUDA 11.8 and 12.1 prebuilt, change the -cudaXX.X to your desired version when pulling the Docker images
+
 To pull the Docker image:
 ```bash
-docker pull ghcr.io/eole-nlp/eole:0.0.1-ubuntu22.04-cuda12.1
+docker pull ghcr.io/eole-nlp/eole:0.0.2-torch2.3.0-ubuntu22.04-cuda12.1
 ```
 
 Example one-liner to run a container and open a bash shell within it:
 ```bash
-docker run --rm -it --runtime=nvidia ghcr.io/eole-nlp/eole:0.0.1-ubuntu22.04-cuda12.1
+docker run --rm -it --runtime=nvidia ghcr.io/eole-nlp/eole:0.0.2-torch2.3.0-ubuntu22.04-cuda12.1
 ```
 
 > **Note**: Ensure you have the [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (formerly nvidia-docker) installed to take advantage of CUDA/GPU features.
@@ -113,16 +115,10 @@ cd ..
 
 #### Flash Attention
 
-As of October 2023, Flash Attention 1 has been integrated into PyTorch v2, but using Flash Attention 2 with v2.3.1 is recommended for sliding window attention support. 
-
-For regular `position_encoding=True` or Rotary with `max_relative_positions=-1`, `eole` will attempt to use an optimized dot-product path. To use [Flash Attention](https://github.com/Dao-AILab/flash-attention#installation-and-features), install it manually:
+To use [Flash Attention](https://github.com/Dao-AILab/flash-attention#installation-and-features), install it manually:
 ```bash
 pip install flash-attn --no-build-isolation
 ```
-
-If Flash Attention 2 is not installed, `F.scaled_dot_product_attention` from PyTorch 2.x will be used.
-
-For `max_relative_positions > 0` or Alibi `max_relative_positions=-2`, `eole` will use legacy code for matrix multiplications. Flash Attention and `F.scaled_dot_product_attention` offer faster performance and better GPU memory efficiency.
 
 #### AWQ
 

@@ -1,8 +1,9 @@
+import torch
 from typing import List, Literal
-from pydantic import Field, model_validator, field_validator
+from pydantic import Field, model_validator, field_validator, computed_field
 
 from eole.config.common import RunningConfig, LoRaConfig, QuantizeConfig
-from eole.config.config import Config
+from eole.config.config import Config, get_config_dict
 
 
 class DecodingConfig(Config):
@@ -10,21 +11,21 @@ class DecodingConfig(Config):
     ratio: float = Field(
         default=-0.0, description="Ratio based beam stop condition."
     )  # is the minus sign useful here?
-    random_sampling_topk: int = Field(
+    top_k: int = Field(
         default=0,
         description="Set this to -1 to do random sampling from full distribution. "
         "Set this to value k>1 to do random sampling restricted to "
         "the k most likely next tokens. Set this to 1 to use argmax.",
     )
-    random_sampling_topp: float = Field(
+    top_p: float = Field(
         default=0.0,
         description="Probability for top-p/nucleus sampling. "
         "Restrict tokens to the most likely until the cumulated probability "
         "is over p. In range [0,1]. (https://arxiv.org/abs/1904.09751)",
         ge=0.0,
-        lt=1.0,
+        lte=1.0,
     )
-    random_sampling_temp: float = Field(
+    temperature: float = Field(
         default=1.0,
         description="If doing random sampling, divide the logits by this "
         "before computing softmax during decoding.",
@@ -44,14 +45,15 @@ class DecodingConfig(Config):
         default=False,
         description="Apply coverage penalty at every decoding step. Helpful for summary penalty.",
     )
-    min_length: int = Field(default=0, description="Minimum prediction length.")
+    min_length: int = Field(default=0, description="Minimum prediction length.", ge=0)
     max_length: int = Field(default=250, description="Maximum prediction length.")
     max_length_ratio: float = Field(
         default=2,
         description="Maximum prediction length ratio. For European languages, "
         "2 is large enough, for target Asian charageters, "
         "need to increase to 2-3, for special languages (Burmese, Amharic) to 10.",
-    )
+        ge=1,
+    )  # we might want to validate this against min_length
     block_ngram_repeat: int = Field(
         default=0, description="Block repetition of ngrams during decoding."
     )
@@ -99,6 +101,10 @@ class DecodingConfig(Config):
 
 # in legacy opts, decoding config is separated (probably to be used elsewhere)
 class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig):
+
+    model_config = get_config_dict()
+    model_config["arbitrary_types_allowed"] = True  # to allow torch.dtype
+
     # TODO: clarify models vs model (model config retrieved from checkpoint)
     model_path: str | List[str] = Field(
         description="Path to model .pt file(s). "
@@ -132,16 +138,6 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     batch_type: Literal["sents", "tokens"] = Field(
         default="sents", description="Batch grouping for batch size."
     )
-    gpu: int = Field(
-        default=-1, description="Device to run on. -1 will default to CPU."
-    )
-    precision: Literal["", "fp32", "fp16", "int8"] = Field(
-        default="",
-        description="Precision to run inference. "
-        "Default will use model.dtype, "
-        "fp32 to force slow fp16 model on gtx1080, "
-        "int8 to enable pytorch native 8-bit quantization (cpu only).",
-    )
     avg_raw_probs: bool = Field(
         default=False,
         description="If set, during ensembling scores from different models will be combined "
@@ -173,5 +169,17 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
             ), "-replace_unk option can not be used with -gold_align enabled"
             assert self.tgt, "-tgt should be specified with -gold_align"
         # originally in validate_translate_opts_dynamic, not sure why
-        self.__dict__["share_vocab"] = False
+        # self.__dict__["share_vocab"] = False
+        if self.compute_dtype == torch.int8:
+            assert self.gpu < 0, "Dynamic 8-bit quantization is not supported on GPU"
         return self
+
+    @computed_field
+    @property
+    def storage_dtype(self) -> torch.dtype:
+        """
+        Deduce which dtype to use for main model parameters.
+        """
+        if self.compute_dtype == torch.int8:
+            return torch.float32
+        return self.compute_dtype

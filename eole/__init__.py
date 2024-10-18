@@ -1,23 +1,4 @@
-import eole.inputters
-import eole.encoders
-import eole.decoders
-import eole.models
-import eole.utils
-import eole.modules
-import sys
-import eole.utils.optimizers
+import os
 
-eole.utils.optimizers.Optim = eole.utils.optimizers.Optimizer
-sys.modules["eole.Optim"] = eole.utils.optimizers
-
-# For Flake
-__all__ = [
-    eole.inputters,
-    eole.encoders,
-    eole.decoders,
-    eole.models,
-    eole.utils,
-    eole.modules,
-]
-
-__version__ = "3.5.1"
+__version__ = "0.0.1"
+ROOT_DIR = os.path.abspath(os.path.dirname(__file__))

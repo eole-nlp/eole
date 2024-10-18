@@ -1,0 +1,14 @@
+models_root: "." # used only for HF downloads for now, but might override $EOLE_MODEL_DIR at some point
+some_params: null # might be useful to setup some server level params (available gpus, network, etc.)
+models:
+# local model
+- id: "llama3-8b-instruct"
+  path: "${EOLE_MODEL_DIR}/llama3-8b-instruct"
+  preload: false
+  config:
+    quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
+    quant_type: "bnb_NF4"
+# HF repo id, automatically downloaded to models_root
+- id: "llama3-8b-instruct-hf"
+  path: "fhdz/llama3-8b-instruct"
+  preload: true

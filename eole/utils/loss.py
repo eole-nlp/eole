@@ -9,7 +9,8 @@ import eole
 from eole.modules.sparse_losses import SparsemaxLoss
 from eole.modules.sparse_activations import LogSparsemax
 from eole.constants import DefaultTokens
-from eole.models import DecoderModel
+from eole.models.model import DecoderModel
+from eole.utils.misc import get_device
 
 try:
     import ctranslate2
@@ -28,7 +29,7 @@ class LossCompute(nn.Module):
         lambda_coverage: Hyper-param to apply coverage attention if any
         lambda_align: Hyper-param for alignment loss
         tgt_shift_index (int): 1 for NMT, 0 for LM
-        vocab: target vocab
+        vocabs: full vocabs with specials
              module that maps the output of the decoder to a
              distribution over the target vocabulary.
         lm_generator (:obj:`ctranslate2.Generator`): LM Generator
@@ -43,7 +44,7 @@ class LossCompute(nn.Module):
         lambda_coverage=0.0,
         lambda_align=0.0,
         tgt_shift_index=1,
-        vocab=None,
+        vocabs=None,
         lm_generator=None,
         lm_prior_lambda=None,
         lm_prior_tau=None,
@@ -55,15 +56,19 @@ class LossCompute(nn.Module):
         self.lambda_coverage = lambda_coverage
         self.lambda_align = lambda_align
         self.tgt_shift_index = tgt_shift_index
-        self.vocab = vocab
+        self.vocabs = vocabs
         self.lm_generator = lm_generator
         self.lm_prior_lambda = lm_prior_lambda
         self.lm_prior_tau = lm_prior_tau
         self.lm_prior_model = lm_prior_model
         self.estimloss = nn.MSELoss(reduction="sum")
 
+        self.pad_token = self.vocabs["specials"].get("pad_token", DefaultTokens.PAD)
+        self.unk_token = self.vocabs["specials"].get("unk_token", DefaultTokens.UNK)
+        self.eos_token = self.vocabs["specials"].get("eos_token", DefaultTokens.EOS)
+
     @classmethod
-    def from_config(cls, config, model, vocab, train=True):
+    def from_config(cls, config, model, vocabs, train=True):
         """
         Returns a subclass which wraps around an nn.Module subclass
         (such as nn.NLLLoss) which defines the loss criterion. The LossCompute
@@ -71,16 +76,28 @@ class LossCompute(nn.Module):
         training/validation logging.
         The Criterion and LossCompute options are triggered by opt settings.
         """
-        device = torch.device(
-            "cuda" if eole.utils.misc.use_gpu(config.training) else "cpu"
-        )
-        padding_idx = vocab[DefaultTokens.PAD]
 
-        if config.model.decoder.lambda_coverage != 0:
-            assert config.model.decoder.coverage_attn, (
-                "--coverage_attn needs to be set in "
-                "order to use --lambda_coverage != 0"
-            )
+        device = torch.device(
+            get_device() if eole.utils.misc.use_gpu(config.training) else "cpu"
+        )
+        pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
+        padding_idx = vocabs["tgt"][pad_token]
+
+        if config.model.decoder is not None:
+            lambda_align = getattr(
+                config.model.decoder, "lambda_align", 0.0
+            )  # patch to support non transformer configs
+            if config.model.decoder.lambda_coverage != 0:
+                lambda_coverage = config.model.decoder.lambda_coverage
+                assert config.model.decoder.coverage_attn, (
+                    "--coverage_attn needs to be set in "
+                    "order to use --lambda_coverage != 0"
+                )
+            else:
+                lambda_coverage = 0
+        else:
+            lambda_coverage = 0
+            lambda_align = 0.0
 
         tgt_shift_idx = model.tgt_shift
 
@@ -97,14 +114,10 @@ class LossCompute(nn.Module):
         lm_prior_tau = config.training.lm_prior_tau
         if config.training.lm_prior_model:
             if config.training.lm_prior_model[-3:] == ".pt":
-                # TODO: we should probably find a way around this
-                config.gpu = 0
-                config.fp32 = False
-                config.int8 = False
                 _, lm_prior_model, lm_model_config = DecoderModel.load_test_model(
                     config, model_path=config.training.lm_prior_model
                 )  # lm_model_config does not seem used
-                lm_prior_model.to(torch.device("cuda", config.training.gpu))
+                # lm_prior_model.to(torch.device("cuda", config.training.gpu))
                 lm_prior_model.eval()
                 lm_generator = None
             else:
@@ -126,12 +139,10 @@ class LossCompute(nn.Module):
         compute = cls(
             criterion,
             model.generator,
-            lambda_coverage=config.model.decoder.lambda_coverage,
-            lambda_align=getattr(
-                config.model.decoder, "lambda_align", 0.0
-            ),  # patch to support non transformer configs
+            lambda_coverage=lambda_coverage,
+            lambda_align=lambda_align,
             tgt_shift_index=tgt_shift_idx,
-            vocab=vocab,
+            vocabs=vocabs,
             lm_generator=lm_generator,
             lm_prior_lambda=lm_prior_lambda,
             lm_prior_tau=lm_prior_tau,
@@ -178,7 +189,7 @@ class LossCompute(nn.Module):
         scores = F.log_softmax(scores.to(torch.float32), dim=-1)
 
         src = target.detach().clone()
-        src[src == self.vocab[DefaultTokens.EOS]] = self.padding_idx
+        src[src == self.vocabs["tgt"][self.eos_token]] = self.padding_idx
         src = src[:, :-1, :]
         src_len = src[:, :, 0].ne(self.padding_idx).sum(1)
         # ct2 expects src with lengths without padding
@@ -191,8 +202,8 @@ class LossCompute(nn.Module):
         # again we use raw probs to rescale with tau and apply log_softmax
         lm_scores = self._bottle(lm_scores) / self.lm_prior_tau
         lm_scores = F.log_softmax(lm_scores.to(torch.float32), dim=-1)
-        lm_scores[:, self.vocab[DefaultTokens.UNK]] = -50
-        lm_scores[:, self.vocab[DefaultTokens.EOS]] -= 20
+        lm_scores[:, self.vocabs["tgt"]["unk_token"]] = -50
+        lm_scores[:, self.vocabs["tgt"]["eos_token"]] -= 20
         # lm_scores are in log space so log_target=True
         lm_loss = F.kl_div(scores, lm_scores, reduction="none", log_target=True).sum(-1)
         non_padding = self._bottle(output).ne(self.padding_idx)[:, 0]
@@ -211,7 +222,7 @@ class LossCompute(nn.Module):
         scores = F.log_softmax(scores.to(torch.float32), dim=-1)
 
         src = target.detach().clone()
-        src[src == self.vocab[DefaultTokens.EOS]] = self.padding_idx
+        src[src == self.vocabs["tgt"]["eos_token"]] = self.padding_idx
         src = src[:, :-1, :]
         src_len = src[:, :, 0].ne(self.padding_idx).sum(1)
         # ct2 expects src with lengths without padding
@@ -222,8 +233,8 @@ class LossCompute(nn.Module):
         )
         # again we use raw probs to rescale with tau and apply log_softmax
         lm_scores = F.log_softmax(lm_scores.to(torch.float32), dim=-1)
-        lm_scores[:, self.vocab[DefaultTokens.UNK]] = -50
-        lm_scores[:, self.vocab[DefaultTokens.EOS]] -= 20
+        lm_scores[:, self.vocabs["tgt"]["unk_token"]] = -50
+        lm_scores[:, self.vocabs["tgt"]["eos_token"]] -= 20
         # lm_scores are in log space so log_target=True
         lm_loss = F.kl_div(scores, lm_scores, reduction="none", log_target=True).sum(-1)
         non_padding = self._bottle(output).ne(self.padding_idx)[:, 0]

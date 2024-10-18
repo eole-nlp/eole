@@ -1,5 +1,5 @@
 import torch
-from eole.models import get_model_class
+from eole.models.model import get_model_class
 from eole.models.model_saver import load_checkpoint
 from eole.inputters.inputter import dict_to_vocabs
 
@@ -29,7 +29,7 @@ class ExtractEmbeddings(BaseBin):
     @classmethod
     def run(cls, args):
         args.cuda = args.gpu > -1
-        if args.cuda:
+        if args.cuda and torch.cuda.is_available():
             torch.cuda.set_device(args.gpu)
 
         # Add in default model arguments, possibly added since training.

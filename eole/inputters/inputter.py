@@ -13,10 +13,16 @@ def build_vocab(config, specials):
         opt: src_vocab, tgt_vocab
     Return:
         vocabs: {'src': pyonmttok.Vocab, 'tgt': pyonmttok.Vocab,
-                 'data_task': seq2seq or lm
                  'decoder_start_token': DefaultTokens.BOS
                 }
     """
+    vocabs = {}
+    vocabs["specials"] = {
+        "unk_token": config.unk_token,
+        "pad_token": config.pad_token,
+        "bos_token": config.bos_token,
+        "eos_token": config.eos_token,
+    }
 
     def _pad_vocab_to_multiple(vocab, multiple):
         vocab_size = len(vocab)
@@ -27,8 +33,8 @@ def build_vocab(config, specials):
             vocab.add_token(DefaultTokens.VOCAB_PAD + str(i))
         return vocab
 
-    default_specials = config.default_specials
-    vocabs = {}
+    default_specials = list(vocabs["specials"].values())
+
     src_vocab = _read_vocab_file(config.src_vocab, config.src_words_min_frequency)
 
     src_specials = [
@@ -46,7 +52,7 @@ def build_vocab(config, specials):
     src_vocab = pyonmttok.build_vocab_from_tokens(
         src_vocab, maximum_size=config.src_vocab_size, special_tokens=src_specials
     )
-    src_vocab.default_id = src_vocab[DefaultTokens.UNK]
+    src_vocab.default_id = src_vocab[config.unk_token]
     if src_vocab.default_id >= len(src_vocab):
         src_vocab.default_id = (
             0  # patch that assigns OOV to id=0 when UNK does not exist
@@ -80,9 +86,7 @@ def build_vocab(config, specials):
             tgt_vocab = _pad_vocab_to_multiple(tgt_vocab, config.vocab_size_multiple)
         vocabs["tgt"] = tgt_vocab
 
-    vocabs["data_task"] = config.data_task
     vocabs["decoder_start_token"] = config.decoder_start_token
-
     return vocabs
 
 
@@ -124,11 +128,12 @@ def vocabs_to_dict(vocabs):
     vocabs_dict["src"] = vocabs["src"].ids_to_tokens
     vocabs_dict["tgt"] = vocabs["tgt"].ids_to_tokens
 
-    vocabs_dict["data_task"] = vocabs["data_task"]
     if "decoder_start_token" in vocabs.keys():
         vocabs_dict["decoder_start_token"] = vocabs["decoder_start_token"]
     else:
         vocabs_dict["decoder_start_token"] = DefaultTokens.BOS
+    if "specials" in vocabs.keys():
+        vocabs_dict["specials"] = vocabs["specials"]
     return vocabs_dict
 
 
@@ -138,7 +143,6 @@ def dict_to_vocabs(vocabs_dict):
     into a dict of pyonmttok vocabs objects.
     """
     vocabs = {}
-    vocabs["data_task"] = vocabs_dict["data_task"]
     if "decoder_start_token" in vocabs_dict.keys():
         vocabs["decoder_start_token"] = vocabs_dict["decoder_start_token"]
     else:
@@ -152,5 +156,7 @@ def dict_to_vocabs(vocabs_dict):
         vocabs["tgt"] = pyonmttok.build_vocab_from_tokens(vocabs_dict["tgt"])
         if vocabs["tgt"].default_id >= len(vocabs["src"]):
             vocabs["tgt"].default_id = 0  # patch that assigns OOV to id=0
+    if "specials" in vocabs_dict.keys():
+        vocabs["specials"] = vocabs_dict["specials"]
 
     return vocabs

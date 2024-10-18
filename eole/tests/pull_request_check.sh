@@ -114,7 +114,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5, "position_encoding_type": None}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -report_every 5 \
             -tensorboard \
@@ -131,7 +131,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5, "position_encoding_type": None}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
             -report_every 2 \
             -tensorboard \
@@ -150,7 +150,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "lambda_align": 0.05, "alignment_layer": 2, "alignment_heads": 0, "heads": 2}}' \
+            -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16, "position_encoding_type": None}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "lambda_align": 0.05, "alignment_layer": 2, "alignment_heads": 0, "heads": 2}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -report_every 5 \
             >> ${LOG_FILE} 2>&1
@@ -164,7 +164,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}, "decoder": {"coverage_attn": True, "lambda_coverage": 0.1}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5, "position_encoding_type": None}, "decoder": {"coverage_attn": True, "lambda_coverage": 0.1}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -report_every 5 \
             >> ${LOG_FILE} 2>&1
@@ -178,7 +178,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 16, "embeddings": {"word_vec_size": 16, "position_encoding": True}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "heads": 2,}}' \
+            -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 16, "embeddings": {"word_vec_size": 16, "position_encoding_type": "SinusoidalInterleaved"}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "heads": 2,}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
             -report_every 2 \
             -valid_metrics "BLEU" "TER" \
@@ -199,7 +199,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"architecture": "transformer", "layers": 4, "hidden_size": 16, "transformer_ff": 64, "max_relative_positions": 8, "heads": 2, "share_decoder_embeddings": True, "share_embeddings": True, "embeddings": {"word_vec_size": 16}}' \
+            -model '{"architecture": "transformer", "layers": 4, "hidden_size": 16, "transformer_ff": 64, "heads": 2, "share_decoder_embeddings": True, "share_embeddings": True, "embeddings": {"word_vec_size": 16, "position_encoding_type": "Relative", "n_positions": 8}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
             -valid_metrics "BLEU" "TER" \
             -report_every 2 \
@@ -220,7 +220,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"architecture": "transformer", "layers": 4, "hidden_size": 16, "transformer_ff": 64, "heads": 2, "max_relative_positions": -1, "embeddings": {"word_vec_size": 16}}' \
+            -model '{"architecture": "transformer", "layers": 4, "hidden_size": 16, "transformer_ff": 64, "heads": 2, "embeddings": {"word_vec_size": 16, "position_encoding_type": "Rotary"}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
             -valid_metrics "BLEU" "TER" \
             -report_every 2 \
@@ -241,7 +241,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"architecture": "transformer", "layers": 4, "hidden_size": 16, "transformer_ff": 64, "heads": 2, "max_relative_positions": -2, "embeddings": {"word_vec_size": 16}}' \
+            -model '{"architecture": "transformer", "layers": 4, "hidden_size": 16, "transformer_ff": 64, "heads": 2, "embeddings": {"word_vec_size": 16, "position_encoding_type": "Alibi"}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
             -valid_metrics "BLEU" "TER" \
             -report_every 2 \
@@ -276,7 +276,7 @@ ${PYTHON} eole/bin/main.py train \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 -tgt_vocab_size 1000 \
-            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5}}' \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5, "position_encoding_type": None}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "model_path": "'"$TMP_OUT_DIR"'/eole.model", "save_checkpoint_steps": 10}' \
             -report_every 5 \
             >> ${LOG_FILE} 2>&1
@@ -356,8 +356,8 @@ ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model2  \
             -verbose -batch_size 10     \
             -beam_size 1                \
             -seed 1                     \
-            -random_sampling_topk -1    \
-            -random_sampling_temp 0.0001    \
+            -top_k -1    \
+            -temperature 0.0001    \
             -tgt ${DATA_DIR}/morph/tgt.valid   \
             -out $TMP_OUT_DIR/trans_sampling  >> ${LOG_FILE} 2>&1
 diff ${DATA_DIR}/morph/tgt.valid $TMP_OUT_DIR/trans_sampling
@@ -393,8 +393,8 @@ ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model_lm  \
             -verbose -batch_size 1     \
             -beam_size 1                \
             -seed 1                     \
-            -random_sampling_topk -1    \
-            -random_sampling_temp 0.0001    \
+            -top_k -1    \
+            -temperature 0.0001    \
             -ban_unk_token \
             -length_penalty none \
             -out $TMP_OUT_DIR/gen_sampling  >> ${LOG_FILE} 2>&1
@@ -409,9 +409,9 @@ ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model_lm  \
             -verbose -batch_size 1     \
             -beam_size 1                \
             -seed 3                     \
-            -random_sampling_topk -1    \
-            -random_sampling_topp 0.95    \
-            -random_sampling_temp 1    \
+            -top_k -1    \
+            -top_p 0.95    \
+            -temperature 1    \
             -ban_unk_token \
             -length_penalty none \
             -out $TMP_OUT_DIR/gen_sampling  >> ${LOG_FILE} 2>&1
@@ -426,9 +426,9 @@ ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model_lm  \
             -verbose -batch_size 1     \
             -beam_size 10                \
             -seed 2                     \
-            -random_sampling_topk 50    \
-            -random_sampling_topp 0.95    \
-            -random_sampling_temp 1    \
+            -top_k 50    \
+            -top_p 0.95    \
+            -temperature 1    \
             -length_penalty avg \
             -ban_unk_token \
             -min_length 5 \
@@ -445,7 +445,7 @@ echo -n "  [+] Testing PY LM inference engine .."
 echo "  [+] Testing PY LM inference engine .."| tee -a ${LOG_FILE}
 head ${DATA_DIR}/src-test.txt > $TMP_OUT_DIR/src-test.txt
 ${PYTHON} eole/tests/test_inference_engines.py -model ${TEST_DIR}/test_model_lm \
-            -model_task lm \
+            -model_type decoder \
             -input_file $TMP_OUT_DIR/src-test.txt \
             -inference_config_file ${DATA_DIR}/inference-engine_py.yaml \
             -inference_mode py \
@@ -459,7 +459,7 @@ rm $TMP_OUT_DIR/inference_engine_lm_py_outputs_list.json
 echo "  [+] Testing CT2 LM inference engine .."| tee -a ${LOG_FILE}
 head ${DATA_DIR}/src-test.txt > $TMP_OUT_DIR/src-test.txt
 ${PYTHON} eole/tests/test_inference_engines.py -model ${TEST_DIR}/test_model_lm_ct2 \
-            -model_task lm \
+            -model_type decoder \
             -input_file $TMP_OUT_DIR/src-test.txt \
             -inference_config_file ${DATA_DIR}/inference-engine_py.yaml \
             -inference_mode ct2 \
@@ -474,7 +474,7 @@ echo -n "  [+] Testing PY SEQ2SEQ inference engine .."
 echo "  [+] Testing PY SEQ2SEQ inference engine .."| tee -a ${LOG_FILE}
 head ${DATA_DIR}/src-test.txt > $TMP_OUT_DIR/src-test.txt
 ${PYTHON} eole/tests/test_inference_engines.py -model ${TEST_DIR}/test_model \
-            -model_task seq2seq \
+            -model_type encoder_decoder \
             -input_file $TMP_OUT_DIR/src-test.txt \
             -inference_config_file ${DATA_DIR}/inference-engine_py.yaml \
             -inference_mode py \

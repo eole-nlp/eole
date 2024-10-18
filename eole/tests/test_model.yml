@@ -78,7 +78,6 @@ tgt_vocab_size: 1000
 #  global_attention='general', 
 # global_attention_function='softmax',
 #  self_attn_type='scaled-dot',
-#  max_relative_positions=0,
 #  heads=8,
 #  transformer_ff=2048,
 #  aan_useffn=False, 

@@ -1,0 +1,20 @@
+world_size: 1
+gpu_ranks: [0]
+
+model_path: ${EOLE_MODEL_DIR}/openai_gpt2
+
+src: lm_input.txt
+output: lm_pred.txt
+beam_size: 5
+temperature: 1.0
+top_k: 50
+top_p: 1
+n_best: 5
+
+seed: 42
+self_attn_backend: "pytorch"
+compute_dtype: fp32
+
+max_length: 30
+
+verbose: true

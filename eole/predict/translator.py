@@ -24,10 +24,16 @@ class Translator(Inference):
             batch_tgt_idxs = self._align_pad_prediction(
                 predictions, bos=self._tgt_bos_idx, pad=self._tgt_pad_idx
             )
+
         tgt_mask = (
             batch_tgt_idxs.eq(self._tgt_pad_idx)
-            | batch_tgt_idxs.eq(self._tgt_eos_idx)
             | batch_tgt_idxs.eq(self._tgt_bos_idx)
+            | torch.any(
+                torch.stack(
+                    [batch_tgt_idxs.eq(eos_idx) for eos_idx in self._tgt_eos_idx]
+                ),
+                dim=0,
+            )
         )
 
         n_best = batch_tgt_idxs.size(1)
@@ -50,20 +56,30 @@ class Translator(Inference):
 
         # (3) Init decoder with n_best src,
         self.model.decoder.init_state(src=src, enc_out=enc_out, enc_states=enc_states)
-        # reshape tgt to ``(len, batch * n_best, nfeat)``
-        # it should be done in a better way
-        tgt = batch_tgt_idxs.view(-1, batch_tgt_idxs.size(-1)).T.unsqueeze(-1)
-        dec_in = tgt[:-1].transpose(0, 1)  # exclude last target from inputs
-        # here dec_in is batch first
-        _, attns = self.model.decoder(dec_in, enc_out, src_len=src_len, with_align=True)
+
+        # (4) reshape and apply pad masking in the target sequence
+        tgt = batch_tgt_idxs.view(-1, batch_tgt_idxs.size(-1))
+        src_pad_idx = self.model.src_emb.word_padding_idx
+        tgt_pad_idx = self.model.tgt_emb.word_padding_idx
+        src_pad_mask = src.eq(src_pad_idx).unsqueeze(1)
+        tgt_pad_mask = tgt[:, :-1].eq(tgt_pad_idx).unsqueeze(1)
+
+        dec_in = tgt[:, :-1]
+        _, attns = self.model.decoder(
+            self.model.tgt_emb(dec_in),
+            enc_out=enc_out,
+            src_pad_mask=src_pad_mask,
+            tgt_pad_mask=tgt_pad_mask,
+            with_align=True,
+        )
 
         alignment_attn = attns["align"]  # ``(B, tgt_len-1, src_len)``
         # masked_select
         align_tgt_mask = tgt_mask.view(-1, tgt_mask.size(-1))
         prediction_mask = align_tgt_mask[:, 1:]  # exclude bos to match pred
         # get aligned src id for each prediction's valid tgt tokens
-        alignement = extract_alignment(alignment_attn, prediction_mask, src_len, n_best)
-        return alignement
+        alignment = extract_alignment(alignment_attn, prediction_mask, src_len, n_best)
+        return alignment
 
     def predict_batch(self, batch, attn_debug):
         """Translate a batch of sentences."""
@@ -74,7 +90,7 @@ class Translator(Inference):
         else:
             max_length = self.max_length
         with torch.no_grad():
-            if self.sample_from_topk != 0 or self.sample_from_topp != 0:
+            if self.top_k != 0 or self.top_p != 0:
                 decode_strategy = GreedySearch(
                     pad=self._tgt_pad_idx,
                     bos=self._tgt_bos_idx,
@@ -89,9 +105,9 @@ class Translator(Inference):
                     block_ngram_repeat=self.block_ngram_repeat,
                     exclusion_tokens=self._exclusion_idxs,
                     return_attention=attn_debug or self.replace_unk,
-                    sampling_temp=self.random_sampling_temp,
-                    keep_topk=self.sample_from_topk,
-                    keep_topp=self.sample_from_topp,
+                    temperature=self.temperature,
+                    top_k=self.top_k,
+                    top_p=self.top_p,
                     beam_size=self.beam_size,
                     ban_unk_token=self.ban_unk_token,
                 )
@@ -179,6 +195,7 @@ class Translator(Inference):
             self.model.decoder.map_state(fn_map_state)
 
         # (3) Begin decoding step by step:
+        # save the initial encoder out for later estimator
         if torch.is_tensor(enc_out):
             enc_out2 = enc_out.clone()
             src_len2 = decode_strategy.src_len.clone()
@@ -227,17 +244,24 @@ class Translator(Inference):
                 item for sublist in decode_strategy.predictions for item in sublist
             ]
 
-            # make it clearer the pad index and BOS prepend
-            dec_in = pad_sequence(dec_in, batch_first=True, padding_value=1)
+            # Prepare estimator input = decoder out of each pred with initial enc_out
+            dec_in = pad_sequence(
+                dec_in, batch_first=True, padding_value=self._tgt_pad_idx
+            )
             prepend_value = torch.full(
-                (dec_in.size(0), 1), 2, dtype=dec_in.dtype, device=dec_in.device
+                (dec_in.size(0), 1),
+                self._tgt_bos_idx,
+                dtype=dec_in.dtype,
+                device=dec_in.device,
             )
             dec_in = torch.cat((prepend_value, dec_in), dim=1)
             src_max_len = src_len2.max()
             src_pad_mask = sequence_mask(src_len2, src_max_len).unsqueeze(
                 1
             )  # [B, 1, T_src]
-            tgt_pad_mask = dec_in[:, :-1].eq(1).unsqueeze(1)  # [B, 1, T_tgt]
+            tgt_pad_mask = (
+                dec_in[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)
+            )  # [B, 1, T_tgt]
             emb = self.model.tgt_emb(dec_in[:, :-1])
             dec_out, _ = self.model.decoder(
                 emb,
@@ -248,7 +272,7 @@ class Translator(Inference):
                 src_pad_mask=src_pad_mask,
                 tgt_pad_mask=tgt_pad_mask,
             )
-            pad_mask2 = ~dec_in[:, :-1].eq(1)
+            pad_mask2 = ~dec_in[:, :-1].eq(self._tgt_pad_idx)
             in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask2.sum(dim=1, keepdim=True).float()

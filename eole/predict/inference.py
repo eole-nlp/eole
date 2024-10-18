@@ -10,7 +10,7 @@ import codecs
 from eole.transforms import TransformPipe
 from eole.constants import DefaultTokens
 from eole.predict.prediction import PredictionBuilder
-from eole.utils.misc import set_random_seed, report_matrix, sequence_mask
+from eole.utils.misc import set_random_seed, report_matrix, sequence_mask, get_device
 from eole.utils.alignment import build_align_pharaoh
 
 
@@ -28,9 +28,11 @@ class Inference(object):
         max_length (int): See
             :class:`eole.predict.decode_strategy.DecodeStrategy`.
         beam_size (int): Number of beams.
-        random_sampling_topk (int): See
+        top_p (float): See
             :class:`eole.predict.greedy_search.GreedySearch`.
-        random_sampling_temp (float): See
+        top_k (int): See
+            :class:`eole.predict.greedy_search.GreedySearch`.
+        temperature (float): See
             :class:`eole.predict.greedy_search.GreedySearch`.
         stepwise_penalty (bool): Whether coverage penalty is applied every step
             or not.
@@ -62,9 +64,9 @@ class Inference(object):
         max_length_ratio=1.5,
         ratio=0.0,
         beam_size=30,
-        random_sampling_topk=0,
-        random_sampling_topp=0.0,
-        random_sampling_temp=1.0,
+        top_k=0,
+        top_p=0.0,
+        temperature=1.0,
         stepwise_penalty=None,
         dump_beam=False,
         block_ngram_repeat=0,
@@ -86,32 +88,40 @@ class Inference(object):
         with_score=False,
         return_gold_log_probs=False,
         add_estimator=False,
+        optional_eos=[],
     ):
         self.model = model
         self.vocabs = vocabs
         self._tgt_vocab = vocabs["tgt"]
-        self._tgt_eos_idx = vocabs["tgt"].lookup_token(DefaultTokens.EOS)
-        self._tgt_pad_idx = vocabs["tgt"].lookup_token(DefaultTokens.PAD)
-        self._tgt_bos_idx = vocabs["tgt"].lookup_token(DefaultTokens.BOS)
-        self._tgt_unk_idx = vocabs["tgt"].lookup_token(DefaultTokens.UNK)
+        self._tgt_eos_idx = [
+            vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("eos_token", ""))
+        ] + [vocabs["tgt"].lookup_token(eos_token) for eos_token in optional_eos]
+        # defaulting to DefaultTokens.PAD might not always work
+        self._tgt_pad_idx = vocabs["tgt"].lookup_token(
+            vocabs.get("specials", {}).get("pad_token", DefaultTokens.PAD)
+        )
+        self._tgt_bos_idx = vocabs["tgt"].lookup_token(
+            vocabs.get("specials", {}).get("bos_token", "")
+        )
+        self._tgt_unk_idx = vocabs["tgt"].lookup_token(
+            vocabs.get("specials", {}).get("unk_token", "")
+        )
         self._tgt_sep_idx = vocabs["tgt"].lookup_token(DefaultTokens.SEP)
         self._tgt_start_with = vocabs["tgt"].lookup_token(vocabs["decoder_start_token"])
         self._tgt_vocab_len = len(self._tgt_vocab)
 
         self._gpu = gpu
-        self._use_cuda = gpu > -1
-        self._dev = (
-            torch.device("cuda", self._gpu) if self._use_cuda else torch.device("cpu")
-        )
+        self._use_gpu = gpu > -1
+        self._dev = get_device(self._gpu) if self._use_gpu else torch.device("cpu")
 
         self.n_best = n_best
         self.max_length = max_length
         self.max_length_ratio = max_length_ratio
 
         self.beam_size = beam_size
-        self.random_sampling_temp = random_sampling_temp
-        self.sample_from_topk = random_sampling_topk
-        self.sample_from_topp = random_sampling_topp
+        self.temperature = temperature
+        self.top_k = top_k
+        self.top_p = top_p
 
         self.min_length = min_length
         self.ban_unk_token = ban_unk_token
@@ -153,7 +163,7 @@ class Inference(object):
                 "log_probs": [],
             }
 
-        set_random_seed(seed, self._use_cuda)
+        set_random_seed(seed, self._use_gpu)
         self.with_score = with_score
 
         self.return_gold_log_probs = return_gold_log_probs
@@ -166,6 +176,7 @@ class Inference(object):
         vocabs,
         config,  # running/predict config
         model_config,
+        device_id=0,
         global_scorer=None,
         out_file=None,
         report_align=False,
@@ -194,16 +205,16 @@ class Inference(object):
         return cls(
             model,
             vocabs,
-            gpu=config.gpu,
+            gpu=device_id,
             n_best=config.n_best,
             min_length=config.min_length,
             max_length=config.max_length,
             max_length_ratio=config.max_length_ratio,
             ratio=config.ratio,
             beam_size=config.beam_size,
-            random_sampling_topk=config.random_sampling_topk,
-            random_sampling_topp=config.random_sampling_topp,
-            random_sampling_temp=config.random_sampling_temp,
+            top_k=config.top_k,
+            top_p=config.top_p,
+            temperature=config.temperature,
             stepwise_penalty=config.stepwise_penalty,
             dump_beam=config.dump_beam,
             block_ngram_repeat=config.block_ngram_repeat,
@@ -224,6 +235,7 @@ class Inference(object):
             seed=config.seed,
             with_score=config.with_score,
             add_estimator=model_config.add_estimator,
+            optional_eos=config.optional_eos,
         )
 
     def _log(self, msg):
@@ -242,6 +254,12 @@ class Inference(object):
             gs = [0] * batch_size
             glp = None
         return gs, glp
+
+    def update_settings(self, **kwargs):
+        # we probably would need some validation at some point
+        for k, v in kwargs.items():
+            if hasattr(self, k):
+                setattr(self, k, v)
 
     def _predict(
         self,
@@ -275,6 +293,7 @@ class Inference(object):
             self.n_best,
             self.replace_unk,
             self.phrase_table,
+            self._tgt_eos_idx,
         )
 
         # Statistics

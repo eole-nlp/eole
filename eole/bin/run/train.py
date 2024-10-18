@@ -2,7 +2,8 @@
 """Train models with dynamic data."""
 import torch
 from functools import partial
-from eole.utils.distributed import ErrorHandler, spawned_train
+from eole.utils.distributed import ErrorHandler
+from eole.utils.distributed_workers import spawned_train
 from eole.utils.misc import set_random_seed
 from eole.utils.logging import init_logger, logger
 from argparse import ArgumentParser
@@ -20,6 +21,7 @@ from eole.bin.run import RunBin
 
 def train(config):
     # config is the full TrainConfig namespace here
+    config._validate_vocab_config()
     init_logger(config.log_file)
     set_random_seed(config.seed, False)
 

@@ -81,7 +81,10 @@ class MLP(nn.Module):
             mlp_out = self.dropout_2(mlp_out)
 
         if self.parallel_gpu > 1:
-            all_reduce(mlp_out)
+            # all_reduce is an inplace op - not easily backprop
+            mlp_out1 = mlp_out.detach().clone()
+            all_reduce(mlp_out1)
+            mlp_out.copy_(mlp_out1 + (mlp_out - mlp_out.detach()))
 
         return mlp_out
 
