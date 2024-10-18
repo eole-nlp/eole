@@ -24,6 +24,9 @@ for config_path in configs_to_check:
             train_config = TrainConfig(**config_dict)
         except Exception as e:
             raise e
+    elif "models" in config_dict.keys():
+        # server example config, ignore for now
+        pass
     else:
         # must be a PredictConfig
         try:

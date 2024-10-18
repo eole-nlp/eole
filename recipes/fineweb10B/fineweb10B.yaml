@@ -43,7 +43,7 @@ training:
 
     # ==========
     # GPU & compute
-    model_dtype: "fp16"
+    compute_dtype: "fp16"
     # Train on a single GPU
     world_size: 1
     gpu_ranks: [0]
@@ -94,7 +94,6 @@ model:
     heads: 12
     hidden_size: 768
     transformer_ff: 3072
-    share_embeddings: true
     share_decoder_embeddings: true
     mlp_activation_fn: "gelu"
     add_ffnbias: true
@@ -102,4 +101,4 @@ model:
     norm_eps: 1e-05
     embeddings:
         word_vec_size: 768
-        position_encoding: true
+        position_encoding_type: "SinusoidalInterleaved"

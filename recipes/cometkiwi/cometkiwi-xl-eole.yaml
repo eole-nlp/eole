@@ -9,7 +9,6 @@ tgt_vocab_size: 250880
 vocab_size_multiple: 1
 report_every: 50
 skip_empty_level: silent
-data_task: "encoder"
 
 # transforms config
 transforms: [sentencepiece, filtertoolong]
@@ -73,7 +72,7 @@ training:
     accum_steps: [0]
 
     # Optimization
-    model_dtype: "fp16"
+    compute_dtype: "fp16"
     #apex_opt_level: "O2"
     optim: "fusedadam"
     learning_rate: 0.000015
@@ -85,7 +84,7 @@ training:
     max_grad_norm: 1
     label_smoothing: 0.1
     param_init: 0
-    param_init_glorot: true
+    param_init_method: "xavier_uniform"
     normalization: "tokens"
 
     dropout_steps: [0]
@@ -123,8 +122,8 @@ model:
     #shared_layer_norm: true
     add_estimator: true
     share_decoder_embeddings: true
-    share_embeddings: true
-    rotary_interleave: false
+    rope_config:
+        rotary_interleave: false
     layer_norm: standard
     norm_eps: 1e-5
     embeddings:

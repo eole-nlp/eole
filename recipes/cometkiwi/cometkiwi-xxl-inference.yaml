@@ -13,7 +13,6 @@ model_path: ["./cometkiwi-xxl-eole/merged"]
 
 # Inference
 seed: 42
-gpu: 0
 batch_type: sents
 batch_size: 16
 world_size: 1
