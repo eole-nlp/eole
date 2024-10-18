@@ -21,6 +21,7 @@ class OptimizerConfig(Config):
         "adagrad",
         "adadelta",
         "adam",
+        "adamw",
         "sparseadam",
         "adafactor",
         "fusedadam",
@@ -55,6 +56,9 @@ class OptimizerConfig(Config):
         "a value of 0.98 for beta2, this parameter may not work well "
         "for normal models / default baselines.",
     )
+    weight_decay: float = Field(
+        default=0.0, description="Weight decay to forward to torch Optimizer."
+    )
     learning_rate: float = Field(
         default=1.0,
         description="Starting learning rate. "
@@ -72,7 +76,7 @@ class OptimizerConfig(Config):
     decay_steps: int = Field(
         default=10000, description="Frequency for learning rate decay, in steps."
     )
-    decay_method: Literal["noam", "noamwd", "rsqrt", "none"] = Field(
+    decay_method: Literal["noam", "noamwd", "cosine", "rsqrt", "none"] = Field(
         default="none", description="Custom decay method to use."
     )
     warmup_steps: int = Field(
@@ -99,9 +103,8 @@ class TrainingConfig(
         description="Support value for uniform distribution parameters initialization. "
         "Set to 0 not to use initialization.",
     )
-    param_init_glorot: bool = Field(
-        default=False,
-        description="Initialize parameters with xavier_uniform. Required for transformer.",
+    param_init_method: Literal["xavier_uniform", "uniform", "normal"] = Field(
+        default="uniform", description="Parameter initialization method."
     )
     freeze_encoder: bool = Field(
         default=False, description="Freeze parameters in encoder."
@@ -357,6 +360,12 @@ class TrainingConfig(
                 "states",
                 "all",
             ], '-update_vocab needs -reset_optim "states" or "all"'
+
+        if self.param_init != 0.0 and self.param_init_method == "xavier_uniform":
+            logger.warn(
+                f"xavier_uniform initialization does not require param_init ({self.param_init})"
+            )
+
         if self.optim == "fusedadam":
             assert (
                 self.compute_dtype == torch.float16
@@ -364,4 +373,5 @@ class TrainingConfig(
         assert (
             self.compute_dtype != torch.int8
         ), "int8 compute_dtype is currently only used for inference dynamic quantization"
+
         return self
