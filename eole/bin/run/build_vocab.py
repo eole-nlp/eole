@@ -123,7 +123,7 @@ def build_vocab(config, transforms, n_sample=3):
         for c_name in corpora.keys()
     }
     if config.dump_samples:
-        sample_path = os.path.join(os.path.dirname(config.save_data), CorpusName.SAMPLE)
+        sample_path = os.path.join(config.save_data, CorpusName.SAMPLE)
         write_process = mp.Process(
             target=write_files_from_queues, args=(sample_path, queues), daemon=True
         )

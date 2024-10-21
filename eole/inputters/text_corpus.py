@@ -312,7 +312,7 @@ def save_transformed_sample(config, transforms, n_sample=3):
     datasets_iterables = build_corpora_iters(
         corpora, transforms, config.data, skip_empty_level=config.skip_empty_level
     )
-    sample_path = os.path.join(config.save_data, CorpusName.SAMPLE)
+    sample_path = os.path.join(config.save_data, "samples", CorpusName.SAMPLE)
     os.makedirs(sample_path, exist_ok=True)
     for c_name, c_iter in datasets_iterables.items():
         dest_base = os.path.join(sample_path, "{}.{}".format(c_name, CorpusName.SAMPLE))
