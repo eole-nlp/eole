@@ -14,6 +14,7 @@ import sys
 import torch
 import traceback
 import eole.utils
+from eole.utils import distributed
 from eole.utils.loss import LossCompute
 from eole.utils.logging import logger
 from eole.utils.misc import clear_gpu_cache, get_autocast
