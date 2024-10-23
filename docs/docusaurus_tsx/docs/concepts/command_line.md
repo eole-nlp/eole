@@ -35,7 +35,7 @@ The main entrypoints are typically used with a `yaml` configuration file. Most p
 ```sh
 eole build_vocab -c your_config.yaml
 eole train -c your_config.yaml
-eole translate -c your_config.yaml
+eole predict -c your_config.yaml
 ```
 
 ## Additional Tools

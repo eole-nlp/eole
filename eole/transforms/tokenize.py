@@ -174,7 +174,7 @@ class TokenizerTransform(Transform):
         sentence = " ".join(tokens)
         # We need to split sentence on EOS and mapped_tokens
         # to make sure sentencepiece add a joiner just after special tokens
-        if self.mapped_tokens is not None:
+        if getattr(self, "mapped_tokens", None) is not None:
             delim_list = [mapped_toks[0] for mapped_toks in self.mapped_tokens] + [
                 self.eos_token
             ]
