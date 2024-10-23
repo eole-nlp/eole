@@ -294,6 +294,9 @@ class TrainingConfig(
             dtype = torch.float16
             logger.info("Switching model to half() for FusedAdam legacy")
             logger.info("Non quantized layer compute is %s", self.compute_dtype)
+        elif self.compute_dtype == torch.bfloat16:
+            logger.info("Switching model to pure bfloat16 training")
+            dtype = torch.bfloat16
         else:
             dtype = torch.float32
             if self.compute_dtype == torch.float16:
