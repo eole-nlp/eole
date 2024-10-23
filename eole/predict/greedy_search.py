@@ -162,6 +162,10 @@ class GreedySearch(DecodeStrategy):
         self.topk_scores = None
         self.beam_size = beam_size
         self.n_best = n_best
+        if add_estimator:
+            self.num_hyp = self.beam_size
+        else:
+            self.num_hyp = self.n_best
 
     def initialize(self, enc_out, src_len, device=None, target_prefix=None):
         """Initialize for decoding."""
@@ -282,7 +286,7 @@ class GreedySearch(DecodeStrategy):
         if self.done:
             for b in range(self.batch_size):
                 best_hyp = sorted(self.hypotheses[b], key=lambda x: x[0], reverse=True)[
-                    : self.n_best
+                    : self.num_hyp
                 ]
                 for score, pred, attn in best_hyp:
                     self.scores[b].append(score)
