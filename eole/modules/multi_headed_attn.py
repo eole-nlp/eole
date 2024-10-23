@@ -617,7 +617,8 @@ class SelfMHA(MultiHeadedAttention):
                 or self.position_encoding_type
                 in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
                 or query.size(0) > 128  # to check
-                or query.dtype != torch.float16  # to match with flash
+                or query.dtype
+                not in [torch.float16, torch.bfloat16]  # to match with flash
             ):
                 key, value, query = self._prepare_inputs_w_cache(
                     query,
@@ -638,7 +639,8 @@ class SelfMHA(MultiHeadedAttention):
                                 + (32,)
                                 + self.layer_cache[1]["keys"].shape[-1:],
                                 device=query.device,
-                            ).half(),
+                                dtype=query.dtype,
+                            ),
                         ],
                         dim=-2,
                     )
@@ -650,7 +652,8 @@ class SelfMHA(MultiHeadedAttention):
                                 + (32,)
                                 + self.layer_cache[1]["values"].shape[-1:],
                                 device=query.device,
-                            ).half(),
+                                dtype=query.dtype,
+                            ),
                         ],
                         dim=-2,
                     )
@@ -665,12 +668,12 @@ class SelfMHA(MultiHeadedAttention):
                     cos = (
                         position_embeddings[:, : position_embeddings.size(1) // 2]
                         .real.contiguous()
-                        .half()
+                        .to(query.dtype)
                     )
                     sin = (
                         position_embeddings[:, : position_embeddings.size(1) // 2]
                         .imag.contiguous()
-                        .half()
+                        .to(query.dtype)
                     )
                 else:
                     cos = None
