@@ -334,9 +334,7 @@ class Trainer(object):
             self._maybe_update_estim_lambda(step)
 
             if self.n_gpu > 1 and self.parallel_mode == "data_parallel":
-                normalization = sum(
-                    all_gather_list(normalization)
-                )
+                normalization = sum(all_gather_list(normalization))
 
             self._gradient_accumulation(
                 batches, normalization, total_stats, report_stats
@@ -571,9 +569,7 @@ class Trainer(object):
                 for p in self.model.parameters()
                 if p.requires_grad and p.grad is not None
             ]
-            all_reduce_and_rescale_tensors(
-                grads, float(self.n_gpu)
-            )
+            all_reduce_and_rescale_tensors(grads, float(self.n_gpu))
 
         self.optim.step()
 
