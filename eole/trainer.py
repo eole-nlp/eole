@@ -335,7 +335,7 @@ class Trainer(object):
 
             if self.n_gpu > 1 and self.parallel_mode == "data_parallel":
                 normalization = sum(
-                    eole.utils.distributed.all_gather_list(normalization)
+                    all_gather_list(normalization)
                 )
 
             self._gradient_accumulation(
@@ -571,7 +571,7 @@ class Trainer(object):
                 for p in self.model.parameters()
                 if p.requires_grad and p.grad is not None
             ]
-            eole.utils.distributed.all_reduce_and_rescale_tensors(
+            all_reduce_and_rescale_tensors(
                 grads, float(self.n_gpu)
             )
 
