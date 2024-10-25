@@ -14,6 +14,7 @@ import sys
 import torch
 import traceback
 import eole.utils
+from eole.utils.distributed import all_gather_list, all_reduce_and_rescale_tensors
 from eole.utils.loss import LossCompute
 from eole.utils.logging import logger
 from eole.utils.misc import clear_gpu_cache, get_autocast
@@ -333,9 +334,7 @@ class Trainer(object):
             self._maybe_update_estim_lambda(step)
 
             if self.n_gpu > 1 and self.parallel_mode == "data_parallel":
-                normalization = sum(
-                    eole.utils.distributed.all_gather_list(normalization)
-                )
+                normalization = sum(all_gather_list(normalization))
 
             self._gradient_accumulation(
                 batches, normalization, total_stats, report_stats
@@ -570,9 +569,7 @@ class Trainer(object):
                 for p in self.model.parameters()
                 if p.requires_grad and p.grad is not None
             ]
-            eole.utils.distributed.all_reduce_and_rescale_tensors(
-                grads, float(self.n_gpu)
-            )
+            all_reduce_and_rescale_tensors(grads, float(self.n_gpu))
 
         self.optim.step()
 
