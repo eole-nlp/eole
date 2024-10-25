@@ -47,6 +47,7 @@ class GeneratorLM(Inference):
                     top_p=self.top_p,
                     beam_size=self.beam_size,
                     ban_unk_token=self.ban_unk_token,
+                    add_estimator=self.add_estimator,
                 )
             else:
                 # TODO: support these blacklisted features
