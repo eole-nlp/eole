@@ -105,23 +105,6 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     model_config = get_config_dict()
     model_config["arbitrary_types_allowed"] = True  # to allow torch.dtype
 
-    # TODO: clarify models vs model (model config retrieved from checkpoint)
-    model_path: str | List[str] = Field(
-        description="Path to model .pt file(s). "
-        "Multiple models can be specified for ensemble decoding."
-    )  # some specific (mapping to "models") in legacy code, need to investigate
-    src: str = Field(description="Source file to decode (one line per sequence).")
-    tgt: str | None = Field(
-        default=None,
-        description="True target sequences, useful for scoring or prefix decoding.",
-    )
-    tgt_file_prefix: bool = Field(
-        default=False, description="Generate predictions using provided tgt as prefix."
-    )
-    output: str = Field(
-        default="pred.txt",
-        description="Path to output the predictions (each line will be the decoded sequence).",
-    )
     report_align: bool = Field(
         default=False, description="Report alignment for each translation."
     )
@@ -147,6 +130,11 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     )
     data_type: str | None = (
         "text"  # deprecated? hopefully will change with input streams logic
+    )
+    chat_template: str | None = None
+    optional_eos: List[str] | None = Field(
+        default=[],
+        description="Optional EOS tokens that would stop generation, e.g. <|eot_id|> for Llama3",
     )
 
     def get_model_path(self):

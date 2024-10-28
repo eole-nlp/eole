@@ -58,6 +58,7 @@ class Transform(object):
 
     def _save_artifacts(self, model_path):
         save_config = copy.deepcopy(self.config)
+        artifacts = []
         for artifact in self.artifacts:
             maybe_artifact = getattr(self, artifact, None)
             if maybe_artifact is not None and os.path.exists(maybe_artifact):
@@ -66,12 +67,14 @@ class Transform(object):
                     shutil.copy(maybe_artifact, model_path)
                 except shutil.SameFileError:
                     pass
-                setattr(
-                    save_config,
-                    artifact,
-                    os.path.join("${MODEL_PATH}", os.path.basename(maybe_artifact)),
-                )
-        return save_config
+                finally:
+                    artifacts.append(os.path.basename(maybe_artifact))
+                    setattr(
+                        save_config,
+                        artifact,
+                        os.path.join("${MODEL_PATH}", os.path.basename(maybe_artifact)),
+                    )
+        return save_config, artifacts
 
     @classmethod
     def add_options(cls, parser):
