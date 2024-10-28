@@ -6,14 +6,12 @@ from eole.config import recursive_model_fields_set
 from safetensors.torch import load_file, save_file
 import os
 import json
-import pdb
 
 
 def average_models(model_paths, fp32=False):
     vocab = None
     config = None
     avg_model = None
-    avg_generator = None
 
     for i, model_path in enumerate(model_paths):
         # torch pt code
