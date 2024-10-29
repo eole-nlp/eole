@@ -16,18 +16,18 @@ def average_models(model_paths, fp32=False):
     for i, model_path in enumerate(model_paths):
         m = model_saver.load_checkpoint(model_path)
         model_weights = load_file(os.path.join(model_path, "model.00.safetensors"))
-        
+
         if fp32:
             for k, v in model_weights.items():
                 model_weights[k] = v.float()
-        
+
         if i == 0:
             vocab, config, optim = m["vocab"], m["config"], m["optim"]
             avg_model = model_weights
         else:
             for k, v in avg_model.items():
                 avg_model[k].mul_(i).add_(model_weights[k]).div_(i + 1)
-        
+
     final = {
         "vocab": vocab,
         "config": config,
