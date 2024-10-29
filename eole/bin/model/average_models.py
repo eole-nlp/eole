@@ -56,6 +56,8 @@ class AverageModels(BaseBin):
         if not os.path.isdir(args.output):
             os.makedirs(args.output, exist_ok=True)
 
+        # this maybe better implemented using model_saver classes
+        # config
         with open(os.path.join(args.output, "config.json"), "w") as f:
             json.dump(
                 recursive_model_fields_set(final["config"]),
@@ -63,9 +65,10 @@ class AverageModels(BaseBin):
                 indent=2,
                 ensure_ascii=False,
             )
-
+        # vocab
         with open(os.path.join(args.output, "vocab.json"), "w") as f:
             json.dump(final["vocab"], f, indent=2, ensure_ascii=False)
-
+        # optimizer
         torch.save(final["optim"], os.path.join(args.output, "optimizer.pt"))
+        # model weights
         save_file(final["model"], os.path.join(args.output, "model.00.safetensors"))
