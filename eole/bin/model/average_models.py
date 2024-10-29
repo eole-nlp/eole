@@ -14,37 +14,20 @@ def average_models(model_paths, fp32=False):
     avg_model = None
 
     for i, model_path in enumerate(model_paths):
-        # torch pt code
-        # m = torch.load(model_file, map_location="cpu")
-        # model_weights = m["model"]
-        # generator_weights = m["generator"]
-        # safetensor checkpoint load
         m = model_saver.load_checkpoint(model_path)
         model_weights = load_file(os.path.join(model_path, "model.00.safetensors"))
-        # pdb.set_trace()
-
+        
         if fp32:
             for k, v in model_weights.items():
                 model_weights[k] = v.float()
-            # generator weights are already in model_weights.items()
-            # for k, v in generator_weights.items():
-            #    generator_weights[k] = v.float()
-
+        
         if i == 0:
             vocab, config, optim = m["vocab"], m["config"], m["optim"]
             avg_model = model_weights
-            # generator weights are already in model_weights.items()
-            # avg_generator = generator_weights
         else:
             for k, v in avg_model.items():
                 avg_model[k].mul_(i).add_(model_weights[k]).div_(i + 1)
-
-            # for k, v in avg_generator.items():
-            #    avg_generator[k].mul_(i).add_(generator_weights[k]).div_(i + 1)
-
-    # Deleted from final
-    # "generator": avg_generator,
-
+        
     final = {
         "vocab": vocab,
         "config": config,
@@ -73,9 +56,6 @@ class AverageModels(BaseBin):
         if not os.path.isdir(args.output):
             os.makedirs(args.output, exist_ok=True)
 
-        # pdb.set_trace()
-        # this maybe better implemented using model_saver classes
-        # config
         with open(os.path.join(args.output, "config.json"), "w") as f:
             json.dump(
                 recursive_model_fields_set(final["config"]),
@@ -83,11 +63,9 @@ class AverageModels(BaseBin):
                 indent=2,
                 ensure_ascii=False,
             )
-        # vocab
+
         with open(os.path.join(args.output, "vocab.json"), "w") as f:
             json.dump(final["vocab"], f, indent=2, ensure_ascii=False)
-        # optimizer
+
         torch.save(final["optim"], os.path.join(args.output, "optimizer.pt"))
-        # model weights
         save_file(final["model"], os.path.join(args.output, "model.00.safetensors"))
-        # torch.save(final, args.output)
