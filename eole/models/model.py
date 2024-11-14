@@ -219,17 +219,30 @@ class BaseModel(nn.Module):
         if mark_lora:
             mark_only_lora_as_trainable(self, bias="lora_only")
 
-    def build_generator(self, model_config, vocabs):
+    def build_generator(self, model_config, running_config, vocabs):
         # patched to make it work with decoder config, but might be improved
-        generator = skip_init(
+        self.generator = skip_init(
             nn.Linear,
             in_features=model_config.decoder.hidden_size,
             out_features=len(vocabs["tgt"]),
             bias=model_config.generator_bias,
         )
         if model_config.share_decoder_embeddings:
-            generator.weight = self.tgt_emb.embeddings.weight
-        self.generator = generator
+            self.generator.weight = self.tgt_emb.embeddings.weight
+        elif (
+            hasattr(running_config, "lora_embedding") and running_config.lora_embedding
+        ):
+            logger.info("Generator and decoder not tied Adding LoRa Generator")
+            replace_lora_linear(
+                self,
+                r=running_config.lora_rank,
+                lora_alpha=running_config.lora_alpha,
+                lora_dropout=running_config.lora_dropout,
+                layer="generator",
+                quant_type=None,
+                use_ckpting=running_config.use_ckpting,
+            )
+            mark_only_lora_as_trainable(self, bias="lora_only")
 
     def load_checkpoint(
         self,
@@ -379,7 +392,7 @@ class BaseModel(nn.Module):
         model.maybe_quantize(running_config)
         model.maybe_lora(running_config)
         if config.decoder is not None:
-            model.build_generator(config, vocabs)
+            model.build_generator(config, running_config, vocabs)
         else:
             model.generator = None
         return model
@@ -470,7 +483,7 @@ class BaseModel(nn.Module):
         model.share_decoder_embeddings = model_config.share_decoder_embeddings
         # generator -> shall it be called within build_blocks?
         if model_config.decoder is not None:
-            model.build_generator(model_config, vocabs)
+            model.build_generator(model_config, running_config, vocabs)
         else:
             model.generator = None
         # 1 build_base_model

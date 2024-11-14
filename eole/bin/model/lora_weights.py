@@ -84,7 +84,6 @@ class LoraWeights(BaseBin):
 
         if args.action == "merge":
             model.eval()  # this merges automatically LoRa weights in main
-            model.half()  # We keep FP16 for all
             optim = None
             model_state_dict = model.state_dict()
             new_config = base_checkpoint["config"]
