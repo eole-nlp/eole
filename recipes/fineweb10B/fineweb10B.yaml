@@ -1,0 +1,104 @@
+seed: 42
+share_vocab: true
+src_vocab_size: 60000
+tgt_vocab_size: 60000
+# optimize tensor cores utilization
+vocab_size_multiple: 8
+
+# Vocabulary extracted from https://huggingface.co/openai-community/gpt2/blob/main/vocab.json
+src_vocab: vocab.txt
+
+# tensorboard/logging stuff
+tensorboard: true
+tensorboard_log_dir: tensorboard/fineweb10B
+report_every: 1
+
+# transforms related stuff
+transforms: [onmt_tokenize, filtertoolong] # maybe docify would be beneficial
+transforms_configs:
+  onmt_tokenize:
+    src_subword_type: bpe
+    src_subword_model: merges.txt # https://huggingface.co/openai-community/gpt2/blob/main/merges.txt
+    gpt2_pretok: true
+  filtertoolong:
+    src_seq_length: 1024
+    tgt_seq_length: 1024
+  # docify:
+  #   doc_length: 1024
+  #   max_context: 100
+
+data:
+    corpus_1:
+        path_src: data/sample/10BT/fineweb10B_train.txt
+    valid:
+        # 50k first lines, ~10 val_max_steps from llm.c
+        path_src: data/sample/10BT/fineweb10B_valid.50k.txt
+
+
+training:
+    model_path: model_fineweb10B_gpt2
+    save_checkpoint_steps: 1000
+    train_steps: 20000
+    valid_steps: 250
+
+    # ==========
+    # GPU & compute
+    compute_dtype: "fp16"
+    # Train on a single GPU
+    world_size: 1
+    gpu_ranks: [0]
+    # Train on 2 gpus
+    # world_size: 2
+    # gpu_ranks: [0, 1]
+    # parallel_mode: tensor_parallel
+
+    # ==========
+    # DataLoading
+    num_workers: 2
+    bucket_size: 200000
+    bucket_size_init: 50000
+    bucket_size_increment: 50000
+    prefetch_factor: 10000
+    # 524288 total batch size
+    accum_count: [32]
+    accum_steps: [0]
+    batch_size: 16384
+    batch_type: tokens
+    valid_batch_size: 8192
+    batch_size_multiple: 8
+
+    # ==========
+    # Regularization
+    dropout_steps: [0]
+    dropout: [0.0]
+    attention_dropout: [0.0]
+
+    # ==========
+    # Optimization
+    optim: "adamw"
+    warmup_steps: 700
+    learning_rate: 0.0006
+    decay_method: "cosine"
+    adam_beta1: 0.9
+    adam_beta2: 0.95
+    weight_decay: 0.1
+    max_grad_norm: 0.0
+    param_init: 0.02
+    param_init_method: "normal"
+    normalization: "tokens"
+    
+
+model:
+    architecture: "transformer_lm"
+    layers: 12
+    heads: 12
+    hidden_size: 768
+    transformer_ff: 3072
+    share_decoder_embeddings: true
+    mlp_activation_fn: "gelu"
+    add_ffnbias: true
+    add_qkvbias: true
+    norm_eps: 1e-05
+    embeddings:
+        word_vec_size: 768
+        position_encoding_type: "SinusoidalInterleaved"

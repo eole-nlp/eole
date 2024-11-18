@@ -110,6 +110,7 @@ class Translator(Inference):
                     top_p=self.top_p,
                     beam_size=self.beam_size,
                     ban_unk_token=self.ban_unk_token,
+                    add_estimator=self.add_estimator,
                 )
             else:
                 # TODO: support these blacklisted features
@@ -195,6 +196,7 @@ class Translator(Inference):
             self.model.decoder.map_state(fn_map_state)
 
         # (3) Begin decoding step by step:
+        # save the initial encoder out for later estimator
         if torch.is_tensor(enc_out):
             enc_out2 = enc_out.clone()
             src_len2 = decode_strategy.src_len.clone()
@@ -243,17 +245,24 @@ class Translator(Inference):
                 item for sublist in decode_strategy.predictions for item in sublist
             ]
 
-            # make it clearer the pad index and BOS prepend
-            dec_in = pad_sequence(dec_in, batch_first=True, padding_value=1)
+            # Prepare estimator input = decoder out of each pred with initial enc_out
+            dec_in = pad_sequence(
+                dec_in, batch_first=True, padding_value=self._tgt_pad_idx
+            )
             prepend_value = torch.full(
-                (dec_in.size(0), 1), 2, dtype=dec_in.dtype, device=dec_in.device
+                (dec_in.size(0), 1),
+                self._tgt_bos_idx,
+                dtype=dec_in.dtype,
+                device=dec_in.device,
             )
             dec_in = torch.cat((prepend_value, dec_in), dim=1)
             src_max_len = src_len2.max()
             src_pad_mask = sequence_mask(src_len2, src_max_len).unsqueeze(
                 1
             )  # [B, 1, T_src]
-            tgt_pad_mask = dec_in[:, :-1].eq(1).unsqueeze(1)  # [B, 1, T_tgt]
+            tgt_pad_mask = (
+                dec_in[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)
+            )  # [B, 1, T_tgt]
             emb = self.model.tgt_emb(dec_in[:, :-1])
             dec_out, _ = self.model.decoder(
                 emb,
@@ -264,7 +273,7 @@ class Translator(Inference):
                 src_pad_mask=src_pad_mask,
                 tgt_pad_mask=tgt_pad_mask,
             )
-            pad_mask2 = ~dec_in[:, :-1].eq(1)
+            pad_mask2 = ~dec_in[:, :-1].eq(self._tgt_pad_idx)
             in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask2.sum(dim=1, keepdim=True).float()

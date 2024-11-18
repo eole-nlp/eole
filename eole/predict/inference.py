@@ -10,7 +10,7 @@ import codecs
 from eole.transforms import TransformPipe, AVAILABLE_TRANSFORMS
 from eole.constants import DefaultTokens
 from eole.predict.prediction import PredictionBuilder
-from eole.utils.misc import set_random_seed, report_matrix, sequence_mask
+from eole.utils.misc import set_random_seed, report_matrix, sequence_mask, get_device
 from eole.utils.alignment import build_align_pharaoh
 
 
@@ -112,10 +112,8 @@ class Inference(object):
         self._tgt_vocab_len = len(self._tgt_vocab)
 
         self._gpu = gpu
-        self._use_cuda = gpu > -1
-        self._dev = (
-            torch.device("cuda", self._gpu) if self._use_cuda else torch.device("cpu")
-        )
+        self._use_gpu = gpu > -1
+        self._dev = get_device(self._gpu) if self._use_gpu else torch.device("cpu")
 
         self.n_best = n_best
         self.max_length = max_length
@@ -166,7 +164,7 @@ class Inference(object):
                 "log_probs": [],
             }
 
-        set_random_seed(seed, self._use_cuda)
+        set_random_seed(seed, self._use_gpu)
         self.with_score = with_score
 
         self.return_gold_log_probs = return_gold_log_probs
