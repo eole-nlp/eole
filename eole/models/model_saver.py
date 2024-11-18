@@ -148,7 +148,13 @@ class TrainingModelSaver(ModelSaverBase):
                 step_dir_to_delete = os.path.join(
                     self.model_path, self.checkpoint_queue.popleft()
                 )
-                shutil.rmtree(step_dir_to_delete)
+                try:
+                    shutil.rmtree(step_dir_to_delete)
+                except FileNotFoundError:
+                    pass
+                except Exception:
+                    raise
+
             self.checkpoint_queue.append(self.step_dir)
 
     def _maybe_lora(self, model):
