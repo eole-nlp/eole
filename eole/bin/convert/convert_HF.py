@@ -1070,16 +1070,16 @@ class LlamaHFConverter(BaseBin):
                     elif isinstance(merge, list):
                         bpemodel.write(" ".join(merge) + "\n")
                     else:
-                        raise NotImplementedError(f"Type {type(merge)} is not supported for BPE merges.")
+                        raise NotImplementedError(
+                            f"Type {type(merge)} is not supported for BPE merges."
+                        )
 
         if arch in tok_table.keys():
             transforms = [
                 tok_table[arch]
-              ]  # , "filtertoolong"] # the filtertoolong transform is not plug-n-play with id_tokenize
+            ]  # , "filtertoolong"] filtertoolong not plug-n-play with id_tokenize
         else:
-            transforms = [
-                "onmt_tokenize"
-            ]
+            transforms = ["onmt_tokenize"]
 
         match tok_table.get(arch, None):
             case "huggingface_tokenize":
