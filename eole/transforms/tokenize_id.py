@@ -82,11 +82,12 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
             self.tokenizers = {}
 
             self.tokenizers["src"] = AutoTokenizer.from_pretrained(
-                self.huggingface_model
+                self.huggingface_model,
+                legacy=False
             )
             # https://github.com/huggingface/transformers/issues/22794#issuecomment-2092623992
             # TODO: this needs to be tested and adapted for various models
-            tgt_tokenizer = AutoTokenizer.from_pretrained(self.huggingface_model)
+            tgt_tokenizer = AutoTokenizer.from_pretrained(self.huggingface_model, legacy=False)
             # bos = tgt_tokenizer.bos_token
             eos = tgt_tokenizer.eos_token
             tgt_tokenizer._tokenizer.post_processor = TemplateProcessing(
@@ -107,9 +108,9 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
             if os.path.exists(self.path):
                 from tokenizers import Tokenizer
 
-                self.tokenizers["src"] = Tokenizer.from_file(self.path)
+                self.tokenizers["src"] = Tokenizer.from_file(self.path, legacy=False)
                 # TODO: this is not efficient, we shall have a single tokenizer
-                tgt_tokenizer = Tokenizer.from_file(self.path)
+                tgt_tokenizer = Tokenizer.from_file(self.path, legacy=False)
                 # bos = tgt_tokenizer.bos_token
                 eos = tgt_tokenizer.eos_token
                 tgt_tokenizer._tokenizer.post_processor = TemplateProcessing(
