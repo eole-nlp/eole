@@ -102,11 +102,7 @@ def compute_metric(run_results):
 
 
 def format_subject(subject):
-    subl = subject.split("_")
-    s = ""
-    for entry in subl:
-        s += " " + entry
-    return s
+    return subject.replace("_", " ")
 
 
 def format_example(df, idx, include_answer=True):
@@ -178,7 +174,10 @@ def evaluate(args, data_dir):
 
             label = test_df.iloc[i, test_df.shape[1] - 1]
             records.append({"prompt": prompt, "answer": label})
-            src.append(prompt.replace("\n", "｟newline｠"))
+            if "onmt_tokenize" in args.transforms:
+                src.append(prompt.replace("\n", "｟newline｠"))
+            else:
+                src.append(prompt)
 
         scores, _, preds = engine.infer_list(src)
 
@@ -245,6 +244,17 @@ class RunMMLU(BaseBin):
 
         # not supported in PredictConfig schema
         data_dir = config.pop("data_dir")
+
+        # models retrieved from HF might have some default inference settings,
+        # let's manually override a few things for the MMLU context
+        config.update({
+            "top_p": 0.0,
+            "top_k": 0,
+            "beam_size": 1,
+            "n_best": 1,
+            "max_length": 1,
+            "src": "dummy"
+        })
 
         config = PredictConfig(**config)
 
