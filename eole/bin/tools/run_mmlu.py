@@ -247,14 +247,16 @@ class RunMMLU(BaseBin):
 
         # models retrieved from HF might have some default inference settings,
         # let's manually override a few things for the MMLU context
-        config.update({
-            "top_p": 0.0,
-            "top_k": 0,
-            "beam_size": 1,
-            "n_best": 1,
-            "max_length": 1,
-            "src": "dummy"
-        })
+        config.update(
+            {
+                "top_p": 0.0,
+                "top_k": 0,
+                "beam_size": 1,
+                "n_best": 1,
+                "max_length": 1,
+                "src": "dummy",
+            }
+        )
 
         config = PredictConfig(**config)
 
