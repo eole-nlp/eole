@@ -534,7 +534,6 @@ class Trainer(object):
                             trunc_size=trunc_size,
                             estim=estim,
                         )
-
                     if loss is not None:
                         loss /= normalization
                         auxloss /= self.accum_count * src_len.size(0)
