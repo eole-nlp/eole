@@ -439,7 +439,8 @@ class MultiHeadedAttention(torch.nn.Module):
             causal = self.is_decoder and attn_type == "self" and mask is not None
             # keeping this (vs sdpa below) only because it handles windows_size
             # also flash_attn_func does not support pad mask so not for encoder not for context attn
-            if self.flash and self.is_decoder and attn_type == "self":
+            # adding b == 1 as a condition to avoid padded cases in decoder only
+            if self.flash and b == 1 and self.is_decoder and attn_type == "self":
                 window_size = (
                     (-1, -1)
                     if sliding_window == 0 or not causal
