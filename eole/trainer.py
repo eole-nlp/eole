@@ -490,7 +490,6 @@ class Trainer(object):
         if self.accum_count > 1:
             self.optim.zero_grad(set_to_none=True)
 
-        skip_batch = False
         for k, batch in enumerate(true_batches):
             target_size = batch["tgt"].size(1)
             # Truncated BPTT: reminder not compatible with accum > 1
@@ -535,10 +534,7 @@ class Trainer(object):
                             trunc_size=trunc_size,
                             estim=estim,
                         )
-                    if torch.isnan(loss):
-                        print("NaN detected in loss, skipping this batch.")
-                        skip_batch = True
-                        break
+
                     if loss is not None:
                         loss /= normalization
                         auxloss /= self.accum_count * src_len.size(0)
@@ -567,8 +563,6 @@ class Trainer(object):
                 if self.model.decoder is not None and self.model.decoder.state != {}:
                     self.model.decoder.detach_state()
 
-            if skip_batch:
-                break
         # in case of multi step gradient accumulation,
         # update only after accum batches
         if self.n_gpu > 1 and self.parallel_mode == "data_parallel":
