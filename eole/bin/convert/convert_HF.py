@@ -250,6 +250,13 @@ class LlamaHFConverter(BaseBin):
             help="Specify which dtype to save model parameters into, "
             "default will keep the same as the input.",
         )
+        parser.add_argument(
+            "--tokenizer",
+            type=str,
+            default="hf",
+            choices=["hf", "onmt"],
+            help="Specify which tokenizer should be used by default.",
+        )
 
     @classmethod
     def run(cls, args):
@@ -1074,23 +1081,17 @@ class LlamaHFConverter(BaseBin):
                             f"Type {type(merge)} is not supported for BPE merges."
                         )
 
-        if arch in tok_table.keys():
+        if arch in tok_table.keys() and args.tokenizer == "hf":
             transforms = [
                 tok_table[arch]
             ]  # , "filtertoolong"] filtertoolong not plug-n-play with id_tokenize
         else:
             transforms = ["onmt_tokenize"]
 
-        match tok_table.get(arch, None):
-            case "huggingface_tokenize":
+        match tok_table.get(arch, None), args.tokenizer:
+            case "huggingface_tokenize", "hf":
                 transforms_configs = {
                     tok_table[arch]: {"max_length": 512},
-                }
-            case "mistral_tokenize":
-                transforms_configs = {
-                    tok_table[arch]: {
-                        "path": os.path.join("${MODEL_PATH}", tokenizer_basename)
-                    }
                 }
             case _:
                 # not used right now, but keeping for reference

@@ -48,10 +48,10 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
         self.max_length = self.config.max_length
 
     def warm_up(self, vocabs=None):
-        from transformers import AutoTokenizer
         from tokenizers.processors import TemplateProcessing
 
         if self.huggingface_model is not None:
+            from transformers import AutoTokenizer
 
             self.tokenizers = {}
 
