@@ -35,33 +35,6 @@ class IntTokenizerTransform(Transform):
         raise NotImplementedError
 
 
-# TODO: this requires further investigation, and better support
-# of chat templates across all paths (training+inference)
-
-# @register_transform(name="mistral_tokenize")
-# class MistralTokenizer(IntTokenizerTransform):
-#     def __init__(self, config):
-#         super().__init__(config)
-
-#     def warm_up(self, vocabs=None):
-#         from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
-
-#         if self.model_name is not None:
-#             self.tokenizer = MistralTokenizer.from_model(self.model_name)
-#         elif self.path is not None:
-#             if os.path.exists(self.path):
-#                 self.tokenizer = MistralTokenizer.from_file(self.path)
-#             else:
-#                 raise FileNotFoundError(self.path)
-#         else:
-#             raise RuntimeError(
-#                 f"Either model_name or path must be configured for {self.name} transform"
-#             )
-
-#     def apply(self, example, is_train=False, stats=None, **kwargs):
-#         return example
-
-
 @register_transform(name="huggingface_tokenize")
 class HuggingfaceTokenizer(IntTokenizerTransform):
     config_model = HuggingfaceTokenizerConfig
@@ -75,62 +48,50 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
         self.max_length = self.config.max_length
 
     def warm_up(self, vocabs=None):
+        from transformers import AutoTokenizer
+        from tokenizers.processors import TemplateProcessing
+
         if self.huggingface_model is not None:
-            from transformers import AutoTokenizer
-            from tokenizers.processors import TemplateProcessing
 
             self.tokenizers = {}
 
             self.tokenizers["src"] = AutoTokenizer.from_pretrained(
                 self.huggingface_model, legacy=False
             )
-            # https://github.com/huggingface/transformers/issues/22794#issuecomment-2092623992
             # TODO: this needs to be tested and adapted for various models
-            tgt_tokenizer = AutoTokenizer.from_pretrained(
+            self.tokenizers["tgt"] = AutoTokenizer.from_pretrained(
                 self.huggingface_model, legacy=False
             )
-            # bos = tgt_tokenizer.bos_token
-            eos = tgt_tokenizer.eos_token
-            tgt_tokenizer._tokenizer.post_processor = TemplateProcessing(
-                single=f"$A:0 {eos}:0",
-                pair=f"$A:0 {eos}:0 $B:1 {eos}:1",
-                special_tokens=[
-                    # (f"{bos}", tgt_tokenizer.bos_token_id),
-                    (f"{eos}", tgt_tokenizer.eos_token_id)
-                ],
-            )
-            self.tokenizers["tgt"] = tgt_tokenizer
-
             logger.info(
-                f"Initialized tokenizer from HF model: {self.huggingface_model}"
+                f"Initialized tokenizers from HF model: {self.huggingface_model}"
             )
-
         elif self.path is not None:
             if os.path.exists(self.path):
                 from tokenizers import Tokenizer
 
                 self.tokenizers["src"] = Tokenizer.from_file(self.path, legacy=False)
                 # TODO: this is not efficient, we shall have a single tokenizer
-                tgt_tokenizer = Tokenizer.from_file(self.path, legacy=False)
-                # bos = tgt_tokenizer.bos_token
-                eos = tgt_tokenizer.eos_token
-                tgt_tokenizer._tokenizer.post_processor = TemplateProcessing(
-                    single=f"$A:0 {eos}:0",
-                    pair=f"$A:0 {eos}:0 $B:1 {eos}:1",
-                    special_tokens=[
-                        # (f"{bos}", tgt_tokenizer.bos_token_id),
-                        (f"{eos}", tgt_tokenizer.eos_token_id)
-                    ],
-                )
-                self.tokenizers["tgt"] = tgt_tokenizer
-
-                logger.info(f"Initialized tokenizer from local file: {self.path}")
+                self.tokenizers["tgt"] = Tokenizer.from_file(self.path, legacy=False)
             else:
                 raise FileNotFoundError(self.path)
+            logger.info(f"Initialized tokenizers from local file: {self.path}")
         else:
             raise RuntimeError(
                 f"Either model_name or path must be configured for {self.name} transform"
             )
+        # https://github.com/huggingface/transformers/issues/22794#issuecomment-2092623992
+        # bos = self.tokenizers["tgt"].bos_token
+        # bos_id = self.tokenizers["tgt"].bos_token_id
+        eos = self.tokenizers["tgt"].eos_token
+        eos_id = self.tokenizers["tgt"].eos_token_id
+        self.tokenizers["tgt"]._tokenizer.post_processor = TemplateProcessing(
+            single=f"$A:0 {eos}:0",
+            pair=f"$A:0 {eos}:0 $B:1 {eos}:1",
+            special_tokens=[
+                # (f"{bos}", bos_id),
+                (f"{eos}", eos_id)
+            ],
+        )
 
     def tokenize_string(self, string, side="src", is_train=False):
         if self.max_length is not None and is_train:
