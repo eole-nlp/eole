@@ -320,53 +320,59 @@ class Inference(object):
         def _maybe_retranslate(translations, batch):
             """Here we handle the cases of mismatch in number of segments
             between source and target. We re-translate seg by seg."""
-            inds, perm = torch.sort(batch["ind_in_bucket"])
             trans_copy = deepcopy(translations)
-            inserted_so_far = 0
             for j, trans in enumerate(translations):
                 if (trans.src == self._tgt_sep_idx).sum().item() != trans.pred_sents[
                     0
                 ].count(DefaultTokens.SEP):
                     self._log("Mismatch in number of ((newline))")
-                    # those two should be the same except feat dim
-                    # batch['src'][perm[j], :, :])
-                    # trans.src
 
                     # we rebuild a small batch made of the sub-segments
                     # in the long segment.
                     idx = (trans.src == self._tgt_sep_idx).nonzero()
+
                     sub_src = []
                     start_idx = 0
                     for i in range(len(idx)):
                         end_idx = idx[i]
-                        sub_src.append(batch["src"][perm[j], start_idx:end_idx, :])
+                        sub_src.append(trans.src[start_idx:end_idx])
                         start_idx = end_idx + 1
-                    end_idx = (
-                        batch["src"][perm[j], :, 0].ne(self._tgt_pad_idx).sum() - 1
-                    )
-                    sub_src.append(batch["src"][perm[j], start_idx:end_idx, :])
+                    end_idx = trans.src.ne(self._tgt_pad_idx).sum() - 1
+
+                    sub_src.append(trans.src[start_idx:end_idx])
                     t_sub_src = pad_sequence(
                         sub_src, batch_first=True, padding_value=self._tgt_pad_idx
                     )
-                    t_sub_src_len = t_sub_src[:, :, 0].ne(self._tgt_pad_idx).sum(1)
-                    t_sub_src_ind = torch.tensor(
-                        [i for i in range(len(sub_src))], dtype=torch.int16
-                    )
+                    t_sub_src_len = t_sub_src.ne(self._tgt_pad_idx).sum(1)
+                    t_sub_src_ind = [i for i in range(len(sub_src))]
+
                     device = batch["src"].device
                     t_sub_batch = {
                         "src": t_sub_src.to(device),
                         "srclen": t_sub_src_len.to(device),
-                        "ind_in_bucket": t_sub_src_ind.to(device),
+                        "ind_in_bucket": t_sub_src_ind,
                     }
                     # new sub-batch ready to be predicted
                     sub_data = self.predict_batch(t_sub_batch, attn_debug)
                     sub_trans = prediction_builder.from_batch(sub_data)
 
                     # we re-insert the sub-batch in the initial predictions
-                    trans_copy[j + inserted_so_far] = sub_trans[0]
-                    for i in range(1, len(sub_src)):
-                        trans_copy.insert(j + i + inserted_so_far, sub_trans[i])
-                    inserted_so_far += len(sub_src) - 1
+                    nbest = len(sub_trans[0].pred_sents)
+                    combined = [[] for _ in range(nbest)]
+
+                    for sub_tr in sub_trans:
+                        for i in range(nbest):
+                            combined[i].extend(
+                                [
+                                    tok
+                                    for tok in sub_tr.pred_sents[i]
+                                    if tok != DefaultTokens.SEP
+                                ]
+                                + [DefaultTokens.SEP]
+                            )
+
+                    trans_copy[j].pred_sents = [seq[:-1] for seq in combined]
+
             return trans_copy
 
         def _process_bucket(bucket_predictions):

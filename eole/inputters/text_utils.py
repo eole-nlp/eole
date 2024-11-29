@@ -178,7 +178,7 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
             torch.tensor(ex["src"]["src_ids"], dtype=torch.long, device=device)
             for ex, indice in minibatch
         ]
-    padidx = vocabs["src"][DefaultTokens.PAD]
+    padidx = vocabs["src"][vocabs["specials"].get("pad_token", DefaultTokens.PAD)]
     tbatchsrc = pad_sequence(tbatchsrc, batch_first=True, padding_value=padidx)
 
     if left_pad:
@@ -206,7 +206,7 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
                 for ex, indice in minibatch
             ]
 
-        padidx = vocabs["tgt"][DefaultTokens.PAD]
+        padidx = vocabs["tgt"][vocabs["specials"].get("pad_token", DefaultTokens.PAD)]
         tbatchtgt = pad_sequence(tbatchtgt, batch_first=True, padding_value=padidx)
 
         tbatchtgtlen = torch.tensor(
