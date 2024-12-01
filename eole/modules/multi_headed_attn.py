@@ -1,7 +1,7 @@
 """ Multi-Head Attention module """
 import torch
 import torch.nn as nn
-from math import log, sqrt
+from math import log
 from torch import Tensor
 from typing import Optional, Tuple
 from torch.nn.functional import scaled_dot_product_attention
@@ -40,6 +40,8 @@ def apply_rotary_emb(query, key, rope, interleave):
         ).type_as(key)
     else:
         cos, sin = rope.real, rope.imag
+        cos = cos.to(dtype=query.dtype)
+        sin = sin.to(dtype=query.dtype)
         rotary_dim = cos.size(1)
         head_dim = query.size(3)
         if rotary_dim < head_dim:
@@ -191,7 +193,12 @@ def shape(x: Tensor, dim_per_head: int) -> Tensor:
     [batchsize x length x modeldim]
     -> [batchsize x heads x length x dimperhead]
     """
-    x_0, x_1, _ = x.size()
+    # patch for images
+    if len(x.size()) == 2:
+        x_0 = 1
+        x_1, _ = x.size()
+    else:
+        x_0, x_1, _ = x.size()
     return x.view(x_0, x_1, -1, dim_per_head).transpose(1, 2)
 
 
@@ -258,7 +265,7 @@ class MultiHeadedAttention(torch.nn.Module):
             if model_config.heads_kv is not None
             else model_config.heads
         )
-        self.parallel_gpu = running_config.parallel_gpu
+        self.parallel_gpu = getattr(running_config, "parallel_gpu", 1)
 
         assert (
             self.dim_per_head * self.heads_kv
@@ -283,7 +290,6 @@ class MultiHeadedAttention(torch.nn.Module):
             out_features=self.dim_per_head * self.heads // self.parallel_gpu,
             bias=model_config.add_qkvbias,
         )
-        self.softmax = nn.Softmax(dim=-1)
         self.dropout_p = getattr(running_config, "attention_dropout", [0.0])[0]
         self.dropout = nn.Dropout(self.dropout_p)
 
@@ -467,9 +473,10 @@ class MultiHeadedAttention(torch.nn.Module):
                     )
             attn = None
         else:
-            query /= sqrt(self.dim_per_head)
             # batch x num_heads x query_len x key_len
-            scores = torch.matmul(query, key.transpose(2, 3))
+            scores = (
+                torch.matmul(query, key.transpose(2, 3)) * self.dim_per_head**-0.5
+            )
 
             if self.relative_attention_bias is not None:
                 q_len = key.size(2) if self.layer_cache[0] else query.size(2)
@@ -508,16 +515,19 @@ class MultiHeadedAttention(torch.nn.Module):
             elif self.position_encoding_type == PositionEncodingType.Alibi:
                 scores = self.alibi(scores)
 
-            scores = scores.float()
-
             if mask is not None:
                 # not 100% necessary but expand to nb of heads
+                if len(mask.size()) == 2:
+                    mask = mask[None, None, :, :]
                 mask = mask.expand(-1, self.heads // self.parallel_gpu, -1, -1)
                 # now mask and scores have the same shape
-                scores = scores.masked_fill(mask, -1e18)
+                scores = scores.masked_fill(mask, torch.finfo(scores.dtype).min)
 
             # 3) Apply attention dropout and compute context vectors.
-            attn = self.softmax(scores).to(query.dtype)
+            attn = torch.nn.functional.softmax(scores, dim=-1, dtype=torch.float32).to(
+                query.dtype
+            )
+
             drop_attn = self.dropout(attn) if self.dropout_p > 0 else attn
 
             attn_output = torch.matmul(drop_attn, value)

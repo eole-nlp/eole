@@ -332,7 +332,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
 
         def max_src_tgt(ex):
             """return the max tokens btw src and tgt in the sequence."""
-            if ex["tgt"]:
+            if ex.get("tgt", None) is not None:
                 return max(len(ex["src"]["src_ids"]), len(ex["tgt"]["tgt_ids"]))
             return len(ex["src"]["src_ids"])
 

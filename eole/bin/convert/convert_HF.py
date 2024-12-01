@@ -16,6 +16,7 @@ from eole.config.models import (
     EmbeddingsConfig,
     TransformerEncoderModelConfig,
     TransformerLMModelConfig,
+    VisionTransformerLMModelConfig,
 )
 from eole.config.run import TrainConfig
 from eole.config.training import TrainingConfig
@@ -40,6 +41,55 @@ key_maps["LlamaForCausalLM"] = {
     ".post_attention_layernorm.weight": ".post_attention_layernorm.weight",
 }
 key_maps["MistralForCausalLM"] = key_maps["LlamaForCausalLM"]
+
+# mistral-community/pixtral-12b release
+key_maps["LlavaForConditionalGeneration"] = key_maps["LlamaForCausalLM"]
+updated_pixtral_keys = {
+    "decoder_layer_prefix": "language_model.model.layers.",
+    "tgt_emb.embeddings.weight": "language_model.model.embed_tokens.weight",
+    "decoder.layer_norm.weight": "language_model.model.norm.weight",
+    "generator.weight": "language_model.lm_head.weight",
+    "encoder.patch_conv.weight": "vision_tower.patch_conv.weight",
+    "encoder.ln_pre.weight": "vision_tower.ln_pre.weight",
+    # vision_tower
+    "encoder_layer_prefix": "vision_tower.transformer.layers.",
+    "encoder": {
+        "layers": 24,
+        ".self_attn.linear_query.": ".attention.q_proj.",
+        ".self_attn.linear_keys.": ".attention.k_proj.",
+        ".self_attn.linear_values.": ".attention.v_proj.",
+        ".self_attn.final_linear.": ".attention.o_proj.",
+        ".mlp.gate_up_proj.": ".feed_forward.gate_proj.",
+        ".mlp.down_proj.": ".feed_forward.down_proj.",
+        ".mlp.up_proj.": ".feed_forward.up_proj.",
+        ".input_layernorm.weight": ".attention_norm.weight",  # not sure about this one
+        ".post_attention_layernorm.weight": ".ffn_norm.weight",
+    },
+    # vision_adapter
+    "adapter.w_in.weight": "multi_modal_projector.linear_1.weight",
+    "adapter.w_in.bias": "multi_modal_projector.linear_1.bias",
+    "adapter.w_out.weight": "multi_modal_projector.linear_2.weight",
+    "adapter.w_out.bias": "multi_modal_projector.linear_2.bias",
+}
+key_maps["LlavaForConditionalGeneration"].update(updated_pixtral_keys)
+
+
+# Official mistral release
+# key_maps["Pixtral"] = {
+#     "decoder_layer_prefix": "model.layers.",
+#     "tgt_emb.embeddings.weight": "model.tok_embeddings.weight",
+#     "decoder.layer_norm.weight": "model.norm.weight",
+#     "generator.weight": "output.weight",
+#     ".self_attn.linear_query.": ".self_attn.wq.",
+#     ".self_attn.linear_keys.": ".self_attn.wk.",
+#     ".self_attn.linear_values.": ".self_attn.wv.",
+#     ".self_attn.final_linear.": ".self_attn.wo.",
+#     ".mlp.gate_up_proj.": ".mlp.w1.",
+#     ".mlp.down_proj.": ".mlp.w2.",
+#     ".mlp.up_proj.": ".mlp.w3.",
+#     ".input_layernorm.weight": ".ffn_norm.weight",
+#     ".post_attention_layernorm.weight": ".attention_norm.weight",
+# }
 key_maps["MixtralForCausalLM"] = {
     "decoder_layer_prefix": "model.layers.",
     "tgt_emb.embeddings.weight": "model.embed_tokens.weight",
@@ -168,6 +218,8 @@ ln_table = {
     "Phi3ForCausalLM": "rms",
     "GPT2LMHeadModel": "standard",
     "XLMRobertaXLForMaskedLM": "standard",
+    "LlavaForConditionalGeneration": "rms",  # to check
+    "Pixtral": "rms",  # to check
 }
 
 act_table = {
@@ -178,6 +230,7 @@ act_table = {
     "Phi3ForCausalLM": "gated-silu",
     "GPT2LMHeadModel": "gelu",
     "XLMRobertaXLForMaskedLM": "gelu",
+    "LlavaForConditionalGeneration": "gated-silu",  # to check
 }
 
 arch_table = {
@@ -188,6 +241,7 @@ arch_table = {
     "Phi3ForCausalLM": TransformerLMModelConfig,
     "GPT2LMHeadModel": TransformerLMModelConfig,
     "XLMRobertaXLForMaskedLM": TransformerEncoderModelConfig,
+    "LlavaForConditionalGeneration": VisionTransformerLMModelConfig,
 }
 
 tok_table = {
@@ -198,6 +252,7 @@ tok_table = {
     "Phi3ForCausalLM": "huggingface_tokenize",
     "GPT2LMHeadModel": "huggingface_tokenize",
     "XLMRobertaXLForMaskedLM": "huggingface_tokenize",
+    "LlavaForConditionalGeneration": "huggingface_tokenize",
 }
 
 
@@ -352,10 +407,23 @@ class LlamaHFConverter(BaseBin):
                 )
             except huggingface_hub.utils.EntryNotFoundError:
                 tokenizer_json = None
-                if tokenizer_model is None:
-                    raise huggingface_hub.utils.EntryNotFoundError(
-                        "Make sure the repo contains tokenizer.model or tokenizer.json"
-                    )
+                # if tokenizer_model is None:
+                #     raise huggingface_hub.utils.EntryNotFoundError(
+                #         "Make sure the repo contains tokenizer.model or tokenizer.json"
+                #     )
+            try:
+                tekken_json = huggingface_hub.hf_hub_download(
+                    repo_id=args.model_dir,
+                    filename="tekken.json",
+                    token=args.token,
+                    local_dir=args.output,
+                )
+            except huggingface_hub.utils.EntryNotFoundError:
+                tekken_json = None
+                # if tokenizer_model is None:
+                #     raise huggingface_hub.utils.EntryNotFoundError(
+                #         "Make sure the repo contains tokenizer.model or tokenizer.json"
+                #     )
             try:
                 config_path = huggingface_hub.hf_hub_download(
                     repo_id=args.model_dir,
@@ -363,9 +431,17 @@ class LlamaHFConverter(BaseBin):
                     token=args.token,
                 )
             except huggingface_hub.utils.EntryNotFoundError:
-                raise huggingface_hub.utils.EntryNotFoundError(
-                    "Something went wrong the repo does not contain any config.json file"
-                )
+                try:
+                    config_path = huggingface_hub.hf_hub_download(
+                        repo_id=args.model_dir,
+                        filename="params.json",
+                        token=args.token,
+                    )
+                except huggingface_hub.utils.EntryNotFoundError:
+                    raise huggingface_hub.utils.EntryNotFoundError(
+                        "Something went wrong the repo does not contain"
+                        " any config.json or params.json file"
+                    )
             try:
                 tokenizer_config_json = huggingface_hub.hf_hub_download(
                     repo_id=args.model_dir,
@@ -373,9 +449,7 @@ class LlamaHFConverter(BaseBin):
                     token=args.token,
                 )
             except huggingface_hub.utils.EntryNotFoundError:
-                raise huggingface_hub.utils.EntryNotFoundError(
-                    "Something went wrong the repo does not contain any tokenizer_config.json file"
-                )
+                tokenizer_config_json = None
             try:
                 generation_config_json = huggingface_hub.hf_hub_download(
                     repo_id=args.model_dir,
@@ -383,6 +457,7 @@ class LlamaHFConverter(BaseBin):
                     token=args.token,
                 )
             except huggingface_hub.utils.EntryNotFoundError:
+                generation_config_json = None
                 raise huggingface_hub.utils.EntryNotFoundError(
                     "Something went wrong the repo does not contain any generation_config.json file"
                 )
@@ -401,11 +476,18 @@ class LlamaHFConverter(BaseBin):
                     )
                 except huggingface_hub.utils.EntryNotFoundError:
                     try:
-                        model_path = huggingface_hub.hf_hub_download(
-                            repo_id=args.model_dir,
-                            filename="model.safetensors",
-                            token=args.token,
-                        )
+                        try:
+                            model_path = huggingface_hub.hf_hub_download(
+                                repo_id=args.model_dir,
+                                filename="model.safetensors",
+                                token=args.token,
+                            )
+                        except huggingface_hub.utils.EntryNotFoundError:
+                            model_path = huggingface_hub.hf_hub_download(
+                                repo_id=args.model_dir,
+                                filename="consolidated.safetensors",
+                                token=args.token,
+                            )
                         wmap_path = None
                     except huggingface_hub.utils.EntryNotFoundError:
                         try:
@@ -439,7 +521,12 @@ class LlamaHFConverter(BaseBin):
         with open(config_path, encoding="utf-8") as fconfig:
             config = json.load(fconfig)
 
-        arch = config["architectures"][0]
+        arch = config.get("architectures", [None])[0]
+        # dirty patch... we should probably check based on model_dir instead
+        vision_config = None
+        if arch == "LlavaForConditionalGeneration":
+            vision_config = config["vision_config"]
+            config = config["text_config"]
 
         # FROM THIS n_layers is the same for decoder/encoder
         # for encoder/decoder models like T5 if the number differs will require adaptation
@@ -447,6 +534,8 @@ class LlamaHFConverter(BaseBin):
             n_layers = config["num_hidden_layers"]
         elif "n_layer" in config.keys():
             n_layers = config["n_layer"]
+        elif "n_layers" in config.keys():
+            n_layers = config["n_layers"]
         else:
             raise ValueError("Can't find the number of layers in the config.json file")
         if "hidden_size" in config.keys():
@@ -457,14 +546,21 @@ class LlamaHFConverter(BaseBin):
             src_word_vec_size = config["n_embd"]
             tgt_word_vec_size = config["n_embd"]
             hidden_size = config["n_embd"]
+        elif "hidden_dim" in config.keys():
+            src_word_vec_size = config["hidden_dim"]
+            tgt_word_vec_size = config["hidden_dim"]
+            hidden_size = config["hidden_dim"]
         else:
             raise ValueError("can't find the model hidden size in the config.json file")
         if "num_attention_heads" in config.keys():
             heads = config["num_attention_heads"]
         elif "n_head" in config.keys():
             heads = config["n_head"]
+        elif "n_heads" in config.keys():
+            heads = config["n_heads"]
         else:
-            raise ValueError("can't find the number of heads in the config.json file")
+            heads = None
+            # raise ValueError("can't find the number of heads in the config.json file")
 
         vocab_size = config["vocab_size"]
         if "intermediate_size" in config.keys():
@@ -488,11 +584,18 @@ class LlamaHFConverter(BaseBin):
         else:
             heads_kv = heads
 
+        if arch == "LlavaForConditionalGeneration":
+            # dirty patch for mistral-community/pixtral-12b
+            heads = 32
+
         if "head_dim" in config.keys():
             head_dim = config["head_dim"]
+            if heads is None:
+                heads = hidden_size / head_dim
         else:
             head_dim = None
-
+        print("heads:", heads)
+        print("heads_kv:", heads_kv)
         if "parallel_attn" in config.keys():
             parallel_residual = config["parallel_attn"]
         else:
@@ -707,6 +810,12 @@ class LlamaHFConverter(BaseBin):
                     "encoder.layer_norm.weight",
                     "encoder.layer_norm.bias",
                     "generator.weight",
+                    "encoder.patch_conv.weight",
+                    "encoder.ln_pre.weight",
+                    "adapter.w_in.weight",
+                    "adapter.w_in.bias",
+                    "adapter.w_out.weight",
+                    "adapter.w_out.bias",
                 ]
                 if share_decoder_embeddings:
                     targetlist.remove("generator.weight")
@@ -741,7 +850,9 @@ class LlamaHFConverter(BaseBin):
                                 and key.startswith(encoder_layer_prefix)
                             )
                         )
-                        and int(key.split(".")[2])
+                        and int(
+                            key.split(".")[len(decoder_layer_prefix.split(".")) - 1]
+                        )
                         in range(
                             -(n_layers // -args.nshards) * shard,
                             min(
@@ -763,6 +874,7 @@ class LlamaHFConverter(BaseBin):
                     checkpoint = get_load_ckpt(os.path.split(wmap_path)[0], ckpt)
                 else:
                     checkpoint = get_load_ckpt(*os.path.split(model_path))
+                # we might need to split encoder/decoder logic around here...
                 for i in range(
                     -(n_layers // -args.nshards) * shard,
                     min(-(n_layers // -args.nshards) * (shard + 1), n_layers),
@@ -822,12 +934,17 @@ class LlamaHFConverter(BaseBin):
                             ]
                             for target in targetlist:
                                 if target in key_maps[arch].keys():
-                                    source = key_maps[arch][target]
+                                    if layer_prefix == encoder_layer_prefix:
+                                        source = key_maps[arch]["encoder"][target]
+                                    else:
+                                        source = key_maps[arch][target]
+                                    # print("target:", target, "// source:", source)
                                     if type(source) == tuple:
                                         srckey = source[0]
                                         srcmap = source[1]
                                     else:
                                         srckey = source
+                                    # print("-->", layer_prefix + str(i) + srckey + param,)
                                     w = get_weight(
                                         checkpoint,
                                         layer_prefix + str(i) + srckey + param,
@@ -845,48 +962,46 @@ class LlamaHFConverter(BaseBin):
                         else:
                             idx = 1
                         for p in ["weight", "bias"]:
-                            if ".input_layernorm." + p in key_maps[arch].keys():
-                                if (
-                                    type(key_maps[arch][".input_layernorm." + p])
-                                    == tuple
-                                ):
+                            if layer_prefix == encoder_layer_prefix:
+                                source_map = key_maps[arch]["encoder"]
+                            else:
+                                source_map = key_maps[arch]
+                            if ".input_layernorm." + p in source_map.keys():
+                                if type(source_map[".input_layernorm." + p]) == tuple:
                                     w = get_weight(
                                         checkpoint,
                                         layer_prefix
                                         + str(i)
-                                        + key_maps[arch][".input_layernorm." + p][idx],
+                                        + source_map[".input_layernorm." + p][idx],
                                     )
                                 else:
                                     w = get_weight(
                                         checkpoint,
                                         layer_prefix
                                         + str(i)
-                                        + key_maps[arch][".input_layernorm." + p],
+                                        + source_map[".input_layernorm." + p],
                                     )
                                 if w is not None:
                                     eole_safetensor[
                                         eole_prefix + str(i) + ".input_layernorm." + p
                                     ] = w
-                            if ".layer_norm_res." + p in key_maps[arch].keys():
+                            if ".layer_norm_res." + p in source_map.keys():
                                 w = get_weight(
                                     checkpoint,
                                     layer_prefix
                                     + str(i)
-                                    + key_maps[arch][".layer_norm_res." + p],
+                                    + source_map[".layer_norm_res." + p],
                                 )
                                 if w is not None:
                                     eole_safetensor[
                                         eole_prefix + str(i) + ".layer_norm_res." + p
                                     ] = w
-                            if (
-                                ".post_attention_layernorm." + p
-                                in key_maps[arch].keys()
-                            ):
+                            if ".post_attention_layernorm." + p in source_map.keys():
                                 w = get_weight(
                                     checkpoint,
                                     layer_prefix
                                     + str(i)
-                                    + key_maps[arch][".post_attention_layernorm." + p],
+                                    + source_map[".post_attention_layernorm." + p],
                                 )
                                 if w is not None:
                                     eole_safetensor[
@@ -896,12 +1011,12 @@ class LlamaHFConverter(BaseBin):
                                         + p
                                     ] = w
 
-                            if ".mlp.gate." + p in key_maps[arch].keys():
+                            if ".mlp.gate." + p in source_map.keys():
                                 w = get_weight(
                                     checkpoint,
                                     layer_prefix
                                     + str(i)
-                                    + key_maps[arch][".mlp.gate." + p],
+                                    + source_map[".mlp.gate." + p],
                                 )
                                 if w is not None:
                                     eole_safetensor[
@@ -911,13 +1026,13 @@ class LlamaHFConverter(BaseBin):
                             for j in range(num_experts):
                                 if (
                                     f".mlp.experts.{j}.layer_norm." + p
-                                    in key_maps[arch].keys()
+                                    in source_map.keys()
                                 ):
                                     w = get_weight(
                                         checkpoint,
                                         layer_prefix
                                         + str(i)
-                                        + key_maps[arch][
+                                        + source_map[
                                             f".mlp.experts.{j}.layer_norm." + p
                                         ],
                                     )
@@ -1037,7 +1152,9 @@ class LlamaHFConverter(BaseBin):
             src_vocab = pyonmttok.build_vocab_from_tokens(
                 vocab,
             )
-        else:  # # BPE mode - we leverage the HF tokenizer.json info
+        elif (
+            tokenizer_json is not None
+        ):  # # BPE mode - we leverage the HF tokenizer.json info
             src_subword_type = "bpe"
             with open(tokenizer_json, encoding="utf-8") as f:
                 data = json.load(f)
@@ -1080,6 +1197,14 @@ class LlamaHFConverter(BaseBin):
                         raise NotImplementedError(
                             f"Type {type(merge)} is not supported for BPE merges."
                         )
+        elif tekken_json is not None:
+            with open(tekken_json, encoding="utf-8") as f:
+                data = json.load(f)
+                # vocab is not really needed since using hf tokenize
+                vocab = [
+                    tok["token_bytes"] for tok in data["vocab"]
+                ]  # workaround because some token_str are null
+                src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
 
         if arch in tok_table.keys() and args.tokenizer == "hf":
             transforms = [
@@ -1125,6 +1250,31 @@ class LlamaHFConverter(BaseBin):
             for tok in vocab_dict["src"]:
                 vocabfile.write(tok + "\n")
 
+        encoder = None
+        if arch == "LlavaForConditionalGeneration":
+            # this is very dirty, but hardcoded in HF...
+            encoder = {
+                "mlp_activation_fn": mlp_activation_fn,
+                "layer_norm": layer_norm,
+                "norm_eps": norm_eps,
+                "hidden_size": vision_config["image_size"],
+                "transformer_ff": vision_config["image_size"]
+                * 4,  # hard-coded for mistral-community/pixtral-12b
+                "num_channels": 3,
+                "image_size": vision_config["image_size"],
+                "patch_size": vision_config["patch_size"],
+                "rope_config": {
+                    "rotary_theta": vision_config["rope_theta"],
+                    "rotary_interleave": False,
+                },
+                "layers": 24,  # hard-coded for mistral-community/pixtral-12b...
+                "heads": vision_config["image_size"] / vision_config["head_dim"],
+                "heads_kv": vision_config["image_size"]
+                / vision_config["head_dim"],  # to handle properly
+                "head_dim": vision_config["head_dim"],
+                "image_token_id": 10,
+            }
+
         config = TrainConfig(
             data=None,
             skip_empty_level="silent",  # default is "warning"
@@ -1141,6 +1291,7 @@ class LlamaHFConverter(BaseBin):
             transforms=transforms,
             transforms_configs=transforms_configs,
             model=arch_table[arch](
+                encoder=encoder,  # will be None except for Pixtral
                 layers=n_layers,
                 hidden_size=hidden_size,
                 heads=heads,

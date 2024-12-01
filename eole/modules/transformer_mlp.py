@@ -21,7 +21,7 @@ class MLP(nn.Module):
         model_config,
         running_config=None,
     ):
-        self.parallel_gpu = running_config.parallel_gpu
+        self.parallel_gpu = getattr(running_config, "parallel_gpu", 1)
         super(MLP, self).__init__()
         assert (
             model_config.transformer_ff % self.parallel_gpu == 0

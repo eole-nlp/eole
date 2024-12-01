@@ -68,7 +68,7 @@ class TransformerEncoderLayer(nn.Module):
         else:
             ff_in = self.post_attention_layernorm(context + layer_in)
         # apply post attention norm and add residual after mlp
-        layer_out = self.mlp(ff_in) + context + layer_in
+        layer_out = context + layer_in + self.mlp(ff_in)
 
         return layer_out
 

@@ -143,6 +143,7 @@ class GeneratorLM(Inference):
                 src_len=decode_strategy.src_len,
                 step=step if step == 0 else step + max(src_len.tolist()),
                 batch_offset=decode_strategy.batch_offset,
+                images=batch.get("images", None),
             )
 
             if step == 0:

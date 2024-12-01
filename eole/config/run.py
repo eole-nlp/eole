@@ -125,6 +125,13 @@ class PredictConfig(
         # TODO: do we really need this _all_transform?
         if self._all_transform is None:
             self._all_transform = self.transforms
+        if (
+            getattr(getattr(self.model, "encoder", None), "encoder_type", None)
+            == "vision"
+        ):
+            assert (
+                self.batch_size == 1
+            ), "Batch inference is not supported yet for vision models."
         return self
 
     def _update_with_model_config(self):

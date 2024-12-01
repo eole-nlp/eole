@@ -102,7 +102,9 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
         return tokens
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
-        src_tokens = self.tokenize_string(" ".join(example["src"]), side="src")
+        # src_tokens = self.tokenize_string(" ".join(example["src"]), side="src")
+        src_tokens = self.tokenize_string(example["src"], side="src")
+
         example["src_ids"] = src_tokens
         if example.get("tgt", None) is not None:
             tgt_tokens = self.tokenize_string(" ".join(example["tgt"]), side="tgt")

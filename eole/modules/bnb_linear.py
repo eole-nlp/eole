@@ -66,6 +66,8 @@ def replace_bnb_linear(
                 model._modules[name].weight = Params4bit(
                     model._modules[name].weight.data,
                     requires_grad=False,
+                    compress_statistics=False,
+                    # blocksize=64,
                     quant_type=q_type[-3:].lower(),
                 )
                 model._modules[name].compute_dtype = compute_dtype
