@@ -70,7 +70,8 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
                 from tokenizers import Tokenizer
 
                 self.tokenizers["src"] = Tokenizer.from_file(self.path, legacy=False)
-                # TODO: this is not efficient, we shall have a single tokenizer
+                # TODO: might be more efficient to have a single tokenizer,
+                # and apply the eos logic on top
                 self.tokenizers["tgt"] = Tokenizer.from_file(self.path, legacy=False)
             else:
                 raise FileNotFoundError(self.path)
