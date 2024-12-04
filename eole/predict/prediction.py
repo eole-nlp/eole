@@ -42,22 +42,14 @@ class PredictionBuilder(object):
                     )
                     self.phrase_table_dict[phrase_src] = phrase_trg
 
-    def _build_target_tokens(self, src, srclen, pred, attn, voc, dyn_voc):
+    def _build_target_tokens(self, src, srclen, pred, attn, voc):
         pred_list = pred.tolist()
         if pred_list[-1] in self.tgt_eos_idx:
             pred_list = pred_list[:-1]
         if self.id_tokenization:
-            # TODO assert dyn_voc is not compatible with id_tokenization
             tokens = pred_list
-        elif dyn_voc is None:
-            tokens = [voc[tok] for tok in pred_list]
         else:
-            tokens = [
-                voc[tok]
-                if tok < len(voc)
-                else dyn_voc.ids_to_tokens[tok - len(self.vocabs["src"].ids_to_tokens)]
-                for tok in pred_list
-            ]
+            tokens = [voc[tok] for tok in pred_list]
 
         # TODO: either support this properly or remove?
         if not self.id_tokenization:
@@ -76,10 +68,6 @@ class PredictionBuilder(object):
 
     def from_batch(self, prediction_batch):
         batch = prediction_batch["batch"]
-        if "src_ex_vocab" in batch.keys():
-            dyn_voc_batch = batch["src_ex_vocab"]
-        else:
-            dyn_voc_batch = None
         assert len(prediction_batch["gold_score"]) == len(
             prediction_batch["predictions"]
         )
@@ -110,10 +98,6 @@ class PredictionBuilder(object):
 
         # These comp lists are costy but less than for loops
         for b in range(batch_size):
-            if dyn_voc_batch is not None:
-                dyn_voc = dyn_voc_batch[b]
-            else:
-                dyn_voc = None
             pred_sents = [
                 self._build_target_tokens(
                     src[b, :] if src is not None else None,
@@ -121,7 +105,6 @@ class PredictionBuilder(object):
                     preds[b][n] if len(preds[b]) > 0 else None,
                     align[b][n] if align[b] is not None else attn[b][n],
                     voc_tgt,
-                    dyn_voc,
                 )
                 for n in range(self.n_best)
             ]
@@ -134,7 +117,6 @@ class PredictionBuilder(object):
                     tgt[b, 1:] if tgt is not None else None,
                     None,
                     voc_tgt,
-                    dyn_voc,
                 )
 
             prediction = Prediction(
