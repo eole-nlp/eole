@@ -289,7 +289,7 @@ class TransformerConfig(Config):
             if self.rope_config is None:
                 self.rope_config = RotaryPositionConfig()
         if self.add_qkvbias and "add_final_linear_bias" not in self.model_fields_set:
-            self.__dict__["add_final_linear_bias"] = True
+            self.update(add_final_linear_bias=True)
         return self
 
     @computed_field

@@ -21,5 +21,6 @@ class Config(BaseModel):
     model_config = get_config_dict()
 
     def update(self, **kwargs):
-        self.__class__.validate(self.__dict__ | kwargs)
-        self.__dict__.update(kwargs)
+        updated_instance = self.copy(update=kwargs)
+        self.__dict__.update(updated_instance.__dict__)
+        self.__fields_set__.update(updated_instance.__fields_set__)
