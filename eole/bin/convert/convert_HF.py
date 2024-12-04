@@ -39,6 +39,9 @@ key_maps["LlamaForCausalLM"] = {
     ".input_layernorm.weight": ".input_layernorm.weight",
     ".post_attention_layernorm.weight": ".post_attention_layernorm.weight",
 }
+
+key_maps["Qwen2ForCausalLM"] = key_maps["LlamaForCausalLM"]
+
 key_maps["MistralForCausalLM"] = key_maps["LlamaForCausalLM"]
 key_maps["MixtralForCausalLM"] = {
     "decoder_layer_prefix": "model.layers.",
@@ -168,6 +171,7 @@ ln_table = {
     "Phi3ForCausalLM": "rms",
     "GPT2LMHeadModel": "standard",
     "XLMRobertaXLForMaskedLM": "standard",
+    "Qwen2ForCausalLM": "rms" # to check if Qwen2RMS is similar to the others
 }
 
 act_table = {
@@ -178,6 +182,7 @@ act_table = {
     "Phi3ForCausalLM": "gated-silu",
     "GPT2LMHeadModel": "gelu",
     "XLMRobertaXLForMaskedLM": "gelu",
+    "Qwen2ForCausalLM": "gated-silu"
 }
 
 arch_table = {
@@ -188,6 +193,18 @@ arch_table = {
     "Phi3ForCausalLM": TransformerLMModelConfig,
     "GPT2LMHeadModel": TransformerLMModelConfig,
     "XLMRobertaXLForMaskedLM": TransformerEncoderModelConfig,
+    "Qwen2ForCausalLM": TransformerLMModelConfig,
+}
+
+tok_table = {
+    "LlamaForCausalLM": "huggingface_tokenize",
+    "MistralForCausalLM": "mistral_tokenize",
+    "MixtralForCausalLM": "mistral_tokenize",
+    "PhiForCausalLM": "huggingface_tokenize",
+    "Phi3ForCausalLM": "huggingface_tokenize",
+    "GPT2LMHeadModel": "huggingface_tokenize",
+    "XLMRobertaXLForMaskedLM": "huggingface_tokenize",
+    "Qwen2ForCausalLM": "huggingface_tokenize",
 }
 
 
@@ -578,6 +595,7 @@ class LlamaHFConverter(BaseBin):
             params = ["weight", "bias"]
 
         add_qkvbias = False
+        add_final_linear_bias = False
         add_ffnbias = False
         shared_layer_norm = False
         rope_config["rotary_interleave"] = False
@@ -595,12 +613,14 @@ class LlamaHFConverter(BaseBin):
             parallel_residual = True
             shared_layer_norm = True
             add_qkvbias = True
+            add_final_linear_bias = True
             add_ffnbias = True
             rope_config["rotary_interleave"] = False
         if arch == "GPT2LMHeadModel":
             parallel_residual = False
             shared_layer_norm = True
             add_qkvbias = True
+            add_final_linear_bias = True
             add_ffnbias = True
             position_encoding = {
                 "position_encoding_type": "Learned",
@@ -609,6 +629,7 @@ class LlamaHFConverter(BaseBin):
             left_pad = False
         if arch == "XLMRobertaXLForMaskedLM":
             add_qkvbias = True
+            add_final_linear_bias = True
             add_ffnbias = True
             position_encoding = {
                 "position_encoding_type": "Learned",
@@ -616,6 +637,9 @@ class LlamaHFConverter(BaseBin):
                 "position_shift": 2,
             }
             left_pad = False
+        if arch == "Qwen2ForCausalLM":
+            add_qkvbias = True
+            add_final_linear_bias = False
 
         decoder_layer_prefix = key_maps[arch].get("decoder_layer_prefix", None)
         encoder_layer_prefix = key_maps[arch].get("encoder_layer_prefix", None)
@@ -979,11 +1003,6 @@ class LlamaHFConverter(BaseBin):
             with open(tokenizer_json, encoding="utf-8") as f:
                 data = json.load(f)
                 vocab = {v: k for k, v in data["model"]["vocab"].items()}
-                for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
-                    if f"{token_name}_id" in config.keys():
-                        vocabs["specials"][token_name] = vocab[
-                            config[f"{token_name}_id"]
-                        ]
 
         if generation_config_json is not None:
             with open(generation_config_json, encoding="utf-8") as f:
@@ -1043,6 +1062,13 @@ class LlamaHFConverter(BaseBin):
             for tok in data["added_tokens"]:
                 vocab[tok["id"]] = tok["content"]
             src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
+
+            for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
+                if f"{token_name}_id" in config.keys():
+                    print(f"{token_name}_id")
+                    vocabs["specials"][token_name] = vocab[
+                        config[f"{token_name}_id"]
+                    ]
 
             tokenizer_basename = "bpe.model"
 
@@ -1118,6 +1144,7 @@ class LlamaHFConverter(BaseBin):
                 parallel_residual=parallel_residual,
                 shared_layer_norm=shared_layer_norm,
                 add_qkvbias=add_qkvbias,
+                add_final_linear_bias=add_final_linear_bias,
                 add_ffnbias=add_ffnbias,
                 num_experts=num_experts,
                 num_experts_per_tok=num_experts_per_tok,

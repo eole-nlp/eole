@@ -291,7 +291,7 @@ class MultiHeadedAttention(torch.nn.Module):
             nn.Linear,
             in_features=self.dim_per_head * self.heads // self.parallel_gpu,
             out_features=model_config.hidden_size,
-            bias=model_config.add_qkvbias,
+            bias=model_config.add_final_linear_bias,
         )
         self.is_decoder = is_decoder
         self.relative_positions_buckets = model_config.relative_positions_buckets

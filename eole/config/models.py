@@ -239,7 +239,12 @@ class TransformerConfig(Config):
     add_qkvbias: bool = Field(
         default=False,
         description="Add bias to nn.Linear of Query/Key/Value in MHA. "
-        "Note: this will add bias to output projection layer too.",
+        "Note: this will add bias to output projection layer too by default. "
+        "Can be disabled with `add_final_linear_bias`.",
+    )
+    add_final_linear_bias: bool = Field(
+        default=False,
+        description="Add bias to nn.Linear of final_linear in MHA."
     )
     heads_kv: int | None = Field(
         default=None,
@@ -284,6 +289,8 @@ class TransformerConfig(Config):
         if self.position_encoding_type == PositionEncodingType.Rotary:
             if self.rope_config is None:
                 self.rope_config = RotaryPositionConfig()
+        if self.add_qkvbias and "add_final_linear_bias" not in self.model_fields_set:
+            self.add_final_linear_bias = True
         return self
 
     @computed_field
