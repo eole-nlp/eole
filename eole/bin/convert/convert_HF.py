@@ -171,7 +171,7 @@ ln_table = {
     "Phi3ForCausalLM": "rms",
     "GPT2LMHeadModel": "standard",
     "XLMRobertaXLForMaskedLM": "standard",
-    "Qwen2ForCausalLM": "rms" # to check if Qwen2RMS is similar to the others
+    "Qwen2ForCausalLM": "rms",  # to check if Qwen2RMS is similar to the others
 }
 
 act_table = {
@@ -182,7 +182,7 @@ act_table = {
     "Phi3ForCausalLM": "gated-silu",
     "GPT2LMHeadModel": "gelu",
     "XLMRobertaXLForMaskedLM": "gelu",
-    "Qwen2ForCausalLM": "gated-silu"
+    "Qwen2ForCausalLM": "gated-silu",
 }
 
 arch_table = {
@@ -1066,9 +1066,7 @@ class LlamaHFConverter(BaseBin):
             for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
                 if f"{token_name}_id" in config.keys():
                     print(f"{token_name}_id")
-                    vocabs["specials"][token_name] = vocab[
-                        config[f"{token_name}_id"]
-                    ]
+                    vocabs["specials"][token_name] = vocab[config[f"{token_name}_id"]]
 
             tokenizer_basename = "bpe.model"
 

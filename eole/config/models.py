@@ -243,8 +243,7 @@ class TransformerConfig(Config):
         "Can be disabled with `add_final_linear_bias`.",
     )
     add_final_linear_bias: bool = Field(
-        default=False,
-        description="Add bias to nn.Linear of final_linear in MHA."
+        default=False, description="Add bias to nn.Linear of final_linear in MHA."
     )
     heads_kv: int | None = Field(
         default=None,
