@@ -21,6 +21,7 @@ class Transform(object):
 
     name = None  # set in register_transform wrapper
     type = TransformType.Default
+    output_type = "text"
 
     def __init__(self, config):
         """Initialize Transform by parsing `opts` and add them as attribute."""
@@ -280,7 +281,8 @@ class TransformPipe(Transform):
         return batch
 
     def apply_reverse(self, predicted):
-        for transform in self.transforms:
+        # apply_reverse in reversed order
+        for transform in reversed(self.transforms):
             predicted = transform.apply_reverse(predicted)
         return predicted
 

@@ -7,7 +7,7 @@ from time import time
 from math import exp
 import codecs
 
-from eole.transforms import TransformPipe
+from eole.transforms import TransformPipe, AVAILABLE_TRANSFORMS
 from eole.constants import DefaultTokens
 from eole.predict.prediction import PredictionBuilder
 from eole.utils.misc import set_random_seed, report_matrix, sequence_mask, get_device
@@ -89,6 +89,7 @@ class Inference(object):
         return_gold_log_probs=False,
         add_estimator=False,
         optional_eos=[],
+        id_tokenization=False,
     ):
         self.model = model
         self.vocabs = vocabs
@@ -168,6 +169,7 @@ class Inference(object):
 
         self.return_gold_log_probs = return_gold_log_probs
         self.add_estimator = add_estimator
+        self.id_tokenization = id_tokenization
 
     @classmethod
     def from_config(
@@ -201,6 +203,12 @@ class Inference(object):
             logger (logging.Logger or NoneType): See :func:`__init__()`.
         """
         # TODO: maybe add dynamic part
+
+        id_tokenization = False
+        if len(config.transforms) > 0:
+            tail_transform_cls = AVAILABLE_TRANSFORMS.get(config.transforms[-1], None)
+            if getattr(tail_transform_cls, "output_type", None) == "ids":
+                id_tokenization = True
 
         return cls(
             model,
@@ -236,6 +244,7 @@ class Inference(object):
             with_score=config.with_score,
             add_estimator=model_config.add_estimator,
             optional_eos=config.optional_eos,
+            id_tokenization=id_tokenization,
         )
 
     def _log(self, msg):
@@ -294,6 +303,7 @@ class Inference(object):
             self.replace_unk,
             self.phrase_table,
             self._tgt_eos_idx,
+            self.id_tokenization,
         )
 
         # Statistics
@@ -388,9 +398,12 @@ class Inference(object):
                     bucket_gold_score += trans.gold_score
                     bucket_gold_words += len(trans.gold_sent) + 1
 
-                n_best_preds = [
-                    " ".join(pred) for pred in trans.pred_sents[: self.n_best]
-                ]
+                if self.id_tokenization:
+                    n_best_preds = trans.pred_sents[: self.n_best]
+                else:
+                    n_best_preds = [
+                        " ".join(pred) for pred in trans.pred_sents[: self.n_best]
+                    ]
 
                 if self.report_align:
                     align_pharaohs = [

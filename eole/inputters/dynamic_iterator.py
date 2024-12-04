@@ -281,6 +281,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
                 bucket.append(
                     numericalize(self.vocabs, example, model_type=self.model_type)
                 )
+
         return bucket
 
     def _add_indice(self, bucket):
@@ -404,7 +405,6 @@ class OnDeviceDatasetIter:
         for (tensor_batch, bucket_idx) in self.data_iter:
             for key in tensor_batch.keys():
                 if key not in [
-                    "src_ex_vocab",
                     "cid",
                     "ind_in_bucket",
                     "cid_line_number",

@@ -6,6 +6,7 @@ from pydantic import (
     computed_field,
 )  # , TypeAdapter
 
+import eole
 from eole.constants import PositionEncodingType, ActivationFunction, ModelType
 from eole.config.config import Config
 
@@ -441,6 +442,13 @@ class BaseModelConfig(Config):
 
     left_pad: bool = Field(
         default=False, description="Enable left-padding, useful for some LLMs."
+    )
+    huggingface_model: str | None = Field(
+        default=None, description="Original huggingface model."
+    )
+    eole_version: str | None = Field(
+        default=eole.__version__,
+        description="Eole version used to convert/train/save the model.",
     )
 
     # @computed_field()

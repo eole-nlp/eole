@@ -60,33 +60,42 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
     """ """
     decoder_start_token = vocabs["decoder_start_token"]
     numeric = example
-    numeric["src"]["src_ids"] = []
+    numeric["src"]["src_ids"] = example.get("src_ids", [])
+    maybe_tgt_ids = example.get("tgt_ids", [])
     if model_type == ModelType.ENCODER_DECODER:
         src_text = example["src"]["src"].split(" ")
-        numeric["src"]["src_ids"] = vocabs["src"](src_text)
+        if numeric["src"]["src_ids"] == []:
+            numeric["src"]["src_ids"] = vocabs["src"](src_text)
         if example["tgt"] is not None:
-            numeric["tgt"]["tgt_ids"] = []
-            tgt_text = example["tgt"]["tgt"].split(" ")
-            numeric["tgt"]["tgt_ids"] = vocabs["tgt"](
-                [decoder_start_token]
-                + tgt_text
-                + [vocabs["specials"].get("eos_token", "")]
-            )
+            if maybe_tgt_ids != []:
+                numeric["tgt"]["tgt_ids"] = maybe_tgt_ids
+            else:
+                tgt_text = example["tgt"]["tgt"].split(" ")
+                numeric["tgt"]["tgt_ids"] = vocabs["tgt"](
+                    [decoder_start_token]
+                    + tgt_text
+                    + [vocabs["specials"].get("eos_token", "")]
+                )
 
     elif model_type == ModelType.DECODER:
-        src_text = example["src"]["src"].split(" ")
-        if decoder_start_token != "":
-            src_text = [decoder_start_token] + src_text
-        numeric["src"]["src_ids"] = vocabs["src"](src_text)
+        if numeric["src"]["src_ids"] == []:
+            src_text = example["src"]["src"].split(" ")
+            if decoder_start_token != "":
+                src_text = [decoder_start_token] + src_text
+            numeric["src"]["src_ids"] = vocabs["src"](src_text)
         if example["tgt"] is not None:
-            numeric["tgt"]["tgt_ids"] = []
-            tgt_text = example["tgt"]["tgt"].split(" ")
-            numeric["tgt"]["tgt_ids"] = vocabs["tgt"](
-                tgt_text + [vocabs["specials"].get("eos_token", "")]
-            )
+            if maybe_tgt_ids != []:
+                # decoder_start_token logic is supposedly handled in the tokenizer
+                numeric["tgt"]["tgt_ids"] = maybe_tgt_ids
+            else:
+                tgt_text = example["tgt"]["tgt"].split(" ")
+                numeric["tgt"]["tgt_ids"] = vocabs["tgt"](
+                    tgt_text + [vocabs["specials"].get("eos_token", "")]
+                )
             if decoder_start_token == "":
                 numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
 
+    # TODO: support id tokenization
     elif model_type == ModelType.ENCODER:
         src_text = example["src"]["src"].split(" ")
         if example["tgt"] is not None:  # TO BE DISCUSSED
@@ -244,9 +253,6 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
                 ex["alignment"], dtype=torch.long, device=device
             )
         tensor_batch["alignment"] = alignment
-
-    if "src_ex_vocab" in minibatch[0][0].keys():
-        tensor_batch["src_ex_vocab"] = [ex["src_ex_vocab"] for ex, indice in minibatch]
 
     tensor_batch["ind_in_bucket"] = [indice for ex, indice in minibatch]
 
