@@ -6,6 +6,7 @@ from pydantic import (
     computed_field,
 )  # , TypeAdapter
 
+import eole
 from eole.constants import PositionEncodingType, ActivationFunction, ModelType
 from eole.config.config import Config
 
@@ -439,10 +440,21 @@ class BaseModelConfig(Config):
         description="Which function to use for generating probabilities "
         "over the target vocabulary.",
     )
+    generator_bias: bool = Field(
+        default=True,
+        description="Control whether or not the generator Linear module has bias weights.",
+    )
     add_estimator: bool = Field(default=False, description="Add estimator layer")
 
     left_pad: bool = Field(
         default=False, description="Enable left-padding, useful for some LLMs."
+    )
+    huggingface_model: str | None = Field(
+        default=None, description="Original huggingface model."
+    )
+    eole_version: str | None = Field(
+        default=eole.__version__,
+        description="Eole version used to convert/train/save the model.",
     )
 
     # @computed_field()

@@ -207,6 +207,16 @@ tok_table = {
     "Qwen2ForCausalLM": "huggingface_tokenize",
 }
 
+tok_table = {
+    "LlamaForCausalLM": "huggingface_tokenize",
+    "MistralForCausalLM": "huggingface_tokenize",
+    "MixtralForCausalLM": "huggingface_tokenize",
+    "PhiForCausalLM": "huggingface_tokenize",
+    "Phi3ForCausalLM": "huggingface_tokenize",
+    "GPT2LMHeadModel": "huggingface_tokenize",
+    "XLMRobertaXLForMaskedLM": "huggingface_tokenize",
+}
+
 
 class Tokenizer:
     def __init__(self, model_path: str):
@@ -256,6 +266,13 @@ class LlamaHFConverter(BaseBin):
             choices=TORCH_DTYPES.keys(),
             help="Specify which dtype to save model parameters into, "
             "default will keep the same as the input.",
+        )
+        parser.add_argument(
+            "--tokenizer",
+            type=str,
+            default="hf",
+            choices=["hf", "onmt"],
+            help="Specify which tokenizer should be used by default.",
         )
 
     @classmethod
@@ -323,6 +340,7 @@ class LlamaHFConverter(BaseBin):
             else:
                 generation_config_json = None
         else:
+            huggingface_model = args.model_dir
             directory_path = args.output
             os.makedirs(directory_path, exist_ok=True)
             try:
@@ -594,6 +612,8 @@ class LlamaHFConverter(BaseBin):
             quant_layers = []
             params = ["weight", "bias"]
 
+        share_decoder_embeddings = config.get("tie_word_embeddings", False)
+
         add_qkvbias = False
         add_final_linear_bias = False
         add_ffnbias = False
@@ -607,6 +627,7 @@ class LlamaHFConverter(BaseBin):
         optional_eos = []
         mapped_tokens = []
         gpt2_pretok = False
+        generator_bias = False
 
         # ALL THESE IF SHOULD BE HANDLED IN MAPPINGS
         if arch == "PhiForCausalLM":
@@ -711,6 +732,8 @@ class LlamaHFConverter(BaseBin):
                     "encoder.layer_norm.bias",
                     "generator.weight",
                 ]
+                if share_decoder_embeddings:
+                    targetlist.remove("generator.weight")
                 for target in targetlist:
                     if target in key_maps[arch].keys():
                         source = key_maps[arch][target]
@@ -724,12 +747,8 @@ class LlamaHFConverter(BaseBin):
                         if w is not None:
                             eole_safetensor[target] = w
 
-                        # not sure why we're doing this if generator.bias not in key_map
-                        if target == "generator.weight" and w is not None:
-                            eole_safetensor["generator.bias"] = torch.zeros(
-                                eole_safetensor["generator.weight"].size(0),
-                                dtype=TORCH_DTYPES[compute_dtype],
-                            )
+                        if target == "generator.bias":
+                            generator_bias = True
 
             if wmap_path:
                 weightmap = wmap["weight_map"]
@@ -1006,7 +1025,9 @@ class LlamaHFConverter(BaseBin):
 
         if generation_config_json is not None:
             with open(generation_config_json, encoding="utf-8") as f:
-                data = json.load(f)
+                data = json.loads(
+                    f.read().replace(",\n}", "\n}")
+                )  # dirty patch to remove trailing comma...
                 generation_config_dict = {}
                 # we probably need a better mapping at some point
                 keys = ["top_k", "top_p", "temperature", "max_length"]
@@ -1075,7 +1096,40 @@ class LlamaHFConverter(BaseBin):
             ) as bpemodel:
                 bpemodel.write("v3;false;false;false;Ġ;Ġ\n")
                 for merge in data["model"]["merges"]:
-                    bpemodel.write(merge + "\n")
+                    if isinstance(merge, str):
+                        bpemodel.write(merge + "\n")
+                    elif isinstance(merge, list):
+                        bpemodel.write(" ".join(merge) + "\n")
+                    else:
+                        raise NotImplementedError(
+                            f"Type {type(merge)} is not supported for BPE merges."
+                        )
+
+        if arch in tok_table.keys() and args.tokenizer == "hf":
+            transforms = [
+                tok_table[arch]
+            ]  # , "filtertoolong"] filtertoolong not plug-n-play with id_tokenize
+        else:
+            transforms = ["onmt_tokenize"]
+
+        match tok_table.get(arch, None), args.tokenizer:
+            case "huggingface_tokenize", "hf":
+                transforms_configs = {
+                    tok_table[arch]: {"max_length": 512},
+                }
+            case _:
+                # not used right now, but keeping for reference
+                transforms_configs = {
+                    "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512},
+                    "onmt_tokenize": {
+                        "src_subword_type": src_subword_type,
+                        "src_subword_model": os.path.join(
+                            "${MODEL_PATH}", tokenizer_basename
+                        ),
+                        "gpt2_pretok": gpt2_pretok,
+                        "mapped_tokens": mapped_tokens,
+                    },
+                }
 
         vocabs["src"] = src_vocab
         vocabs["tgt"] = src_vocab
@@ -1108,18 +1162,8 @@ class LlamaHFConverter(BaseBin):
             vocab_size_multiple=8,
             decoder_start_token=vocabs["decoder_start_token"],
             **vocabs["specials"],
-            transforms=["onmt_tokenize", "filtertoolong"],
-            transforms_configs={
-                "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512},
-                "onmt_tokenize": {
-                    "src_subword_type": src_subword_type,
-                    "src_subword_model": os.path.join(
-                        "${MODEL_PATH}", tokenizer_basename
-                    ),
-                    "gpt2_pretok": gpt2_pretok,
-                    "mapped_tokens": mapped_tokens,
-                },
-            },
+            transforms=transforms,
+            transforms_configs=transforms_configs,
             model=arch_table[arch](
                 layers=n_layers,
                 hidden_size=hidden_size,
@@ -1147,6 +1191,9 @@ class LlamaHFConverter(BaseBin):
                 num_experts=num_experts,
                 num_experts_per_tok=num_experts_per_tok,
                 left_pad=left_pad,
+                huggingface_model=huggingface_model,
+                share_decoder_embeddings=share_decoder_embeddings,
+                generator_bias=generator_bias,
             ),
             training=TrainingConfig(
                 compute_dtype=compute_dtype,

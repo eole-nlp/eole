@@ -434,12 +434,13 @@ class MultiHeadedAttention(torch.nn.Module):
             self.position_encoding_type
             not in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
             and not return_attn
-            and query.device != torch.device("cpu")
+            and query.device.type != "cpu"
         ):
             causal = self.is_decoder and attn_type == "self" and mask is not None
             # keeping this (vs sdpa below) only because it handles windows_size
             # also flash_attn_func does not support pad mask so not for encoder not for context attn
-            if self.flash and self.is_decoder and attn_type == "self":
+            # adding b == 1 as a condition to avoid padded cases in decoder only
+            if self.flash and b == 1 and self.is_decoder and attn_type == "self":
                 window_size = (
                     (-1, -1)
                     if sliding_window == 0 or not causal
@@ -462,10 +463,9 @@ class MultiHeadedAttention(torch.nn.Module):
                         value,
                         ~mask if mask is not None else None,
                         self.dropout_p,
-                        is_causal=causal,
+                        is_causal=False,
                     )
             attn = None
-
         else:
             query /= sqrt(self.dim_per_head)
             # batch x num_heads x query_len x key_len
@@ -618,7 +618,8 @@ class SelfMHA(MultiHeadedAttention):
                 or self.position_encoding_type
                 in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
                 or query.size(0) > 128  # to check
-                or query.dtype != torch.float16  # to match with flash
+                or query.dtype
+                not in [torch.float16, torch.bfloat16]  # to match with flash
             ):
                 key, value, query = self._prepare_inputs_w_cache(
                     query,
@@ -639,7 +640,8 @@ class SelfMHA(MultiHeadedAttention):
                                 + (32,)
                                 + self.layer_cache[1]["keys"].shape[-1:],
                                 device=query.device,
-                            ).half(),
+                                dtype=query.dtype,
+                            ),
                         ],
                         dim=-2,
                     )
@@ -651,7 +653,8 @@ class SelfMHA(MultiHeadedAttention):
                                 + (32,)
                                 + self.layer_cache[1]["values"].shape[-1:],
                                 device=query.device,
-                            ).half(),
+                                dtype=query.dtype,
+                            ),
                         ],
                         dim=-2,
                     )
@@ -666,12 +669,12 @@ class SelfMHA(MultiHeadedAttention):
                     cos = (
                         position_embeddings[:, : position_embeddings.size(1) // 2]
                         .real.contiguous()
-                        .half()
+                        .to(query.dtype)
                     )
                     sin = (
                         position_embeddings[:, : position_embeddings.size(1) // 2]
                         .imag.contiguous()
-                        .half()
+                        .to(query.dtype)
                     )
                 else:
                     cos = None

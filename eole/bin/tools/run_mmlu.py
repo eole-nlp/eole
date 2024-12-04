@@ -15,6 +15,8 @@ from eole.bin import BaseBin, register_bin
 from eole.config.cli import add_model
 from eole.config import get_non_default_values
 from eole.config.run import PredictConfig
+from eole import ROOT_DIR
+
 
 TASKS = [
     "abstract_algebra",
@@ -79,9 +81,7 @@ TASKS = [
 choices = ["A", "B", "C", "D"]
 
 
-def compute_metric(output_filename):
-    with open(output_filename, "r") as f:
-        run_results = json.load(f)
+def compute_metric(run_results):
     total_acc = 0
     total_num = 0
     for task in run_results:
@@ -94,15 +94,15 @@ def compute_metric(output_filename):
         print("ACC-%s: %.4f" % (task, acc / len(gold_answers)))
         total_acc += acc
         total_num += len(gold_answers)
-    print("ACC-all: %.4f" % (total_acc / total_num))
+        run_results[task]["metrics"] = {"acc": acc}
+    acc_all = total_acc / total_num
+    print("ACC-all: %.4f" % (acc_all))
+    run_results["metrics"] = {"acc": acc_all}
+    return run_results
 
 
 def format_subject(subject):
-    subl = subject.split("_")
-    s = ""
-    for entry in subl:
-        s += " " + entry
-    return s
+    return subject.replace("_", " ")
 
 
 def format_example(df, idx, include_answer=True):
@@ -132,22 +132,21 @@ def gen_prompt(train_df, subject, k=-1):
 #     return input_ids[-len(stop_ids)]
 
 
-def evaluate(opt):
+def evaluate(args, data_dir):
     import pandas as pd
 
-    logger = init_logger(opt.log_file)
-    set_random_seed(opt.seed, use_gpu(opt))
+    logger = init_logger(args.log_file)
+    set_random_seed(args.seed, use_gpu(args))
 
     run_results = {}
-    dir_name = os.path.dirname(opt.model_path[0])
+    dir_name = args.model_path[0]
 
+    # Save results in the model dir
     output_filename = os.path.join(dir_name, "mmlu_results.json")
 
     # Build the translator (along with the model)
-    engine = InferenceEnginePY(opt)
+    engine = InferenceEnginePY(args)
 
-    # this considers that we are always in the recipes/mmlu folder, should be improved
-    data_dir = "recipes/mmlu/data/"
     ntrain = 5  # nshots from dev
 
     start_time = time.time()
@@ -175,7 +174,10 @@ def evaluate(opt):
 
             label = test_df.iloc[i, test_df.shape[1] - 1]
             records.append({"prompt": prompt, "answer": label})
-            src.append(prompt.replace("\n", "｟newline｠"))
+            if "onmt_tokenize" in args.transforms:
+                src.append(prompt.replace("\n", "｟newline｠"))
+            else:
+                src.append(prompt)
 
         scores, _, preds = engine.infer_list(src)
 
@@ -188,10 +190,11 @@ def evaluate(opt):
 
     engine.terminate()
 
+    run_results = compute_metric(run_results)
+
     with open(output_filename, "w") as f:
         json.dump(run_results, f, ensure_ascii=False, indent=2)
 
-    compute_metric(output_filename)
     end_time = time.time()
     logger.info("total run time %.2f" % (end_time - start_time))
 
@@ -206,6 +209,15 @@ class RunMMLU(BaseBin):
             "-c",
             required=False,
             help="Path of main YAML config file.",
+        )
+        # TODO: we might want to retrieve transparently from HF at some point
+        parser.add_argument(
+            "-data_dir",
+            "--data_dir",
+            "-d",
+            required=False,
+            help="Path to the MMLU data root.",
+            default=os.path.join(os.path.dirname(ROOT_DIR), "recipes", "mmlu", "data"),
         )
         add_model(parser, PredictConfig)
 
@@ -230,6 +242,22 @@ class RunMMLU(BaseBin):
         if "config" in config.keys():
             config.pop("config")
 
+        # not supported in PredictConfig schema
+        data_dir = config.pop("data_dir")
+
+        # models retrieved from HF might have some default inference settings,
+        # let's manually override a few things for the MMLU context
+        config.update(
+            {
+                "top_p": 0.0,
+                "top_k": 0,
+                "beam_size": 1,
+                "n_best": 1,
+                "max_length": 1,
+                "src": "dummy",
+            }
+        )
+
         config = PredictConfig(**config)
 
-        evaluate(config)
+        evaluate(config, data_dir)

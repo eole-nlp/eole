@@ -162,6 +162,10 @@ class GreedySearch(DecodeStrategy):
         self.topk_scores = None
         self.beam_size = beam_size
         self.n_best = n_best
+        if add_estimator:
+            self.num_hyp = self.beam_size
+        else:
+            self.num_hyp = self.n_best
 
     def initialize(self, enc_out, src_len, device=None, target_prefix=None):
         """Initialize for decoding."""
@@ -181,6 +185,14 @@ class GreedySearch(DecodeStrategy):
         )
         self.beams_scores = torch.zeros(
             (self.batch_size * self.beam_size, 1), dtype=torch.float, device=device
+        )
+        # MPS doesn't support torch.isin() in Torch 2.3
+        # Avoiding need to CPU fallback by adding alternative implementation
+        # Can be removed when Torch 2.4 is supported
+        self._is_finished_list = (
+            self._is_finished_list_mps
+            if (device is not None and device.type == "mps")
+            else self._is_finished_list_isin
         )
         return fn_map_state, enc_out
 
@@ -274,7 +286,7 @@ class GreedySearch(DecodeStrategy):
         if self.done:
             for b in range(self.batch_size):
                 best_hyp = sorted(self.hypotheses[b], key=lambda x: x[0], reverse=True)[
-                    : self.n_best
+                    : self.num_hyp
                 ]
                 for score, pred, attn in best_hyp:
                     self.scores[b].append(score)
@@ -291,6 +303,12 @@ class GreedySearch(DecodeStrategy):
             self.alive_attn = self.alive_attn[self.select_indices]
         self.original_batch_idx = self.original_batch_idx[self.select_indices]
         self.maybe_update_target_prefix(self.select_indices)
+
+    def _is_finished_list_isin(self):
+        return torch.isin(self.topk_ids, self.eos_t).tolist()
+
+    def _is_finished_list_mps(self):
+        return (self.topk_ids.unsqueeze(1) == self.eos_t).sum(dim=1).bool().tolist()
 
 
 class GreedySearchLM(GreedySearch):

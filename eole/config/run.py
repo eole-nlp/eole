@@ -34,6 +34,7 @@ class TrainConfig(
     )  # not sure this still works
     model: ModelConfig | None = None  # TypeAdapter handling discrimination directly
     training: TrainingConfig | None = Field(default_factory=TrainingConfig)
+    inference: InferenceConfig | None = Field(default=None)
 
     def get_model_path(self):
         return self.training.get_model_path()
@@ -100,10 +101,21 @@ class PredictConfig(
         None  # patch for CT2 inference engine (to improve later)
     )
     model: ModelConfig | None = None
-    chat_template: str | None = None
-    optional_eos: List[str] | None = Field(
-        default=[],
-        description="Optional EOS tokens that would stop generation, e.g. <|eot_id|> for Llama3",
+    model_path: str | List[str] = Field(
+        description="Path to model .pt file(s). "
+        "Multiple models can be specified for ensemble decoding."
+    )  # some specific (mapping to "models") in legacy code, need to investigate
+    src: str = Field(description="Source file to decode (one line per sequence).")
+    tgt: str | None = Field(
+        default=None,
+        description="True target sequences, useful for scoring or prefix decoding.",
+    )
+    tgt_file_prefix: bool = Field(
+        default=False, description="Generate predictions using provided tgt as prefix."
+    )
+    output: str = Field(
+        default="pred.txt",
+        description="Path to output the predictions (each line will be the decoded sequence).",
     )
 
     @model_validator(mode="after")

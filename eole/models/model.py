@@ -13,8 +13,8 @@ from eole.modules.lora import (
     mark_only_lora_as_trainable,
 )
 from torch.nn.utils import skip_init
-from torch.nn.init import xavier_uniform_, zeros_, uniform_
-from eole.utils.misc import use_gpu, sequence_mask
+from torch.nn.init import xavier_uniform_, zeros_, uniform_, normal_
+from eole.utils.misc import use_gpu, sequence_mask, get_device
 from eole.inputters.inputter import dict_to_vocabs
 
 # copied from model_builder to facilitate tests, but should not live there in the end
@@ -113,6 +113,7 @@ class BaseModel(nn.Module):
         self.tgt_emb = kwargs.get("tgt_emb", None)
         self.add_estimator = kwargs.get("add_estimator", False)
         self.hidden_size = kwargs.get("hidden_size", None)
+        self.share_decoder_embeddings = False
         if self.encoder is not None and self.src_emb is None:
             raise ValueError("An Encoder needs source Embeddings")
         if self.decoder is not None and self.tgt_emb is None:
@@ -218,16 +219,30 @@ class BaseModel(nn.Module):
         if mark_lora:
             mark_only_lora_as_trainable(self, bias="lora_only")
 
-    def build_generator(self, model_config, vocabs):
+    def build_generator(self, model_config, running_config, vocabs):
         # patched to make it work with decoder config, but might be improved
-        generator = skip_init(
+        self.generator = skip_init(
             nn.Linear,
             in_features=model_config.decoder.hidden_size,
             out_features=len(vocabs["tgt"]),
+            bias=model_config.generator_bias,
         )
         if model_config.share_decoder_embeddings:
-            generator.weight = self.tgt_emb.embeddings.weight
-        self.generator = generator
+            self.generator.weight = self.tgt_emb.embeddings.weight
+        elif (
+            hasattr(running_config, "lora_embedding") and running_config.lora_embedding
+        ):
+            logger.info("Generator and decoder not tied Adding LoRa Generator")
+            replace_lora_linear(
+                self,
+                r=running_config.lora_rank,
+                lora_alpha=running_config.lora_alpha,
+                lora_dropout=running_config.lora_dropout,
+                layer="generator",
+                quant_type=None,
+                use_ckpting=running_config.use_ckpting,
+            )
+            mark_only_lora_as_trainable(self, bias="lora_only")
 
     def load_checkpoint(
         self,
@@ -259,11 +274,11 @@ class BaseModel(nn.Module):
             running_config.world_size > 1
             and running_config.parallel_mode == "tensor_parallel"
         ):
-            device = torch.device("cuda")
+            device = get_device()
             offset = device_id
         else:
             if use_gpu(running_config):
-                device = torch.device("cuda")
+                device = get_device()
             else:
                 device = torch.device("cpu")
             offset = 0
@@ -280,6 +295,7 @@ class BaseModel(nn.Module):
 
         if running_config.freeze_decoder:
             self.decoder.requires_grad_(False)
+            self.generator.requires_grad_(False)
 
     @classmethod
     def inference_logic(self, checkpoint, running_config, vocabs, device_id=None):
@@ -340,7 +356,7 @@ class BaseModel(nn.Module):
             if use_gpu(running_config):
                 if len(running_config.gpu_ranks) > 0:
                     device_id = running_config.gpu_ranks[0]
-                device = torch.device("cuda", device_id)
+                device = get_device(device_id=device_id)
             else:
                 device = torch.device("cpu")
             offset = 0
@@ -376,7 +392,7 @@ class BaseModel(nn.Module):
         model.maybe_quantize(running_config)
         model.maybe_lora(running_config)
         if config.decoder is not None:
-            model.build_generator(config, vocabs)
+            model.build_generator(config, running_config, vocabs)
         else:
             model.generator = None
         return model
@@ -406,6 +422,31 @@ class BaseModel(nn.Module):
             config, vocabs, checkpoint, device_id, running_config=config
         )
         return vocabs, model, model_config
+
+    def init_weights(self, running_config):
+        match running_config.param_init_method:
+            case "normal":
+                for module in self.modules():
+                    for param_name, param in module.named_parameters():
+                        if param_name == "weight" and param.dim() > 1:
+                            normal_(
+                                module.weight, mean=0.0, std=running_config.param_init
+                            )
+                        elif param_name == "bias":
+                            zeros_(param)
+            case "uniform":
+                # taken from legacy code, we might want to zero bias for coherence
+                for param in self.parameters():
+                    uniform_(
+                        param, -running_config.param_init, running_config.param_init
+                    )
+            case "xavier_uniform":
+                for module in self.modules():
+                    for param_name, param in module.named_parameters():
+                        if param_name == "weight" and param.dim() > 1:
+                            xavier_uniform_(param)
+                        elif param_name == "bias":
+                            zeros_(param)
 
     @classmethod
     def from_config(
@@ -438,9 +479,11 @@ class BaseModel(nn.Module):
         model = cls.build_blocks(
             model_config, vocabs, running_config=running_config
         )  # corresponds to build_task_specific_model
+        # TODO: handle this better at some point?
+        model.share_decoder_embeddings = model_config.share_decoder_embeddings
         # generator -> shall it be called within build_blocks?
         if model_config.decoder is not None:
-            model.build_generator(model_config, vocabs)
+            model.build_generator(model_config, running_config, vocabs)
         else:
             model.generator = None
         # 1 build_base_model
@@ -456,20 +499,7 @@ class BaseModel(nn.Module):
         # If new training initialize the model params
         # If update_vocab init also but checkpoint will overwrite old weights
         if checkpoint is None or getattr(running_config, "update_vocab", False):
-            if running_config.param_init != 0.0:
-                for param in model.parameters():
-                    uniform_(
-                        param, -running_config.param_init, running_config.param_init
-                    )
-            elif running_config.param_init_glorot:
-                for name, module in model.named_modules():
-                    for param_name, param in module.named_parameters():
-                        if param_name == "weight" and param.dim() > 1:
-                            xavier_uniform_(param)
-                        elif param_name == "bias":
-                            zeros_(param)
-            else:
-                raise ValueError("You need either param_init != 0 OR init_glorot True")
+            model.init_weights(running_config)
 
             if hasattr(model, "encoder") and hasattr(model.encoder, "embeddings"):
                 model.src_emb.load_pretrained_vectors(running_config.pre_word_vecs_enc)
@@ -706,6 +736,15 @@ class BaseModel(nn.Module):
                             + "."
                             + param_name
                         )
+                        if (
+                            f"{name}.{param_name}"
+                            in ["generator.weight", "generator.bias"]
+                            and self.share_decoder_embeddings
+                        ):
+                            logger.info(
+                                "└─> Sharing from embeddings matrix since "
+                                "`share_decoder_embeddings` flag is enabled."
+                            )
                     if getattr(running_config, "compute_dtype", None) == torch.int8:
                         torch.quantization.quantize_dynamic(module, inplace=True)
                     else:
@@ -821,10 +860,8 @@ class EncoderDecoderModel(BaseModel):
             tgt_pad_mask=tgt_pad_mask,
         )
 
-        if (
-            self.add_estimator
-        ):  # on prend les average de dec_out en tenant compte du mask
-            pad_mask2 = ~dec_in.eq(1)
+        if self.add_estimator:  # we take the average of dec_out using the pad mask
+            pad_mask2 = ~dec_in.eq(pad_idx)
             in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask2.sum(dim=1, keepdim=True).float()
@@ -855,12 +892,19 @@ class DecoderModel(BaseModel):
             raise ValueError("DecoderModel should not be used" "with an encoder")
         if self.decoder is None:
             raise ValueError("DecoderModel requires a Decoder")
+        if self.add_estimator:
+            self.estimator = FeedForward(self.hidden_size)
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         tgt_emb = build_tgt_emb(model_config, vocabs, running_config=running_config)
         decoder = build_decoder(model_config, running_config=running_config)
-        return cls(decoder=decoder, tgt_emb=tgt_emb)
+        return cls(
+            decoder=decoder,
+            tgt_emb=tgt_emb,
+            add_estimator=model_config.add_estimator,
+            hidden_size=model_config.decoder.hidden_size,
+        )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
     def forward(self, src, tgt, src_len, bptt=False, with_align=False):
@@ -879,7 +923,17 @@ class DecoderModel(BaseModel):
             with_align=with_align,
             tgt_pad_mask=pad_mask,
         )
-        return dec_out, attns, None
+
+        if self.add_estimator:  # we take the average of dec_out using the pad mask
+            pad_mask2 = ~src.eq(pad_idx)
+            in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
+                dim=1
+            ) / pad_mask2.sum(dim=1, keepdim=True).float()
+            estim = self.estimator(in_estim2.to(dec_out.dtype)).squeeze(-1)
+        else:
+            estim = None
+
+        return dec_out, attns, estim
 
     def update_dropout(self, dropout, attention_dropout):
         self.decoder.update_dropout(dropout, attention_dropout)
@@ -923,7 +977,8 @@ class EncoderModel(BaseModel):
         if self.add_estimator:
             # Version with average
             """
-            pad_mask1 = ~src.eq(1)
+            pad_idx = self.tgt_emb.word_padding_idx
+            pad_mask1 = ~src.eq(pad_idx)
             in_estim1 = (enc_out * pad_mask1.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask1.sum(dim=1, keepdim=True).float()

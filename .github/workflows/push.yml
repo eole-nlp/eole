@@ -36,6 +36,9 @@ jobs:
     - name: Unit tests
       run: |
         python -m unittest discover
+    - name: Recipes config check
+      run: |
+        python eole/tests/test_recipes.py recipes
     - name: Test vocabulary build
       run: |
         python eole/bin/main.py build_vocab \

@@ -1,13 +1,15 @@
 ## IO
-save_data: wmt17_en_de/data
+save_data: wmt17_en_de/data_bpe
 overwrite: True
 seed: 1234
 report_every: 100
 valid_metrics: ["BLEU"]
+tensorboard: true
+tensorboard_log_dir: tensorboard/wmt17_ende_bpe
 
 ### Vocab
-src_vocab: wmt17_en_de/vocab.shared
-tgt_vocab: wmt17_en_de/vocab.shared
+src_vocab: wmt17_en_de/vocab.bpe.shared
+tgt_vocab: wmt17_en_de/vocab.bpe.shared
 src_vocab_size: 36000
 tgt_vocab_size: 36000
 vocab_size_multiple: 8
@@ -18,36 +20,43 @@ n_sample: 0
 
 data:
     corpus_1:
-        path_src: wmt17_en_de/train.src.bpe.shuf
-        path_tgt: wmt17_en_de/train.trg.bpe.shuf
+        path_src: wmt17_en_de/train.src.shuf
+        path_tgt: wmt17_en_de/train.trg.shuf
     valid:
-        path_src: wmt17_en_de/dev.src.bpe
-        path_tgt: wmt17_en_de/dev.trg.bpe
+        path_src: wmt17_en_de/dev.src
+        path_tgt: wmt17_en_de/dev.trg
+
+transforms: [bpe, filtertoolong]
+transforms_configs:
+  bpe:
+    src_subword_model: "wmt17_en_de/codes"
+    tgt_subword_model: "wmt17_en_de/codes"
+  filtertoolong:
+    src_seq_length: 512
+    tgt_seq_length: 512
 
 training:
-    # Model configuration
-    model_path: wmt17_en_de/bigwmt17
+    # Run configuration
+    model_path: wmt17_en_de/transformer_big_bpe
     keep_checkpoint: 50
     save_checkpoint_steps: 5000
     average_decay: 0
     train_steps: 50000
     valid_steps: 5000
-
-    # bucket_size: 
-    bucket_size: 262144
-    num_workers: 4
-    prefetch_factor: 400
+    
+    # Train on a single GPU
     world_size: 1
     gpu_ranks: [0]
+
+    # Batching
     batch_type: "tokens"
     batch_size: 5000
     valid_batch_size: 4096
     batch_size_multiple: 8
     accum_count: [10]
     accum_steps: [0]
-    dropout_steps: [0]
-    dropout: [0.1]
-    attention_dropout: [0.1]
+
+    # Optimizer & Compute
     compute_dtype: "fp16"
     #apex_opt_level: "O2"
     optim: "fusedadam"
@@ -55,6 +64,18 @@ training:
     warmup_steps: 4000
     decay_method: "noam"
     adam_beta2: 0.998
+
+    # Data loading
+    bucket_size: 100000
+    bucket_size_init: 25000
+    bucket_size_increment: 25000
+    num_workers: 2
+    prefetch_factor: 400
+
+    # Hyperparams
+    dropout_steps: [0]
+    dropout: [0.1]
+    attention_dropout: [0.1]
     max_grad_norm: 0
     label_smoothing: 0.1
     param_init_method: xavier_uniform

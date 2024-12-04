@@ -44,6 +44,7 @@ class Encoder(Inference):
                     top_p=self.top_p,
                     beam_size=self.beam_size,
                     ban_unk_token=self.ban_unk_token,
+                    add_estimator=self.add_estimator,
                 )
             else:
                 # TODO: support these blacklisted features
@@ -66,6 +67,7 @@ class Encoder(Inference):
                     stepwise_penalty=self.stepwise_penalty,
                     ratio=self.ratio,
                     ban_unk_token=self.ban_unk_token,
+                    add_estimator=self.add_estimator,
                 )
             return self._predict_batch_with_strategy(batch, decode_strategy)
 
@@ -115,7 +117,7 @@ class Encoder(Inference):
         if self.add_estimator:
             """
             # Version with encoder out average
-            pad_mask1 = ~src.eq(1)
+            pad_mask1 = ~src.eq(self._tgt_pad_idx)
             in_estim1 = (enc_out * pad_mask1.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask1.sum(dim=1, keepdim=True).float()

@@ -35,7 +35,7 @@ class RotaryPosition(nn.Module):
         """
         super(RotaryPosition, self).__init__()
         self.model_config = model_config
-        self.dim_per_head = model_config.hidden_size // model_config.heads
+        self.dim_per_head = model_config.dim_per_head
         if model_config.rope_config.rotary_dim == 0:
             rotary_dim = self.dim_per_head
         else:
