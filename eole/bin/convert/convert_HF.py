@@ -660,8 +660,6 @@ def build_ckpt_lists(model_config, hf, nshards):
 def build_shards(model_config, hf, args, params):
     ckpt_lists, shard_layer_ranges = build_ckpt_lists(model_config, hf, args.nshards)
 
-    print(ckpt_lists, shard_layer_ranges)
-
     for shard in range(args.nshards):
 
         print("starting output shard: %d/%d" % (shard + 1, args.nshards))
@@ -703,7 +701,6 @@ def build_shards(model_config, hf, args, params):
             eole_safetensor = build_first_shard(hf, eole_safetensor)
 
         for ckpt in ckpt_lists[shard]:
-            print(ckpt)
             print("Loading %s" % ckpt)
             checkpoint = hf.checkpoint(ckpt)
             for i in shard_layer_ranges[shard]:
