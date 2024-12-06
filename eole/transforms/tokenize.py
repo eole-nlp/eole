@@ -566,7 +566,7 @@ class ONMTTokenizerTransform(TokenizerTransform):
             # Decode the byte sequence into a UTF-8 string
             try:
                 return byte_sequence.decode("utf-8")
-            except ValueError:
+            except UnicodeDecodeError:
                 return "�"
 
         tokenizer = self.load_models[side]
