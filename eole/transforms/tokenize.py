@@ -555,6 +555,20 @@ class ONMTTokenizerTransform(TokenizerTransform):
 
     def _detokenize(self, tokens, side="src", is_train=False):
         """Do OpenNMT Tokenizer's detokenize."""
+
+        def hex_to_char(match):
+            # Extract all matched <0x..> sequences into a single hex string
+            hex_sequence = match.group(0)  # Entire matched string
+            # Remove `<0x` and `>` and any spaces
+            hex_values = re.findall(r"<0x([0-9A-Fa-f]{2})>", hex_sequence)
+            # Convert the hex values into a byte sequence
+            byte_sequence = bytes.fromhex("".join(hex_values))
+            # Decode the byte sequence into a UTF-8 string
+            try:
+                return byte_sequence.decode("utf-8")
+            except UnicodeDecodeError:
+                return "�"
+
         tokenizer = self.load_models[side]
         if self.gpt2_pretok:
             sentence = "".join(tokens)
@@ -563,6 +577,10 @@ class ONMTTokenizerTransform(TokenizerTransform):
             )
         else:
             detokenized = tokenizer.detokenize(tokens)
+            # let's match one or more repetitions of the <0x..> pattern
+            detokenized = re.sub(
+                r"(?:<0x[0-9A-Fa-f]{2}>\s*)+", hex_to_char, detokenized
+            )
         return detokenized.replace("\n", DefaultTokens.SEP)
 
     def apply_reverse(self, predicted):
