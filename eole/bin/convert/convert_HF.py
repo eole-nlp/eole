@@ -3,6 +3,7 @@
 import configparser
 import json
 import logging
+import math
 import os
 import re
 from collections import defaultdict
@@ -51,6 +52,7 @@ BASE_KEY_MAP = {
 
 MODEL_OVERRIDES = {
     "LlamaForCausalLM": {},  # default
+    "MistralForCausalLM": {},
     "MixtralForCausalLM": {
         ".mlp.gate.weight": ".block_sparse_moe.gate.weight",
         **{
@@ -394,9 +396,7 @@ def build_config_dict(hf):
             "rms_norm_eps",
             config.get("layer_norm_epsilon", config.get("layer_norm_eps", 1e-6)),
         ),
-        "sliding_window": config.get(
-            "sliding_window", 0
-        ),  # Not sure about the default to 4096 in original code
+        "sliding_window": config.get("sliding_window", 0) or 4096,
         "num_experts": config.get("num_local_experts", 0),
         "num_experts_per_tok": config.get("num_experts_per_tok", 0),
         "add_qkvbias": False,
@@ -421,6 +421,10 @@ def build_config_dict(hf):
         },
         "embeddings": {},  # Populated later
     }
+
+    # patch sliding window
+    if model_config["sliding_window"] is None:
+        model_config["sliding_window"] = 4096
 
     # Validate required fields
     required_fields = {
@@ -558,14 +562,11 @@ def get_weight(checkpoint, tensor_name):
     if isinstance(checkpoint, dict):
         if tensor_name in checkpoint.keys():
             return checkpoint[tensor_name].contiguous()
-        else:
-            return None
     else:
         with safetensors.safe_open(checkpoint, framework="pt", device="cpu") as f:
             if tensor_name in f.keys():
                 return f.get_tensor(tensor_name).contiguous()
-            else:
-                return None
+    return None
 
 
 def check_tokenizer_config(hf):
@@ -620,33 +621,178 @@ def check_generation_config(hf):
     return generation_config_dict
 
 
-def build_ckpt_list(model_config, hf, shard, nshards):
-    if hf.wmap_path is not None:
-        weightmap = hf.wmap["weight_map"]
-        ckpt_list = []
-
-        layer_range_start = -(model_config["layers"] // -nshards) * shard
-        layer_range_end = min(
-            -(model_config["layers"] // -nshards) * (shard + 1),
-            model_config["layers"],
+def build_ckpt_lists(model_config, hf, nshards):
+    # Compute layer range for each shard
+    layers_per_shard = math.ceil(model_config["layers"] / nshards)
+    shard_layer_ranges = [
+        range(
+            layers_per_shard * shard,
+            min(layers_per_shard * (shard + 1), model_config["layers"]),
         )
-        layer_range = range(layer_range_start, layer_range_end)
+        for shard in range(nshards)
+    ]
+    if hf.wmap_path is None:
+        return [[hf.model_path]] * nshards, shard_layer_ranges
 
-        for key, weight in weightmap.items():
-            is_decoder_layer = hf.decoder_layer_prefix and key.startswith(
-                hf.decoder_layer_prefix
-            )
-            is_encoder_layer = hf.encoder_layer_prefix and key.startswith(
-                hf.encoder_layer_prefix
-            )
+    weightmap = hf.wmap["weight_map"]
 
-            if is_decoder_layer or is_encoder_layer:
-                layer_index = int(key.split(".")[2])
-                if layer_index in layer_range and weight not in ckpt_list:
-                    ckpt_list.append(weight)
-    else:
-        ckpt_list = [hf.model_path]
-    return ckpt_list
+    # Initialize a list of checkpoint lists, one for each shard
+    ckpt_lists = [set() for _ in range(nshards)]
+
+    # Check if a layer key belongs to the current shard
+    def is_layer_in_range(key, prefix, layer_range):
+        return (
+            prefix and key.startswith(prefix) and int(key.split(".")[2]) in layer_range
+        )
+
+    # Loop over the weightmap and distribute checkpoints to the appropriate shards
+    for key, ckpt in weightmap.items():
+        for shard, layer_range in enumerate(shard_layer_ranges):
+            if is_layer_in_range(
+                key, hf.decoder_layer_prefix, layer_range
+            ) or is_layer_in_range(key, hf.encoder_layer_prefix, layer_range):
+                ckpt_lists[shard].add(ckpt)
+
+    return ckpt_lists, shard_layer_ranges
+
+
+def build_shards(model_config, hf, args, params):
+    ckpt_lists, shard_layer_ranges = build_ckpt_lists(model_config, hf, args.nshards)
+
+    print(ckpt_lists, shard_layer_ranges)
+
+    for shard in range(args.nshards):
+
+        print("starting output shard: %d/%d" % (shard + 1, args.nshards))
+        eole_safetensor = {}
+        first_shard_targets = [
+            "tgt_emb.embeddings.weight",
+            "tgt_emb.pe.weight",
+            "decoder.layer_norm.weight",
+            "decoder.layer_norm.bias",
+            "src_emb.embeddings.weight",
+            "src_emb.pe.weight",
+            "encoder.layer_norm.weight",
+            "encoder.layer_norm.bias",
+            "generator.weight",
+        ]
+
+        def build_first_shard(hf, eole_safetensor):
+            if model_config["share_decoder_embeddings"]:
+                first_shard_targets.remove("generator.weight")
+            for target in first_shard_targets:
+                if target in KEY_MAPS[hf.arch].keys():
+                    source = KEY_MAPS[hf.arch][target]
+                    if hf.wmap_path:
+                        checkpoint = hf.get_load_ckpt(
+                            hf.base_dir,
+                            hf.wmap["weight_map"][source],
+                        )
+                    else:
+                        checkpoint = hf.get_load_ckpt(*os.path.split(hf.model_path))
+                    w = get_weight(checkpoint, source)
+                    if w is not None:
+                        eole_safetensor[target] = w
+
+                    if target == "generator.bias":
+                        model_config["generator_bias"] = True
+            return eole_safetensor
+
+        if shard == 0:
+            eole_safetensor = build_first_shard(hf, eole_safetensor)
+
+        for ckpt in ckpt_lists[shard]:
+            print(ckpt)
+            print("Loading %s" % ckpt)
+            checkpoint = hf.checkpoint(ckpt)
+            for i in shard_layer_ranges[shard]:
+                prefix_mapping = (
+                    (hf.encoder_layer_prefix, "encoder.transformer_layers."),
+                    (hf.decoder_layer_prefix, "decoder.transformer_layers."),
+                )
+                for hf_prefix, eole_prefix in prefix_mapping:
+                    if hf_prefix is None:
+                        continue
+                    for param in params:
+                        for target, source in KEY_MAPS[hf.arch].items():
+                            if target in first_shard_targets:
+                                continue
+                            srckey, srcmap = (
+                                source if isinstance(source, tuple) else (source, None)
+                            )
+                            w = get_weight(
+                                checkpoint,
+                                hf_prefix + str(i) + srckey + param,
+                            )
+
+                            if w is not None:
+                                if srcmap is not None:
+                                    w = eval("w" + srcmap).contiguous()
+                                eole_safetensor[
+                                    eole_prefix + str(i) + target + param
+                                ] = w
+
+                    if model_config["shared_layer_norm"]:
+                        idx = 0
+                    else:
+                        idx = 1
+                    # Not sure if we can handle these in the loop above
+                    for p in ["weight", "bias"]:
+                        for module in [
+                            "input_layernorm",
+                            "layer_norm_res",
+                            "post_attention_layernorm",
+                            "mlp.gate",
+                        ]:
+                            module_p = f".{module}.{p}"
+                            if module_p in KEY_MAPS[hf.arch].keys():
+                                if type(KEY_MAPS[hf.arch][module_p]) == tuple:
+                                    w = get_weight(
+                                        checkpoint,
+                                        hf_prefix
+                                        + str(i)
+                                        + KEY_MAPS[hf.arch][module_p][idx],
+                                    )
+                                else:
+                                    w = get_weight(
+                                        checkpoint,
+                                        hf_prefix
+                                        + str(i)
+                                        + KEY_MAPS[hf.arch][module_p],
+                                    )
+                                if w is not None:
+                                    eole_safetensor[eole_prefix + str(i) + module_p] = w
+
+                        for j in range(model_config["num_experts"]):
+                            if (
+                                f".mlp.experts.{j}.layer_norm." + p
+                                in KEY_MAPS[hf.arch].keys()
+                            ):
+                                w = get_weight(
+                                    checkpoint,
+                                    hf_prefix
+                                    + str(i)
+                                    + KEY_MAPS[hf.arch][
+                                        f".mlp.experts.{j}.layer_norm." + p
+                                    ],
+                                )
+                                if w is not None:
+                                    eole_safetensor[
+                                        eole_prefix
+                                        + str(i)
+                                        + f".mlp.experts.{j}.layer_norm."
+                                        + p
+                                    ] = w
+
+        # Convert to another dtype if specified
+        if args.dtype is not None:
+            for key in eole_safetensor.keys():
+                eole_safetensor[key] = eole_safetensor[key].to(TORCH_DTYPES[args.dtype])
+        print("Saving output model shard: %d" % shard)
+        save_file(
+            eole_safetensor,
+            os.path.join(args.output, "model.{:02d}.safetensors".format(shard)),
+        )
 
 
 def check_sentencepiece_tokenizer(hf):
@@ -696,8 +842,13 @@ def check_bpe_tokenizer(hf, vocabs, directory_path):
     src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
     for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
         if f"{token_name}_id" in hf.config.keys():
-            print(f"{token_name}_id")
-            vocabs["specials"][token_name] = vocab[hf.config[f"{token_name}_id"]]
+            token = hf.config[f"{token_name}_id"]
+            if isinstance(token, list):
+                vocabs["specials"][token_name] = vocab[token[0]]
+            elif isinstance(token, str):
+                vocabs["specials"][token_name] = vocab[token]
+            # elif isinstance(token, dict):
+            #     vocabs["specials"][token_name] = token["content"]
     tokenizer_basename = "bpe.model"
     with open(
         os.path.join(directory_path, tokenizer_basename), "w", encoding="utf-8"
@@ -783,183 +934,9 @@ class LlamaHFConverter(BaseBin):
         gpt2_pretok = False
 
         # Deduce dtype from args or config, or default to fp16
-        if args.dtype is not None:
-            compute_dtype = args.dtype
-        elif "torch_dtype" in hf.config.keys():
-            compute_dtype = hf.config["torch_dtype"]
-        else:
-            compute_dtype = "fp16"
+        compute_dtype = args.dtype or hf.config.get("torch_dtype") or "fp16"
 
-        for shard in range(args.nshards):
-
-            print("starting output shard: %d/%d" % (shard + 1, args.nshards))
-            eole_safetensor = {}
-
-            def build_first_shard(hf, eole_safetensor):
-                targetlist = [
-                    "tgt_emb.embeddings.weight",
-                    "tgt_emb.pe.weight",
-                    "decoder.layer_norm.weight",
-                    "decoder.layer_norm.bias",
-                    "src_emb.embeddings.weight",
-                    "src_emb.pe.weight",
-                    "encoder.layer_norm.weight",
-                    "encoder.layer_norm.bias",
-                    "generator.weight",
-                ]
-                if model_config["share_decoder_embeddings"]:
-                    targetlist.remove("generator.weight")
-                for target in targetlist:
-                    if target in KEY_MAPS[hf.arch].keys():
-                        source = KEY_MAPS[hf.arch][target]
-                        if hf.wmap_path:
-                            checkpoint = hf.get_load_ckpt(
-                                hf.base_dir,
-                                hf.wmap["weight_map"][source],
-                            )
-                        else:
-                            checkpoint = hf.get_load_ckpt(*os.path.split(hf.model_path))
-                        w = get_weight(checkpoint, source)
-                        if w is not None:
-                            eole_safetensor[target] = w
-
-                        if target == "generator.bias":
-                            model_config["generator_bias"] = True
-                return eole_safetensor
-
-            if shard == 0:
-                eole_safetensor = build_first_shard(hf, eole_safetensor)
-
-            ckpt_list = build_ckpt_list(model_config, hf, shard, args.nshards)
-
-            for ckpt in ckpt_list:
-                print("Loading %s" % ckpt)
-                checkpoint = hf.checkpoint(ckpt)
-                for i in range(
-                    -(model_config["layers"] // -args.nshards) * shard,
-                    min(
-                        -(model_config["layers"] // -args.nshards) * (shard + 1),
-                        model_config["layers"],
-                    ),
-                    1,
-                ):
-
-                    # this is an ugly fix to handle decoder only, encoder only,
-                    # encoder-decoder models
-                    prefix_mapping = (
-                        (hf.encoder_layer_prefix, "encoder.transformer_layers."),
-                        (hf.decoder_layer_prefix, "decoder.transformer_layers."),
-                    )
-                    for hf_prefix, eole_prefix in prefix_mapping:
-                        if hf_prefix is None:
-                            continue
-                        for param in params:
-                            target_templates = [
-                                ".self_attn.linear_query.",
-                                ".self_attn.linear_keys.",
-                                ".self_attn.linear_values.",
-                                ".self_attn.final_linear.",
-                                ".mlp.gate_up_proj.",
-                                ".mlp.down_proj.",
-                                ".mlp.up_proj.",
-                                ".mlp.experts.{expert}.gate_up_proj.",
-                                ".mlp.experts.{expert}.down_proj.",
-                                ".mlp.experts.{expert}.up_proj.",
-                            ]
-                            for target_template in target_templates:
-                                if (
-                                    "{expert}" in target_template
-                                ):  # Expand expert-specific targets
-                                    targets = [
-                                        target_template.format(expert=expert)
-                                        for expert in range(model_config["num_experts"])
-                                    ]
-                                else:
-                                    targets = [target_template]
-                                for target in targets:
-                                    if target in KEY_MAPS[hf.arch].keys():
-                                        source = KEY_MAPS[hf.arch][target]
-                                        if type(source) == tuple:
-                                            srckey = source[0]
-                                            srcmap = source[1]
-                                        else:
-                                            srckey = source
-                                        w = get_weight(
-                                            checkpoint,
-                                            hf_prefix + str(i) + srckey + param,
-                                        )
-
-                                        if w is not None:
-                                            if type(source) == tuple:
-                                                w = eval("w" + srcmap).contiguous()
-                                            eole_safetensor[
-                                                eole_prefix + str(i) + target + param
-                                            ] = w
-
-                        if model_config["shared_layer_norm"]:
-                            idx = 0
-                        else:
-                            idx = 1
-                        for p in ["weight", "bias"]:
-                            for module in [
-                                "input_layernorm",
-                                "layer_norm_res",
-                                "post_attention_layernorm",
-                                "mlp_gate",
-                            ]:
-                                module_p = f".{module}.{p}"
-                                if module_p in KEY_MAPS[hf.arch].keys():
-                                    if type(KEY_MAPS[hf.arch][module_p]) == tuple:
-                                        w = get_weight(
-                                            checkpoint,
-                                            hf_prefix
-                                            + str(i)
-                                            + KEY_MAPS[hf.arch][module_p][idx],
-                                        )
-                                    else:
-                                        w = get_weight(
-                                            checkpoint,
-                                            hf_prefix
-                                            + str(i)
-                                            + KEY_MAPS[hf.arch][module_p],
-                                        )
-                                    if w is not None:
-                                        eole_safetensor[
-                                            eole_prefix + str(i) + module_p
-                                        ] = w
-
-                            for j in range(model_config["num_experts"]):
-                                if (
-                                    f".mlp.experts.{j}.layer_norm." + p
-                                    in KEY_MAPS[hf.arch].keys()
-                                ):
-                                    w = get_weight(
-                                        checkpoint,
-                                        hf_prefix
-                                        + str(i)
-                                        + KEY_MAPS[hf.arch][
-                                            f".mlp.experts.{j}.layer_norm." + p
-                                        ],
-                                    )
-                                    if w is not None:
-                                        eole_safetensor[
-                                            eole_prefix
-                                            + str(i)
-                                            + f".mlp.experts.{j}.layer_norm."
-                                            + p
-                                        ] = w
-
-            # Convert to another dtype if specified
-            if args.dtype is not None:
-                for key in eole_safetensor.keys():
-                    eole_safetensor[key] = eole_safetensor[key].to(
-                        TORCH_DTYPES[compute_dtype]
-                    )
-            print("Saving output model shard: %d" % shard)
-            save_file(
-                eole_safetensor,
-                os.path.join(args.output, "model.{:02d}.safetensors".format(shard)),
-            )
+        build_shards(model_config, hf, args, params)
 
         # Check tokenizer and vocab related configuration
         (

@@ -10,7 +10,7 @@ models=(
     "mistralai/Mistral-7B-Instruct-v0.2"
     "mistralai/Mistral-7B-Instruct-v0.1"
     "mistralai/Mistral-7B-v0.1"
-    "mistralai/Mathstral-7B-v0.1"
+    # "mistralai/Mathstral-7B-v0.1"
     "meta-llama/Llama-3.2-1B"
     "meta-llama/Llama-3.2-3B"
     "meta-llama/Llama-3.2-3B-Instruct"
@@ -83,13 +83,13 @@ for model_path in "${models[@]}"; do
   echo "-------------------------------------------------"
 
   # Step 5: Run MMLU
-  echo "MMLU for $model_name:"
-  echo "-------------------------------------------------"
-  if ! eole tools run_mmlu -model_path "$MODEL_DIR" -gpu_ranks 0 -batch_size 1 -batch_type sents; then
-    echo "Error: Failed to run MMLU for $model_name" | tee -a "$ERROR_LOG"
-    continue
-  fi
-  echo "-------------------------------------------------"
+  # echo "MMLU for $model_name:"
+  # echo "-------------------------------------------------"
+  # if ! eole tools run_mmlu -model_path "$MODEL_DIR" -gpu_ranks 0 -batch_size 1 -batch_type sents; then
+  #   echo "Error: Failed to run MMLU for $model_name" | tee -a "$ERROR_LOG"
+  #   continue
+  # fi
+  # echo "-------------------------------------------------"
   
   
   echo "Files saved to $DATA_DIR"
