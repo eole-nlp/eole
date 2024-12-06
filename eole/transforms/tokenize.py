@@ -564,7 +564,10 @@ class ONMTTokenizerTransform(TokenizerTransform):
             # Convert the hex values into a byte sequence
             byte_sequence = bytes.fromhex("".join(hex_values))
             # Decode the byte sequence into a UTF-8 string
-            return byte_sequence.decode("utf-8")
+            try:
+                return byte_sequence.decode("utf-8")
+            except:
+                return "�"
 
         tokenizer = self.load_models[side]
         if self.gpt2_pretok:
