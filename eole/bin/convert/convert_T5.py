@@ -68,6 +68,7 @@ class T5Converter(BaseBin):
     @classmethod
     def run(cls, args):
         import eole.utils.sentencepiece_model_pb2 as spmodel
+
         # load this from pytorch_model.bin directly instead
         # model = T5ForConditionalGeneration.from_pretrained(
         #     args.model_dir,

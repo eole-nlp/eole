@@ -53,6 +53,7 @@ BASE_KEY_MAP = {
 MODEL_OVERRIDES = {
     "LlamaForCausalLM": {},  # default
     "MistralForCausalLM": {},
+    "Qwen2ForCausalLM": {},
     "MixtralForCausalLM": {
         ".mlp.gate.weight": ".block_sparse_moe.gate.weight",
         **{

@@ -4,6 +4,18 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # Define the models table
 models=(
+    "Qwen/Qwen2.5-0.5B"
+    "Qwen/Qwen2.5-0.5B-Instruct"
+    "Qwen/Qwen2.5-1.5B"
+    "Qwen/Qwen2.5-1.5B-Instruct"
+    "Qwen/Qwen2.5-3B"
+    "Qwen/Qwen2.5-3B-Instruct"
+    "meta-llama/Llama-3.2-1B"
+    "meta-llama/Llama-3.2-1B-Instruct"
+    "meta-llama/Llama-3.2-3B"
+    "meta-llama/Llama-3.2-3B-Instruct"
+    "Qwen/Qwen2.5-7B"
+    "Qwen/Qwen2.5-7B-Instruct"
     "mistralai/Ministral-8B-Instruct-2410"
     "mistralai/Mistral-7B-v0.3"
     "mistralai/Mistral-7B-Instruct-v0.3"
@@ -11,10 +23,6 @@ models=(
     "mistralai/Mistral-7B-Instruct-v0.1"
     "mistralai/Mistral-7B-v0.1"
     # "mistralai/Mathstral-7B-v0.1"
-    "meta-llama/Llama-3.2-1B"
-    "meta-llama/Llama-3.2-3B"
-    "meta-llama/Llama-3.2-3B-Instruct"
-    "meta-llama/Llama-3.2-1B-Instruct"
     "meta-llama/Llama-3.1-8B"
     "meta-llama/Llama-3.1-8B-Instruct"
     "meta-llama/Meta-Llama-3-8B"
@@ -83,13 +91,13 @@ for model_path in "${models[@]}"; do
   echo "-------------------------------------------------"
 
   # Step 5: Run MMLU
-  # echo "MMLU for $model_name:"
-  # echo "-------------------------------------------------"
-  # if ! eole tools run_mmlu -model_path "$MODEL_DIR" -gpu_ranks 0 -batch_size 1 -batch_type sents; then
-  #   echo "Error: Failed to run MMLU for $model_name" | tee -a "$ERROR_LOG"
-  #   continue
-  # fi
-  # echo "-------------------------------------------------"
+  echo "MMLU for $model_name:"
+  echo "-------------------------------------------------"
+  if ! eole tools run_mmlu -model_path "$MODEL_DIR" -gpu_ranks 0 -batch_size 1 -batch_type sents; then
+    echo "Error: Failed to run MMLU for $model_name" | tee -a "$ERROR_LOG"
+    continue
+  fi
+  echo "-------------------------------------------------"
   
   
   echo "Files saved to $DATA_DIR"
