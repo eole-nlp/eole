@@ -1075,8 +1075,11 @@ class LlamaHFConverter(BaseBin):
 
             for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
                 if f"{token_name}_id" in config.keys():
-                    print(f"{token_name}_id")
-                    vocabs["specials"][token_name] = vocab[config[f"{token_name}_id"]]
+                    token = config[f"{token_name}_id"]
+                    if isinstance(token, list):
+                        vocabs["specials"][token_name] = vocab[token[0]]
+                    elif isinstance(token, str):
+                        vocabs["specials"][token_name] = vocab[token]
 
             tokenizer_basename = "bpe.model"
 
