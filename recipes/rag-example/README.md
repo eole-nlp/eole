@@ -11,6 +11,12 @@ This is just a very quickly put together proof of concept, and is not expected t
 
 ## Usage
 
+### 0. Install requirements
+
+```bash
+pip install langchain pymupdf chromadb
+```
+
 ### 1. Convert the model you want to use (Llama-3.1-8B by default)
 
 **Set environment variables**
