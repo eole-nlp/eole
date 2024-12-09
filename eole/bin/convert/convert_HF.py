@@ -725,7 +725,16 @@ def build_shards(model_config, hf, args, params):
 
                             if w is not None:
                                 if srcmap is not None:
-                                    w = eval("w" + srcmap).contiguous()
+                                    w = eval(
+                                        "w" + srcmap,
+                                        {
+                                            "w": w,
+                                            "hidden_size": model_config["hidden_size"],
+                                            "transformer_ff": model_config[
+                                                "transformer_ff"
+                                            ],
+                                        },
+                                    ).contiguous()
                                 eole_safetensor[
                                     eole_prefix + str(i) + target + param
                                 ] = w
