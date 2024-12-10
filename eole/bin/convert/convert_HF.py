@@ -461,8 +461,12 @@ def build_config_dict(hf):
             config["partial_rotary_factor"]
             * (model_config["hidden_size"] // model_config["heads"])
         )
-    else:
+    elif model_config.get("head_dim", None) is not None:
         model_config["rope_config"]["rotary_dim"] = model_config["head_dim"]
+    else:
+        model_config["rope_config"]["rotary_dim"] = (
+            model_config["hidden_size"] // model_config["heads"]
+        )
 
     # Handle quantization
     quant_config = config.get("quantization_config", {})
@@ -568,6 +572,8 @@ def build_config_dict(hf):
             else:
                 # Update regular keys
                 model_config[key] = value
+
+    print(model_config)
 
     return model_config, training_config, params
 
@@ -958,8 +964,6 @@ class LlamaHFConverter(BaseBin):
         # Deduce dtype from args or config, or default to fp16
         compute_dtype = args.dtype or hf.config.get("torch_dtype") or "fp16"
 
-        build_shards(model_config, hf, args, params)
-
         # Check tokenizer and vocab related configuration
         (
             add_bos_token,
@@ -1057,3 +1061,6 @@ class LlamaHFConverter(BaseBin):
 
         with open(os.path.join(args.output, "config.json"), "w", encoding="utf-8") as f:
             json.dump(config_dict, f, indent=2, ensure_ascii=False)
+
+        # Build shards last, as it's the most io intensive
+        build_shards(model_config, hf, args, params)
