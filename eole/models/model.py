@@ -68,6 +68,7 @@ def build_src_emb(model_config, vocabs, running_config=None):
         sparse=getattr(running_config, "optim", None) == "sparseadam",
         freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
         n_positions=model_config.embeddings.n_positions,
+        normalize=model_config.embeddings.normalize,
     )
     return src_emb
 
@@ -87,6 +88,7 @@ def build_tgt_emb(
         sparse=getattr(running_config, "optim", None) == "sparseadam",
         freeze_word_vecs=model_config.embeddings.freeze_word_vecs_dec,
         n_positions=model_config.embeddings.n_positions,
+        normalize=model_config.embeddings.normalize,
     )
 
     if share_embeddings:
