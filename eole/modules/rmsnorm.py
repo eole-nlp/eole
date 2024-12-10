@@ -23,7 +23,7 @@ class RMSNorm(torch.nn.Module):
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(hidden_size))
 
-    def forward(self, hidden_states):
+    def _forward(self, hidden_states, residual=False):
         dtype = next(self.parameters()).dtype
         if AWQ_EXT and not self.training and dtype == torch.float16:
             inp_type = hidden_states.dtype
@@ -40,5 +40,14 @@ class RMSNorm(torch.nn.Module):
             hidden_states = hidden_states.to(torch.float32)
             variance = hidden_states.pow(2).mean(-1, keepdim=True)
             hidden_states = hidden_states * torch.rsqrt(variance + self.eps)
-            hidden_states = hidden_states.to(self.weight.dtype)
-            return hidden_states * self.weight
+            factor = 1.0 if residual else 0.0
+            hidden_states = hidden_states * (factor + self.weight.float())
+            return hidden_states.type_as(self.weight)
+
+    def forward(self, hidden_states):
+        return self._forward(hidden_states)
+
+
+class GemmaRMSNorm(RMSNorm):
+    def forward(self, hidden_states):
+        return self._forward(hidden_states, residual=True)

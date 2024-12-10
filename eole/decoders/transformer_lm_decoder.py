@@ -73,17 +73,28 @@ class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
         )
         if self.dropout_p > 0:
             attn_output = self.dropout(attn_output)
-        if self.parallel_residual:
-            # we apply residual with un-normed
-            if not self.shared_layer_norm:
-                norm_res_layer_in = self.residual_layernorm(layer_in)
-                ff_in = norm_res_layer_in
-            else:
-                ff_in = norm_layer_in
+
+        if self.ffn_layernorm:
+            hidden_states = self.post_attention_layernorm(attn_output)
+            hidden_states = layer_in + hidden_states
+
+            residual = hidden_states
+            hidden_states = self.pre_feedforward_layernorm(hidden_states)
+            hidden_states = self.mlp(hidden_states)
+            hidden_states = self.post_feedforward_layernorm(hidden_states)
+            layer_out = residual + hidden_states
         else:
-            ff_in = self.post_attention_layernorm(attn_output + layer_in)
-        # add residual to mlp output
-        layer_out = self.mlp(ff_in) + layer_in + attn_output
+            if self.parallel_residual:
+                # we apply residual with un-normed
+                if not self.shared_layer_norm:
+                    norm_res_layer_in = self.residual_layernorm(layer_in)
+                    ff_in = norm_res_layer_in
+                else:
+                    ff_in = norm_layer_in
+            else:
+                ff_in = self.post_attention_layernorm(attn_output + layer_in)
+            # add residual to mlp output
+            layer_out = self.mlp(ff_in) + layer_in + attn_output
 
         return layer_out, attns
 

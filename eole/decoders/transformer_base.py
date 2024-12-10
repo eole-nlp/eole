@@ -30,6 +30,7 @@ class TransformerDecoderLayerBase(nn.Module):
         self.full_context_alignment = model_config.full_context_alignment
         self.alignment_heads = model_config.alignment_heads
         self.sliding_window = model_config.sliding_window
+        self.ffn_layernorm = model_config.ffn_layernorm
 
         self.input_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
@@ -42,6 +43,15 @@ class TransformerDecoderLayerBase(nn.Module):
         self.post_attention_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
+
+        if self.ffn_layernorm:
+            self.pre_feedforward_layernorm = LayerNorm[model_config.layer_norm](
+                model_config.hidden_size, eps=model_config.norm_eps
+            )
+            self.post_feedforward_layernorm = LayerNorm[model_config.layer_norm](
+                model_config.hidden_size, eps=model_config.norm_eps
+            )
+
         if model_config.parallel_residual and not model_config.shared_layer_norm:
             self.residual_layernorm = LayerNorm[model_config.layer_norm](
                 model_config.hidden_size, eps=model_config.norm_eps

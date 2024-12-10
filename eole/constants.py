@@ -1,7 +1,7 @@
 """Define constant values used across the project."""
 from enum import Enum
 import torch
-from eole.modules.rmsnorm import RMSNorm
+from eole.modules.rmsnorm import RMSNorm, GemmaRMSNorm
 import torch.nn.functional as F
 
 
@@ -78,7 +78,11 @@ ACTIVATION_FUNCTIONS = {
 }
 
 
-LayerNorm = {"standard": torch.nn.LayerNorm, "rms": RMSNorm}
+LayerNorm = {
+    "standard": torch.nn.LayerNorm,
+    "rms": RMSNorm,
+    "gemma-rms": GemmaRMSNorm,
+}
 
 
 TORCH_DTYPES = {
