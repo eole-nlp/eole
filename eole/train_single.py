@@ -187,7 +187,7 @@ def main(config, device_id):
         running_config=config.training,
     )
 
-    if config.torch_compile:
+    if config.training.torch_compile:
         model = torch.compile(model, dynamic=True)
     model.count_parameters(log=logger.info)
 
