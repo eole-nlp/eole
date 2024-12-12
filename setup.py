@@ -37,7 +37,7 @@ setup(
         "spacy",
         "subword-nmt>=0.3.7",
         "tensorboard>=2.3",
-        "torch>=2.3,<2.4",
+        "torch>=2.5,<2.6",
         "uvicorn",
         "waitress",
     ],

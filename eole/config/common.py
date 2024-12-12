@@ -149,6 +149,9 @@ class RunningConfig(DistributedConfig):
         "fp32 to force slow fp16 model on gtx1080, "
         "int8 to enable pytorch native 8-bit quantization (cpu only).",
     )
+    torch_compile: bool = Field(
+        default=False, description="Use torch.compile with dynamic=True."
+    )
 
     @field_validator("compute_dtype", mode="before")
     @classmethod

@@ -1,13 +1,13 @@
 import torch
 import torch.nn as nn
 from torch.autograd import Function
-from torch.cuda.amp import custom_fwd, custom_bwd
+from torch.amp import custom_fwd, custom_bwd
 from eole.modules.sparse_activations import _threshold_and_support
 
 
 class SparsemaxLossFunction(Function):
     @staticmethod
-    @custom_fwd
+    @custom_fwd(device_type="cuda")
     def forward(ctx, input, target):
         """
         input (FloatTensor): ``(n, num_classes)``.
@@ -28,7 +28,7 @@ class SparsemaxLossFunction(Function):
         return torch.clamp(x / 2 - z_k + 0.5, min=0.0)
 
     @staticmethod
-    @custom_bwd
+    @custom_bwd(device_type="cuda")
     def backward(ctx, grad_output):
         input, target, tau_z = ctx.saved_tensors
         sparsemax_out = torch.clamp(input - tau_z, min=0)

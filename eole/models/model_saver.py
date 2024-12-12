@@ -77,7 +77,7 @@ def load_checkpoint(model_path):
         optim_path = os.path.join(model_path, "optimizer.pt")
         if os.path.exists(optim_path):
             checkpoint["optim"] = torch.load(
-                optim_path, map_location=torch.device("cpu")
+                optim_path, map_location=torch.device("cpu"), weights_only=True
             )
     else:
         raise FileNotFoundError(f"{model_path} is not a directory.")
