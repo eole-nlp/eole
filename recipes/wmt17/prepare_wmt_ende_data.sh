@@ -57,14 +57,14 @@ mkdir -p wmt17_en_de
 cd wmt17_en_de
 
 # Download and prepare data
-if false; then
+if true; then
   wget -nc 'http://data.statmt.org/wmt17/translation-task/preprocessed/de-en/corpus.tc.en.gz'
   wget -nc 'http://data.statmt.org/wmt17/translation-task/preprocessed/de-en/corpus.tc.de.gz'
   wget -nc 'http://data.statmt.org/wmt17/translation-task/preprocessed/de-en/dev.tgz'
   tar xf dev.tgz
 
-  [! -f train.src.gz ] && ln -s corpus.tc.en.gz train.src.gz
-  [! -f train.trg.gz ] && ln -s corpus.tc.de.gz train.trg.gz
+  [ ! -f train.src.gz ] && ln -s corpus.tc.en.gz train.src.gz
+  [ ! -f train.trg.gz ] && ln -s corpus.tc.de.gz train.trg.gz
   cat newstest2014.tc.en newstest2015.tc.en >dev.src
   cat newstest2014.tc.de newstest2015.tc.de >dev.trg
   [ ! -f test.src ] && ln -s newstest2016.tc.en test.src
