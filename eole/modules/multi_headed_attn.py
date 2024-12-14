@@ -25,6 +25,8 @@ def rotate_half(x):
 
 
 def apply_rotary_emb(query, key, rope, interleave):
+    # now rope is a tuple (cos, sin)
+    # interleave=True to be revisited
     if interleave:
         query = query.transpose(1, 2)
         key = key.transpose(1, 2)
@@ -39,7 +41,7 @@ def apply_rotary_emb(query, key, rope, interleave):
             1, 2
         ).type_as(key)
     else:
-        cos, sin = rope.real, rope.imag
+        cos, sin = rope
         rotary_dim = cos.size(1)
         head_dim = query.size(3)
         if rotary_dim < head_dim:
@@ -381,11 +383,10 @@ class MultiHeadedAttention(torch.nn.Module):
         if self.position_encoding_type == PositionEncodingType.Rotary:
             start_pos = 0
             seqlen = query.size(2)
-            position_embeddings = position_embeddings[
-                start_pos : start_pos + seqlen
-            ].to(query.device)
+            cos = position_embeddings[0][start_pos : start_pos + seqlen]
+            sin = position_embeddings[1][start_pos : start_pos + seqlen]
             query, key = apply_rotary_emb(
-                query, key, position_embeddings, interleave=self.rotary_interleave
+                query, key, (cos, sin), interleave=self.rotary_interleave
             )
         return key, value, query
 
@@ -436,35 +437,16 @@ class MultiHeadedAttention(torch.nn.Module):
             and not return_attn
             and query.device.type != "cpu"
         ):
-            causal = self.is_decoder and attn_type == "self" and mask is not None
-            # keeping this (vs sdpa below) only because it handles windows_size
-            # also flash_attn_func does not support pad mask so not for encoder not for context attn
-            # adding b == 1 as a condition to avoid padded cases in decoder only
-            if self.flash and b == 1 and self.is_decoder and attn_type == "self":
-                window_size = (
-                    (-1, -1)
-                    if sliding_window == 0 or not causal
-                    else (sliding_window, 0)
+            # Apply pytorch scaled_dot_product_attention.
+            with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
+                attn_output = scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
+                    ~mask if mask is not None else None,
+                    self.dropout_p,
+                    is_causal=False,
                 )
-                attn_output = self.flash_attn_func(
-                    query.transpose(1, 2),
-                    key.transpose(1, 2),
-                    value.transpose(1, 2),
-                    dropout_p=self.dropout_p,
-                    causal=causal,
-                    window_size=window_size,
-                ).transpose(1, 2)
-            else:
-                # Apply pytorch scaled_dot_product_attention.
-                with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
-                    attn_output = scaled_dot_product_attention(
-                        query,
-                        key,
-                        value,
-                        ~mask if mask is not None else None,
-                        self.dropout_p,
-                        is_causal=False,
-                    )
             attn = None
         else:
             query /= sqrt(self.dim_per_head)
@@ -566,12 +548,10 @@ class SelfMHA(MultiHeadedAttention):
         start_pos = step
         seqlen = query.size(2)
         if self.position_encoding_type == PositionEncodingType.Rotary:
-            if position_embeddings is not None:
-                position_embeddings = position_embeddings[
-                    start_pos : start_pos + seqlen
-                ]
+            cos = position_embeddings[0][start_pos : start_pos + seqlen]
+            sin = position_embeddings[1][start_pos : start_pos + seqlen]
             query, key = apply_rotary_emb(
-                query, key, position_embeddings, interleave=self.rotary_interleave
+                query, key, (cos, sin), interleave=self.rotary_interleave
             )
         # update the cache
         if self.layer_cache[1]["keys"].numel() != 0:
@@ -666,6 +646,7 @@ class SelfMHA(MultiHeadedAttention):
                         :, :, 1:, :
                     ]
                 if position_embeddings is not None:
+                    """
                     cos = (
                         position_embeddings[:, : position_embeddings.size(1) // 2]
                         .real.contiguous()
@@ -676,6 +657,11 @@ class SelfMHA(MultiHeadedAttention):
                         .imag.contiguous()
                         .to(query.dtype)
                     )
+                    """
+                    cos = position_embeddings[0]
+                    sin = position_embeddings[1]
+                    cos = cos[:, : cos.size(1) // 2].to(query.dtype)
+                    sin = sin[:, : sin.size(1) // 2].to(query.dtype)
                 else:
                     cos = None
                     sin = None

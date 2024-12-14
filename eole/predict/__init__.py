@@ -7,7 +7,6 @@ from eole.predict.beam_search import GNMTGlobalScorer
 from eole.decoders.ensemble import load_test_model as ensemble_load_test_model
 from eole.models.model import BaseModel
 import codecs
-import torch
 
 
 def get_infer_class(model_config):
@@ -32,8 +31,6 @@ def build_predictor(config, device_id=0, report_score=True, logger=None, out_fil
     )
 
     vocabs, model, model_config = load_test_model(config, device_id)
-    if config.torch_compile:
-        model = torch.compile(model, dynamic=True)
     config.model = model_config
 
     scorer = GNMTGlobalScorer.from_config(config)

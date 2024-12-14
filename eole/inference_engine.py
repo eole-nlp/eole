@@ -1,3 +1,4 @@
+import torch
 import json
 from eole.constants import CorpusTask, DefaultTokens, ModelType
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
@@ -166,6 +167,7 @@ class InferenceEnginePY(InferenceEngine):
             self.transforms = make_transforms(config, self.transforms_cls, self.vocabs)
             self.transform_pipe = TransformPipe.build_from(self.transforms.values())
 
+    @torch.inference_mode()
     def _predict(self, infer_iter, settings={}):
         self.predictor.update_settings(**settings)
         scores, estims, preds = self.predictor._predict(
