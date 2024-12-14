@@ -164,7 +164,7 @@ class RotaryPositionConfig(Config):
     """
 
     rotary_interleave: bool = Field(
-        default=False,
+        default=True,
         description="Interleave the head dimensions when rotary embeddings are applied. "
         "Otherwise the head dimensions are sliced in half. "
         "(True= Llama from Meta (original), "

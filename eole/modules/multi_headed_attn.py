@@ -26,22 +26,39 @@ def rotate_half(x):
 
 def apply_rotary_emb(query, key, rope, interleave):
     # now rope is a tuple (cos, sin)
-    # interleave=True to be revisited
+    cos, sin = rope
     if interleave:
         query = query.transpose(1, 2)
         key = key.transpose(1, 2)
         query_ = query.float().reshape(*query.shape[:-1], -1, 2)
-        query_ = torch.view_as_complex(query_)
         key_ = key.float().reshape(*key.shape[:-1], -1, 2)
-        key_ = torch.view_as_complex(key_)
-        rope = rope[:, : rope.size(1) // 2].view(1, query_.size(1), 1, query_.size(3))
-        query_out = torch.view_as_real(query_ * rope).flatten(3)
-        key_out = torch.view_as_real(key_ * rope).flatten(3)
+
+        # Reshape cos and sin to match the dimensions of query_ and key_
+        cos = cos[:, : cos.size(1) // 2].view(1, query_.size(1), 1, query_.size(3))
+        sin = sin[:, : sin.size(1) // 2].view(1, key_.size(1), 1, key_.size(3))
+
+        query_rotated = query_[..., 0] * cos - query_[..., 1] * sin
+        query_rotated_imag = query_[..., 0] * sin + query_[..., 1] * cos
+        query_out = torch.stack((query_rotated, query_rotated_imag), dim=-1).flatten(3)
+
+        key_rotated = key_[..., 0] * cos - key_[..., 1] * sin
+        key_rotated_imag = key_[..., 0] * sin + key_[..., 1] * cos
+        key_out = torch.stack((key_rotated, key_rotated_imag), dim=-1).flatten(3)
+
         return query_out.transpose(1, 2).type_as(query), key_out.transpose(
             1, 2
         ).type_as(key)
+
+        # Old code with complex instead
+        # rope_complex = torch.complex(cos, sin)
+        # query_ = torch.view_as_complex(query_)
+        # key_ = torch.view_as_complex(key_)
+        # query_out = torch.view_as_real(query_ * rope_complex).flatten(3)
+        # key_out = torch.view_as_real(key_ * rope_complex).flatten(3)
+        # return query_out.transpose(1, 2).type_as(query), key_out.transpose(
+        #     1, 2
+        # ).type_as(key)
     else:
-        cos, sin = rope
         rotary_dim = cos.size(1)
         head_dim = query.size(3)
         if rotary_dim < head_dim:
