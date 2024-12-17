@@ -56,11 +56,12 @@ def main():
         "-inference_config_file", help="Inference config file", required=True, type=str
     )
     parser.add_argument(
-        "-inference_mode",
-        help="Inference mode",
+        "-engine",
+        help="Engine",
+        Default="eole",
         required=True,
         type=str,
-        choices=["py", "ct2"],
+        choices=["eole", "ct2"],
     )
     parser.add_argument(
         "-input_file",
