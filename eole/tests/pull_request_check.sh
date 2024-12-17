@@ -457,7 +457,7 @@ rm $TMP_OUT_DIR/inference_engine_lm_py_outputs_list.json
 
 echo "  [+] Testing CT2 LM inference engine .."| tee -a ${LOG_FILE}
 head ${DATA_DIR}/src-test.txt > $TMP_OUT_DIR/src-test.txt
-${PYTHON} eole/tests/test_inference_engines.py -model ${TEST_DIR}/ \
+${PYTHON} eole/tests/test_inference_engines.py -model ${TEST_DIR} \
             -model_type decoder \
             -input_file $TMP_OUT_DIR/src-test.txt \
             -inference_config_file ${DATA_DIR}/inference-engine_py.yaml \
