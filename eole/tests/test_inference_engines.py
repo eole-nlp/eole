@@ -59,7 +59,7 @@ def main():
         "-engine",
         help="Engine",
         default="eole",
-        required=True,
+        required=False,
         type=str,
         choices=["eole", "ct2"],
     )
