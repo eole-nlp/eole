@@ -299,49 +299,7 @@ class BaseModel(nn.Module):
 
     @classmethod
     def inference_logic(self, checkpoint, running_config, vocabs, device_id=None):
-        model_config = checkpoint["config"].model
-        # here we need a running config updated in the same way
-        training_config = checkpoint["config"].training
-        # override gpu_ranks/world_size to prevent warnings
-        training_config.update(
-            world_size=running_config.world_size, gpu_ranks=running_config.gpu_ranks
-        )
-        # retrieve share_vocab flag from checkpoint config
-        running_config.share_vocab = checkpoint["config"].share_vocab
-        # retrieve precision from checkpoint config if not explicitly set
-        if "compute_dtype" not in running_config.model_fields_set:
-            running_config.compute_dtype = training_config.compute_dtype
-        # in fine we might have some nested Lora/QuantizeConfig that are updated from checkpoint values # noqa: E501
-        # should quant type be in model config or running config ?
-        if hasattr(training_config, "quant_type") and training_config.quant_type in [
-            "awq_gemm",
-            "awq_gemv",
-        ]:  # if the loaded model is a awq quantized one, inference config cannot overwrite this
-            if (
-                hasattr(running_config, "quant_type")
-                and running_config.quant_type != ""
-                and running_config.quant_type != training_config.quant_type
-            ):
-                raise ValueError(
-                    "Model is a awq quantized model, cannot overwrite with another quant method"
-                )
-        # below we are updating training_config with opt (inference_config), though we might want to do the opposite # noqa: E501
-        elif hasattr(
-            running_config, "quant_type"
-        ) and running_config.quant_type not in [
-            "awq_gemm",
-            "awq_gemv",
-        ]:  # we still want to be able to load fp16/32 models
-            # with bnb 4bit to minimize ram footprint
-            # this is probably not useful anymore as running config will already have the info we need, and the opposite case is handled above # noqa: E501
-            training_config.quant_layers = running_config.quant_layers
-            training_config.quant_type = running_config.quant_type
-            training_config.lora_layers = []
-        else:
-            # new case, we might want to retrieve quant stuff from training_config
-            running_config.quant_layers = training_config.quant_layers
-            running_config.quant_type = training_config.quant_type
-
+        model_config = running_config.model # loaded in PredictConfig validation
         if (
             running_config.world_size > 1
             and running_config.parallel_mode == "tensor_parallel"
@@ -360,23 +318,8 @@ class BaseModel(nn.Module):
             else:
                 device = torch.device("cpu")
             offset = 0
-        # not sure about this one either, do we want to retrieve the value from training sometimes?
-        # if hasattr(running_config, "self_attn_type"):
-        #     training_config.self_attn_type = running_config.self_attn_type
 
-        model_config._validate_model_config()
-        training_config._validate_running_config()  # not sure it's needed
         vocabs = dict_to_vocabs(checkpoint["vocab"])
-
-        # Avoid functionality on inference
-        # not sure this will be needed anymore here, though we might need to reconcile train/inference config at some point # noqa: E501
-        training_config.update(
-            update_vocab=False,
-            dropout_steps=[0],
-            dropout=[0.0],
-            attention_dropout=[0.0],
-        )
-        # required to force no dropout at inference with flash
 
         return (
             model_config,

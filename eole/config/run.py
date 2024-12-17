@@ -6,7 +6,7 @@ from eole.config.config import get_config_dict
 from eole.config.training import TrainingConfig
 from eole.config.inference import InferenceConfig
 from eole.config.common import MiscConfig, LoggingConfig
-from eole.config.models import ModelConfig
+from eole.config.models import ModelConfig, build_model_config
 from eole.config.data import (
     DataConfig,
     BaseVocabConfig,
@@ -143,6 +143,59 @@ class PredictConfig(
         transforms = [
             t for t in transforms if transforms_cls[t].type != TransformType.Train
         ]
+
+
+        # logic from models.BaseModel.inference_logic
+        model_config = build_model_config(config_dict.get("model", {}))
+        training_config = TrainingConfig(**config_dict.get("training", {}))
+        training_config.world_size = self.world_size
+        training_config.gpu_ranks = self.gpu_ranks
+        # retrieve share_vocab from checkpoint config
+        self.__dict__["share_vocab"] = config_dict.get("share_vocab", False)
+        # retrieve precision from checkpoint config if not explicitly set
+        if "compute_dtype" not in self.model_fields_set:
+            self.compute_dtype = training_config.compute_dtype
+        # quant logic, might be better elsewhere
+        if hasattr(training_config, "quant_type") and training_config.quant_type in [
+            "awq_gemm",
+            "awq_gemv",
+        ]:
+            if (
+                hasattr(self, "quant_type")
+                and self.quant_type != ""
+                and self.quant_type != training_config.quant_type
+            ):
+                raise ValueError(
+                    "Model is a awq quantized model, cannot overwrite with another quant method"
+                )
+        # below we are updating training_config with opt (inference_config), though we might want to do the opposite # noqa: E501
+        elif hasattr(
+            self, "quant_type"
+        ) and self.quant_type not in [
+            "awq_gemm",
+            "awq_gemv",
+        ]:  # we still want to be able to load fp16/32 models
+            # with bnb 4bit to minimize ram footprint
+            # this is probably not useful anymore as running config will already have the info we need, and the opposite case is handled above # noqa: E501
+            training_config.quant_layers = self.quant_layers
+            training_config.quant_type = self.quant_type
+            training_config.lora_layers = []
+        else:
+            # new case, we might want to retrieve quant stuff from training_config
+            self.quant_layers = training_config.quant_layers
+            self.quant_type = training_config.quant_type
+
+        model_config._validate_model_config()
+        training_config._validate_running_config()  # not sure it's needed
+        # training_config.update(
+        #     update_vocab=False,
+        #     dropout_steps=[0],
+        #     dropout=[0.0],
+        #     attention_dropout=[0.0],
+        # )
+        self.update(
+            model=model_config,
+        )
 
         if "transforms" not in self.model_fields_set:
             self.transforms = self._all_transform = transforms
