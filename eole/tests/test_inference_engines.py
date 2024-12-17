@@ -6,16 +6,16 @@ from argparse import ArgumentParser
 from eole.utils.misc import use_gpu, set_random_seed
 
 
-def evaluate(config, inference_mode, input_file, out, method, model_type=None):
+def evaluate(config, engine, input_file, out, method, model_type=None):
     print("# input file", input_file)
     run_results = {}
     # Build the translator (along with the model)
-    if inference_mode == "py":
+    if engine == "eole":
         print("Inference with py ...")
         from eole.inference_engine import InferenceEnginePY
 
         engine = InferenceEnginePY(config)
-    elif inference_mode == "ct2":
+    elif engine == "ct2":
         print("Inference with ct2 ...")
         from eole.inference_engine import InferenceEngineCT2
 
@@ -31,7 +31,7 @@ def evaluate(config, inference_mode, input_file, out, method, model_type=None):
     engine.terminate()
     dur = time.time() - start
     print(f"Time to generate {len(preds)} answers: {dur}s")
-    if inference_mode == "py":
+    if engine == "eole":
         scores = [
             [_score.cpu().numpy().tolist() for _score in _scores] for _scores in scores
         ]
@@ -86,7 +86,7 @@ def main():
 
     evaluate(
         config,
-        inference_mode=args.inference_mode,
+        engine=args.engine,
         input_file=args.input_file,
         out=args.out,
         method="file",
@@ -94,7 +94,7 @@ def main():
     )
     evaluate(
         config,
-        inference_mode=args.inference_mode,
+        engine=args.engine,
         input_file=args.input_file,
         out=args.out,
         method="list",
