@@ -144,7 +144,6 @@ class PredictConfig(
             t for t in transforms if transforms_cls[t].type != TransformType.Train
         ]
 
-
         # logic from models.BaseModel.inference_logic
         model_config = build_model_config(config_dict.get("model", {}))
         training_config = TrainingConfig(**config_dict.get("training", {}))
@@ -169,9 +168,7 @@ class PredictConfig(
                     "Model is a awq quantized model, cannot overwrite with another quant method"
                 )
         # below we are updating training_config with opt (inference_config), though we might want to do the opposite # noqa: E501
-        elif hasattr(
-            self, "quant_type"
-        ) and self.quant_type not in [
+        elif hasattr(self, "quant_type") and self.quant_type not in [
             "awq_gemm",
             "awq_gemv",
         ]:  # we still want to be able to load fp16/32 models

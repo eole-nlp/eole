@@ -299,7 +299,7 @@ class BaseModel(nn.Module):
 
     @classmethod
     def inference_logic(self, checkpoint, running_config, vocabs, device_id=None):
-        model_config = running_config.model # loaded in PredictConfig validation
+        model_config = running_config.model  # loaded in PredictConfig validation
         if (
             running_config.world_size > 1
             and running_config.parallel_mode == "tensor_parallel"
