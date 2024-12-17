@@ -278,7 +278,9 @@ class InferenceEngineCT2(InferenceEngine):
 
         # TODO: this should be loaded from model config
         # Build vocab
-        vocab_path = os.path.join(config.get_model_path() + "/ctranslate2", "vocabulary.json")
+        vocab_path = os.path.join(
+            config.get_model_path() + "/ctranslate2", "vocabulary.json"
+        )
         with open(vocab_path, "r") as f:
             vocab = json.load(f)
         vocabs = {}
@@ -297,7 +299,6 @@ class InferenceEngineCT2(InferenceEngine):
         # Build transform pipe
         self.transforms = make_transforms(config, self.transforms_cls, self.vocabs)
         self.transforms_pipe = TransformPipe.build_from(self.transforms.values())
-
 
     def predict_batch(self, batch, config):
         input_tokens = []
@@ -327,12 +328,12 @@ class InferenceEngineCT2(InferenceEngine):
                 sampling_topp=1 if config.top_p == 0 else config.top_p,
                 sampling_temperature=config.temperature,
             )
-            preds = [self.transforms_pipe.apply_reverse(nbest)
-                     for ex in predicted_batch
-                     for nbest in ex.sequences]
-            scores = [nbest
-                      for ex in predicted_batch
-                      for nbest in ex.scores]
+            preds = [
+                self.transforms_pipe.apply_reverse(nbest)
+                for ex in predicted_batch
+                for nbest in ex.sequences
+            ]
+            scores = [nbest for ex in predicted_batch for nbest in ex.scores]
 
         elif self.model_type == ModelType.ENCODER_DECODER:
             predicted_batch = self.predictor.translate_batch(
@@ -347,12 +348,12 @@ class InferenceEngineCT2(InferenceEngine):
                 sampling_topp=1 if config.top_p == 0 else config.top_p,
                 sampling_temperature=config.temperature,
             )
-            preds = [self.transforms_pipe.apply_reverse(nbest)
-                     for ex in predicted_batch
-                     for nbest in ex.sequences]
-            scores = [nbest
-                      for ex in predicted_batch
-                      for nbest in ex.scores]
+            preds = [
+                self.transforms_pipe.apply_reverse(nbest)
+                for ex in predicted_batch
+                for nbest in ex.sequences
+            ]
+            scores = [nbest for ex in predicted_batch for nbest in ex.scores]
 
         return scores, None, preds
 
