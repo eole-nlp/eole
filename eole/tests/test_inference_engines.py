@@ -58,7 +58,7 @@ def main():
     parser.add_argument(
         "-engine",
         help="Engine",
-        Default="eole",
+        default="eole",
         required=True,
         type=str,
         choices=["eole", "ct2"],
