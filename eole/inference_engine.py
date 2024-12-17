@@ -1,5 +1,6 @@
 import torch
 import json
+import os
 from eole.constants import CorpusTask, DefaultTokens, ModelType
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.utils.distributed import ErrorHandler
@@ -159,6 +160,7 @@ class InferenceEnginePY(InferenceEngine):
                 self.device_id = config.gpu_ranks[0]
             else:
                 self.device_id = -1  # cpu
+
             self.predictor = build_predictor(
                 config, self.device_id, logger=self.logger, report_score=True
             )
@@ -263,7 +265,7 @@ class InferenceEngineCT2(InferenceEngine):
         self.model_type = model_type
         if self.model_type == ModelType.DECODER:
             self.predictor = ctranslate2.Generator(
-                config.get_model_path(),
+                config.get_model_path() + "/ctranslate2",
                 device=self.device,
                 device_index=self.device_index,
             )
@@ -273,26 +275,29 @@ class InferenceEngineCT2(InferenceEngine):
                 device=self.device,
                 device_index=self.device_index,
             )
+
+        # TODO: this should be loaded from model config
         # Build vocab
-        vocab_path = config.src_subword_vocab  # this is not super clean
+        vocab_path = os.path.join(config.get_model_path() + "/ctranslate2", "vocabulary.json")
         with open(vocab_path, "r") as f:
             vocab = json.load(f)
         vocabs = {}
         src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
+        config.share_vocab = True
         vocabs["src"] = src_vocab
         vocabs["tgt"] = src_vocab
         vocabs["decoder_start_token"] = "<s>"
-        # TODO: this should be loaded from model config
         vocabs["specials"] = {
-            "bos_token": DefaultTokens.BOS,
-            "pad_token": DefaultTokens.PAD,
-            "eos_token": DefaultTokens.EOS,
-            "unk_token": DefaultTokens.UNK,
+            "bos_token": "<s>",
+            "pad_token": "</s>",
+            "eos_token": "<|im_end|>",
+            "unk_token": "<unk>",
         }
         self.vocabs = vocabs
         # Build transform pipe
-        transforms = make_transforms(config, self.transforms_cls, self.vocabs)
-        self.transforms = TransformPipe.build_from(transforms.values())
+        self.transforms = make_transforms(config, self.transforms_cls, self.vocabs)
+        self.transforms_pipe = TransformPipe.build_from(self.transforms.values())
+
 
     def predict_batch(self, batch, config):
         input_tokens = []
@@ -307,6 +312,7 @@ class InferenceEngineCT2(InferenceEngine):
                 )
             ]
             input_tokens.append(_input_tokens)
+
         if self.model_type == ModelType.DECODER:
             predicted_batch = self.predictor.generate_batch(
                 start_tokens=input_tokens,
@@ -318,14 +324,16 @@ class InferenceEngineCT2(InferenceEngine):
                 return_scores=True,
                 include_prompt_in_result=False,
                 sampling_topk=config.top_k,
-                sampling_topp=config.top_p,
+                sampling_topp=1 if config.top_p == 0 else config.top_p,
                 sampling_temperature=config.temperature,
             )
-            preds = [
-                [self.transforms.apply_reverse(tokens) for tokens in out.sequences]
-                for out in predicted_batch
-            ]
-            scores = [out.scores for out in predicted_batch]
+            preds = [self.transforms_pipe.apply_reverse(nbest)
+                     for ex in predicted_batch
+                     for nbest in ex.sequences]
+            scores = [nbest
+                      for ex in predicted_batch
+                      for nbest in ex.scores]
+
         elif self.model_type == ModelType.ENCODER_DECODER:
             predicted_batch = self.predictor.translate_batch(
                 input_tokens,
@@ -336,14 +344,15 @@ class InferenceEngineCT2(InferenceEngine):
                 max_decoding_length=config.max_length,
                 return_scores=True,
                 sampling_topk=config.top_k,
-                sampling_topp=config.top_p,
+                sampling_topp=1 if config.top_p == 0 else config.top_p,
                 sampling_temperature=config.temperature,
             )
-            preds = [
-                [self.transforms.apply_reverse(tokens) for tokens in out.hypotheses]
-                for out in predicted_batch
-            ]
-            scores = [out.scores for out in predicted_batch]
+            preds = [self.transforms_pipe.apply_reverse(nbest)
+                     for ex in predicted_batch
+                     for nbest in ex.sequences]
+            scores = [nbest
+                      for ex in predicted_batch
+                      for nbest in ex.scores]
 
         return scores, None, preds
 
