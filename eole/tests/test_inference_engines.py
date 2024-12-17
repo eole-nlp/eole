@@ -14,21 +14,21 @@ def evaluate(config, engine, input_file, out, method, model_type=None):
         print("Inference with py ...")
         from eole.inference_engine import InferenceEnginePY
 
-        engine = InferenceEnginePY(config)
+        enginerunner = InferenceEnginePY(config)
     elif engine == "ct2":
         print("Inference with ct2 ...")
         from eole.inference_engine import InferenceEngineCT2
 
         config.src_subword_vocab = config.get_model_path() + "/vocabulary.json"
-        engine = InferenceEngineCT2(config, model_type=model_type)
+        enginerunner = InferenceEngineCT2(config, model_type=model_type)
     start = time.time()
     if method == "file":
-        engine.config.src = input_file
-        scores, _, preds = engine.infer_file()
+        enginerunner.config.src = input_file
+        scores, _, preds = enginerunner.infer_file()
     elif method == "list":
         src = open(input_file, ("r")).readlines()
-        scores, _, preds = engine.infer_list(src)
-    engine.terminate()
+        scores, _, preds = enginerunner.infer_list(src)
+    enginerunner.terminate()
     dur = time.time() - start
     print(f"Time to generate {len(preds)} answers: {dur}s")
     if engine == "eole":
