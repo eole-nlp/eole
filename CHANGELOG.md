@@ -2,6 +2,43 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.0.3
+
+* [patch] minor fixes for 0.0.2 by @francoishernandez in https://github.com/eole-nlp/eole/pull/109
+* **Rework handling of special tokens** by @francoishernandez in https://github.com/eole-nlp/eole/pull/45
+* [patch] get_transforms_cls after update_config_with_checkpoint by @francoishernandez in https://github.com/eole-nlp/eole/pull/110
+* [patch] get_transforms_cls after update_config_with_checkpoint BIS by @francoishernandez in https://github.com/eole-nlp/eole/pull/111
+* Updated translator.py to handle updated special token logic when computing alignments by @dameikle in https://github.com/eole-nlp/eole/pull/113
+* clearer log by @vince62s in https://github.com/eole-nlp/eole/pull/112
+* fix training tensor parallel by @vince62s in https://github.com/eole-nlp/eole/pull/115
+* restore all_reduce directly but with detach.clone first - fix #115 by @vince62s in https://github.com/eole-nlp/eole/pull/116
+* **Initial support for Metal Performance Shaders (MPS)** by @dameikle in https://github.com/eole-nlp/eole/pull/98
+* Manage `share_decoder_embeddings` in `convert_HF`, misc fixes and improvements by @francoishernandez in https://github.com/eole-nlp/eole/pull/121
+* Deduce share_decoder_embeddings from HF tie_word_embeddings flag by @francoishernandez in https://github.com/eole-nlp/eole/pull/123
+* [docs] Upgrading docusaurus packages, should fix dependabot warnings by @francoishernandez in https://github.com/eole-nlp/eole/pull/124
+* **add estimator in decoder-only** + clean code by @vince62s in https://github.com/eole-nlp/eole/pull/120
+* fineweb10B/gpt2 recipe, and supporting changes by @francoishernandez in https://github.com/eole-nlp/eole/pull/32
+* enable pure bf16 training by @vince62s in https://github.com/eole-nlp/eole/pull/133
+* Update WMT17 recipe with working tokenization transforms examples by @francoishernandez in https://github.com/eole-nlp/eole/pull/129
+* fixes #131, module 'eole.utils' has no attribute 'distributed' error when training multi-gpu by @isanvicente in https://github.com/eole-nlp/eole/pull/132
+* add estimator in greedy inference by @vince62s in https://github.com/eole-nlp/eole/pull/135
+* Some QOL config/saving improvements by @francoishernandez in https://github.com/eole-nlp/eole/pull/134
+* fix #136. Updated eole/bin/model/average_models.py to work with safetensors model format. by @isanvicente in https://github.com/eole-nlp/eole/pull/137
+* fix head dim in rope by @vince62s in https://github.com/eole-nlp/eole/pull/140
+* fix autocast at scoring when doing AMP by @vince62s in https://github.com/eole-nlp/eole/pull/141
+* Some minor fixes by @francoishernandez in https://github.com/eole-nlp/eole/pull/143
+* fix lora lm head by @vince62s in https://github.com/eole-nlp/eole/pull/142
+* fix missing pad change by @vince62s in https://github.com/eole-nlp/eole/pull/148
+* flash_attn_func does not support padding mask maybe we need to drop a… by @vince62s in https://github.com/eole-nlp/eole/pull/149
+* fix maybe_retranslate when number of newline does not match by @vince62s in https://github.com/eole-nlp/eole/pull/150
+* **Supporting HF tokenizers** by @francoishernandez in https://github.com/eole-nlp/eole/pull/122
+* **Model Validator Recipe** by @francoishernandez in https://github.com/eole-nlp/eole/pull/146
+* apply bytefallback at detok (onmt_tokenize with sentencepiece) by @vince62s in https://github.com/eole-nlp/eole/pull/155
+* patch eos_token_id list handling by @francoishernandez in https://github.com/eole-nlp/eole/pull/158
+* **Compile and Ctranslate2 support** by @vince62s in https://github.com/eole-nlp/eole/pull/161
+* Move predict config update from model loading to config validation by @francoishernandez in https://github.com/eole-nlp/eole/pull/163
+* EuroLLM Gradio (web based) translator 35 languages to 35 languages by @vince62s in https://github.com/eole-nlp/eole/pull/164
+
 ## 0.0.2
 
 * Refactor position encoding configuration by @vince62s in https://github.com/eole-nlp/eole/pull/60
