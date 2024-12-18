@@ -299,17 +299,16 @@ jobs:
           -model_type decoder \
           -input_file /tmp/src-test.txt \
           -inference_config_file eole/tests/data/inference-engine_py.yaml \
-          -inference_mode py \
           -out /tmp/inference_engine_lm_py_outputs
     - name: Test ct2-LM inference engine
       run: |
         head eole/tests/data/src-test.txt > /tmp/src-test.txt
         python eole/tests/test_inference_engines.py \
-          -model eole/tests/test_model_lm_ct2 \
+          -model eole/tests \
           -model_type decoder \
           -input_file /tmp/src-test.txt \
           -inference_config_file eole/tests/data/inference-engine_py.yaml \
-          -inference_mode ct2 \
+          -engine ct2 \
           -out /tmp/inference_engine_lm_py_outputs
     - name: Test py-SEQ2SEQ inference engine
       run: |
@@ -319,7 +318,6 @@ jobs:
           -model_type encoder_decoder \
           -input_file /tmp/src-test.txt \
           -inference_config_file eole/tests/data/inference-engine_py.yaml \
-          -inference_mode py \
           -out /tmp/inference_engine_lm_py_outputs
     - name: Test embeddings_to_torch tool
       run: |

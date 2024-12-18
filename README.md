@@ -77,7 +77,7 @@ Depending on your needs, you can add various flags:
 #### Requirements
 
 - Python >= 3.10
-- PyTorch >= 2.3 < 2.4
+- PyTorch >= 2.5 < 2.6
 
 #### Installation from Source
 
