@@ -391,10 +391,19 @@ class InferenceEngineCT2(InferenceEngine):
                 sampling_topp=1 if config.top_p == 0 else config.top_p,
                 sampling_temperature=config.temperature,
             )
-            preds = [
-                [self.transforms_pipe.apply_reverse(nbest) for nbest in ex.sequences]
-                for ex in predicted_batch
-            ]
+            if self.transforms != {}:
+                preds = [
+                    [
+                        self.transforms_pipe.apply_reverse(nbest)
+                        for nbest in ex.sequences
+                    ]
+                    for ex in predicted_batch
+                ]
+            else:
+                preds = [
+                    [" ".join(nbest) for nbest in ex.sequences]
+                    for ex in predicted_batch
+                ]
 
         elif self.model_type == ModelType.ENCODER_DECODER:
             predicted_batch = self.predictor.translate_batch(
@@ -409,10 +418,19 @@ class InferenceEngineCT2(InferenceEngine):
                 sampling_topp=1 if config.top_p == 0 else config.top_p,
                 sampling_temperature=config.temperature,
             )
-            preds = [
-                [self.transforms_pipe.apply_reverse(nbest) for nbest in ex.hypothesis]
-                for ex in predicted_batch
-            ]
+            if self.transforms != {}:
+                preds = [
+                    [
+                        self.transforms_pipe.apply_reverse(nbest)
+                        for nbest in ex.hypothesis
+                    ]
+                    for ex in predicted_batch
+                ]
+            else:
+                preds = [
+                    [" ".join(nbest) for nbest in ex.sequences]
+                    for ex in predicted_batch
+                ]
 
         scores = [[nbest for nbest in ex.scores] for ex in predicted_batch]
         return scores, None, preds
