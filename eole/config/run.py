@@ -160,7 +160,9 @@ class PredictConfig(
             if "compute_dtype" not in self.model_fields_set:
                 self.compute_dtype = training_config.compute_dtype
             # quant logic, might be better elsewhere
-            if hasattr(training_config, "quant_type") and training_config.quant_type in [
+            if hasattr(
+                training_config, "quant_type"
+            ) and training_config.quant_type in [
                 "awq_gemm",
                 "awq_gemv",
             ]:
