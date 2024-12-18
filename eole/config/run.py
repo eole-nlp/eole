@@ -176,8 +176,10 @@ class PredictConfig(
                     )
             else:
                 # new case, we might want to retrieve quant stuff from training_config
-                self.quant_layers = training_config.quant_layers
-                self.quant_type = training_config.quant_type
+                self.update(
+                    quant_layers=training_config.quant_layers,
+                    quant_type=training_config.quant_type,
+                )
 
             model_config._validate_model_config()
             # training_config._validate_running_config()  # not sure it's needed
