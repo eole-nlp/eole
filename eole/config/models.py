@@ -787,5 +787,4 @@ ModelConfig = Annotated[
     Field(discriminator="architecture", default_factory=RnnModelConfig),  # noqa: F821
 ]
 
-# Not used anymore, keeping for reference
 build_model_config = TypeAdapter(ModelConfig).validate_python

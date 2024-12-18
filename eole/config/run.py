@@ -174,29 +174,14 @@ class PredictConfig(
                     raise ValueError(
                         "Model is a awq quantized model, cannot overwrite with another quant method"
                     )
-            # below we are updating training_config with opt (inference_config), though we might want to do the opposite # noqa: E501
-            elif hasattr(self, "quant_type") and self.quant_type not in [
-                "awq_gemm",
-                "awq_gemv",
-            ]:  # we still want to be able to load fp16/32 models
-                # with bnb 4bit to minimize ram footprint
-                # this is probably not useful anymore as running config will already have the info we need, and the opposite case is handled above # noqa: E501
-                training_config.quant_layers = self.quant_layers
-                training_config.quant_type = self.quant_type
-                training_config.lora_layers = []
             else:
                 # new case, we might want to retrieve quant stuff from training_config
                 self.quant_layers = training_config.quant_layers
                 self.quant_type = training_config.quant_type
 
             model_config._validate_model_config()
-            training_config._validate_running_config()  # not sure it's needed
-            # training_config.update(
-            #     update_vocab=False,
-            #     dropout_steps=[0],
-            #     dropout=[0.0],
-            #     attention_dropout=[0.0],
-            # )
+            # training_config._validate_running_config()  # not sure it's needed
+
             self.update(
                 model=model_config,
             )
