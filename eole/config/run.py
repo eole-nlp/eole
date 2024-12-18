@@ -151,7 +151,9 @@ class PredictConfig(
         if os.path.exists(config_path):
             # logic from models.BaseModel.inference_logic
             model_config = build_model_config(config_dict.get("model", {}))
-            training_config = TrainingConfig(**config_dict.get("training", {}))
+            training_config = TrainingConfig(
+                **config_dict.get("training", {}), dummy_load=True
+            )
             training_config.world_size = self.world_size
             training_config.gpu_ranks = self.gpu_ranks
             # retrieve share_vocab from checkpoint config
@@ -174,8 +176,8 @@ class PredictConfig(
                     raise ValueError(
                         "Model is a awq quantized model, cannot overwrite with another quant method"
                     )
-            else:
-                # new case, we might want to retrieve quant stuff from training_config
+                self.update(quant_type=training_config.quant_type)
+            elif self.quant_type == "" and training_config.quant_type != "":
                 self.update(
                     quant_layers=training_config.quant_layers,
                     quant_type=training_config.quant_type,
