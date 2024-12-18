@@ -25,7 +25,7 @@ eole serve -c serve.yaml
 ## Start the gradio based translator
 
 ```
-python eole-translator
+python eole-translator.py
 ```
 
 You can access the Web based translator from the url given by Gradio (either local or from Gradio proxy with share=True turned on)
