@@ -6,7 +6,7 @@ from eole.config.config import get_config_dict
 from eole.config.training import TrainingConfig
 from eole.config.inference import InferenceConfig
 from eole.config.common import MiscConfig, LoggingConfig
-from eole.config.models import ModelConfig
+from eole.config.models import ModelConfig, build_model_config
 from eole.config.data import (
     DataConfig,
     BaseVocabConfig,
@@ -147,6 +147,48 @@ class PredictConfig(
         transforms = [
             t for t in transforms if transforms_cls[t].type != TransformType.Train
         ]
+
+        if os.path.exists(config_path):
+            # logic from models.BaseModel.inference_logic
+            model_config = build_model_config(config_dict.get("model", {}))
+            training_config = TrainingConfig(
+                **config_dict.get("training", {}), dummy_load=True
+            )
+            training_config.world_size = self.world_size
+            training_config.gpu_ranks = self.gpu_ranks
+            # retrieve share_vocab from checkpoint config
+            self.__dict__["share_vocab"] = config_dict.get("share_vocab", False)
+            # retrieve precision from checkpoint config if not explicitly set
+            if "compute_dtype" not in self.model_fields_set:
+                self.compute_dtype = training_config.compute_dtype
+            # quant logic, might be better elsewhere
+            if hasattr(
+                training_config, "quant_type"
+            ) and training_config.quant_type in [
+                "awq_gemm",
+                "awq_gemv",
+            ]:
+                if (
+                    hasattr(self, "quant_type")
+                    and self.quant_type != ""
+                    and self.quant_type != training_config.quant_type
+                ):
+                    raise ValueError(
+                        "Model is a awq quantized model, cannot overwrite with another quant method"
+                    )
+                self.update(quant_type=training_config.quant_type)
+            elif self.quant_type == "" and training_config.quant_type != "":
+                self.update(
+                    quant_layers=training_config.quant_layers,
+                    quant_type=training_config.quant_type,
+                )
+
+            model_config._validate_model_config()
+            # training_config._validate_running_config()  # not sure it's needed
+
+            self.update(
+                model=model_config,
+            )
 
         if "transforms" not in self.model_fields_set:
             self.transforms = self._all_transform = transforms
