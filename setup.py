@@ -25,6 +25,7 @@ setup(
         "huggingface_hub",
         "numpy<2.0",
         "pandas",
+        "protobuf==3.20.1",
         "pyahocorasick",
         "pyonmttok>=1.37,<2",
         "pyyaml",
