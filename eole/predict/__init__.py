@@ -6,7 +6,6 @@ from eole.predict.encoder import Encoder
 from eole.predict.beam_search import GNMTGlobalScorer
 from eole.decoders.ensemble import load_test_model as ensemble_load_test_model
 from eole.models.model import BaseModel
-import codecs
 
 
 def get_infer_class(model_config):
@@ -19,10 +18,8 @@ def get_infer_class(model_config):
         return Translator
 
 
-def build_predictor(config, device_id=0, report_score=True, logger=None, out_file=None):
+def build_predictor(config, device_id=0, report_score=True, logger=None):
     # right now config is a full (non nested) PredictConfig
-    if out_file is None:
-        out_file = codecs.open(config.output, "w+", "utf-8")
 
     load_test_model = (
         ensemble_load_test_model
@@ -44,7 +41,6 @@ def build_predictor(config, device_id=0, report_score=True, logger=None, out_fil
             model_config,
             device_id=device_id,
             global_scorer=scorer,
-            out_file=out_file,
             report_align=config.report_align,
             report_score=report_score,
             logger=logger,

@@ -1,6 +1,7 @@
 import torch
 import json
 import os
+import codecs
 from eole.constants import CorpusTask, DefaultTokens, ModelType
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.utils.distributed import ErrorHandler
@@ -41,6 +42,27 @@ class InferenceEngine(object):
             scores, estims, preds = self._predict(infer_iter)
         else:
             scores, estims, preds = self.infer_file_parallel()
+
+        out_file = codecs.open(self.config.output, "w+", "utf-8")
+
+        flatten_preds = [text for sublist in preds for text in sublist]
+        flatten_scores = [score for sublist in scores for score in sublist]
+        if estims is not None:
+            flatten_estims = [estim for sublist in estims for estim in sublist]
+        else:
+            flatten_estims = [1.0 for sublist in scores for score in sublist]
+
+        if self.config.with_score:
+            out_all = [
+                pred + "\t" + str(score) + "\t" + str(estim)
+                for (pred, score, estim) in zip(
+                    flatten_preds, flatten_scores, flatten_estims
+                )
+            ]
+            out_file.write("\n".join(out_all) + "\n")
+        else:
+            out_file.write("\n".join(flatten_preds) + "\n")
+
         return scores, estims, preds
 
     def infer_list(self, src, settings={}):
@@ -261,7 +283,22 @@ class InferenceEngineCT2(InferenceEngine):
             self.device_index = 0
             self.device = "cpu"
         self.transforms_cls = get_transforms_cls(self.config._all_transform)
-        # Build translator
+
+        ct2_config = os.path.join(
+            config.get_model_path() + "/ctranslate2", "config.json"
+        )
+        ct2_json = json.load(open(ct2_config, "r"))
+        vocabs = {}
+        vocabs["specials"] = {}
+        vocabs["specials"]["bos_token"] = ct2_json["bos_token"]
+        vocabs["specials"]["eos_token"] = ct2_json["eos_token"]
+        vocabs["specials"]["unk_token"] = ct2_json["unk_token"]
+        if "pad_token" in ct2_json.keys():
+            vocabs["specials"]["pad_token"] = ct2_json["pad_token"]
+        else:
+            vocabs["specials"]["pad_token"] = ct2_json["eos_token"]
+
+        # Build generator or translator
         self.model_type = model_type
         if self.model_type == ModelType.DECODER:
             self.predictor = ctranslate2.Generator(
@@ -269,32 +306,58 @@ class InferenceEngineCT2(InferenceEngine):
                 device=self.device,
                 device_index=self.device_index,
             )
+            vocab_path = os.path.join(
+                config.get_model_path() + "/ctranslate2", "vocabulary.json"
+            )
+            vocab = json.load(open(vocab_path, "r"))
+            src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
+            config.share_vocab = True
+            vocabs["src"] = src_vocab
+            vocabs["tgt"] = src_vocab
+            vocabs["decoder_start_token"] = ""
         else:
             self.predictor = ctranslate2.Translator(
                 config.get_model_path(),
                 device=self.device,
                 device_index=self.device_index,
             )
+            vocabs["decoder_start_token"] = ct2_json["decoder_start_token"]
+            if os.path.exists(
+                config.get_model_path() + "/ctranslate2", "shared_vocabulary.json"
+            ):
+                vocab = json.load(
+                    open(
+                        config.get_model_path() + "/ctranslate2",
+                        "shared_vocabulary.json",
+                        "r",
+                    )
+                )
+                src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
+                config.share_vocab = True
+                vocabs["src"] = src_vocab
+                vocabs["tgt"] = src_vocab
 
-        # TODO: this should be loaded from model config
-        # Build vocab
-        vocab_path = os.path.join(
-            config.get_model_path() + "/ctranslate2", "vocabulary.json"
-        )
-        with open(vocab_path, "r") as f:
-            vocab = json.load(f)
-        vocabs = {}
-        src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
-        config.share_vocab = True
-        vocabs["src"] = src_vocab
-        vocabs["tgt"] = src_vocab
-        vocabs["decoder_start_token"] = "<s>"
-        vocabs["specials"] = {
-            "bos_token": "<s>",
-            "pad_token": "</s>",
-            "eos_token": "<|im_end|>",
-            "unk_token": "<unk>",
-        }
+            else:
+                vocab_src = json.load(
+                    open(
+                        config.get_model_path() + "/ctranslate2",
+                        "source_vocabulary.json",
+                        "r",
+                    )
+                )
+                src_vocab = pyonmttok.build_vocab_from_tokens(vocab_src)
+                vocab_tgt = json.load(
+                    open(
+                        config.get_model_path() + "/ctranslate2",
+                        "target_vocabulary.json",
+                        "r",
+                    )
+                )
+                tgt_vocab = pyonmttok.build_vocab_from_tokens(vocab_tgt)
+                config.share_vocab = False
+                vocabs["src"] = src_vocab
+                vocabs["tgt"] = tgt_vocab
+
         self.vocabs = vocabs
         # Build transform pipe
         self.transforms = make_transforms(config, self.transforms_cls, self.vocabs)
@@ -329,11 +392,9 @@ class InferenceEngineCT2(InferenceEngine):
                 sampling_temperature=config.temperature,
             )
             preds = [
-                self.transforms_pipe.apply_reverse(nbest)
+                [self.transforms_pipe.apply_reverse(nbest) for nbest in ex.sequences]
                 for ex in predicted_batch
-                for nbest in ex.sequences
             ]
-            scores = [nbest for ex in predicted_batch for nbest in ex.scores]
 
         elif self.model_type == ModelType.ENCODER_DECODER:
             predicted_batch = self.predictor.translate_batch(
@@ -349,23 +410,37 @@ class InferenceEngineCT2(InferenceEngine):
                 sampling_temperature=config.temperature,
             )
             preds = [
-                self.transforms_pipe.apply_reverse(nbest)
+                [self.transforms_pipe.apply_reverse(nbest) for nbest in ex.hypothesis]
                 for ex in predicted_batch
-                for nbest in ex.sequences
             ]
-            scores = [nbest for ex in predicted_batch for nbest in ex.scores]
 
+        scores = [[nbest for nbest in ex.scores] for ex in predicted_batch]
         return scores, None, preds
 
     def _predict(self, infer_iter, settings={}):
         # TODO: convert settings to CT2 naming
-        scores = []
-        preds = []
+        predictions = {}
+        predictions["scores"] = []
+        predictions["preds"] = []
+        predictions["cid_line_number"] = []
         for batch, bucket_idx in infer_iter:
             _scores, _, _preds = self.predict_batch(batch, self.config)
-            scores += _scores
-            preds += _preds
-        return scores, None, preds
+            predictions["scores"] += _scores
+            predictions["preds"] += _preds
+            predictions["cid_line_number"] += batch["cid_line_number"]
+        sorted_data = sorted(
+            zip(
+                predictions["cid_line_number"],
+                predictions["preds"],
+                predictions["scores"],
+            )
+        )
+        sorted_predictions = {
+            "cid_line_number": [item[0] for item in sorted_data],
+            "preds": [item[1] for item in sorted_data],
+            "scores": [item[2] for item in sorted_data],
+        }
+        return sorted_predictions["scores"], None, sorted_predictions["preds"]
 
     def _score(self, infer_iter):
         raise NotImplementedError(
