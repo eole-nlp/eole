@@ -57,7 +57,6 @@ class ScoringPreparator:
         predict_config._validate_predict_config()
         # Build translator from options
         scorer = GNMTGlobalScorer.from_config(predict_config)
-        out_file = codecs.open(os.devnull, "w", "utf-8")
         model_config = self.config.model
         model_config._validate_model_config()
         translator = (
@@ -68,7 +67,6 @@ class ScoringPreparator:
                 model_config,
                 device_id=gpu_rank,
                 global_scorer=scorer,
-                out_file=out_file,
                 report_align=predict_config.report_align,
                 report_score=False,
                 logger=None,

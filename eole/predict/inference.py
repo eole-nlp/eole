@@ -48,7 +48,6 @@ class Inference(object):
         report_time (bool): Print/log total time/frequency.
         global_scorer (eole.predict.GNMTGlobalScorer): Prediction
             scoring/reranking object.
-        out_file (TextIO or codecs.StreamReaderWriter): Output file.
         report_score (bool) : Whether to report scores
         logger (logging.Logger or NoneType): Logger.
     """
@@ -79,7 +78,6 @@ class Inference(object):
         verbose=False,
         report_time=False,
         global_scorer=None,
-        out_file=None,
         report_align=False,
         gold_align=False,
         report_score=True,
@@ -144,7 +142,6 @@ class Inference(object):
         self.global_scorer = global_scorer
         if self.global_scorer.has_cov_pen and not self.model.decoder.attentional:
             raise ValueError("Coverage penalty requires an attentional decoder.")
-        self.out_file = out_file
         self.report_align = report_align
         self.gold_align = gold_align
         self.report_score = report_score
@@ -180,7 +177,6 @@ class Inference(object):
         model_config,
         device_id=0,
         global_scorer=None,
-        out_file=None,
         report_align=False,
         report_score=True,
         logger=None,
@@ -196,8 +192,6 @@ class Inference(object):
                 the model checkpoint.
             global_scorer (eole.predict.GNMTGlobalScorer): See
                 :func:`__init__()`..
-            out_file (TextIO or codecs.StreamReaderWriter): See
-                :func:`__init__()`.
             report_align (bool) : See :func:`__init__()`.
             report_score (bool) : See :func:`__init__()`.
             logger (logging.Logger or NoneType): See :func:`__init__()`.
@@ -235,7 +229,6 @@ class Inference(object):
             verbose=config.verbose,
             report_time=config.report_time,
             global_scorer=global_scorer,
-            out_file=out_file,
             report_align=report_align,
             gold_align=config.gold_align,
             report_score=report_score,
@@ -422,22 +415,6 @@ class Inference(object):
                     n_best_preds = transform_pipe.batch_apply_reverse(n_best_preds)
 
                 bucket_preds += [n_best_preds]
-
-                if self.with_score:
-                    n_best_scores = [
-                        score for score in trans.pred_scores[: self.n_best]
-                    ]
-                    n_best_estims = [estim for estim in trans.estim[: self.n_best]]
-                    out_all = [
-                        pred + "\t" + str(score) + "\t" + str(estim)
-                        for (pred, score, estim) in zip(
-                            n_best_preds, n_best_scores, n_best_estims
-                        )
-                    ]
-                    self.out_file.write("\n".join(out_all) + "\n")
-                else:
-                    self.out_file.write("\n".join(n_best_preds) + "\n")
-                self.out_file.flush()
 
                 if self.verbose:
                     srcs = [voc_src[tok] for tok in trans.src[: trans.srclen]]

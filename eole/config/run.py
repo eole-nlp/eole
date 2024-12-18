@@ -117,6 +117,10 @@ class PredictConfig(
         default="pred.txt",
         description="Path to output the predictions (each line will be the decoded sequence).",
     )
+    engine: str = Field(
+        default="eole",
+        description="engine to run inference: eole or ct2",
+    )
 
     @model_validator(mode="after")
     def _validate_predict_config(self):

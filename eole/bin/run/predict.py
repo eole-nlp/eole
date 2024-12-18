@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from eole.inference_engine import InferenceEnginePY
+from eole.inference_engine import InferenceEnginePY, InferenceEngineCT2
 
 from argparse import ArgumentParser
 from eole.utils.misc import use_gpu, set_random_seed
@@ -14,7 +14,12 @@ from time import time
 def predict(config):
     set_random_seed(config.seed, use_gpu(config))
 
-    engine = InferenceEnginePY(config)
+    if config.engine == "eole":
+        engine = InferenceEnginePY(config)
+    elif config.engine == "ct2":
+        engine = InferenceEngineCT2(config, "decoder")
+    else:
+        raise ValueError("You need to use --engine with 'eole' or 'ct2'")
     _, _, _ = engine.infer_file()
     engine.terminate()
 

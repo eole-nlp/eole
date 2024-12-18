@@ -124,21 +124,19 @@ class RotaryPosition(nn.Module):
         )
         # This could probably a bit cleaner/homogenized with the offset case
         if self.rope is not None:
-            if self.rope.size(0) >= max(offset + step, 0) + maxseqlen:
+            if self.rope[0].size(0) >= max(offset + step, 0) + maxseqlen:
                 return self.rope
             else:
                 maxseqlen = maxseqlen + prefetch
-        tmax = torch.arange(
-            max(offset + step, 0) + maxseqlen, device=self.inv_freq.device
-        )
-        rope = torch.outer(tmax, self.inv_freq).float()
-        # rope is now matrix [maxseqlen, dim/2]
-        rope = torch.polar(torch.ones_like(rope), rope)
-        rope = torch.cat((rope, rope), dim=1)
-        if device is not None:
-            rope = rope.to(device)
-        # cos = rope[:, : rope.size(1) // 2].real.contiguous().half()
-        # sin = rope[:, : rope.size(1) // 2].imag.contiguous().half()
-        # return rope, cos, sin
-        self.rope = rope
-        return rope
+        else:
+            self.inv_freq = self.inv_freq.to(device)
+        tmax = torch.arange(max(offset + step, 0) + maxseqlen, device=device)
+        rope = torch.outer(tmax, self.inv_freq)
+        cos = torch.cos(rope)
+        sin = torch.sin(rope)
+        cos = torch.cat((cos, cos), dim=-1)  # Double the size by repeating `cos`
+        sin = torch.cat((sin, sin), dim=-1)  # Double the size by repeating `sin`
+
+        # Cache the result for reuse
+        self.rope = (cos, sin)
+        return cos, sin

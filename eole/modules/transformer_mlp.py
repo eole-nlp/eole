@@ -1,7 +1,6 @@
 """MLP network from "Attention is All You Need"."""
 
 import torch.nn as nn
-
 from torch.utils.checkpoint import checkpoint
 from torch.nn.utils import skip_init
 from torch.distributed import all_reduce
