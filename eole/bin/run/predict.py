@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from eole.inference_engine import InferenceEnginePY, InferenceEngineCT2
-
+from eole.constants import ModelType
 from argparse import ArgumentParser
 from eole.utils.misc import use_gpu, set_random_seed
 from torch.profiler import profile, record_function, ProfilerActivity
@@ -11,13 +11,21 @@ from eole.bin.run import RunBin
 from time import time
 
 
+def model_type(config) -> ModelType:
+    if config.decoder is None:
+        return ModelType.ENCODER
+    elif config.encoder is None:
+        return ModelType.DECODER
+    else:
+        return ModelType.ENCODER_DECODER
+
+
 def predict(config):
     set_random_seed(config.seed, use_gpu(config))
-
     if config.engine == "eole":
         engine = InferenceEnginePY(config)
     elif config.engine == "ct2":
-        engine = InferenceEngineCT2(config, "decoder")
+        engine = InferenceEngineCT2(config, model_type(config.model))
     else:
         raise ValueError("You need to use --engine with 'eole' or 'ct2'")
     _, _, _ = engine.infer_file()
