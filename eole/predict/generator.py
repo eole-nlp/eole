@@ -6,6 +6,8 @@ from eole.predict.greedy_search import GreedySearchLM
 from eole.predict.beam_search import BeamSearchLM
 from eole.utils.misc import tile
 
+# from time import time
+
 
 class GeneratorLM(Inference):
     @classmethod
@@ -164,7 +166,7 @@ class GeneratorLM(Inference):
                 # select indexes in model state/cache
                 self.model.decoder.map_state(lambda state, dim: state[select_indices])
             # if step == 0:
-            #    print("step0 time: ", time() - beg_time)
+            #     print("step0 time: ", time() - beg_time)
 
         if self.add_estimator:
             # Prepare estimator input = decoder out of each pred with initial enc_out
