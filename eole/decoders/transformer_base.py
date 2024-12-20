@@ -112,12 +112,7 @@ class TransformerDecoderLayerBase(nn.Module):
                 future_mask = future_mask.triu_(-self.sliding_window)
             future_mask = future_mask.bool()
             future_mask = ~future_mask.view(1, tgt_len, tgt_len)
-            # Patch for scaled dot product attention.
-            patch_mask = ~torch.all(
-                tgt_pad_mask + future_mask, dim=2, keepdim=True
-            ).expand_as(tgt_pad_mask + future_mask)
             dec_mask = torch.gt(tgt_pad_mask + future_mask, 0)
-            dec_mask = torch.logical_and(dec_mask, patch_mask)
         else:
             # Only mask padding, result mask in (B, 1, T).
             dec_mask = tgt_pad_mask
