@@ -15,7 +15,9 @@ from eole.config.data import (
 )
 from eole.transforms import get_transforms_cls
 from eole.constants import TransformType
+from eole.utils.logging import logger
 from pydantic import Field, field_validator, model_validator
+import torch
 
 
 # Models below somewhat replicate prior opt behavior to facilitate transition
@@ -82,6 +84,8 @@ class TrainConfig(
                 self.save_data
             ), "-save_data should be set if \
                 want save samples."
+        if torch.cuda.is_available() and not self.training.gpu_ranks:
+            logger.warn("You have a CUDA device, should run with -gpu_ranks")
         return self
 
 
@@ -129,6 +133,8 @@ class PredictConfig(
         # TODO: do we really need this _all_transform?
         if self._all_transform is None:
             self._all_transform = self.transforms
+        if torch.cuda.is_available() and not self.gpu_ranks:
+            logger.warn("You have a CUDA device, should run with -gpu_ranks")
         return self
 
     def _update_with_model_config(self):
@@ -151,9 +157,7 @@ class PredictConfig(
         if os.path.exists(config_path):
             # logic from models.BaseModel.inference_logic
             model_config = build_model_config(config_dict.get("model", {}))
-            training_config = TrainingConfig(
-                **config_dict.get("training", {}), dummy_load=True
-            )
+            training_config = TrainingConfig(**config_dict.get("training", {}))
             training_config.world_size = self.world_size
             training_config.gpu_ranks = self.gpu_ranks
             # retrieve share_vocab from checkpoint config
