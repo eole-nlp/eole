@@ -138,7 +138,7 @@ class TransformerEncoder(EncoderBase):
         # Run the forward pass of every layer of the tranformer.
 
         if hasattr(self, "rope"):
-            position_embeddings = self.rope(emb, step=0, device=emb.device)
+            position_embeddings = self.rope(emb.size(1), step=0, device=emb.device)
         else:
             position_embeddings = None
 
