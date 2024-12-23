@@ -577,14 +577,13 @@ class SelfMHA(MultiHeadedAttention):
             if sliding_window > 0 and key.size(2) > sliding_window:
                 key = key[:, :, 1:, :]
                 value = value[:, :, 1:, :]
-        # mask values for LM left padding by batch
+        # mask keys for LM left padding by batch
         if step == 0:
             key_pad_mask = self.layer_cache[1].get("key_pad_mask", None)
             if key_pad_mask is not None:
-                x = key_pad_mask.expand(-1, value.size(1), -1)
-                x = x.unsqueeze(3)
-                x = x.expand(-1, -1, -1, value.size(3))
-                value = value.masked_fill(x, 0)
+                x = key_pad_mask.expand(-1, key.size(1), -1)
+                x = x.unsqueeze(3).expand(-1, -1, -1, key.size(3))
+                key = key.masked_fill(x, 0)
 
         self.layer_cache[1]["keys"] = key
         self.layer_cache[1]["values"] = value
@@ -614,7 +613,8 @@ class SelfMHA(MultiHeadedAttention):
                 or not self.flash
                 or self.position_encoding_type
                 in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
-                or query.size(0) > 128  # to check
+                or query.size(0)
+                > 128  # it seems for large batch size flash not optimum
                 or query.dtype
                 not in [torch.float16, torch.bfloat16]  # to match with flash
             ):
@@ -663,22 +663,12 @@ class SelfMHA(MultiHeadedAttention):
                         :, :, 1:, :
                     ]
                 if position_embeddings is not None:
-                    """
-                    cos = (
-                        position_embeddings[:, : position_embeddings.size(1) // 2]
-                        .real.contiguous()
-                        .to(query.dtype)
+                    cos = position_embeddings[0][:, : self.rotary_dim // 2].to(
+                        query.dtype
                     )
-                    sin = (
-                        position_embeddings[:, : position_embeddings.size(1) // 2]
-                        .imag.contiguous()
-                        .to(query.dtype)
+                    sin = position_embeddings[1][:, : self.rotary_dim // 2].to(
+                        query.dtype
                     )
-                    """
-                    cos = position_embeddings[0]
-                    sin = position_embeddings[1]
-                    cos = cos[:, : cos.size(1) // 2].to(query.dtype)
-                    sin = sin[:, : sin.size(1) // 2].to(query.dtype)
                 else:
                     cos = None
                     sin = None
