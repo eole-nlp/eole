@@ -52,10 +52,6 @@ def load_checkpoint(model_path):
                 config_dict = json.loads(os.path.expandvars(f.read()))
                 # drop data to prevent validation issues
                 config_dict["data"] = {}
-                if "training" in config_dict.keys():
-                    config_dict["training"]["dummy_load"] = True
-                else:
-                    config_dict["training"] = {"dummy_load": True}
                 _config = TrainConfig(**config_dict)
                 checkpoint["config"] = _config
         else:
