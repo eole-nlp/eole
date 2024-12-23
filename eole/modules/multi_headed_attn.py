@@ -582,8 +582,7 @@ class SelfMHA(MultiHeadedAttention):
             key_pad_mask = self.layer_cache[1].get("key_pad_mask", None)
             if key_pad_mask is not None:
                 x = key_pad_mask.expand(-1, key.size(1), -1)
-                x = x.unsqueeze(3)
-                x = x.expand(-1, -1, -1, key.size(3))
+                x = x.unsqueeze(3).expand(-1, -1, -1, key.size(3))
                 key = key.masked_fill(x, 0)
 
         self.layer_cache[1]["keys"] = key
@@ -628,9 +627,6 @@ class SelfMHA(MultiHeadedAttention):
                     position_embeddings=position_embeddings,
                 )
             else:
-                # if step ==0:
-                #    self.layer_cache[1]["keys"] = torch.zeros_like(key)
-                #    self.layer_cache[1]["values"] = torch.zeros_like(value)
                 # Fast path with flash_attn_with_kvcache
                 if start_pos >= self.layer_cache[1]["keys"].size(2):
                     self.layer_cache[1]["keys"] = torch.cat(
@@ -667,22 +663,12 @@ class SelfMHA(MultiHeadedAttention):
                         :, :, 1:, :
                     ]
                 if position_embeddings is not None:
-                    """
-                    cos = (
-                        position_embeddings[:, : position_embeddings.size(1) // 2]
-                        .real.contiguous()
-                        .to(query.dtype)
+                    cos = position_embeddings[0][:, : self.rotary_dim // 2].to(
+                        query.dtype
                     )
-                    sin = (
-                        position_embeddings[:, : position_embeddings.size(1) // 2]
-                        .imag.contiguous()
-                        .to(query.dtype)
+                    sin = position_embeddings[1][:, : self.rotary_dim // 2].to(
+                        query.dtype
                     )
-                    """
-                    cos = position_embeddings[0]
-                    sin = position_embeddings[1]
-                    cos = cos[:, : cos.size(1) // 2].to(query.dtype)
-                    sin = sin[:, : sin.size(1) // 2].to(query.dtype)
                 else:
                     cos = None
                     sin = None
@@ -697,7 +683,6 @@ class SelfMHA(MultiHeadedAttention):
                     cache_seqlens=step,
                     rotary_interleaved=self.rotary_interleave,
                 ).transpose(1, 2)
-
                 attn_output = self.final_linear(unshape(context))
                 if self.parallel_gpu > 1:
                     # all_reduce is an inplace op - not easily backprop
