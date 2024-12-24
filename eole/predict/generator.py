@@ -180,6 +180,7 @@ class GeneratorLM(Inference):
             dec_in = torch.cat((src, dec_in), 1)
             tgt_pad_mask = dec_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, T_tgt]
             emb = self.model.tgt_emb(dec_in)
+            self.model.decoder._clear_cache()
             dec_out, _ = self.model.decoder(
                 emb,
                 enc_out=None,

@@ -129,7 +129,7 @@ class TransformerLMDecoder(TransformerDecoderBase):
 
         if hasattr(self, "rope"):
             position_embeddings = self.rope(
-                emb,
+                emb.size(1),
                 step=step,
                 device=emb.device,
             )
@@ -137,20 +137,8 @@ class TransformerLMDecoder(TransformerDecoderBase):
             position_embeddings = None
 
         if step == 0:
-            # decoding mode.
             # Initialize KV and key_pad_mask cache.
             self._init_cache(emb.device, pad_mask)
-        elif step is None:
-            # training mode.
-            for layer in self.transformer_layers:
-                layer.self_attn.layer_cache = (
-                    False,
-                    {
-                        "keys": torch.tensor([]),
-                        "values": torch.tensor([]),
-                        "key_pad_mask": None,
-                    },
-                )
 
         with_align = kwargs.pop("with_align", False)
         return_attn = kwargs.pop("return_attn", False)
@@ -183,5 +171,17 @@ class TransformerLMDecoder(TransformerDecoderBase):
                         "keys": torch.tensor([], device=device),
                         "values": torch.tensor([], device=device),
                         "key_pad_mask": mask,
+                    },
+                )
+
+    def _clear_cache(self):
+        for layer in self.transformer_layers:
+            if hasattr(layer, "self_attn"):
+                layer.self_attn.layer_cache = (
+                    False,
+                    {
+                        "keys": torch.tensor([]),
+                        "values": torch.tensor([]),
+                        "key_pad_mask": None,
                     },
                 )

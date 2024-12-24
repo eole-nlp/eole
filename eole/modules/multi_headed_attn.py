@@ -5,7 +5,6 @@ from math import log, sqrt
 from torch import Tensor
 from typing import Optional, Tuple
 from torch.nn.functional import scaled_dot_product_attention
-from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.utils.checkpoint import checkpoint
 from torch.nn.utils import skip_init
 from .alibi_position_bias import AlibiPositionalBias
@@ -316,7 +315,11 @@ class MultiHeadedAttention(torch.nn.Module):
         self.relative_positions_buckets = model_config.relative_positions_buckets
         self.layer_cache = (
             False,
-            {"keys": torch.tensor([]), "values": torch.tensor([])},
+            {
+                "keys": torch.tensor([]),
+                "values": torch.tensor([]),
+                "key_pad_mask": None,
+            },
         )
         # TODO find a cleaner way to initialize?
         self.relative_positions_embeddings = None
@@ -398,10 +401,9 @@ class MultiHeadedAttention(torch.nn.Module):
         query = shape(query, self.dim_per_head)
 
         if self.position_encoding_type == PositionEncodingType.Rotary:
-            start_pos = 0
             seqlen = query.size(2)
-            cos = position_embeddings[0][start_pos : start_pos + seqlen]
-            sin = position_embeddings[1][start_pos : start_pos + seqlen]
+            cos = position_embeddings[0][:seqlen]
+            sin = position_embeddings[1][:seqlen]
             query, key = apply_rotary_emb(
                 query, key, (cos, sin), interleave=self.rotary_interleave
             )
@@ -455,15 +457,14 @@ class MultiHeadedAttention(torch.nn.Module):
             and query.device.type != "cpu"
         ):
             # Apply pytorch scaled_dot_product_attention.
-            with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
-                attn_output = scaled_dot_product_attention(
-                    query,
-                    key,
-                    value,
-                    ~mask if mask is not None else None,
-                    self.dropout_p,
-                    is_causal=False,
-                )
+            attn_output = scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                ~mask if mask is not None else None,
+                self.dropout_p,
+                is_causal=False,
+            )
             attn = None
         else:
             query /= sqrt(self.dim_per_head)
@@ -562,11 +563,10 @@ class SelfMHA(MultiHeadedAttention):
         sliding_window: Optional[int] = 0,
         position_embeddings=None,
     ):
-        start_pos = step
-        seqlen = query.size(2)
         if self.position_encoding_type == PositionEncodingType.Rotary:
-            cos = position_embeddings[0][start_pos : start_pos + seqlen]
-            sin = position_embeddings[1][start_pos : start_pos + seqlen]
+            seqlen = query.size(2)
+            cos = position_embeddings[0][step : step + seqlen]
+            sin = position_embeddings[1][step : step + seqlen]
             query, key = apply_rotary_emb(
                 query, key, (cos, sin), interleave=self.rotary_interleave
             )
@@ -607,7 +607,6 @@ class SelfMHA(MultiHeadedAttention):
             key = shape(key, self.dim_per_head)
             value = shape(value, self.dim_per_head)
             query = shape(query, self.dim_per_head)
-            start_pos = step
             if (
                 step == 0
                 or not self.flash
@@ -628,7 +627,7 @@ class SelfMHA(MultiHeadedAttention):
                 )
             else:
                 # Fast path with flash_attn_with_kvcache
-                if start_pos >= self.layer_cache[1]["keys"].size(2):
+                if step >= self.layer_cache[1]["keys"].size(2):
                     self.layer_cache[1]["keys"] = torch.cat(
                         [
                             self.layer_cache[1]["keys"],
@@ -663,12 +662,9 @@ class SelfMHA(MultiHeadedAttention):
                         :, :, 1:, :
                     ]
                 if position_embeddings is not None:
-                    cos = position_embeddings[0][:, : self.rotary_dim // 2].to(
-                        query.dtype
-                    )
-                    sin = position_embeddings[1][:, : self.rotary_dim // 2].to(
-                        query.dtype
-                    )
+                    rotdim = self.rotary_dim // 2
+                    cos = position_embeddings[0][:, :rotdim].to(query.dtype)
+                    sin = position_embeddings[1][:, :rotdim].to(query.dtype)
                 else:
                     cos = None
                     sin = None

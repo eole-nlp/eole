@@ -2,7 +2,7 @@
 """Training on a single process."""
 import torch
 import sys
-
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from eole.utils.logging import init_logger, logger
 from eole.config.run import TrainConfig
 from eole.constants import CorpusTask
@@ -241,13 +241,14 @@ def main(config, device_id):
         logger.warning("Option single_pass is enabled, ignoring train_steps.")
         train_steps = 0
 
-    trainer.train(
-        train_iter,
-        train_steps,
-        save_checkpoint_steps=config.training.save_checkpoint_steps,
-        valid_iter=valid_iter,
-        valid_steps=config.training.valid_steps,
-    )
+    with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION]):
+        trainer.train(
+            train_iter,
+            train_steps,
+            save_checkpoint_steps=config.training.save_checkpoint_steps,
+            valid_iter=valid_iter,
+            valid_steps=config.training.valid_steps,
+        )
 
     if trainer.report_manager.tensorboard_writer is not None:
         trainer.report_manager.tensorboard_writer.close()

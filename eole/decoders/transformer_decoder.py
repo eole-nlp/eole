@@ -180,32 +180,21 @@ class TransformerDecoder(TransformerDecoderBase):
         assert tgt_pad_mask is not None, "TransformerDecoder requires a tgt pad mask"
         src_pad_mask = kwargs.pop("src_pad_mask", None)
         assert src_pad_mask is not None, "TransformerDecoder requires a src pad mask"
-
         step = kwargs.pop("step", None)
-
-        if enc_out is None:
-            enc_out = emb
-        if step == 0:
-            self._init_cache(enc_out.device)
-        elif step is None:
-            for layer in self.transformer_layers:
-                layer.self_attn.layer_cache = (
-                    False,
-                    {"keys": torch.tensor([]), "values": torch.tensor([])},
-                )
-                layer.context_attn.layer_cache = (
-                    False,
-                    {"keys": torch.tensor([]), "values": torch.tensor([])},
-                )
 
         if hasattr(self, "rope"):
             position_embeddings = self.rope(
-                emb,
+                emb.size(1),
                 step=step,
                 device=emb.device,
             )
         else:
             position_embeddings = None
+
+        if enc_out is None:
+            enc_out = emb
+        if step == 0:
+            self._init_cache(enc_out.device)
 
         with_align = kwargs.pop("with_align", False)
         return_attn = with_align or kwargs.pop("return_attn", False)
@@ -237,7 +226,6 @@ class TransformerDecoder(TransformerDecoderBase):
         return emb, attns
 
     def _init_cache(self, device):
-
         for layer in self.transformer_layers:
             # first value set to True triggered by the beginning of decoding
             # layer_cache becomes active in the MultiHeadedAttention fwd
@@ -259,3 +247,14 @@ class TransformerDecoder(TransformerDecoderBase):
                 layer.self_attn.rope = layer.self_attn.rope.to(device)
                 layer.self_attn.cos = layer.self_attn.cos.to(device)
                 layer.self_attn.sin = layer.self_attn.sin.to(device)
+
+    def _clear_cache(self):
+        for layer in self.transformer_layers:
+            layer.self_attn.layer_cache = (
+                False,
+                {"keys": torch.tensor([]), "values": torch.tensor([])},
+            )
+            layer.context_attn.layer_cache = (
+                False,
+                {"keys": torch.tensor([]), "values": torch.tensor([])},
+            )

@@ -264,6 +264,7 @@ class Translator(Inference):
                 dec_in[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)
             )  # [B, 1, T_tgt]
             emb = self.model.tgt_emb(dec_in[:, :-1])
+            self.model.decoder._clear_cache()
             dec_out, _ = self.model.decoder(
                 emb,
                 enc_out=enc_out2,
