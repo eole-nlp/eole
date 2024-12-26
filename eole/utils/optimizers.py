@@ -393,9 +393,9 @@ class Optimizer(object):
                     optimizer._fp16 = "legacy"
             else:
                 optimizer._fp16 = "amp"
-                from torch.cuda.amp import GradScaler
+                from torch.amp import GradScaler
 
-                optimizer._scaler = GradScaler()
+                optimizer._scaler = GradScaler("cuda")
         if optim_state_dict:
             optimizer.load_state_dict(optim_state_dict)
         return optimizer

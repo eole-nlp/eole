@@ -118,6 +118,7 @@ class TransformerLMDecoder(TransformerDecoderBase):
         self.layer_norm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
+        self._clear_cache()
 
     def forward(self, emb, **kwargs):
         """Decode, possibly stepwise."""
@@ -126,6 +127,10 @@ class TransformerLMDecoder(TransformerDecoderBase):
         pad_mask = kwargs.pop("tgt_pad_mask", None)
         assert pad_mask is not None, "TransformerLMDecoder requires a pad mask"
         step = kwargs.pop("step", None)
+        with_align = kwargs.pop("with_align", False)
+        return_attn = kwargs.pop("return_attn", False)
+        return_attn = with_align or return_attn
+        assert not with_align, "TransformerLMDecoder does not support align"
 
         if hasattr(self, "rope"):
             position_embeddings = self.rope(
@@ -137,13 +142,7 @@ class TransformerLMDecoder(TransformerDecoderBase):
             position_embeddings = None
 
         if step == 0:
-            # Initialize KV and key_pad_mask cache.
             self._init_cache(emb.device, pad_mask)
-
-        with_align = kwargs.pop("with_align", False)
-        return_attn = kwargs.pop("return_attn", False)
-        return_attn = with_align or return_attn
-        assert not with_align, "TransformerLMDecoder does not support align"
 
         for layer in self.transformer_layers:
             emb, attn, _ = layer(

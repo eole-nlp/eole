@@ -16,7 +16,7 @@ class EncoderBase(nn.Module):
     def from_config(cls, model_config, running_config=None):
         raise NotImplementedError
 
-    def forward(self, emb, mask=None):
+    def forward(self, emb, **kwargs):
         """
         Args:
             emb (FloatTensor):

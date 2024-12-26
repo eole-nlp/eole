@@ -169,6 +169,7 @@ class TransformerDecoder(TransformerDecoderBase):
         self.layer_norm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
+        self._clear_cache()
 
     def forward(self, emb, **kwargs):
         """Decode, possibly stepwise."""
@@ -181,6 +182,9 @@ class TransformerDecoder(TransformerDecoderBase):
         src_pad_mask = kwargs.pop("src_pad_mask", None)
         assert src_pad_mask is not None, "TransformerDecoder requires a src pad mask"
         step = kwargs.pop("step", None)
+        with_align = kwargs.pop("with_align", False)
+        return_attn = with_align or kwargs.pop("return_attn", False)
+        attn_aligns = []
 
         if hasattr(self, "rope"):
             position_embeddings = self.rope(
@@ -191,20 +195,13 @@ class TransformerDecoder(TransformerDecoderBase):
         else:
             position_embeddings = None
 
-        if enc_out is None:
-            enc_out = emb
         if step == 0:
             self._init_cache(enc_out.device)
-
-        with_align = kwargs.pop("with_align", False)
-        return_attn = with_align or kwargs.pop("return_attn", False)
-
-        attn_aligns = []
 
         for layer in self.transformer_layers:
             emb, attn, attn_align = layer(
                 emb,
-                enc_out,
+                enc_out if enc_out is not None else emb,
                 src_pad_mask,
                 tgt_pad_mask,
                 step=step,

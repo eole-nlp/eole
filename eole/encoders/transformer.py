@@ -127,12 +127,14 @@ class TransformerEncoder(EncoderBase):
             running_config,
         )
 
-    def forward(self, emb, mask=None):
+    def forward(self, emb, **kwargs):
         """See :func:`EncoderBase.forward()`"""
+        pad_mask = kwargs.pop("pad_mask", None)
+        assert pad_mask is not None, "TransformerDecoder requires a src pad mask"
         enc_out = emb
-        mask = mask.unsqueeze(1).unsqueeze(1)
-        # mask is now (batch x 1 x 1 x maxlen)
-        mask = mask.expand(-1, -1, mask.size(3), -1)
+        pad_mask = pad_mask.unsqueeze(1)
+        # pad_mask is now (batch x 1 x 1 x maxlen)
+        pad_mask = pad_mask.expand(-1, -1, pad_mask.size(3), -1)
         # Padding mask is now (batch x 1 x maxlen x maxlen)
         # 1 to be expanded to number of heads in MHA
         # Run the forward pass of every layer of the tranformer.
@@ -143,7 +145,7 @@ class TransformerEncoder(EncoderBase):
             position_embeddings = None
 
         for layer in self.transformer_layers:
-            enc_out = layer(enc_out, mask, position_embeddings=position_embeddings)
+            enc_out = layer(enc_out, pad_mask, position_embeddings=position_embeddings)
         enc_out = self.layer_norm(enc_out)
         return enc_out, None
 

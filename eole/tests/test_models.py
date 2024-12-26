@@ -8,7 +8,6 @@ import eole
 import eole.inputters
 
 from eole.models.model import build_src_emb, build_tgt_emb, build_encoder, build_decoder
-from eole.utils.misc import sequence_mask
 from eole.config.run import TrainConfig
 from eole.config.data import Dataset
 from eole.config.models import CustomModelConfig
@@ -120,8 +119,9 @@ class TestModel(unittest.TestCase):
 
         test_src, test_tgt, test_length = self.get_batch(source_l=source_l, bsize=bsize)
         emb_src = embeddings(test_src)
-        mask = sequence_mask(test_length)
-        enc_out, hidden_t = enc(emb_src, mask)
+        pad_idx = embeddings.word_padding_idx
+        pad_mask = test_src.eq(pad_idx).unsqueeze(1)
+        enc_out, hidden_t = enc(emb_src, pad_mask=pad_mask)
 
         # Initialize vectors to compare size with
         test_hid = torch.zeros(

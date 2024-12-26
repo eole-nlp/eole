@@ -3,7 +3,6 @@ from eole.predict.inference import Inference
 from eole.constants import ModelType
 from eole.predict.greedy_search import GreedySearch
 from eole.predict.beam_search import BeamSearch
-from eole.utils.misc import sequence_mask
 
 
 class Encoder(Inference):
@@ -75,9 +74,10 @@ class Encoder(Inference):
         src = batch["src"]
         src_len = batch["srclen"]
         batch_size = len(batch["srclen"])
-        mask = sequence_mask(src_len)
         emb = self.model.src_emb(src)
-        enc_out, enc_final_hs = self.model.encoder(emb, mask)
+        pad_idx = self.model.src_emb.word_padding_idx
+        pad_mask = src.eq(pad_idx).unsqueeze(1)
+        enc_out, enc_final_hs = self.model.encoder(emb, pad_mask=pad_mask)
 
         if src_len is None:
             assert not isinstance(

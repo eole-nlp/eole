@@ -14,7 +14,7 @@ from eole.modules.lora import (
 )
 from torch.nn.utils import skip_init
 from torch.nn.init import xavier_uniform_, zeros_, uniform_, normal_
-from eole.utils.misc import use_gpu, sequence_mask, get_device
+from eole.utils.misc import use_gpu, get_device
 from eole.inputters.inputter import dict_to_vocabs
 
 # copied from model_builder to facilitate tests, but should not live there in the end
@@ -429,6 +429,7 @@ class BaseModel(nn.Module):
             model.build_generator(model_config, running_config, vocabs)
         else:
             model.generator = None
+
         # 1 build_base_model
         # quantization stuff
         model.maybe_quantize(
@@ -752,7 +753,7 @@ class EncoderDecoderModel(BaseModel):
                 "A EncoderDecoderModel requires both an Encoder and a Decoder"
             )
         if self.add_estimator:
-            self.estimator = FeedForward(self.hidden_size)
+            self.estimator = torch.compile(FeedForward(self.hidden_size), dynamic=True)
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
@@ -784,16 +785,15 @@ class EncoderDecoderModel(BaseModel):
         * enc_final_hs in the case of RNNs
         * enc_out + enc_final_hs in the case of CNNs
         * src in the case of Transformer"""
-        mask = sequence_mask(src_len)
-        enc_out, enc_final_hs = self.encoder(self.src_emb(src), mask=mask)
-        if not bptt:
-            self.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
-
         pad_idx = self.src_emb.word_padding_idx
         src_pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_src]
-        tgt_pad_mask = tgt[:, :-1].eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
-
+        enc_out, enc_final_hs = self.encoder(self.src_emb(src), pad_mask=src_pad_mask)
+        if not bptt:
+            self.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
         dec_in = tgt[:, :-1]
+        pad_idx = self.tgt_emb.word_padding_idx
+        tgt_pad_mask = dec_in.eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+
         dec_out, attns = self.decoder(
             self.tgt_emb(dec_in),
             enc_out=enc_out,
@@ -850,7 +850,7 @@ class DecoderModel(BaseModel):
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def forward(self, src, tgt, src_len, bptt=False, with_align=False):
+    def forward(self, src, _, src_len, bptt=False, with_align=False):
         """A DecoderModel forward the src side to the decoder along
         with the source lengths vector. It is a decoder only LM (cf GPT-2)"""
 
@@ -912,11 +912,12 @@ class EncoderModel(BaseModel):
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def forward(self, src, tgt, src_len, bptt=False, with_align=False):
+    def forward(self, src, _, src_len, bptt=False, with_align=False):
         """An EncoderModel encodes the source sentence to build hidden states"""
 
-        mask = sequence_mask(src_len)
-        enc_out, enc_final_hs = self.encoder(self.src_emb(src), mask=mask)
+        pad_idx = self.src_emb.word_padding_idx
+        pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_src]
+        enc_out, enc_final_hs = self.encoder(self.src_emb(src), pad_mask=pad_mask)
         if self.add_estimator:
             # Version with average
             """
