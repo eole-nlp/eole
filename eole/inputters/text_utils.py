@@ -1,6 +1,7 @@
 import torch
-import torch.nn.functional as F
-import math
+
+# import torch.nn.functional as F
+# import math
 from eole.constants import DefaultTokens, CorpusTask, ModelType
 from torch.nn.utils.rnn import pad_sequence
 from eole.utils.logging import logger
@@ -182,11 +183,14 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
         ]
     padidx = vocabs["src"][vocabs["specials"].get("pad_token", DefaultTokens.PAD)]
     tbatchsrc = pad_sequence(tbatchsrc, batch_first=True, padding_value=padidx)
+    """
+    This removes some recompiles in torch.dynamo, but slows down and make inference tricky
     tbatchsrc = F.pad(
         tbatchsrc,
         (0, max(0, math.ceil(tbatchsrc.size(1) / 8) * 8 - tbatchsrc.size(1))),
         value=padidx,
     )
+    """
     if left_pad:
         tensor_batch["src"] = tbatchsrc.flip(dims=[1])
     else:

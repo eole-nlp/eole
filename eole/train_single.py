@@ -188,6 +188,11 @@ def main(config, device_id):
     )
 
     if config.training.torch_compile:
+        torch.backends.cuda.enable_mem_efficient_sdp(True)
+        torch.backends.cuda.enable_flash_sdp(False)
+        torch.backends.cuda.enable_math_sdp(False)
+        torch.backends.cuda.enable_cudnn_sdp(False)
+        torch._dynamo.config.cache_size_limit = 16
         model = torch.compile(model, dynamic=True)
     model.count_parameters(log=logger.info)
 

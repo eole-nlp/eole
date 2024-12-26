@@ -10,7 +10,7 @@ import codecs
 from eole.transforms import TransformPipe, AVAILABLE_TRANSFORMS
 from eole.constants import DefaultTokens
 from eole.predict.prediction import PredictionBuilder
-from eole.utils.misc import set_random_seed, report_matrix, sequence_mask, get_device
+from eole.utils.misc import set_random_seed, report_matrix, get_device
 from eole.utils.alignment import build_align_pharaoh
 
 
@@ -661,21 +661,14 @@ class Inference(object):
         # and [batch, src_len, hidden] as enc_out
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
-        if isinstance(enc_out, tuple):
-            src_max_len = enc_out[0].size(1)
-            src_pad_mask = sequence_mask(src_len, src_max_len).unsqueeze(
-                1
-            )  # [B, 1, T_src]
-        elif enc_out is not None:
-            src_max_len = enc_out.size(1)  # src_len.max() ce bug était sournois
-            src_pad_mask = sequence_mask(src_len, src_max_len).unsqueeze(
-                1
-            )  # [B, 1, T_src]
-        else:
-            src_pad_mask = None
-        tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
-
         emb = self.model.tgt_emb(decoder_in, step=step)
+
+        if self.model.src_emb is not None:
+            pad_idx = self.model.src_emb.word_padding_idx
+        else:
+            pad_idx = self.model.tgt_emb.word_padding_idx
+        src_pad_mask = batch["src"].eq(pad_idx).unsqueeze(1)  # [B, 1, T_src]
+        tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
         dec_out, dec_attn = self.model.decoder(
             emb,
             enc_out=enc_out,
