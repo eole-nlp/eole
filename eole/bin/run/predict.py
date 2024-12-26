@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
 from eole.inference_engine import InferenceEnginePY, InferenceEngineCT2
 from eole.constants import ModelType
 from argparse import ArgumentParser

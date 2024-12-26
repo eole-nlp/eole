@@ -142,7 +142,7 @@ class Translator(Inference):
         src_len = batch["srclen"]
         batch_size = len(batch["srclen"])
         emb = self.model.src_emb(src)
-        pad_idx = self.model.src_emb.word_padding_idx
+        pad_idx = self.model.src_emb[0].word_padding_idx if isinstance(self.model.src_emb, tuple) else self.model.src_emb.word_padding_idx
         pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_src]
         enc_out, enc_final_hs = self.model.encoder(emb, pad_mask=pad_mask)
 

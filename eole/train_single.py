@@ -2,7 +2,6 @@
 """Training on a single process."""
 import torch
 import sys
-from torch.nn.attention import SDPBackend, sdpa_kernel
 from eole.utils.logging import init_logger, logger
 from eole.config.run import TrainConfig
 from eole.constants import CorpusTask
@@ -153,6 +152,12 @@ def main(config, device_id):
     init_logger(config.log_file)
     checkpoint, vocabs, transforms, config = _init_train(config)
 
+    # Allow only Memory Efficient path for sdpa
+    torch.backends.cuda.enable_mem_efficient_sdp(True)
+    torch.backends.cuda.enable_flash_sdp(False)
+    torch.backends.cuda.enable_math_sdp(False)
+    torch.backends.cuda.enable_cudnn_sdp(False)
+
     # if transform + options set in 'valid' we need to copy in main
     # transform / options for scoring considered as inference
     validset_transforms = getattr(config.data.get("valid", None), "transforms", None)
@@ -188,10 +193,6 @@ def main(config, device_id):
     )
 
     if config.training.torch_compile:
-        torch.backends.cuda.enable_mem_efficient_sdp(True)
-        torch.backends.cuda.enable_flash_sdp(False)
-        torch.backends.cuda.enable_math_sdp(False)
-        torch.backends.cuda.enable_cudnn_sdp(False)
         torch._dynamo.config.cache_size_limit = 16
         model = torch.compile(model, dynamic=True)
     model.count_parameters(log=logger.info)
@@ -246,14 +247,13 @@ def main(config, device_id):
         logger.warning("Option single_pass is enabled, ignoring train_steps.")
         train_steps = 0
 
-    with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION]):
-        trainer.train(
-            train_iter,
-            train_steps,
-            save_checkpoint_steps=config.training.save_checkpoint_steps,
-            valid_iter=valid_iter,
-            valid_steps=config.training.valid_steps,
-        )
+    trainer.train(
+        train_iter,
+        train_steps,
+        save_checkpoint_steps=config.training.save_checkpoint_steps,
+        valid_iter=valid_iter,
+        valid_steps=config.training.valid_steps,
+    )
 
     if trainer.report_manager.tensorboard_writer is not None:
         trainer.report_manager.tensorboard_writer.close()

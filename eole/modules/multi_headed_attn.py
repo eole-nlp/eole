@@ -457,7 +457,6 @@ class MultiHeadedAttention(torch.nn.Module):
             and query.device.type != "cpu"
         ):
             # Apply pytorch scaled_dot_product_attention.
-            # with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
             attn_output = scaled_dot_product_attention(
                 query,
                 key,

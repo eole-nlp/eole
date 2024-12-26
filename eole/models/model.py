@@ -429,7 +429,6 @@ class BaseModel(nn.Module):
             model.build_generator(model_config, running_config, vocabs)
         else:
             model.generator = None
-
         # 1 build_base_model
         # quantization stuff
         model.maybe_quantize(
@@ -753,7 +752,7 @@ class EncoderDecoderModel(BaseModel):
                 "A EncoderDecoderModel requires both an Encoder and a Decoder"
             )
         if self.add_estimator:
-            self.estimator = torch.compile(FeedForward(self.hidden_size), dynamic=True)
+            self.estimator = FeedForward(self.hidden_size)
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
