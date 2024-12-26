@@ -99,6 +99,9 @@ class Inference(object):
         self._tgt_pad_idx = vocabs["tgt"].lookup_token(
             vocabs.get("specials", {}).get("pad_token", DefaultTokens.PAD)
         )
+        self._src_pad_idx = vocabs["src"].lookup_token(
+            vocabs.get("specials", {}).get("pad_token", DefaultTokens.PAD)
+        )
         self._tgt_bos_idx = vocabs["tgt"].lookup_token(
             vocabs.get("specials", {}).get("bos_token", "")
         )
@@ -662,12 +665,7 @@ class Inference(object):
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
         emb = self.model.tgt_emb(decoder_in, step=step)
-
-        if self.model.src_emb is not None:
-            pad_idx = self.model.src_emb.word_padding_idx
-        else:
-            pad_idx = self.model.tgt_emb.word_padding_idx
-        src_pad_mask = batch["src"].eq(pad_idx).unsqueeze(1)  # [B, 1, T_src]
+        src_pad_mask = batch["src"].eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
         dec_out, dec_attn = self.model.decoder(
             emb,

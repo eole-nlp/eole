@@ -59,10 +59,8 @@ class Translator(Inference):
 
         # (4) reshape and apply pad masking in the target sequence
         tgt = batch_tgt_idxs.view(-1, batch_tgt_idxs.size(-1))
-        src_pad_idx = self.model.src_emb.word_padding_idx
-        src_pad_mask = src.eq(src_pad_idx).unsqueeze(1)
-        tgt_pad_idx = self.model.tgt_emb.word_padding_idx
-        tgt_pad_mask = tgt[:, :-1].eq(tgt_pad_idx).unsqueeze(1)
+        src_pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)
+        tgt_pad_mask = tgt[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)
 
         dec_in = tgt[:, :-1]
         _, attns = self.model.decoder(
@@ -142,12 +140,7 @@ class Translator(Inference):
         src_len = batch["srclen"]
         batch_size = len(batch["srclen"])
         emb = self.model.src_emb(src)
-        pad_idx = (
-            self.model.src_emb[0].word_padding_idx
-            if isinstance(self.model.src_emb, tuple)
-            else self.model.src_emb.word_padding_idx
-        )
-        pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_src]
+        pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
         enc_out, enc_final_hs = self.model.encoder(emb, pad_mask=pad_mask)
 
         if src_len is None:
@@ -261,8 +254,7 @@ class Translator(Inference):
                 device=dec_in.device,
             )
             dec_in = torch.cat((prepend_value, dec_in), dim=1)
-            src_pad_idx = self.model.src_emb.word_padding_idx
-            src_pad_mask = src.eq(src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
+            src_pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
             tgt_pad_mask = (
                 dec_in[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)
             )  # [B, 1, T_tgt]

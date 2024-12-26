@@ -75,8 +75,7 @@ class Encoder(Inference):
         src_len = batch["srclen"]
         batch_size = len(batch["srclen"])
         emb = self.model.src_emb(src)
-        pad_idx = self.model.src_emb.word_padding_idx
-        pad_mask = src.eq(pad_idx).unsqueeze(1)
+        pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)
         enc_out, enc_final_hs = self.model.encoder(emb, pad_mask=pad_mask)
 
         if src_len is None:

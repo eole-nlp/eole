@@ -48,10 +48,10 @@ class EnsembleEncoder(EncoderBase):
         super(EnsembleEncoder, self).__init__()
         self.model_encoders = nn.ModuleList(model_encoders)
 
-    def forward(self, emb, mask=None):
+    def forward(self, emb, pad_mask=None):
         enc_out, enc_final_hs = zip(
             *[
-                model_encoder(emb[i], mask)
+                model_encoder(emb[i], pad_mask=pad_mask)
                 for i, model_encoder in enumerate(self.model_encoders)
             ]
         )
