@@ -71,6 +71,10 @@ ${PYTHON} -m unittest discover >> ${LOG_FILE} 2>&1
 [ "$?" -eq 0 ] || error_exit
 echo "Succeeded" | tee -a ${LOG_FILE}
 
+# Make sure recipes configs are valid
+echo -n "[+] Checking recipes config..."
+${PYTHON} eole/tests/test_recipes.py $PROJECT_ROOT/recipes
+
 # Get Vocabulary test
 echo -n "[+] Testing vocabulary building..."
 PYTHONPATH=${PROJECT_ROOT}:${PYTHONPATH} ${PYTHON} eole/bin/main.py build_vocab \
@@ -444,7 +448,6 @@ ${PYTHON} eole/tests/test_inference_engines.py -model ${TEST_DIR}/test_model_lm 
             -model_type decoder \
             -input_file $TMP_OUT_DIR/src-test.txt \
             -inference_config_file ${DATA_DIR}/inference-engine_py.yaml \
-            -inference_mode py \
             -out $TMP_OUT_DIR/inference_engine_lm_py_outputs  >> ${LOG_FILE} 2>&1
 [ "$?" -eq 0 ] || error_exit
 echo "Succeeded" | tee -a ${LOG_FILE}
@@ -454,11 +457,11 @@ rm $TMP_OUT_DIR/inference_engine_lm_py_outputs_list.json
 
 echo "  [+] Testing CT2 LM inference engine .."| tee -a ${LOG_FILE}
 head ${DATA_DIR}/src-test.txt > $TMP_OUT_DIR/src-test.txt
-${PYTHON} eole/tests/test_inference_engines.py -model ${TEST_DIR}/test_model_lm_ct2 \
+${PYTHON} eole/tests/test_inference_engines.py -model ${TEST_DIR} \
             -model_type decoder \
             -input_file $TMP_OUT_DIR/src-test.txt \
             -inference_config_file ${DATA_DIR}/inference-engine_py.yaml \
-            -inference_mode ct2 \
+            -engine ct2 \
             -out $TMP_OUT_DIR/inference_engine_lm_ct2_outputs  >> ${LOG_FILE} 2>&1
 [ "$?" -eq 0 ] || error_exit
 echo "Succeeded" | tee -a ${LOG_FILE}
@@ -473,7 +476,6 @@ ${PYTHON} eole/tests/test_inference_engines.py -model ${TEST_DIR}/test_model \
             -model_type encoder_decoder \
             -input_file $TMP_OUT_DIR/src-test.txt \
             -inference_config_file ${DATA_DIR}/inference-engine_py.yaml \
-            -inference_mode py \
             -out $TMP_OUT_DIR/inference_engine_seq2seq_py_outputs  >> ${LOG_FILE} 2>&1
 [ "$?" -eq 0 ] || error_exit
 echo "Succeeded" | tee -a ${LOG_FILE}

@@ -6,7 +6,7 @@ from eole.config.config import get_config_dict
 from eole.config.training import TrainingConfig
 from eole.config.inference import InferenceConfig
 from eole.config.common import MiscConfig, LoggingConfig
-from eole.config.models import ModelConfig
+from eole.config.models import ModelConfig, build_model_config
 from eole.config.data import (
     DataConfig,
     BaseVocabConfig,
@@ -15,7 +15,9 @@ from eole.config.data import (
 )
 from eole.transforms import get_transforms_cls
 from eole.constants import TransformType
+from eole.utils.logging import logger
 from pydantic import Field, field_validator, model_validator
+import torch
 
 
 # Models below somewhat replicate prior opt behavior to facilitate transition
@@ -34,6 +36,7 @@ class TrainConfig(
     )  # not sure this still works
     model: ModelConfig | None = None  # TypeAdapter handling discrimination directly
     training: TrainingConfig | None = Field(default_factory=TrainingConfig)
+    inference: InferenceConfig | None = Field(default=None)
 
     def get_model_path(self):
         return self.training.get_model_path()
@@ -81,6 +84,8 @@ class TrainConfig(
                 self.save_data
             ), "-save_data should be set if \
                 want save samples."
+        if torch.cuda.is_available() and not self.training.gpu_ranks:
+            logger.warn("You have a CUDA device, should run with -gpu_ranks")
         return self
 
 
@@ -100,10 +105,25 @@ class PredictConfig(
         None  # patch for CT2 inference engine (to improve later)
     )
     model: ModelConfig | None = None
-    chat_template: str | None = None
-    optional_eos: List[str] | None = Field(
-        default=[],
-        description="Optional EOS tokens that would stop generation, e.g. <|eot_id|> for Llama3",
+    model_path: str | List[str] = Field(
+        description="Path to model .pt file(s). "
+        "Multiple models can be specified for ensemble decoding."
+    )  # some specific (mapping to "models") in legacy code, need to investigate
+    src: str = Field(description="Source file to decode (one line per sequence).")
+    tgt: str | None = Field(
+        default=None,
+        description="True target sequences, useful for scoring or prefix decoding.",
+    )
+    tgt_file_prefix: bool = Field(
+        default=False, description="Generate predictions using provided tgt as prefix."
+    )
+    output: str = Field(
+        default="pred.txt",
+        description="Path to output the predictions (each line will be the decoded sequence).",
+    )
+    engine: str = Field(
+        default="eole",
+        description="engine to run inference: eole or ct2",
     )
 
     @model_validator(mode="after")
@@ -113,6 +133,8 @@ class PredictConfig(
         # TODO: do we really need this _all_transform?
         if self._all_transform is None:
             self._all_transform = self.transforms
+        if torch.cuda.is_available() and not self.gpu_ranks:
+            logger.warn("You have a CUDA device, should run with -gpu_ranks")
         return self
 
     def _update_with_model_config(self):
@@ -131,6 +153,46 @@ class PredictConfig(
         transforms = [
             t for t in transforms if transforms_cls[t].type != TransformType.Train
         ]
+
+        if os.path.exists(config_path):
+            # logic from models.BaseModel.inference_logic
+            model_config = build_model_config(config_dict.get("model", {}))
+            training_config = TrainingConfig(**config_dict.get("training", {}))
+            training_config.world_size = self.world_size
+            training_config.gpu_ranks = self.gpu_ranks
+            # retrieve share_vocab from checkpoint config
+            self.__dict__["share_vocab"] = config_dict.get("share_vocab", False)
+            # retrieve precision from checkpoint config if not explicitly set
+            if "compute_dtype" not in self.model_fields_set:
+                self.compute_dtype = training_config.compute_dtype
+            # quant logic, might be better elsewhere
+            if hasattr(
+                training_config, "quant_type"
+            ) and training_config.quant_type in [
+                "awq_gemm",
+                "awq_gemv",
+            ]:
+                if (
+                    hasattr(self, "quant_type")
+                    and self.quant_type != ""
+                    and self.quant_type != training_config.quant_type
+                ):
+                    raise ValueError(
+                        "Model is a awq quantized model, cannot overwrite with another quant method"
+                    )
+                self.update(quant_type=training_config.quant_type)
+            elif self.quant_type == "" and training_config.quant_type != "":
+                self.update(
+                    quant_layers=training_config.quant_layers,
+                    quant_type=training_config.quant_type,
+                )
+
+            model_config._validate_model_config()
+            # training_config._validate_running_config()  # not sure it's needed
+
+            self.update(
+                model=model_config,
+            )
 
         if "transforms" not in self.model_fields_set:
             self.transforms = self._all_transform = transforms

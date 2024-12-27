@@ -52,13 +52,6 @@ def load_checkpoint(model_path):
                 config_dict = json.loads(os.path.expandvars(f.read()))
                 # drop data to prevent validation issues
                 config_dict["data"] = {}
-                # drop inference to prevent validation issues
-                if "inference" in config_dict.keys():
-                    config_dict.pop("inference")
-                if "training" in config_dict.keys():
-                    config_dict["training"]["dummy_load"] = True
-                else:
-                    config_dict["training"] = {"dummy_load": True}
                 _config = TrainConfig(**config_dict)
                 checkpoint["config"] = _config
         else:
@@ -80,7 +73,7 @@ def load_checkpoint(model_path):
         optim_path = os.path.join(model_path, "optimizer.pt")
         if os.path.exists(optim_path):
             checkpoint["optim"] = torch.load(
-                optim_path, map_location=torch.device("cpu")
+                optim_path, map_location=torch.device("cpu"), weights_only=True
             )
     else:
         raise FileNotFoundError(f"{model_path} is not a directory.")
@@ -151,7 +144,13 @@ class TrainingModelSaver(ModelSaverBase):
                 step_dir_to_delete = os.path.join(
                     self.model_path, self.checkpoint_queue.popleft()
                 )
-                shutil.rmtree(step_dir_to_delete)
+                try:
+                    shutil.rmtree(step_dir_to_delete)
+                except FileNotFoundError:
+                    pass
+                except Exception:
+                    raise
+
             self.checkpoint_queue.append(self.step_dir)
 
     def _maybe_lora(self, model):
@@ -163,6 +162,9 @@ class TrainingModelSaver(ModelSaverBase):
             and self.config.training.lora_embedding
         ):
             model_state_dict = lora_state_dict(model, bias="lora_only")
+            for k, v in model.state_dict().items():
+                if "estimator" in k:
+                    model_state_dict[k] = v
         else:
             model_state_dict = model.state_dict()
         return model_state_dict
@@ -287,13 +289,18 @@ class TrainingModelSaver(ModelSaverBase):
 
     def _save_transforms_artifacts(self):
         if self.transforms is not None:
+            checkpoint_path = os.path.join(self.model_path, self.step_dir)
             for transform_name, transform in self.transforms.items():
-                transform_save_config = transform._save_artifacts(self.model_path)
+                transform_save_config, artifacts = transform._save_artifacts(
+                    checkpoint_path
+                )
                 setattr(
                     self.config.transforms_configs,
                     transform_name,
                     transform_save_config,
                 )
+                for artifact in artifacts:
+                    self._make_symlink(artifact)
                 # we probably do not need to save transforms artifacts for each checkpoint
                 # transform._save_artifacts(os.path.join(self.model_path, self.step_dir))
 
@@ -320,7 +327,10 @@ class TrainingModelSaver(ModelSaverBase):
             )
             self._save_optimizer()
             self._save_weights(model_state_dict)
-            logger.info(f"Saving transforms artifacts, if any, to {self.model_path}")
+            logger.info(
+                "Saving transforms artifacts, if any, "
+                f"to {os.path.join(self.model_path, self.step_dir)}"
+            )
             self._save_transforms_artifacts()
             logger.info(f"Saving config and vocab to {self.model_path}")
             self._save_vocab()

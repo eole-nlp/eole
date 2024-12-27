@@ -7,10 +7,10 @@ from time import time
 from math import exp
 import codecs
 
-from eole.transforms import TransformPipe
+from eole.transforms import TransformPipe, AVAILABLE_TRANSFORMS
 from eole.constants import DefaultTokens
 from eole.predict.prediction import PredictionBuilder
-from eole.utils.misc import set_random_seed, report_matrix, sequence_mask
+from eole.utils.misc import set_random_seed, report_matrix, sequence_mask, get_device
 from eole.utils.alignment import build_align_pharaoh
 
 
@@ -48,7 +48,6 @@ class Inference(object):
         report_time (bool): Print/log total time/frequency.
         global_scorer (eole.predict.GNMTGlobalScorer): Prediction
             scoring/reranking object.
-        out_file (TextIO or codecs.StreamReaderWriter): Output file.
         report_score (bool) : Whether to report scores
         logger (logging.Logger or NoneType): Logger.
     """
@@ -79,7 +78,6 @@ class Inference(object):
         verbose=False,
         report_time=False,
         global_scorer=None,
-        out_file=None,
         report_align=False,
         gold_align=False,
         report_score=True,
@@ -89,6 +87,7 @@ class Inference(object):
         return_gold_log_probs=False,
         add_estimator=False,
         optional_eos=[],
+        id_tokenization=False,
     ):
         self.model = model
         self.vocabs = vocabs
@@ -111,10 +110,8 @@ class Inference(object):
         self._tgt_vocab_len = len(self._tgt_vocab)
 
         self._gpu = gpu
-        self._use_cuda = gpu > -1
-        self._dev = (
-            torch.device("cuda", self._gpu) if self._use_cuda else torch.device("cpu")
-        )
+        self._use_gpu = gpu > -1
+        self._dev = get_device(self._gpu) if self._use_gpu else torch.device("cpu")
 
         self.n_best = n_best
         self.max_length = max_length
@@ -145,7 +142,6 @@ class Inference(object):
         self.global_scorer = global_scorer
         if self.global_scorer.has_cov_pen and not self.model.decoder.attentional:
             raise ValueError("Coverage penalty requires an attentional decoder.")
-        self.out_file = out_file
         self.report_align = report_align
         self.gold_align = gold_align
         self.report_score = report_score
@@ -165,11 +161,12 @@ class Inference(object):
                 "log_probs": [],
             }
 
-        set_random_seed(seed, self._use_cuda)
+        set_random_seed(seed, self._use_gpu)
         self.with_score = with_score
 
         self.return_gold_log_probs = return_gold_log_probs
         self.add_estimator = add_estimator
+        self.id_tokenization = id_tokenization
 
     @classmethod
     def from_config(
@@ -180,7 +177,6 @@ class Inference(object):
         model_config,
         device_id=0,
         global_scorer=None,
-        out_file=None,
         report_align=False,
         report_score=True,
         logger=None,
@@ -196,13 +192,17 @@ class Inference(object):
                 the model checkpoint.
             global_scorer (eole.predict.GNMTGlobalScorer): See
                 :func:`__init__()`..
-            out_file (TextIO or codecs.StreamReaderWriter): See
-                :func:`__init__()`.
             report_align (bool) : See :func:`__init__()`.
             report_score (bool) : See :func:`__init__()`.
             logger (logging.Logger or NoneType): See :func:`__init__()`.
         """
         # TODO: maybe add dynamic part
+
+        id_tokenization = False
+        if len(config.transforms) > 0:
+            tail_transform_cls = AVAILABLE_TRANSFORMS.get(config.transforms[-1], None)
+            if getattr(tail_transform_cls, "output_type", None) == "ids":
+                id_tokenization = True
 
         return cls(
             model,
@@ -229,7 +229,6 @@ class Inference(object):
             verbose=config.verbose,
             report_time=config.report_time,
             global_scorer=global_scorer,
-            out_file=out_file,
             report_align=report_align,
             gold_align=config.gold_align,
             report_score=report_score,
@@ -238,6 +237,7 @@ class Inference(object):
             with_score=config.with_score,
             add_estimator=model_config.add_estimator,
             optional_eos=config.optional_eos,
+            id_tokenization=id_tokenization,
         )
 
     def _log(self, msg):
@@ -296,6 +296,7 @@ class Inference(object):
             self.replace_unk,
             self.phrase_table,
             self._tgt_eos_idx,
+            self.id_tokenization,
         )
 
         # Statistics
@@ -312,53 +313,59 @@ class Inference(object):
         def _maybe_retranslate(translations, batch):
             """Here we handle the cases of mismatch in number of segments
             between source and target. We re-translate seg by seg."""
-            inds, perm = torch.sort(batch["ind_in_bucket"])
             trans_copy = deepcopy(translations)
-            inserted_so_far = 0
             for j, trans in enumerate(translations):
                 if (trans.src == self._tgt_sep_idx).sum().item() != trans.pred_sents[
                     0
                 ].count(DefaultTokens.SEP):
                     self._log("Mismatch in number of ((newline))")
-                    # those two should be the same except feat dim
-                    # batch['src'][perm[j], :, :])
-                    # trans.src
 
                     # we rebuild a small batch made of the sub-segments
                     # in the long segment.
                     idx = (trans.src == self._tgt_sep_idx).nonzero()
+
                     sub_src = []
                     start_idx = 0
                     for i in range(len(idx)):
                         end_idx = idx[i]
-                        sub_src.append(batch["src"][perm[j], start_idx:end_idx, :])
+                        sub_src.append(trans.src[start_idx:end_idx])
                         start_idx = end_idx + 1
-                    end_idx = (
-                        batch["src"][perm[j], :, 0].ne(self._tgt_pad_idx).sum() - 1
-                    )
-                    sub_src.append(batch["src"][perm[j], start_idx:end_idx, :])
+                    end_idx = trans.src.ne(self._tgt_pad_idx).sum() - 1
+
+                    sub_src.append(trans.src[start_idx:end_idx])
                     t_sub_src = pad_sequence(
                         sub_src, batch_first=True, padding_value=self._tgt_pad_idx
                     )
-                    t_sub_src_len = t_sub_src[:, :, 0].ne(self._tgt_pad_idx).sum(1)
-                    t_sub_src_ind = torch.tensor(
-                        [i for i in range(len(sub_src))], dtype=torch.int16
-                    )
+                    t_sub_src_len = t_sub_src.ne(self._tgt_pad_idx).sum(1)
+                    t_sub_src_ind = [i for i in range(len(sub_src))]
+
                     device = batch["src"].device
                     t_sub_batch = {
                         "src": t_sub_src.to(device),
                         "srclen": t_sub_src_len.to(device),
-                        "ind_in_bucket": t_sub_src_ind.to(device),
+                        "ind_in_bucket": t_sub_src_ind,
                     }
                     # new sub-batch ready to be predicted
                     sub_data = self.predict_batch(t_sub_batch, attn_debug)
                     sub_trans = prediction_builder.from_batch(sub_data)
 
                     # we re-insert the sub-batch in the initial predictions
-                    trans_copy[j + inserted_so_far] = sub_trans[0]
-                    for i in range(1, len(sub_src)):
-                        trans_copy.insert(j + i + inserted_so_far, sub_trans[i])
-                    inserted_so_far += len(sub_src) - 1
+                    nbest = len(sub_trans[0].pred_sents)
+                    combined = [[] for _ in range(nbest)]
+
+                    for sub_tr in sub_trans:
+                        for i in range(nbest):
+                            combined[i].extend(
+                                [
+                                    tok
+                                    for tok in sub_tr.pred_sents[i]
+                                    if tok != DefaultTokens.SEP
+                                ]
+                                + [DefaultTokens.SEP]
+                            )
+
+                    trans_copy[j].pred_sents = [seq[:-1] for seq in combined]
+
             return trans_copy
 
         def _process_bucket(bucket_predictions):
@@ -384,9 +391,12 @@ class Inference(object):
                     bucket_gold_score += trans.gold_score
                     bucket_gold_words += len(trans.gold_sent) + 1
 
-                n_best_preds = [
-                    " ".join(pred) for pred in trans.pred_sents[: self.n_best]
-                ]
+                if self.id_tokenization:
+                    n_best_preds = trans.pred_sents[: self.n_best]
+                else:
+                    n_best_preds = [
+                        " ".join(pred) for pred in trans.pred_sents[: self.n_best]
+                    ]
 
                 if self.report_align:
                     align_pharaohs = [
@@ -405,22 +415,6 @@ class Inference(object):
                     n_best_preds = transform_pipe.batch_apply_reverse(n_best_preds)
 
                 bucket_preds += [n_best_preds]
-
-                if self.with_score:
-                    n_best_scores = [
-                        score for score in trans.pred_scores[: self.n_best]
-                    ]
-                    n_best_estims = [estim for estim in trans.estim[: self.n_best]]
-                    out_all = [
-                        pred + "\t" + str(score) + "\t" + str(estim)
-                        for (pred, score, estim) in zip(
-                            n_best_preds, n_best_scores, n_best_estims
-                        )
-                    ]
-                    self.out_file.write("\n".join(out_all) + "\n")
-                else:
-                    self.out_file.write("\n".join(n_best_preds) + "\n")
-                self.out_file.flush()
 
                 if self.verbose:
                     srcs = [voc_src[tok] for tok in trans.src[: trans.srclen]]

@@ -4,8 +4,10 @@ from pydantic import (
     field_validator,
     model_validator,
     computed_field,
-)  # , TypeAdapter
+    TypeAdapter,
+)
 
+import eole
 from eole.constants import PositionEncodingType, ActivationFunction, ModelType
 from eole.config.config import Config
 
@@ -166,7 +168,7 @@ class RotaryPositionConfig(Config):
         default=True,
         description="Interleave the head dimensions when rotary embeddings are applied. "
         "Otherwise the head dimensions are sliced in half. "
-        "(True=default Llama from Meta (original), "
+        "(True= Llama from Meta (original), "
         "False= used by all HuggingFace models)",
     )
     rotary_theta: int = Field(
@@ -239,7 +241,11 @@ class TransformerConfig(Config):
     add_qkvbias: bool = Field(
         default=False,
         description="Add bias to nn.Linear of Query/Key/Value in MHA. "
-        "Note: this will add bias to output projection layer too.",
+        "Note: this will add bias to output projection layer too by default. "
+        "Can be disabled with `add_final_linear_bias`.",
+    )
+    add_final_linear_bias: bool = Field(
+        default=False, description="Add bias to nn.Linear of final_linear in MHA."
     )
     heads_kv: int | None = Field(
         default=None,
@@ -284,6 +290,8 @@ class TransformerConfig(Config):
         if self.position_encoding_type == PositionEncodingType.Rotary:
             if self.rope_config is None:
                 self.rope_config = RotaryPositionConfig()
+        if self.add_qkvbias and "add_final_linear_bias" not in self.model_fields_set:
+            self.update(add_final_linear_bias=True)
         return self
 
     @computed_field
@@ -433,10 +441,21 @@ class BaseModelConfig(Config):
         description="Which function to use for generating probabilities "
         "over the target vocabulary.",
     )
+    generator_bias: bool = Field(
+        default=True,
+        description="Control whether or not the generator Linear module has bias weights.",
+    )
     add_estimator: bool = Field(default=False, description="Add estimator layer")
 
     left_pad: bool = Field(
         default=False, description="Enable left-padding, useful for some LLMs."
+    )
+    huggingface_model: str | None = Field(
+        default=None, description="Original huggingface model."
+    )
+    eole_version: str | None = Field(
+        default=eole.__version__,
+        description="Eole version used to convert/train/save the model.",
     )
 
     # @computed_field()
@@ -768,5 +787,4 @@ ModelConfig = Annotated[
     Field(discriminator="architecture", default_factory=RnnModelConfig),  # noqa: F821
 ]
 
-# Not used anymore, keeping for reference
-# build_model_config = TypeAdapter(ModelConfig).validate_python
+build_model_config = TypeAdapter(ModelConfig).validate_python

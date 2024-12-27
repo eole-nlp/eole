@@ -14,8 +14,10 @@ import sys
 import torch
 import traceback
 import eole.utils
+from eole.utils.distributed import all_gather_list, all_reduce_and_rescale_tensors
 from eole.utils.loss import LossCompute
 from eole.utils.logging import logger
+from eole.utils.misc import clear_gpu_cache, get_autocast
 from eole.utils.scoring_utils import ScoringPreparator
 from eole.scorers import get_scorers_cls, build_scorers
 
@@ -331,7 +333,7 @@ class Trainer(object):
         report_stats = eole.utils.Statistics()
         self._start_report_manager(start_time=total_stats.start_time)
         # Let's clean the GPUs before training loop
-        torch.cuda.empty_cache()
+        clear_gpu_cache()
 
         for i, (batches, normalization) in enumerate(self._accum_batches(train_iter)):
 
@@ -341,9 +343,7 @@ class Trainer(object):
             self._maybe_update_estim_lambda(step)
 
             if self.n_gpu > 1 and self.parallel_mode == "data_parallel":
-                normalization = sum(
-                    eole.utils.distributed.all_gather_list(normalization)
-                )
+                normalization = sum(all_gather_list(normalization))
 
             self._gradient_accumulation(
                 batches, normalization, total_stats, report_stats
@@ -353,7 +353,7 @@ class Trainer(object):
                 self._update_average(step)
 
             report_stats = self._maybe_report_training(
-                step, train_steps, self.optim.learning_rate(), report_stats
+                step, train_steps, self.optim.learning_rate(step=step), report_stats
             )
 
             if valid_iter is not None and step % valid_steps == 0:
@@ -421,7 +421,7 @@ class Trainer(object):
                 src_len = batch["srclen"]
                 tgt = batch["tgt"]
 
-                with torch.cuda.amp.autocast(enabled=self.optim.amp):
+                with get_autocast(enabled=self.optim.amp):
                     # F-prop through the model.
                     model_out, attns, estim = valid_model(
                         src, tgt, src_len, with_align=self.with_align
@@ -446,11 +446,12 @@ class Trainer(object):
             if len(self.valid_scorers) > 0:
                 computed_metrics = {}
                 start = time.time()
-                preds, texts_ref, texts_src = self.scoring_preparator.translate(
-                    model=self.model,
-                    gpu_rank=self.gpu_rank,
-                    step=self.optim.training_step,
-                )
+                with get_autocast(enabled=self.optim.amp):
+                    preds, texts_ref, texts_src = self.scoring_preparator.translate(
+                        model=self.model,
+                        gpu_rank=self.gpu_rank,
+                        step=self.optim.training_step,
+                    )
                 logger.info(
                     """The translation of the valid dataset for dynamic scoring
                                took : {} s.""".format(
@@ -526,7 +527,7 @@ class Trainer(object):
                 if self.accum_count == 1:
                     self.optim.zero_grad(set_to_none=True)
                 try:
-                    with torch.cuda.amp.autocast(enabled=self.optim.amp):
+                    with get_autocast(enabled=self.optim.amp):
                         model_out, attns, estim = self.model(
                             src, tgt, src_len, bptt=bptt, with_align=self.with_align
                         )
@@ -560,7 +561,7 @@ class Trainer(object):
                             "Step %d, cuda OOM - batch removed",
                             self.optim.training_step,
                         )
-                        torch.cuda.empty_cache()
+                        clear_gpu_cache()
                         if self.n_gpu > 1 and self.parallel_mode == "tensor_parallel":
                             torch.distributed.destroy_process_group()
                             sys.exit()
@@ -580,9 +581,7 @@ class Trainer(object):
                 for p in self.model.parameters()
                 if p.requires_grad and p.grad is not None
             ]
-            eole.utils.distributed.all_reduce_and_rescale_tensors(
-                grads, float(self.n_gpu)
-            )
+            all_reduce_and_rescale_tensors(grads, float(self.n_gpu))
 
         self.optim.step()
 

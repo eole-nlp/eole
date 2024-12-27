@@ -172,24 +172,31 @@ class TokenizerTransform(Transform):
         # This method embeds a custom logic to correctly handle certain placeholders
         # in case the tokenizer doesn't preserve them.
         sentence = " ".join(tokens)
-        # Locate the end-of-sentence placeholders.
-        sent_list = sentence.split(self.eos_token)
+        # We need to split sentence on EOS and mapped_tokens
+        # to make sure sentencepiece add a joiner just after special tokens
+        if getattr(self, "mapped_tokens", None) is not None:
+            delim_list = [mapped_toks[0] for mapped_toks in self.mapped_tokens] + [
+                self.eos_token
+            ]
+        else:
+            delim_list = [self.eos_token]
+        pattern = f"({'|'.join(map(re.escape, delim_list))})"
+        sent_list = re.split(pattern, sentence)
+        # remove empty elements
+        sent_list = [item for item in sent_list if item]
+
         # Tokenize each sentence separately.
         segmented = []
         for _sentence in sent_list:
-            # Locate the mask-before placeholders
-            # (to zero-out the prompt loss during LM finetuning).
-            _sentence_chunks = _sentence.split(DefaultTokens.MASK_BEFORE)
-            # Tokenize each chunk separately and insert the padding token.
-            # between each sequence of tokens.
-            _sentence_tokens = []
-            for _chunk in _sentence_chunks:
-                _sentence_tokens += self.tokenize_string(_chunk, side, is_train) + [
-                    self.pad_token  # not sure this covers all cases
-                ]
-            # Re-insert the eos token.
-            segmented += _sentence_tokens[:-1] + [self.eos_token]
-        return segmented[:-1]
+            if _sentence in delim_list:
+                segmented.append(_sentence)
+            else:
+                _sentence_tokens = self.tokenize_string(_sentence, side, is_train)
+                if _sentence[-1] == " ":
+                    trailingspace = self.tokenize_string(" a", side, is_train)[0][:-1]
+                    _sentence_tokens += [trailingspace]
+                segmented.extend(_sentence_tokens)
+        return segmented
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
         """Apply subword-based tokenenization to src & tgt."""
@@ -234,6 +241,7 @@ class SentencePieceTransform(TokenizerTransform):
     def __init__(self, config):
         """Initialize necessary options for sentencepiece."""
         super().__init__(config)
+        self.mapped_tokens = []
 
     def _set_seed(self, seed):
         """set seed to ensure reproducibility."""
@@ -320,6 +328,7 @@ class BPETransform(TokenizerTransform):
     def _parse_config(self):
         super()._parse_config()
         self.dropout = {"src": self.src_subword_alpha, "tgt": self.tgt_subword_alpha}
+        self.mapped_tokens = []
 
     def _set_seed(self, seed):
         """set seed to ensure reproducibility."""
@@ -546,6 +555,20 @@ class ONMTTokenizerTransform(TokenizerTransform):
 
     def _detokenize(self, tokens, side="src", is_train=False):
         """Do OpenNMT Tokenizer's detokenize."""
+
+        def hex_to_char(match):
+            # Extract all matched <0x..> sequences into a single hex string
+            hex_sequence = match.group(0)  # Entire matched string
+            # Remove `<0x` and `>` and any spaces
+            hex_values = re.findall(r"<0x([0-9A-Fa-f]{2})>", hex_sequence)
+            # Convert the hex values into a byte sequence
+            byte_sequence = bytes.fromhex("".join(hex_values))
+            # Decode the byte sequence into a UTF-8 string
+            try:
+                return byte_sequence.decode("utf-8")
+            except UnicodeDecodeError:
+                return "�"
+
         tokenizer = self.load_models[side]
         if self.gpt2_pretok:
             sentence = "".join(tokens)
@@ -554,6 +577,10 @@ class ONMTTokenizerTransform(TokenizerTransform):
             )
         else:
             detokenized = tokenizer.detokenize(tokens)
+            # let's match one or more repetitions of the <0x..> pattern
+            detokenized = re.sub(
+                r"(?:<0x[0-9A-Fa-f]{2}>\s*)+", hex_to_char, detokenized
+            )
         return detokenized.replace("\n", DefaultTokens.SEP)
 
     def apply_reverse(self, predicted):

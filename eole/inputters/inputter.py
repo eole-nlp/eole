@@ -18,10 +18,10 @@ def build_vocab(config, specials):
     """
     vocabs = {}
     vocabs["specials"] = {
-        "bos_token": config.bos_token,
-        "pad_token": config.pad_token,
-        "eos_token": config.eos_token,
         "unk_token": config.unk_token,
+        "pad_token": config.pad_token,
+        "bos_token": config.bos_token,
+        "eos_token": config.eos_token,
     }
 
     def _pad_vocab_to_multiple(vocab, multiple):

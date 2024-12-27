@@ -1,8 +1,12 @@
 import torch
+from torch.nn.utils.rnn import pad_sequence
 from eole.predict.inference import Inference
 from eole.constants import ModelType
 from eole.predict.greedy_search import GreedySearchLM
 from eole.predict.beam_search import BeamSearchLM
+from eole.utils.misc import tile
+
+# from time import time
 
 
 class GeneratorLM(Inference):
@@ -45,6 +49,7 @@ class GeneratorLM(Inference):
                     top_p=self.top_p,
                     beam_size=self.beam_size,
                     ban_unk_token=self.ban_unk_token,
+                    add_estimator=self.add_estimator,
                 )
             else:
                 # TODO: support these blacklisted features
@@ -67,6 +72,7 @@ class GeneratorLM(Inference):
                     stepwise_penalty=self.stepwise_penalty,
                     ratio=self.ratio,
                     ban_unk_token=self.ban_unk_token,
+                    add_estimator=self.add_estimator,
                 )
             return self._predict_batch_with_strategy(batch, decode_strategy)
 
@@ -160,9 +166,37 @@ class GeneratorLM(Inference):
                 # select indexes in model state/cache
                 self.model.decoder.map_state(lambda state, dim: state[select_indices])
             # if step == 0:
-            #    print("step0 time: ", time() - beg_time)
+            #     print("step0 time: ", time() - beg_time)
 
-        estim = [[1.0 for _ in range(self.beam_size)] for _ in range(batch_size)]
+        if self.add_estimator:
+            # Prepare estimator input = decoder out of each pred with initial enc_out
+            dec_in = [
+                item for sublist in decode_strategy.predictions for item in sublist
+            ]
+            src = tile(src, parallel_paths, dim=0)
+            dec_in = pad_sequence(
+                dec_in, batch_first=True, padding_value=self._tgt_pad_idx
+            )
+            dec_in = torch.cat((src, dec_in), 1)
+            tgt_pad_mask = dec_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, T_tgt]
+            emb = self.model.tgt_emb(dec_in)
+            dec_out, _ = self.model.decoder(
+                emb,
+                enc_out=None,
+                return_attn=False,
+                tgt_pad_mask=tgt_pad_mask,
+            )
+            pad_mask = ~dec_in.eq(self._tgt_pad_idx)
+            in_estim = (dec_out * pad_mask.unsqueeze(-1).float()).sum(
+                dim=1
+            ) / pad_mask.sum(dim=1, keepdim=True).float()
+            estim = self.model.estimator(in_estim.to(dec_out.dtype)).squeeze(-1)
+            estim = [
+                [estim[i].item() for i in range(j, j + self.beam_size)]
+                for j in range(0, len(estim), self.beam_size)
+            ]
+        else:
+            estim = [[1.0 for _ in range(self.beam_size)] for _ in range(batch_size)]
 
         return self.report_results(
             gold_score,

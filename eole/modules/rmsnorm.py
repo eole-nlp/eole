@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 
+
 try:
     import awq_ext
 
@@ -23,22 +24,26 @@ class RMSNorm(torch.nn.Module):
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(hidden_size))
 
+    @torch.compile(dynamic=True)
+    def compute_rms(self, hidden_states, dtype):
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.eps)
+        hidden_states = hidden_states.to(dtype)
+        return hidden_states * self.weight
+
     def forward(self, hidden_states):
-        dtype = next(self.parameters()).dtype
-        if AWQ_EXT and not self.training and dtype == torch.float16:
-            inp_type = hidden_states.dtype
-            output = torch.empty_like(hidden_states).to(inp_type)
+        inp_dtype = hidden_states.dtype
+        if AWQ_EXT and not self.training:
+            # cuda kernel support only fp16 - need to cast
+            output = torch.empty_like(hidden_states).to(torch.float16)
             if hidden_states.dim() == 2:  # patch for multi experts
                 hidden_states = hidden_states.unsqueeze(0)
             awq_ext.layernorm_forward_cuda(
-                hidden_states.half(), self.weight.half(), output.half(), self.eps
+                hidden_states.half(), self.weight.half(), output, self.eps
             )
             if hidden_states.dim() == 2:  # patch for multi experts
                 output = output.unsqueeze(0)
-            return output.to(inp_type)
+            return output.to(inp_dtype)
         else:
-            hidden_states = hidden_states.to(torch.float32)
-            variance = hidden_states.pow(2).mean(-1, keepdim=True)
-            hidden_states = hidden_states * torch.rsqrt(variance + self.eps)
-            hidden_states = hidden_states.to(self.weight.dtype)
-            return hidden_states * self.weight
+            return self.compute_rms(hidden_states, inp_dtype)

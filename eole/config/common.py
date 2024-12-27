@@ -78,7 +78,7 @@ class QuantizeConfig(Config):
         default=[], description="List of layers to be compressed in 4/8bit."
     )  # validate against list of layers names ?
     quant_type: Literal[
-        "", "bnb_9bit", "bnb_FP4", "bnb_NF4", "awq_gemm", "awq_gemv"
+        "", "bnb_8bit", "bnb_FP4", "bnb_NF4", "awq_gemm", "awq_gemv"
     ] = Field(default="", description="Type of compression.")
     w_bit: int = Field(
         default=4, description="W_bit quantization"
@@ -148,6 +148,9 @@ class RunningConfig(DistributedConfig):
         "(e.g. torch.amp -- See eole.config.training.TrainingConfig.storage_dtype) "
         "fp32 to force slow fp16 model on gtx1080, "
         "int8 to enable pytorch native 8-bit quantization (cpu only).",
+    )
+    torch_compile: bool = Field(
+        default=False, description="Use torch.compile with dynamic=True."
     )
 
     @field_validator("compute_dtype", mode="before")

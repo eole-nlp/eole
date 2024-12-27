@@ -2,7 +2,8 @@
 """Train models with dynamic data."""
 import torch
 from functools import partial
-from eole.utils.distributed import ErrorHandler, spawned_train
+from eole.utils.distributed import ErrorHandler
+from eole.utils.distributed_workers import spawned_train
 from eole.utils.misc import set_random_seed
 from eole.utils.logging import init_logger, logger
 from argparse import ArgumentParser

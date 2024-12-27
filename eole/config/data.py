@@ -1,6 +1,6 @@
 import os
 from typing import Dict, List, Literal
-from pydantic import Field, field_validator  # , model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic import create_model
 
 from eole import constants
@@ -331,4 +331,15 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
         # this is manually triggered where needed, to allow instanciation of
         # TrainConfig without existing files (e.g. inference)
         # self._validate_vocab_config(build_vocab_only=build_vocab_only)
+        return self
+
+    @model_validator(mode="after")
+    def _maybe_set_huggingface_model(self):
+        if getattr(self, "model", None) is None:
+            return self
+        if self.model.huggingface_model is not None:
+            if hasattr(self.transforms_configs, "huggingface_tokenize"):
+                self.transforms_configs.huggingface_tokenize.huggingface_model = (
+                    self.model.huggingface_model
+                )
         return self
