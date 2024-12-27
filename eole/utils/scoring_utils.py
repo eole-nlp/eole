@@ -130,4 +130,4 @@ class ScoringPreparator:
                     file.write("SOURCE: {}\n".format(raw_srcs[i]))
                     file.write("REF: {}\n".format(raw_refs[i]))
                     file.write("PRED: {}\n\n".format(preds[i]))
-        return preds, raw_refs
+        return preds, raw_refs, raw_srcs

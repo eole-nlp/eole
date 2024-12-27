@@ -4,11 +4,12 @@
 class Scorer(object):
     """A Base class that every scoring method should derived from."""
 
-    def __init__(self, config):
+    def __init__(self, config, model_name=None):
         # not used by any scorer for now it seems, but why not
         self.config = config
+        self.model_name = model_name
 
-    def compute_score(self, preds, texts_refs):
+    def compute_score(self, preds, texts_refs, texts_srcs):
         raise NotImplementedError
 
 

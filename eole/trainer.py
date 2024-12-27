@@ -218,7 +218,7 @@ class Trainer(object):
         # Set model in training mode.
         self.model.train()
 
-    def _eval_handler(self, scorer, preds, texts_ref):
+    def _eval_handler(self, scorer, preds, texts_ref, texts_src, metric):
         """Trigger metrics calculations
 
         Args:
@@ -228,7 +228,16 @@ class Trainer(object):
         Returns:
             The metric calculated by the scorer."""
 
-        return scorer.compute_score(preds, texts_ref)
+        if "COMET" in metric:
+            logger.info(
+                "Unloading model to cpu for Comet gpu validation, reloading it right after."
+            )
+            self.model.to("cpu")
+            score = scorer.compute_score(preds, texts_ref, texts_src)
+            self.model.to("cuda")
+        else:
+            score = scorer.compute_score(preds, texts_ref, texts_src)
+        return score
 
     def _accum_count(self, step):
         for i in range(len(self.accum_steps)):
@@ -438,7 +447,7 @@ class Trainer(object):
                 computed_metrics = {}
                 start = time.time()
                 with get_autocast(enabled=self.optim.amp):
-                    preds, texts_ref = self.scoring_preparator.translate(
+                    preds, texts_ref, texts_src = self.scoring_preparator.translate(
                         model=self.model,
                         gpu_rank=self.gpu_rank,
                         step=self.optim.training_step,
@@ -455,6 +464,8 @@ class Trainer(object):
                         scorer=self.valid_scorers[metric]["scorer"],
                         preds=preds,
                         texts_ref=texts_ref,
+                        texts_src=texts_src,
+                        metric=metric,
                     )
                     computed_metrics[metric] = self.valid_scorers[metric]["value"]
                     logger.info(

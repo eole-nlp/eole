@@ -11,7 +11,7 @@ class TerScorer(Scorer):
         """Initialize necessary options for sentencepiece."""
         super().__init__(config)
 
-    def compute_score(self, preds, texts_refs):
+    def compute_score(self, preds, texts_refs, texts_srcs):
         if len(preds) > 0:
             score = corpus_ter(preds, [texts_refs]).score
         else:

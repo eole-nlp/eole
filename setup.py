@@ -39,6 +39,7 @@ setup(
         "subword-nmt>=0.3.7",
         "tensorboard>=2.3",
         "torch>=2.5,<2.6",
+        "unbabel-comet==2.2.4",
         "uvicorn",
         "waitress",
     ],

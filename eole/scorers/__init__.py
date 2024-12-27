@@ -25,16 +25,27 @@ def register_scorer(metric):
     """Scorer register that can be used to add new scorer class."""
 
     def register_scorer_cls(cls):
-        if metric in AVAILABLE_SCORERS.keys():
-            raise ValueError(
-                "Cannot register duplicate scorer for metric ({})".format(metric)
-            )
-        if not issubclass(cls, Scorer):
-            raise ValueError(
-                "scorer ({}: {}) must extend Scorer".format(metric, cls.__name__)
-            )
-        AVAILABLE_SCORERS[metric] = cls
-        return cls
+        if isinstance(metric, str) is True:
+            metric_list = [metric]
+        else:
+            metric_list = metric
+        for metric_name in metric_list:
+            if metric_name in AVAILABLE_SCORERS.keys():
+                raise ValueError(
+                    "Cannot register duplicate scorer for metric_name ({})".format(
+                        metric_name
+                    )
+                )
+            if not issubclass(cls, Scorer):
+                raise ValueError(
+                    "scorer ({}: {}) must extend Scorer".format(
+                        metric_name, cls.__name__
+                    )
+                )
+            # ensure each registered scorer to have the correct metric value
+            transformed_cls = type(cls.__name__, (cls,), {"metric": metric_name})
+            AVAILABLE_SCORERS[metric_name] = transformed_cls
+        return transformed_cls
 
     return register_scorer_cls
 
