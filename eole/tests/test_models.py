@@ -16,6 +16,14 @@ from eole.config.models import CustomModelConfig
 # but we can't because model building relies on some params
 # not currently in model config (dropout, freeze_word_vecs_enc, etc.)
 
+
+class NoOpPosition:
+    """A no-op position encoding callable."""
+
+    def update(self, *args, **kwargs):
+        return None
+
+
 opt = TrainConfig(
     data={
         "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
@@ -31,6 +39,7 @@ class TestModel(unittest.TestCase):
         super(TestModel, self).__init__(*args, **kwargs)
         self.opt = opt
         self.opt.training.self_attn_backend = "pytorch"
+        self.rope = NoOpPosition()
 
     def get_vocabs(self):
         src_vocab = pyonmttok.build_vocab_from_tokens(
@@ -166,6 +175,7 @@ class TestModel(unittest.TestCase):
             src_emb=src_emb,
             tgt_emb=tgt_emb,
             hidden_size=opt.model.decoder.hidden_size,
+            rope=NoOpPosition(),
         )
         test_src, test_tgt, test_length = self.get_batch(source_l=source_l, bsize=bsize)
         output, attn, estim = model(test_src, test_tgt, test_length)

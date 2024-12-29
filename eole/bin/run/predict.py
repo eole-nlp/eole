@@ -9,7 +9,6 @@ from eole.config.run import PredictConfig
 from eole.bin import register_bin
 from eole.bin.run import RunBin
 from time import time
-from torch.nn.attention import SDPBackend, sdpa_kernel
 
 
 def model_type(config) -> ModelType:
@@ -42,24 +41,19 @@ class Predict(RunBin):
     def run(cls, args):
         config = cls.build_config(args)
 
-        with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION]):
-            if config.profile:
-                with profile(
-                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                    profile_memory=True,
-                    with_stack=True,
-                ) as prof:
-                    with record_function("Predict"):
-                        predict(config)
-                print(
-                    prof.key_averages().table(sort_by="cuda_time_total", row_limit=40)
-                )
-            else:
-                init_time = time()
-                predict(config)
-                print(
-                    "Time w/o python interpreter load/terminate: ", time() - init_time
-                )
+        if config.profile:
+            with profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                profile_memory=True,
+                with_stack=True,
+            ) as prof:
+                with record_function("Predict"):
+                    predict(config)
+            print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=40))
+        else:
+            init_time = time()
+            predict(config)
+            print("Time w/o python interpreter load/terminate: ", time() - init_time)
 
 
 def _get_parser():

@@ -667,6 +667,7 @@ class Inference(object):
         emb = self.model.tgt_emb(decoder_in, step=step)
         src_pad_mask = batch["src"].eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+        position_embeddings = self.model.rope.update(decoder_in.size(1), step=step)
         dec_out, dec_attn = self.model.decoder(
             emb,
             enc_out=enc_out,
@@ -675,6 +676,7 @@ class Inference(object):
             return_attn=self.global_scorer.has_cov_pen or return_attn,
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
+            position_embeddings=position_embeddings,
         )
         # Generator forward.
         if "std" in dec_attn:

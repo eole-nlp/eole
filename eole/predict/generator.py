@@ -181,11 +181,13 @@ class GeneratorLM(Inference):
             tgt_pad_mask = dec_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, T_tgt]
             emb = self.model.tgt_emb(dec_in)
             self.model.decoder._clear_cache()
+            position_embeddings = self.model.rope.update(dec_in.size(1), step=0)
             dec_out, _ = self.model.decoder(
                 emb,
                 enc_out=None,
                 return_attn=False,
                 tgt_pad_mask=tgt_pad_mask,
+                position_embeddings=position_embeddings,
             )
             pad_mask = ~dec_in.eq(self._tgt_pad_idx)
             in_estim = (dec_out * pad_mask.unsqueeze(-1).float()).sum(

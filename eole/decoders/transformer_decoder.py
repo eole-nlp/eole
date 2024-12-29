@@ -10,8 +10,7 @@ from eole.decoders.transformer_base import (
     TransformerDecoderBase,
 )
 from eole.modules.multi_headed_attn import ContextMHA
-from eole.constants import LayerNorm, PositionEncodingType
-from eole.modules.rope import RotaryPosition
+from eole.constants import LayerNorm
 
 
 class TransformerDecoderLayer(TransformerDecoderLayerBase):
@@ -153,9 +152,6 @@ class TransformerDecoder(TransformerDecoderBase):
             model_config, running_config=running_config
         )
 
-        if model_config.position_encoding_type == PositionEncodingType.Rotary:
-            self.rope = RotaryPosition(model_config)
-
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerDecoderLayer(
@@ -184,16 +180,8 @@ class TransformerDecoder(TransformerDecoderBase):
         step = kwargs.pop("step", None)
         with_align = kwargs.pop("with_align", False)
         return_attn = with_align or kwargs.pop("return_attn", False)
+        position_embeddings = kwargs.pop("position_embeddings", None)
         attn_aligns = []
-
-        if hasattr(self, "rope"):
-            position_embeddings = self.rope(
-                emb.size(1),
-                step=step,
-                device=emb.device,
-            )
-        else:
-            position_embeddings = None
 
         if step == 0:
             self._init_cache(enc_out.device)

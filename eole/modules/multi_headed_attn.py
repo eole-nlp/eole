@@ -674,8 +674,8 @@ class SelfMHA(MultiHeadedAttention):
                     self.layer_cache[1]["values"].transpose(1, 2),
                     key.transpose(1, 2),
                     value.transpose(1, 2),
-                    rotary_cos=cos,
-                    rotary_sin=sin,
+                    rotary_cos=cos.contiguous(),
+                    rotary_sin=sin.contiguous(),
                     cache_seqlens=step,
                     rotary_interleaved=self.rotary_interleave,
                 ).transpose(1, 2)

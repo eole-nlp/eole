@@ -7,8 +7,7 @@ import torch.nn as nn
 from eole.encoders.encoder import EncoderBase
 from eole.modules.multi_headed_attn import SelfMHA
 from eole.modules.transformer_mlp import MLP
-from eole.constants import LayerNorm, PositionEncodingType
-from eole.modules.rope import RotaryPosition
+from eole.constants import LayerNorm
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -102,9 +101,6 @@ class TransformerEncoder(EncoderBase):
     ):
         super(TransformerEncoder, self).__init__()
 
-        if model_config.position_encoding_type == PositionEncodingType.Rotary:
-            self.rope = RotaryPosition(model_config)
-
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerEncoderLayer(
@@ -131,6 +127,7 @@ class TransformerEncoder(EncoderBase):
         """See :func:`EncoderBase.forward()`"""
         pad_mask = kwargs.pop("pad_mask", None)
         assert pad_mask is not None, "TransformerDecoder requires a src pad mask"
+        position_embeddings = kwargs.pop("position_embeddings", None)
         enc_out = emb
         pad_mask = pad_mask.unsqueeze(1)
         # pad_mask is now (batch x 1 x 1 x maxlen)
@@ -138,11 +135,6 @@ class TransformerEncoder(EncoderBase):
         # Padding mask is now (batch x 1 x maxlen x maxlen)
         # 1 to be expanded to number of heads in MHA
         # Run the forward pass of every layer of the tranformer.
-
-        if hasattr(self, "rope"):
-            position_embeddings = self.rope(emb.size(1), step=0, device=emb.device)
-        else:
-            position_embeddings = None
 
         for layer in self.transformer_layers:
             enc_out = layer(enc_out, pad_mask, position_embeddings=position_embeddings)
