@@ -141,16 +141,14 @@ class Encoder(Inference):
 
         return results
 
-    def _score_target(self, batch, enc_out, src_len, src_map):
+    def _score_target(self, batch, enc_out, src_len):
         tgt = batch["tgt"]
         tgt_in = tgt[:, :-1, :]
 
         log_probs, attn = self._decode_and_generate(
             tgt_in,
             enc_out,
-            batch,
             src_len=src_len,
-            src_map=src_map,
         )
 
         log_probs[:, :, self._tgt_pad_idx] = 0

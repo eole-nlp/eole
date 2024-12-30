@@ -141,10 +141,8 @@ class GeneratorLM(Inference):
             log_probs, attn = self._decode_and_generate(
                 decoder_input,
                 None,
-                batch,
                 src_len=decode_strategy.src_len,
                 step=step if step == 0 else step + max(src_len.tolist()),
-                batch_offset=decode_strategy.batch_offset,
             )
 
             if step == 0:

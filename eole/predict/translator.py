@@ -214,10 +214,8 @@ class Translator(Inference):
             log_probs, attn = self._decode_and_generate(
                 decoder_input,
                 enc_out,
-                batch,
                 src_len=decode_strategy.src_len,
                 step=step,
-                batch_offset=decode_strategy.batch_offset,
                 return_attn=decode_strategy.return_attention,
             )
 
@@ -306,7 +304,6 @@ class Translator(Inference):
         log_probs, attn = self._decode_and_generate(
             tgt_in,
             enc_out,
-            batch,
             src_len=src_len,
         )
 
