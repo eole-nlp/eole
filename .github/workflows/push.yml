@@ -48,7 +48,7 @@ jobs:
           -src_vocab /tmp/eole.vocab.src \
           -tgt_vocab /tmp/eole.vocab.tgt \
           && rm -rf /tmp/sample
-    - name: Test field/transform dump
+    - name: Testing architecture rnn sample dump...
       run: |
         # The dumped fields are used later when testing tools
         python eole/bin/main.py train \
@@ -61,7 +61,7 @@ jobs:
           -tgt_vocab /tmp/eole.vocab.tgt \
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000
-    - name: Test RNN training
+    - name: Testing architecture rnn training
       run: |
         python eole/bin/main.py train \
           -config eole/tests/data/data.yaml \
@@ -75,7 +75,7 @@ jobs:
           -tensorboard \
           -tensorboard_log_dir /tmp/logs_train
         python eole/tests/test_events.py --logdir /tmp/logs_train -tensorboard_checks train
-    - name: Test RNN training and validation
+    - name: Testing architecture rnn training and validation
       run: |
         python eole/bin/main.py train \
           -config eole/tests/data/data.yaml \
@@ -90,7 +90,7 @@ jobs:
           -tensorboard_log_dir /tmp/logs_train_and_valid
         python eole/tests/test_events.py --logdir /tmp/logs_train_and_valid -tensorboard_checks train
                 python eole/tests/test_events.py --logdir /tmp/logs_train_and_valid -tensorboard_checks valid
-    - name: Test RNN training with coverage
+    - name: Testing architecture rnn training w/ coverage
       run: |
         python eole/bin/main.py train \
           -config eole/tests/data/data.yaml \
@@ -101,7 +101,7 @@ jobs:
           -report_every 5 \
           -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5, "position_encoding_type": None}, "decoder": {"coverage_attn": True, "lambda_coverage": 0.1}}' \
           -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}'
-    - name: Test Transformer training with align
+    - name: Testing architecture custom transformer training w/ align
       run: |
         python eole/bin/main.py train \
           -config eole/tests/data/align_data.yaml \
@@ -112,7 +112,7 @@ jobs:
           -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "lambda_align": 0.05, "alignment_layer": 2, "alignment_heads": 0, "heads": 2}}' \
           -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "dropout_steps": [0, 3, 7], "dropout": [0.3, 0.2, 0.1], "attention_dropout": [0.2, 0.2, 0.1]}' \
           -report_every 5 \
-    - name : Test Transformer training and validation with dynamic scoring
+    - name : Testing architecture custom transformer training w/ validation with dynamic scoring
       run: |
         python3 eole/bin/main.py train \
           -config eole/tests/data/data.yaml \
@@ -129,7 +129,7 @@ jobs:
           -tensorboard_log_dir /tmp/logs_dynamic-scoring \
           -dump_preds /tmp/dump_preds
         python eole/tests/test_events.py --logdir /tmp/logs_dynamic-scoring -tensorboard_checks valid_metrics 
-    - name : Test Transformer training and validation with dynamic scoring and maxrelative
+    - name : Testing architecture transformer training w/ validation with dynamic scoring and maxrelative
       run: |
         python3 eole/bin/main.py train \
           -config eole/tests/data/data.yaml \
@@ -146,7 +146,7 @@ jobs:
           -tensorboard_log_dir /tmp/logs_dynamic-scoring_and_relative \
           -dump_preds /tmp/dump_preds
         python eole/tests/test_events.py --logdir /tmp/logs_dynamic-scoring_and_relative -tensorboard_checks valid_metrics 
-    - name : Test Transformer training and validation with dynamic scoring and rotary
+    - name : Testing architecture transformer training w/ validation with dynamic scoring and rotary
       run: |
         python3 eole/bin/main.py train \
           -config eole/tests/data/data.yaml \
@@ -163,7 +163,7 @@ jobs:
           -tensorboard_log_dir /tmp/logs_dynamic-scoring_and_rotary \
           -dump_preds /tmp/dump_preds
         python eole/tests/test_events.py --logdir /tmp/logs_dynamic-scoring_and_rotary -tensorboard_checks valid_metrics 
-    - name : Test Transformer training and validation with dynamic scoring and alibi
+    - name : Testing architecture transformer training w/ validation with dynamic scoring and alibi
       run: |
         python3 eole/bin/main.py train \
           -config eole/tests/data/data.yaml \
@@ -180,7 +180,7 @@ jobs:
           -tensorboard_log_dir /tmp/logs_dynamic-scoring_and_alibi \
           -dump_preds /tmp/dump_preds
         python eole/tests/test_events.py --logdir /tmp/logs_dynamic-scoring_and_alibi -tensorboard_checks valid_metrics 
-    - name: Test LM training
+    - name: Testing architecture custom decoder only training
       run: |
         python eole/bin/main.py train \
             -config eole/tests/data/lm_data.yaml \

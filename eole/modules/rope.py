@@ -132,7 +132,9 @@ class RotaryPosition(nn.Module):
         else:
             maxseqlen = maxseqlen + prefetch
 
-        tmax = torch.arange(max(offset + step, 0) + maxseqlen)
+        tmax = torch.arange(
+            max(offset + step, 0) + maxseqlen, device=self.inv_freq.device
+        )
         rope = torch.outer(tmax, self.inv_freq)
         cos = torch.cos(rope)
         sin = torch.sin(rope)

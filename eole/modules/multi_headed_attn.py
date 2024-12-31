@@ -325,9 +325,9 @@ class MultiHeadedAttention(torch.nn.Module):
         self.relative_positions_embeddings = None
         self.relative_attention_bias = None
         self.rotary_interleave = None
-        if model_config.relative_positions_buckets > 0:
+        if self.relative_positions_buckets > 0:
             self.relative_attention_bias = nn.Embedding(
-                model_config.relative_positions_buckets, self.heads
+                self.relative_positions_buckets, self.heads
             )
             self.relative_positions_embeddings = None
         elif self.position_encoding_type == PositionEncodingType.Relative:
@@ -336,7 +336,7 @@ class MultiHeadedAttention(torch.nn.Module):
             # relative_key / relative_value or only
             # relative_key. We implemented the same embed
             # for both.
-            vocab_size = model_config.n_positions * 2 + 1
+            vocab_size = self.n_positions * 2 + 1
             self.relative_positions_embeddings = nn.Embedding(
                 vocab_size, self.dim_per_head
             )
@@ -346,7 +346,7 @@ class MultiHeadedAttention(torch.nn.Module):
             else:
                 self.rotary_dim = model_config.rope_config.rotary_dim
             self.rotary_interleave = model_config.rope_config.rotary_interleave
-        elif model_config.position_encoding_type == PositionEncodingType.Alibi:
+        elif self.position_encoding_type == PositionEncodingType.Alibi:
             self.alibi = AlibiPositionalBias(self.heads)
 
         self.maybe_ckpt = (

@@ -10,7 +10,7 @@
       "layers": 2,
       "heads": 2
     },
-    "architecture": "transformer_lm",
+    "architecture": "custom",
     "encoder": null,
     "embeddings": {
       "tgt_word_vec_size": 64,
