@@ -483,7 +483,7 @@ class BaseModel(nn.Module):
 
         return model, vocabs, model_config
 
-    def forward(self, src, tgt, src_len, bptt=False, with_align=False):
+    def forward(self, src, tgt, src_len, with_align=False):
         """Forward propagate a `src` and `tgt` pair for training.
 
         Args:
@@ -494,8 +494,6 @@ class BaseModel(nn.Module):
             tgt (LongTensor): A target sequence passed to decoder.
                 Size ``(batch, tgt_len)``.
             src_len(LongTensor): The src lengths, pre-padding ``(batch,)``.
-            bptt (Boolean): A flag indicating if truncated bptt is set.
-                If bptt is false then init decoder state.
             with_align (Boolean): A flag indicating whether output alignment,
                 Only valid for transformer decoder.
 
@@ -796,7 +794,7 @@ class EncoderDecoderModel(BaseModel):
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def forward(self, src, tgt, src_len, bptt=False, with_align=False):
+    def forward(self, src, tgt, src_len, with_align=False):
         """An EncoderDecoderModel forward the src side to the encoder.
         Then the output of encoder ``enc_out`` is forwarded to the
         decoder along with the target excluding the last token.
@@ -811,8 +809,7 @@ class EncoderDecoderModel(BaseModel):
             pad_mask=src_pad_mask,
             position_embeddings=position_embeddings,
         )
-        if not bptt:
-            self.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
+        self.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
         dec_in = tgt[:, :-1]
         tgt_pad_mask = dec_in.eq(self.tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
 
@@ -882,12 +879,11 @@ class DecoderModel(BaseModel):
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def forward(self, src, _, src_len, bptt=False, with_align=False):
+    def forward(self, src, _, src_len, with_align=False):
         """A DecoderModel forward the src side to the decoder along
         with the source lengths vector. It is a decoder only LM (cf GPT-2)"""
 
-        if not bptt:
-            self.decoder.init_state()
+        self.decoder.init_state()
         position_embeddings = self.rope.update(src.size(1), step=0)
         dec_out, attns = self.decoder(
             self.tgt_emb(src),
@@ -952,7 +948,7 @@ class EncoderModel(BaseModel):
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def forward(self, src, _, src_len, bptt=False, with_align=False):
+    def forward(self, src, _, src_len, with_align=False):
         """An EncoderModel encodes the source sentence to build hidden states"""
 
         pad_mask = src.eq(self.pad_idx).unsqueeze(1)  # [B, 1, T_src]

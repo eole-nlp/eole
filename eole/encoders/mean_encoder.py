@@ -25,13 +25,13 @@ class MeanEncoder(EncoderBase):
 
     def forward(self, emb, **kwargs):
         """See :func:`EncoderBase.forward()`"""
-        mask = kwargs.pop("pad_mask", None)
+        pad_mask = kwargs.pop("pad_mask", None)
         batch, _, emb_dim = emb.size()
 
-        if mask is not None:
+        if pad_mask is not None:
             # we avoid padding while mean pooling
-            mask = (~mask).float()
-            mean = torch.bmm(mask, emb).mean(1)
+            pad_mask = (~pad_mask).float()
+            mean = torch.bmm(pad_mask, emb).mean(1)
         else:
             mean = emb.mean(1)
 

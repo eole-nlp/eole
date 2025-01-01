@@ -212,10 +212,6 @@ class TrainingConfig(
     dropout_steps: List[int] = Field(
         default=[0], description="Steps at which dropout changes."
     )
-    truncated_decoder: int = Field(
-        default=0, description="Truncated bptt."
-    )  # deprecated?
-
     label_smoothing: float = Field(
         default=0.0,
         description="Label smoothing value epsilon. "

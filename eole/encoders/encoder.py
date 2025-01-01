@@ -21,8 +21,9 @@ class EncoderBase(nn.Module):
         Args:
             emb (FloatTensor):
                embeddings ``(batch, src_len, dim)``
-            mask (BoolTensor):
-               mask ``(batch, maxlen)`` False when value, True when pad
+            **kwargs
+               pad_mask (BoolTensor):
+                  pad_mask ``(batch, maxlen)`` False when value, True when pad
         Returns:
             (FloatTensor, FloatTensor, FloatTensor):
 
