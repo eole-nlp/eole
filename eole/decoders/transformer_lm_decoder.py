@@ -48,15 +48,15 @@ class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
             * attns ``(batch_size, head, T, T)``
 
         """
-        dec_mask = None
+        attn_mask = None
 
         if layer_in.size(1) > 1:
             # Masking is necessary when sequence length is greater than one
             # The decoding has not started yet,
             # we compute the scores on the source tokens in one shot.
-            dec_mask = self._compute_dec_mask(pad_mask, future)
-            dec_mask = dec_mask.unsqueeze(1)
-            dec_mask = dec_mask.expand(-1, -1, dec_mask.size(3), -1)
+            attn_mask = self._compute_attn_mask(pad_mask, future)
+            attn_mask = attn_mask.unsqueeze(1)
+            attn_mask = attn_mask.expand(-1, -1, attn_mask.size(3), -1)
             # mask now are (batch x 1 x tlen x tlen)
             # 1 = heads to be expanded in MHA
 
@@ -64,7 +64,7 @@ class TransformerLMDecoderLayer(TransformerDecoderLayerBase):
 
         attn_output, attns = self.self_attn(
             norm_layer_in,
-            mask=dec_mask,
+            attn_mask=attn_mask,
             sliding_window=self.sliding_window,
             step=step,
             return_attn=return_attn,
@@ -149,7 +149,7 @@ class TransformerLMDecoder(TransformerDecoderBase):
         # TODO change the way attns is returned dict => list or tuple (onnx)
         return emb, attns
 
-    def _init_cache(self, device, mask):
+    def _init_cache(self, device, pad_mask):
         for layer in self.transformer_layers:
             if hasattr(layer, "self_attn"):
                 layer.self_attn.layer_cache = (
@@ -157,7 +157,7 @@ class TransformerLMDecoder(TransformerDecoderBase):
                     {
                         "keys": torch.tensor([], device=device),
                         "values": torch.tensor([], device=device),
-                        "key_pad_mask": mask,
+                        "key_pad_mask": pad_mask,
                     },
                 )
 

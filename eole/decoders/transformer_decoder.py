@@ -80,15 +80,15 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
             * attns ``(batch_size, head, T, src_len)``
 
         """
-        dec_mask = None
+        attn_mask = None
         src_pad_mask = src_pad_mask.unsqueeze(1)  # [B,1,1,slen]
 
         if layer_in.size(1) > 1:
             # masking is necessary when sequence length is greater than one
-            dec_mask = self._compute_dec_mask(tgt_pad_mask, future)
-            dec_mask = dec_mask.unsqueeze(1)
-            dec_mask = dec_mask.expand(-1, -1, dec_mask.size(3), -1)
-            src_pad_mask = src_pad_mask.expand(-1, -1, dec_mask.size(3), -1)
+            attn_mask = self._compute_attn_mask(tgt_pad_mask, future)
+            attn_mask = attn_mask.unsqueeze(1)
+            attn_mask = attn_mask.expand(-1, -1, attn_mask.size(3), -1)
+            src_pad_mask = src_pad_mask.expand(-1, -1, attn_mask.size(3), -1)
             # mask now are (batch x 1 x tlen x s or t len)
             # 1 = heads to be expanded in MHA
 
@@ -96,7 +96,7 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
 
         self_attn, _ = self.self_attn(
             norm_layer_in,
-            mask=dec_mask,
+            attn_mask=attn_mask,
             sliding_window=self.sliding_window,
             step=step,
             return_attn=return_attn,
@@ -111,7 +111,7 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
                 enc_out,
                 enc_out,
                 norm_layer_in,
-                mask=src_pad_mask,
+                attn_mask=~src_pad_mask,
                 return_attn=return_attn,
             )
             if not self.shared_layer_norm:
@@ -122,7 +122,11 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
         else:
             norm_query = self.precontext_layernorm(self_attn + layer_in)
             ctx_attn, attns = self.context_attn(
-                enc_out, enc_out, norm_query, mask=src_pad_mask, return_attn=return_attn
+                enc_out,
+                enc_out,
+                norm_query,
+                attn_mask=~src_pad_mask,
+                return_attn=return_attn,
             )
             if self.dropout_p > 0:
                 ctx_attn = self.dropout(ctx_attn)
@@ -228,10 +232,6 @@ class TransformerDecoder(TransformerDecoderBase):
                     "values": torch.tensor([], device=device),
                 },
             )
-            if hasattr(layer.self_attn, "rope"):
-                layer.self_attn.rope = layer.self_attn.rope.to(device)
-                layer.self_attn.cos = layer.self_attn.cos.to(device)
-                layer.self_attn.sin = layer.self_attn.sin.to(device)
 
     def _clear_cache(self):
         for layer in self.transformer_layers:

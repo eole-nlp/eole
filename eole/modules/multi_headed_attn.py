@@ -220,7 +220,7 @@ def unshape(x: Tensor) -> Tensor:
     -> [batchsize x length x modeldim]
     """
     x_0, x_1, _, x_3 = x.size()
-    return x.transpose(1, 2).contiguous().view(x_0, -1, x_1 * x_3)
+    return x.transpose(1, 2).reshape(x_0, -1, x_1 * x_3)
 
 
 class MultiHeadedAttention(torch.nn.Module):
@@ -414,7 +414,7 @@ class MultiHeadedAttention(torch.nn.Module):
         key: Tensor,
         value: Tensor,
         query: Tensor,
-        mask: Optional[Tensor] = None,
+        attn_mask: Optional[Tensor] = None,
         attn_type: Optional[str] = "self",
         sliding_window: Optional[int] = 0,
         return_attn: Optional[bool] = False,
@@ -429,8 +429,8 @@ class MultiHeadedAttention(torch.nn.Module):
                value vectors ``(batch, head, key_len, dim)``
            query (Tensor): set of `query_len`
                query vectors  ``(batch, head, query_len, dim)``
-           mask: binary mask 1/0 indicating which keys have
-               zero / non-zero attention ``(batch, 1, query_len, key_len)``
+           attn_mask (bool Tensor): True = position needs attention
+                   ``(batch, 1, query_len, key_len)``
         Returns:
            (Tensor, Tensor):
 
@@ -461,7 +461,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 query,
                 key,
                 value,
-                ~mask if mask is not None else None,
+                attn_mask if attn_mask is not None else None,
                 self.dropout_p,
                 is_causal=False,
             )
@@ -510,11 +510,13 @@ class MultiHeadedAttention(torch.nn.Module):
 
             scores = scores.float()
 
-            if mask is not None:
+            if attn_mask is not None:
                 # not 100% necessary but expand to nb of heads
-                mask = mask.expand(-1, self.heads // self.parallel_gpu, -1, -1)
+                attn_mask = attn_mask.expand(
+                    -1, self.heads // self.parallel_gpu, -1, -1
+                )
                 # now mask and scores have the same shape
-                scores = scores.masked_fill(mask, -1e18)
+                scores = scores.masked_fill(~attn_mask, -1e18)
 
             # 3) Apply attention dropout and compute context vectors.
             attn = self.softmax(scores).to(query.dtype)
@@ -593,7 +595,7 @@ class SelfMHA(MultiHeadedAttention):
     def forward(
         self,
         query: Tensor,
-        mask: Optional[Tensor] = None,
+        attn_mask: Optional[Tensor] = None,
         sliding_window: Optional[int] = 0,
         step: Optional[int] = 0,
         return_attn: Optional[bool] = False,
@@ -698,7 +700,7 @@ class SelfMHA(MultiHeadedAttention):
             key,
             value,
             query,
-            mask=mask,
+            attn_mask=attn_mask,
             attn_type="self",
             sliding_window=sliding_window,
             return_attn=return_attn,
@@ -733,7 +735,7 @@ class ContextMHA(MultiHeadedAttention):
         key: Tensor,
         value: Tensor,
         query: Tensor,
-        mask: Optional[Tensor] = None,
+        attn_mask: Optional[Tensor] = None,
         sliding_window: Optional[int] = 0,
         step: Optional[int] = 0,
         return_attn: Optional[bool] = False,
@@ -749,7 +751,7 @@ class ContextMHA(MultiHeadedAttention):
             key,
             value,
             query,
-            mask=mask,
+            attn_mask=attn_mask,
             attn_type="context",
             sliding_window=sliding_window,
             return_attn=return_attn,

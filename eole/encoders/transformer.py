@@ -58,7 +58,7 @@ class TransformerEncoderLayer(nn.Module):
         """
         norm_layer_in = self.input_layernorm(layer_in)
         context, _ = self.self_attn(
-            norm_layer_in, mask=pad_mask, position_embeddings=position_embeddings
+            norm_layer_in, attn_mask=~pad_mask, position_embeddings=position_embeddings
         )
         if self.dropout_p > 0:
             context = self.dropout(context)
