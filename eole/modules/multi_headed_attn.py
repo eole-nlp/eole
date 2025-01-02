@@ -556,6 +556,26 @@ class SelfMHA(MultiHeadedAttention):
         self.n_positions = model_config.n_positions
         super(SelfMHA, self).__init__(model_config, running_config, is_decoder)
 
+    def _expand_cache(self, add_length):
+        b, h, l, dph = self.layer_cache[1]["keys"].shape
+        add_l = ((l + add_length + 1) // add_length) * add_length - l
+        ktype = self.layer_cache[1]["keys"].dtype
+        kdev = self.layer_cache[1]["keys"].device
+        self.layer_cache[1]["keys"] = torch.cat(
+            (
+                self.layer_cache[1]["keys"],
+                torch.zeros((b, h, add_l, dph), device=kdev, dtype=ktype),
+            ),
+            dim=2,
+        )
+        self.layer_cache[1]["values"] = torch.cat(
+            (
+                self.layer_cache[1]["values"],
+                torch.zeros((b, h, add_l, dph), device=kdev, dtype=ktype),
+            ),
+            dim=2,
+        )
+
     def _prepare_inputs_w_cache(
         self,
         query,
@@ -572,25 +592,34 @@ class SelfMHA(MultiHeadedAttention):
             query, key = apply_rotary_emb(
                 query, key, (cos, sin), interleave=self.rotary_interleave
             )
-        # update the cache
-        if self.layer_cache[1]["keys"].numel() != 0:
-            key = torch.cat((self.layer_cache[1]["keys"], key), dim=2)
-            value = torch.cat((self.layer_cache[1]["values"], value), dim=2)
-            if sliding_window > 0 and key.size(2) > sliding_window:
-                key = key[:, :, 1:, :]
-                value = value[:, :, 1:, :]
-        # mask keys for LM left padding by batch
+
         if step == 0:
+            # mask keys for LM left padding by batch
             key_pad_mask = self.layer_cache[1].get("key_pad_mask", None)
             if key_pad_mask is not None:
                 x = key_pad_mask.expand(-1, key.size(1), -1)
                 x = x.unsqueeze(3).expand(-1, -1, -1, key.size(3))
                 key = key.masked_fill(x, 0)
+            # init cache with initial key, value
+            self.layer_cache[1]["keys"] = key
+            self.layer_cache[1]["values"] = value
+            return key, value, query
+        else:
+            if step >= self.layer_cache[1]["keys"].size(2):
+                self._expand_cache(32)
+            self.layer_cache[1]["keys"][:, :, step, :] = key[:, :, 0, :]
+            self.layer_cache[1]["values"][:, :, step, :] = value[:, :, 0, :]
+            if sliding_window > 0 and key.size(2) > sliding_window:
+                self.layer_cache[1]["keys"] = self.layer_cache[1]["keys"][:, :, 1:, :]
+                self.layer_cache[1]["values"] = self.layer_cache[1]["values"][
+                    :, :, 1:, :
+                ]
 
-        self.layer_cache[1]["keys"] = key
-        self.layer_cache[1]["values"] = value
-
-        return key, value, query
+            return (
+                self.layer_cache[1]["keys"][:, :, : step + 1, :],
+                self.layer_cache[1]["values"][:, :, : step + 1, :],
+                query,
+            )
 
     def forward(
         self,
@@ -614,8 +643,6 @@ class SelfMHA(MultiHeadedAttention):
                 or not self.flash
                 or self.position_encoding_type
                 in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
-                or query.size(0)
-                > 128  # it seems for large batch size flash not optimum
                 or query.dtype
                 not in [torch.float16, torch.bfloat16]  # to match with flash
             ):
@@ -630,32 +657,7 @@ class SelfMHA(MultiHeadedAttention):
             else:
                 # Fast path with flash_attn_with_kvcache
                 if step >= self.layer_cache[1]["keys"].size(2):
-                    self.layer_cache[1]["keys"] = torch.cat(
-                        [
-                            self.layer_cache[1]["keys"],
-                            torch.zeros(
-                                self.layer_cache[1]["keys"].shape[:-2]
-                                + (32,)
-                                + self.layer_cache[1]["keys"].shape[-1:],
-                                device=query.device,
-                                dtype=query.dtype,
-                            ),
-                        ],
-                        dim=-2,
-                    )
-                    self.layer_cache[1]["values"] = torch.cat(
-                        [
-                            self.layer_cache[1]["values"],
-                            torch.zeros(
-                                self.layer_cache[1]["values"].shape[:-2]
-                                + (32,)
-                                + self.layer_cache[1]["values"].shape[-1:],
-                                device=query.device,
-                                dtype=query.dtype,
-                            ),
-                        ],
-                        dim=-2,
-                    )
+                    self._expand_cache(32)
                 if sliding_window > 0 and key.size(2) > sliding_window:
                     self.layer_cache[1]["keys"] = self.layer_cache[1]["keys"][
                         :, :, 1:, :
