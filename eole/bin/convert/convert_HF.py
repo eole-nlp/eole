@@ -836,7 +836,7 @@ class LlamaHFConverter(BaseBin):
                             for target in targetlist:
                                 if target in key_maps[arch].keys():
                                     source = key_maps[arch][target]
-                                    if type(source) == tuple:
+                                    if isinstance(source, tuple):
                                         srckey = source[0]
                                         srcmap = source[1]
                                     else:
@@ -847,7 +847,7 @@ class LlamaHFConverter(BaseBin):
                                     )
 
                                     if w is not None:
-                                        if type(source) == tuple:
+                                        if isinstance(source, tuple):
                                             w = eval("w" + srcmap).contiguous()
                                         eole_safetensor[
                                             eole_prefix + str(i) + target + param
@@ -859,9 +859,8 @@ class LlamaHFConverter(BaseBin):
                             idx = 1
                         for p in ["weight", "bias"]:
                             if ".input_layernorm." + p in key_maps[arch].keys():
-                                if (
-                                    type(key_maps[arch][".input_layernorm." + p])
-                                    == tuple
+                                if isinstance(
+                                    key_maps[arch][".input_layernorm." + p], tuple
                                 ):
                                     w = get_weight(
                                         checkpoint,

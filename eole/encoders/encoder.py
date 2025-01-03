@@ -16,13 +16,14 @@ class EncoderBase(nn.Module):
     def from_config(cls, model_config, running_config=None):
         raise NotImplementedError
 
-    def forward(self, emb, mask=None):
+    def forward(self, emb, **kwargs):
         """
         Args:
             emb (FloatTensor):
                embeddings ``(batch, src_len, dim)``
-            mask (BoolTensor):
-               mask ``(batch, maxlen)`` False when value, True when pad
+            **kwargs
+               pad_mask (BoolTensor):
+                  pad_mask ``(batch, maxlen)`` False when value, True when pad
         Returns:
             (FloatTensor, FloatTensor, FloatTensor):
 

@@ -99,6 +99,9 @@ class Inference(object):
         self._tgt_pad_idx = vocabs["tgt"].lookup_token(
             vocabs.get("specials", {}).get("pad_token", DefaultTokens.PAD)
         )
+        self._src_pad_idx = vocabs["src"].lookup_token(
+            vocabs.get("specials", {}).get("pad_token", DefaultTokens.PAD)
+        )
         self._tgt_bos_idx = vocabs["tgt"].lookup_token(
             vocabs.get("specials", {}).get("bos_token", "")
         )
@@ -650,10 +653,8 @@ class Inference(object):
         self,
         decoder_in,
         enc_out,
-        batch,
         src_len,
         step=None,
-        batch_offset=None,
         return_attn=False,
     ):
 
@@ -661,6 +662,7 @@ class Inference(object):
         # and [batch, src_len, hidden] as enc_out
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
+        # we still rely on src_len here because updated at each beam search step
         if isinstance(enc_out, tuple):
             src_max_len = enc_out[0].size(1)
             src_pad_mask = sequence_mask(src_len, src_max_len).unsqueeze(
@@ -674,16 +676,16 @@ class Inference(object):
         else:
             src_pad_mask = None
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
-
-        emb = self.model.tgt_emb(decoder_in, step=step)
+        position_embeddings = self.model.rope.update(decoder_in.size(1), step=step)
         dec_out, dec_attn = self.model.decoder(
-            emb,
+            self.model.tgt_emb(decoder_in, step=step),
             enc_out=enc_out,
             src_len=src_len,
             step=step,
             return_attn=self.global_scorer.has_cov_pen or return_attn,
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
+            position_embeddings=position_embeddings,
         )
         # Generator forward.
         if "std" in dec_attn:

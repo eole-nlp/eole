@@ -14,17 +14,31 @@ from eole.modules.lora import (
 )
 from torch.nn.utils import skip_init
 from torch.nn.init import xavier_uniform_, zeros_, uniform_, normal_
-from eole.utils.misc import use_gpu, sequence_mask, get_device
+from eole.utils.misc import use_gpu, get_device
 from eole.inputters.inputter import dict_to_vocabs
 
 # copied from model_builder to facilitate tests, but should not live there in the end
 from eole.encoders import str2enc
 from eole.decoders import str2dec
-from eole.constants import DefaultTokens
+from eole.constants import DefaultTokens, PositionEncodingType
 from eole.modules.embeddings import Embeddings
-
+from eole.modules.rope import RotaryPosition
 from eole.models.model_saver import load_checkpoint
 from eole.modules.estimator import FeedForward
+
+
+class NoOpPosition:
+    """A no-op position encoding callable."""
+
+    def update(self, *args, **kwargs):
+        return None
+
+
+def build_rope(model_config):
+    if model_config.embeddings.position_encoding_type == PositionEncodingType.Rotary:
+        return RotaryPosition(model_config)
+    else:
+        return NoOpPosition()
 
 
 def build_encoder(model_config, running_config=None):
@@ -113,6 +127,7 @@ class BaseModel(nn.Module):
         self.tgt_emb = kwargs.get("tgt_emb", None)
         self.add_estimator = kwargs.get("add_estimator", False)
         self.hidden_size = kwargs.get("hidden_size", None)
+        self.rope = kwargs.get("rope", None)
         self.share_decoder_embeddings = False
         if self.encoder is not None and self.src_emb is None:
             raise ValueError("An Encoder needs source Embeddings")
@@ -352,12 +367,15 @@ class BaseModel(nn.Module):
 
         checkpoint_model_config = checkpoint["config"].model
         # we actually need to merge inference opts and config here
-        config.model = checkpoint_model_config
+        update_dict = {
+            "model": checkpoint_model_config,
+        }
         # if not set in inference config, override with checkpoint (generalize to more fields?)
         if "quant_type" not in config.model_fields_set:
-            config.quant_type = checkpoint["config"].training.quant_type
+            update_dict["quant_type"] = checkpoint["config"].training.quant_type
         if "quant_layers" not in config.model_fields_set:
-            config.quant_layers = checkpoint["config"].training.quant_layers
+            update_dict["quant_layers"] = checkpoint["config"].training.quant_layers
+        config.update(**update_dict)
         vocabs = None
         # not super clean inheritance anti-pattern,
         # might be enhanced if checkpoint loading is split from model instanciation
@@ -475,7 +493,7 @@ class BaseModel(nn.Module):
 
         return model, vocabs, model_config
 
-    def forward(self, src, tgt, src_len, bptt=False, with_align=False):
+    def forward(self, src, tgt, src_len, with_align=False):
         """Forward propagate a `src` and `tgt` pair for training.
 
         Args:
@@ -486,8 +504,6 @@ class BaseModel(nn.Module):
             tgt (LongTensor): A target sequence passed to decoder.
                 Size ``(batch, tgt_len)``.
             src_len(LongTensor): The src lengths, pre-padding ``(batch,)``.
-            bptt (Boolean): A flag indicating if truncated bptt is set.
-                If bptt is false then init decoder state.
             with_align (Boolean): A flag indicating whether output alignment,
                 Only valid for transformer decoder.
 
@@ -671,7 +687,9 @@ class BaseModel(nn.Module):
                         )
                         keyfound[name + "." + param_name] = True
                     elif strict and (
-                        "lora" not in param_name and "slopes" not in param_name
+                        "lora" not in param_name
+                        and "slopes" not in param_name
+                        and "rope" not in name
                     ):
                         # Let's warn instead of just passing
                         logger.info(
@@ -746,6 +764,8 @@ class EncoderDecoderModel(BaseModel):
     def __init__(self, **kwargs):
         super(EncoderDecoderModel, self).__init__(**kwargs)
         self.tgt_shift = 1
+        self.src_pad_idx = self.src_emb.word_padding_idx
+        self.tgt_pad_idx = self.tgt_emb.word_padding_idx
         # we might want to disable this constructor some way
         if self.encoder is None or self.decoder is None:
             raise ValueError(
@@ -773,10 +793,11 @@ class EncoderDecoderModel(BaseModel):
             tgt_emb=tgt_emb,
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.decoder.hidden_size,
+            rope=build_rope(model_config),
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def forward(self, src, tgt, src_len, bptt=False, with_align=False):
+    def forward(self, src, tgt, src_len, with_align=False):
         """An EncoderDecoderModel forward the src side to the encoder.
         Then the output of encoder ``enc_out`` is forwarded to the
         decoder along with the target excluding the last token.
@@ -784,16 +805,17 @@ class EncoderDecoderModel(BaseModel):
         * enc_final_hs in the case of RNNs
         * enc_out + enc_final_hs in the case of CNNs
         * src in the case of Transformer"""
-        mask = sequence_mask(src_len)
-        enc_out, enc_final_hs = self.encoder(self.src_emb(src), mask=mask)
-        if not bptt:
-            self.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
-
-        pad_idx = self.src_emb.word_padding_idx
-        src_pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_src]
-        tgt_pad_mask = tgt[:, :-1].eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
-
+        src_pad_mask = src.eq(self.src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
+        position_embeddings = self.rope.update(src.size(1), step=0)
+        enc_out, enc_final_hs = self.encoder(
+            self.src_emb(src),
+            pad_mask=src_pad_mask,
+            position_embeddings=position_embeddings,
+        )
+        self.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
         dec_in = tgt[:, :-1]
+        tgt_pad_mask = dec_in.eq(self.tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+
         dec_out, attns = self.decoder(
             self.tgt_emb(dec_in),
             enc_out=enc_out,
@@ -801,10 +823,11 @@ class EncoderDecoderModel(BaseModel):
             with_align=with_align,
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
+            position_embeddings=position_embeddings,
         )
 
         if self.add_estimator:  # we take the average of dec_out using the pad mask
-            pad_mask2 = ~dec_in.eq(pad_idx)
+            pad_mask2 = ~dec_in.eq(self.tgt_pad_idx)
             in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask2.sum(dim=1, keepdim=True).float()
@@ -831,6 +854,7 @@ class DecoderModel(BaseModel):
     def __init__(self, **kwargs):
         super(DecoderModel, self).__init__(**kwargs)
         self.tgt_shift = 0
+        self.pad_idx = self.tgt_emb.word_padding_idx
         if self.encoder is not None:
             raise ValueError("DecoderModel should not be used" "with an encoder")
         if self.decoder is None:
@@ -847,28 +871,27 @@ class DecoderModel(BaseModel):
             tgt_emb=tgt_emb,
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.decoder.hidden_size,
+            rope=build_rope(model_config),
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def forward(self, src, tgt, src_len, bptt=False, with_align=False):
+    def forward(self, src, _, src_len, with_align=False):
         """A DecoderModel forward the src side to the decoder along
         with the source lengths vector. It is a decoder only LM (cf GPT-2)"""
 
-        if not bptt:
-            self.decoder.init_state()
-        emb = self.tgt_emb(src)
-        pad_idx = self.tgt_emb.word_padding_idx
-        pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+        self.decoder.init_state()
+        position_embeddings = self.rope.update(src.size(1), step=0)
         dec_out, attns = self.decoder(
-            emb,
+            self.tgt_emb(src),
             enc_out=None,
             src_len=src_len,
             with_align=with_align,
-            tgt_pad_mask=pad_mask,
+            tgt_pad_mask=src.eq(self.pad_idx).unsqueeze(1),
+            position_embeddings=position_embeddings,
         )
 
         if self.add_estimator:  # we take the average of dec_out using the pad mask
-            pad_mask2 = ~src.eq(pad_idx)
+            pad_mask2 = ~src.eq(self.pad_idx)
             in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask2.sum(dim=1, keepdim=True).float()
@@ -893,6 +916,7 @@ class EncoderModel(BaseModel):
     def __init__(self, **kwargs):
         super(EncoderModel, self).__init__(**kwargs)
         self.tgt_shift = 1
+        self.pad_idx = self.src_emb.word_padding_idx
         if self.decoder is not None:
             raise ValueError("EncoderModel should not be used" "with a decoder")
         if self.encoder is None:
@@ -909,19 +933,24 @@ class EncoderModel(BaseModel):
             src_emb=src_emb,
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.encoder.hidden_size,
+            rope=build_rope(model_config),
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def forward(self, src, tgt, src_len, bptt=False, with_align=False):
+    def forward(self, src, _, src_len, with_align=False):
         """An EncoderModel encodes the source sentence to build hidden states"""
 
-        mask = sequence_mask(src_len)
-        enc_out, enc_final_hs = self.encoder(self.src_emb(src), mask=mask)
+        pad_mask = src.eq(self.pad_idx).unsqueeze(1)  # [B, 1, T_src]
+        position_embeddings = self.rope.update(src.size(1), step=0)
+        enc_out, enc_final_hs = self.encoder(
+            self.src_emb(src),
+            pad_mask=pad_mask,
+            position_embeddings=position_embeddings,
+        )
         if self.add_estimator:
             # Version with average
             """
-            pad_idx = self.tgt_emb.word_padding_idx
-            pad_mask1 = ~src.eq(pad_idx)
+            pad_mask1 = ~src.eq(self.pad_idx)
             in_estim1 = (enc_out * pad_mask1.unsqueeze(-1).float()).sum(
                 dim=1
             ) / pad_mask1.sum(dim=1, keepdim=True).float()

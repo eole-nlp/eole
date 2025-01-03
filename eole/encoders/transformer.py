@@ -7,8 +7,7 @@ import torch.nn as nn
 from eole.encoders.encoder import EncoderBase
 from eole.modules.multi_headed_attn import SelfMHA
 from eole.modules.transformer_mlp import MLP
-from eole.constants import LayerNorm, PositionEncodingType
-from eole.modules.rope import RotaryPosition
+from eole.constants import LayerNorm
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -46,11 +45,11 @@ class TransformerEncoderLayer(nn.Module):
             running_config=running_config,
         )
 
-    def forward(self, layer_in, mask, position_embeddings=None):
+    def forward(self, layer_in, pad_mask, position_embeddings=None):
         """
         Args:
             layer_in (FloatTensor): ``(batch_size, src_len, model_dim)``
-            mask (LongTensor): ``(batch_size, 1, src_len)``
+            pad_mask (LongTensor): ``(batch_size, 1, src_len)``
             position_embeddings (FloatTensor): rotary position encodings, if any
 
         Returns:
@@ -59,7 +58,7 @@ class TransformerEncoderLayer(nn.Module):
         """
         norm_layer_in = self.input_layernorm(layer_in)
         context, _ = self.self_attn(
-            norm_layer_in, mask=mask, position_embeddings=position_embeddings
+            norm_layer_in, attn_mask=~pad_mask, position_embeddings=position_embeddings
         )
         if self.dropout_p > 0:
             context = self.dropout(context)
@@ -102,9 +101,6 @@ class TransformerEncoder(EncoderBase):
     ):
         super(TransformerEncoder, self).__init__()
 
-        if model_config.position_encoding_type == PositionEncodingType.Rotary:
-            self.rope = RotaryPosition(model_config)
-
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerEncoderLayer(
@@ -127,23 +123,20 @@ class TransformerEncoder(EncoderBase):
             running_config,
         )
 
-    def forward(self, emb, mask=None):
+    def forward(self, emb, **kwargs):
         """See :func:`EncoderBase.forward()`"""
+        pad_mask = kwargs.pop("pad_mask", None)
+        assert pad_mask is not None, "TransformerEncoder requires a src pad mask"
+        position_embeddings = kwargs.pop("position_embeddings", None)
         enc_out = emb
-        mask = mask.unsqueeze(1).unsqueeze(1)
-        # mask is now (batch x 1 x 1 x maxlen)
-        mask = mask.expand(-1, -1, mask.size(3), -1)
-        # Padding mask is now (batch x 1 x maxlen x maxlen)
+        pad_mask = pad_mask.unsqueeze(1)  # batch x 1 x 1 x maxlen
+        pad_mask = pad_mask.expand(
+            -1, -1, pad_mask.size(3), -1
+        )  # batch x 1 x maxlen x maxlen
         # 1 to be expanded to number of heads in MHA
-        # Run the forward pass of every layer of the tranformer.
-
-        if hasattr(self, "rope"):
-            position_embeddings = self.rope(emb, step=0, device=emb.device)
-        else:
-            position_embeddings = None
 
         for layer in self.transformer_layers:
-            enc_out = layer(enc_out, mask, position_embeddings=position_embeddings)
+            enc_out = layer(enc_out, pad_mask, position_embeddings=position_embeddings)
         enc_out = self.layer_norm(enc_out)
         return enc_out, None
 

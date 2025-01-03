@@ -35,6 +35,7 @@ class EnsembleSrcEmb(nn.Module):
     def __init__(self, model_src_embs):
         super(EnsembleSrcEmb, self).__init__()
         self.model_src_embs = nn.ModuleList(model_src_embs)
+        self.word_padding_idx = model_src_embs[0].word_padding_idx
 
     def forward(self, src):
         src_emb = [model_src_emb(src) for model_src_emb in self.model_src_embs]
@@ -48,10 +49,10 @@ class EnsembleEncoder(EncoderBase):
         super(EnsembleEncoder, self).__init__()
         self.model_encoders = nn.ModuleList(model_encoders)
 
-    def forward(self, emb, mask=None):
+    def forward(self, emb, pad_mask=None, **kwargs):
         enc_out, enc_final_hs = zip(
             *[
-                model_encoder(emb[i], mask)
+                model_encoder(emb[i], pad_mask=pad_mask, **kwargs)
                 for i, model_encoder in enumerate(self.model_encoders)
             ]
         )
@@ -64,6 +65,7 @@ class EnsembleTgtEmb(nn.Module):
     def __init__(self, model_tgt_embs):
         super(EnsembleTgtEmb, self).__init__()
         self.model_tgt_embs = nn.ModuleList(model_tgt_embs)
+        self.word_padding_idx = model_tgt_embs[0].word_padding_idx
 
     def forward(self, tgt, step=None):
         tgt_emb = [model_tgt_emb(tgt, step) for model_tgt_emb in self.model_tgt_embs]
@@ -164,9 +166,9 @@ class EnsembleModel(EncoderDecoderModel):
     """Dummy EncoderDecoderModel wrapping individual real EncoderDecoderModels."""
 
     def __init__(self, models, raw_probs=False):
-        src_emb = EnsembleSrcEmb(model.src_emb for model in models)
+        src_emb = EnsembleSrcEmb([model.src_emb for model in models])
         encoder = EnsembleEncoder(model.encoder for model in models)
-        tgt_emb = EnsembleTgtEmb(model.tgt_emb for model in models)
+        tgt_emb = EnsembleTgtEmb([model.tgt_emb for model in models])
         decoder = EnsembleDecoder(model.decoder for model in models)
         hidden_size = models[0].hidden_size
         super(EnsembleModel, self).__init__(
@@ -180,6 +182,7 @@ class EnsembleModel(EncoderDecoderModel):
             [model.generator for model in models], raw_probs
         )
         self.models = nn.ModuleList(models)
+        self.rope = models[0].rope
 
 
 def load_test_model(config, device_id=0):

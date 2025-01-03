@@ -267,7 +267,7 @@ class Model(object):
         """
         Run inference on the given inputs.
         """
-        if type(inputs) == str:
+        if isinstance(inputs, str):
             inputs = [inputs]
         if not (self.loaded):
             self.load()

@@ -42,14 +42,21 @@ class RotaryPosition(nn.Module):
             rotary_dim = model_config.rope_config.rotary_dim
         self.rotary_interleave = model_config.rope_config.rotary_interleave
         self.rotary_theta = model_config.rope_config.rotary_theta
-        self.inv_freq = 1.0 / (
+        inv_freq = 1.0 / (
             self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim)
         )
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
         # TODO: extend with other scaling types
         if getattr(self.model_config.rope_config, "scaling_type", None) == "llama3":
             self.llama3_scaling()
-        # cache rope tensor to limit unnecessary computations
-        self.rope = None
+        tmax = torch.arange(1024)
+        rope = torch.outer(tmax, inv_freq)
+        cos = torch.cos(rope)
+        sin = torch.sin(rope)
+        cos = torch.cat((cos, cos), dim=-1)  # Double the size by repeating `cos`
+        sin = torch.cat((sin, sin), dim=-1)  # Double the size by repeating `sin`
+        self.register_buffer("cos", cos, persistent=False)
+        self.register_buffer("sin", sin, persistent=False)
 
     def llama3_scaling(self):
         """
@@ -92,17 +99,15 @@ class RotaryPosition(nn.Module):
         ) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
         inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
-        self.inv_freq = inv_freq_llama
+        self.register_buffer("inv_freq", inv_freq_llama, persistent=False)
 
-    def forward(self, emb, step=0, device=None, prefetch=1024):
+    def update(self, maxseqlen, step=0, prefetch=1024):
         """
         Computes the rotary position embeddings for a given input.
 
         Args:
-            emb: The input embeddings to which rotary embeddings will be applied.
+            maxseqlen: max seq length of the input embeddings.
             step: The current step or position within the sequence. Defaults to 0.
-            device: The device on which the computations should be performed.
-                    If None, defaults to the device of `self.inv_freq`.
             offset: An optional offset to apply to the position indices.
                     This is used for the specific `flash_attn_with_kvcache` path,
                     which requires processes by chunks of 32 tokens. Defaults to 0.
@@ -118,25 +123,24 @@ class RotaryPosition(nn.Module):
         """
         if step is None:
             step = 0
-        maxseqlen = emb.size(1)
         offset = (
             32  # make sure we have at least 32 positions for flash_attn_with_kvcache
         )
         # This could probably a bit cleaner/homogenized with the offset case
-        if self.rope is not None:
-            if self.rope[0].size(0) >= max(offset + step, 0) + maxseqlen:
-                return self.rope
-            else:
-                maxseqlen = maxseqlen + prefetch
+        if self.cos.size(0) >= max(offset + step, 0) + maxseqlen:
+            return self.cos, self.sin
         else:
-            self.inv_freq = self.inv_freq.to(device)
-        tmax = torch.arange(max(offset + step, 0) + maxseqlen, device=device)
+            maxseqlen = maxseqlen + prefetch
+
+        tmax = torch.arange(
+            max(offset + step, 0) + maxseqlen, device=self.inv_freq.device
+        )
         rope = torch.outer(tmax, self.inv_freq)
         cos = torch.cos(rope)
         sin = torch.sin(rope)
         cos = torch.cat((cos, cos), dim=-1)  # Double the size by repeating `cos`
         sin = torch.cat((sin, sin), dim=-1)  # Double the size by repeating `sin`
 
-        # Cache the result for reuse
-        self.rope = (cos, sin)
+        self.register_buffer("cos", cos, persistent=False)
+        self.register_buffer("sin", sin, persistent=False)
         return cos, sin

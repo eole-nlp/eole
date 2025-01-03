@@ -141,10 +141,8 @@ class GeneratorLM(Inference):
             log_probs, attn = self._decode_and_generate(
                 decoder_input,
                 None,
-                batch,
                 src_len=decode_strategy.src_len,
                 step=step if step == 0 else step + max(src_len.tolist()),
-                batch_offset=decode_strategy.batch_offset,
             )
 
             if step == 0:
@@ -180,11 +178,14 @@ class GeneratorLM(Inference):
             dec_in = torch.cat((src, dec_in), 1)
             tgt_pad_mask = dec_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, T_tgt]
             emb = self.model.tgt_emb(dec_in)
+            self.model.decoder._disable_cache()
+            position_embeddings = self.model.rope.update(dec_in.size(1), step=0)
             dec_out, _ = self.model.decoder(
                 emb,
                 enc_out=None,
                 return_attn=False,
                 tgt_pad_mask=tgt_pad_mask,
+                position_embeddings=position_embeddings,
             )
             pad_mask = ~dec_in.eq(self._tgt_pad_idx)
             in_estim = (dec_out * pad_mask.unsqueeze(-1).float()).sum(

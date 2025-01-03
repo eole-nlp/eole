@@ -270,13 +270,8 @@ class LossCompute(nn.Module):
         batch["tgt"] += self.padding_idx * (1 - mask.int())
         return batch
 
-    def forward(self, batch, output, attns, trunc_start=0, trunc_size=None, estim=None):
-        """Compute the forward loss, supports truncated BPTT for long
-        sequences by taking a range in the decoder output sequence to
-        back propagate in.
-        Range is from `(trunc_start, trunc_start + trunc_size)`.
-        Truncation is an approximate efficiency trick to relieve the
-        memory required in the RNN buffers.
+    def forward(self, batch, output, attns, estim=None):
+        """Compute the forward loss
 
         Args:
           batch (batch) : batch of labeled examples
@@ -284,22 +279,12 @@ class LossCompute(nn.Module):
               output of decoder model ``(batch, tgt_len, hidden)``
           attns (dict) : dictionary of attention weights
               ``(batch, tgt_len, src_len)``
-          trunc_start (int) : starting position of truncation window
-          trunc_size (int) : length of truncation window
 
         Returns:
             A tuple with the loss and a :obj:`eole.utils.Statistics` instance.
         """
-
-        if trunc_size is None:
-            trunc_size = batch["tgt"].size(1) - trunc_start
         # take into account here the tgt_shift_index (0 / 1 = LM/NMT)
-        trunc_range = (trunc_start + self.tgt_shift_index, trunc_start + trunc_size)
-
-        target = batch["tgt"][:, trunc_range[0] : trunc_range[1]]
-        output = output[:, trunc_start : trunc_range[1], :].contiguous()
-
-        flat_tgt = target[:, :].contiguous().view(-1)
+        flat_tgt = batch["tgt"][:, self.tgt_shift_index :].contiguous().view(-1)
 
         if self.generator is not None:
             scores = self.generator(self._bottle(output))
@@ -321,7 +306,7 @@ class LossCompute(nn.Module):
             ref_align = eole.utils.make_batch_align_matrix(
                 align_idx, align_matrix_size, normalize=True
             )
-            ref_align = ref_align[:, trunc_range[0] : trunc_range[1], :]
+            ref_align = ref_align[:, self.tgt_shift_index :, :]
             if ref_align.dtype != loss.dtype:
                 ref_align = ref_align.to(loss.dtype)
             align_loss = self._compute_alignement_loss(
@@ -348,7 +333,7 @@ class LossCompute(nn.Module):
             estimloss = self.estimloss(estim, batch["sco"]).to(estim.dtype)
         else:
             estimloss = torch.tensor([0.0], device=loss.device)
-        n_sents = len(batch["srclen"]) if trunc_start == 0 else 0
+        n_sents = len(batch["srclen"])
 
         stats = self._stats(
             n_sents, loss.sum().item(), estimloss.item(), scores, flat_tgt

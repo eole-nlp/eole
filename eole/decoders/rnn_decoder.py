@@ -153,10 +153,10 @@ class RNNDecoderBase(DecoderBase):
         # Concatenates sequence of tensors along a new dimension.
         # NOTE: v0.3 to 0.4: dec_outs / attns[*] may not be list
         #       since stack(Variable) was allowed.
-        if type(dec_outs) == list:
+        if isinstance(dec_outs, list):
             dec_outs = torch.stack(dec_outs, dim=1)
             for k in attns:
-                if type(attns[k]) == list:
+                if isinstance(attns[k], list):
                     attns[k] = torch.stack(attns[k])
 
         self.state["input_feed"] = dec_outs[:, -1, :].unsqueeze(0)

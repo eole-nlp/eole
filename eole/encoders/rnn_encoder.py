@@ -43,7 +43,7 @@ class RNNEncoder(EncoderBase):
         """Alternate constructor."""
         return cls(model_config, running_config=running_config)
 
-    def forward(self, emb, mask=None):
+    def forward(self, emb, **kwargs):
         """See :func:`EncoderBase.forward()`"""
 
         enc_out, enc_final_hs = self.rnn(emb)

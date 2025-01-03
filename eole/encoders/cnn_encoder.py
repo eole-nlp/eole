@@ -37,7 +37,7 @@ class CNNEncoder(EncoderBase):
             running_config,  # might be better to set this out of the model building logic (update_dropout call sometime in training) # noqa: E501
         )
 
-    def forward(self, emb, mask=None):
+    def forward(self, emb, **kwargs):
         """See :func:`EncoderBase.forward()`"""
         # batch x len x dim
 

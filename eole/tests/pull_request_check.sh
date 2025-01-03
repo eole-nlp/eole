@@ -4,7 +4,7 @@
 # SKIP_DOWNLOADS=1  If files/uncompressed dirs exist don't download (if compressed files exist, just untar).
 # SKIP_FULL_CLEAN=1  Don't remove anything downloaded/uncompressed.
 
-SKIP_FULL_CLEAN=1
+SKIP_FULL_CLEAN=0
 
 PROJECT_ROOT=`dirname "$0"`"/../.."
 DATA_DIR="$PROJECT_ROOT/eole/tests/data"
@@ -26,14 +26,13 @@ clean_up()
     #     rm ${LOG_FILE}
     # fi
     if [[ "${SKIP_FULL_CLEAN}" == "1" ]]; then
-        # delete any .pt's that weren't downloaded
-        ls $TMP_OUT_DIR/*.pt | xargs -I {} rm -f $TMP_OUT_DIR/{}
+        # delete any .model's that weren't downloaded
+        ls $TMP_OUT_DIR/*.model | xargs -I {} rm -rf $TMP_OUT_DIR/{}
     else
-        # delete all .pt's
-        rm -r $TMP_OUT_DIR/dump_pred
-        rm -f $TMP_OUT_DIR/*.pt
-        rm -rf $TMP_OUT_DIR/sample
-        rm -d $TMP_OUT_DIR
+        rm -rf $TMP_OUT_DIR/dump_pred
+        rm -rf $TMP_OUT_DIR/*.model
+        rm -rf $TMP_OUT_DIR/eole.train.check
+        rm -f $TMP_OUT_DIR/eole.vocab.*
     fi
 }
 trap clean_up SIGINT SIGQUIT SIGKILL
@@ -52,18 +51,17 @@ error_exit()
 # }
 
 # black check
-# echo -n "[+] Doing Black check..."
-# ${PYTHON} -m black --check . >> ${LOG_FILE} 2>&1
-# [ "$?" -eq 0 ] || error_exit
-# echo "Succeeded" | tee -a ${LOG_FILE}
+echo -n "[+] Doing Black check..."
+${PYTHON} -m black --check . >> ${LOG_FILE} 2>&1
+[ "$?" -eq 0 ] || error_exit
+echo "Succeeded" | tee -a ${LOG_FILE}
 
 # flake8 check
-# echo -n "[+] Doing flake8 check..."
-# ${PYTHON} -m flake8 --ignore *venv* >> ${LOG_FILE} 2>&1
-# [ "$?" -eq 0 ] || error_exit
-# echo "Succeeded" | tee -a ${LOG_FILE}
-
-# exit
+echo -n "[+] Doing flake8 check..."
+#${PYTHON} -m flake8 --ignore *venv* . >> ${LOG_FILE} 2>&1
+${PYTHON} -m flake8 . >> ${LOG_FILE} 2>&1
+[ "$?" -eq 0 ] || error_exit
+echo "Succeeded" | tee -a ${LOG_FILE}
 
 # unittest
 echo -n "[+] Doing unittest test..."
@@ -90,7 +88,7 @@ rm -f -r $TMP_OUT_DIR/sample
 #
 # Training test
 #
-echo -n "[+] Testing NMT vocab? /transforms prepare..."
+echo -n "[+] Testing architecture rnn sample dump..."
 ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/data.yaml \
             -model '{"architecture": "rnn"}' \
@@ -107,7 +105,7 @@ echo "Succeeded" | tee -a ${LOG_FILE}
 
 echo "[+] Doing Training test..."
 
-echo -n "  [+] Testing NMT training..."
+echo -n "  [+] Testing architecture rnn training..."
 ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/data.yaml \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
@@ -124,7 +122,7 @@ ${PYTHON} eole/tests/test_events.py --logdir $TMP_OUT_DIR/logs_train -tensorboar
 echo "Succeeded" | tee -a ${LOG_FILE}
 rm -r $TMP_OUT_DIR/logs_train
 
-echo -n "  [+] Testing NMT training and validation..."
+echo -n "  [+] Testing architecture rnn training and validation..."
 ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/data.yaml \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
@@ -143,21 +141,7 @@ ${PYTHON} eole/tests/test_events.py --logdir $TMP_OUT_DIR/logs_train_and_valid -
 echo "Succeeded" | tee -a ${LOG_FILE}
 rm -r $TMP_OUT_DIR/logs_train_and_valid
 
-echo -n "  [+] Testing NMT training w/ align..."
-${PYTHON} eole/bin/main.py train \
-            -config ${DATA_DIR}/align_data.yaml \
-            -src_vocab $TMP_OUT_DIR/eole.vocab.src \
-            -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
-            -src_vocab_size 1000 \
-            -tgt_vocab_size 1000 \
-            -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16, "position_encoding_type": None}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "lambda_align": 0.05, "alignment_layer": 2, "alignment_heads": 0, "heads": 2}}' \
-            -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
-            -report_every 5 \
-            >> ${LOG_FILE} 2>&1
-[ "$?" -eq 0 ] || error_exit
-echo "Succeeded" | tee -a ${LOG_FILE}
-
-echo -n "  [+] Testing NMT training w/ coverage..."
+echo -n "  [+] Testing architecture rnn training w/ coverage..."
 ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/data.yaml \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
@@ -171,7 +155,21 @@ ${PYTHON} eole/bin/main.py train \
 [ "$?" -eq 0 ] || error_exit
 echo "Succeeded" | tee -a ${LOG_FILE}
 
-echo -n "  [+] Testing NMT transformer training w/ validation with dynamic scoring..."
+echo -n "  [+] Testing architecture custom transformer training w/ align..."
+${PYTHON} eole/bin/main.py train \
+            -config ${DATA_DIR}/align_data.yaml \
+            -src_vocab $TMP_OUT_DIR/eole.vocab.src \
+            -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
+            -src_vocab_size 1000 \
+            -tgt_vocab_size 1000 \
+            -model '{"layers": 4, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16, "position_encoding_type": None}, "encoder": {"encoder_type": "transformer", "heads": 2}, "decoder": {"decoder_type": "transformer", "lambda_align": 0.05, "alignment_layer": 2, "alignment_heads": 0, "heads": 2}}' \
+            -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
+            -report_every 5 \
+            >> ${LOG_FILE} 2>&1
+[ "$?" -eq 0 ] || error_exit
+echo "Succeeded" | tee -a ${LOG_FILE}
+
+echo -n "  [+] Testing architecture custom transformer training w/ validation with dynamic scoring..."
 ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/data.yaml \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
@@ -192,7 +190,7 @@ ${PYTHON} eole/tests/test_events.py --logdir $TMP_OUT_DIR/logs_dynamic-scoring -
 echo "Succeeded" | tee -a ${LOG_FILE}
 rm -r $TMP_OUT_DIR/logs_dynamic-scoring
 
-echo -n "  [+] Testing NMT transformer training w/ validation with dynamic scoring and maxrelative ..."
+echo -n "  [+] Testing architecture transformer training w/ validation with dynamic scoring and maxrelative ..."
 ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/data.yaml \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
@@ -213,14 +211,14 @@ ${PYTHON} eole/tests/test_events.py --logdir $TMP_OUT_DIR/logs_dynamic-scoring_a
 echo "Succeeded" | tee -a ${LOG_FILE}
 rm -r $TMP_OUT_DIR/logs_dynamic-scoring_and_relative
 
-echo -n "  [+] Testing NMT transformer training w/ validation with dynamic scoring and rotary ..."
+echo -n "  [+] Testing architecture transformer training w/ validation with dynamic scoring and rotary ..."
 ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/data.yaml \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"architecture": "transformer", "layers": 4, "hidden_size": 16, "transformer_ff": 64, "heads": 2, "embeddings": {"word_vec_size": 16, "position_encoding_type": "Rotary"}}' \
+            -model '{"architecture": "transformer", "layers": 4, "hidden_size": 16, "transformer_ff": 64, "heads": 2, "encoder": {"encoder_type": "transformer"}, "embeddings": {"word_vec_size": 16, "position_encoding_type": "Rotary"}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
             -valid_metrics "BLEU" "TER" \
             -report_every 2 \
@@ -228,13 +226,13 @@ ${PYTHON} eole/bin/main.py train \
             -scoring_debug \
             -dump_preds $TMP_OUT_DIR/dump_pred \
             -tensorboard_log_dir $TMP_OUT_DIR/logs_dynamic-scoring_and_rotary >> ${LOG_FILE} 2>&1
-      
+
 ${PYTHON} eole/tests/test_events.py --logdir $TMP_OUT_DIR/logs_dynamic-scoring_and_rotary -tensorboard_checks valid_metrics
 [ "$?" -eq 0 ] || error_exit
 echo "Succeeded" | tee -a ${LOG_FILE}
 rm -r $TMP_OUT_DIR/logs_dynamic-scoring_and_rotary
 
-echo -n "  [+] Testing NMT transformer training w/ validation with dynamic scoring and alibi ..."
+echo -n "  [+] Testing architecture transformer training w/ validation with dynamic scoring and alibi ..."
 ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/data.yaml \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
@@ -255,7 +253,7 @@ ${PYTHON} eole/tests/test_events.py --logdir $TMP_OUT_DIR/logs_dynamic-scoring_a
 echo "Succeeded" | tee -a ${LOG_FILE}
 rm -r $TMP_OUT_DIR/logs_dynamic-scoring_and_alibi
 
-echo -n "  [+] Testing LM training..."
+echo -n "  [+] Testing architecture custom decoder only training..."
 ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/lm_data.yaml \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
@@ -270,66 +268,19 @@ ${PYTHON} eole/bin/main.py train \
 [ "$?" -eq 0 ] || error_exit
 echo "Succeeded" | tee -a ${LOG_FILE}
 
-echo -n "  [+] Testing Checkpoint Vocabulary Update..."
-${PYTHON} eole/bin/main.py train \
-            -config ${DATA_DIR}/data.yaml \
-            -src_vocab $TMP_OUT_DIR/eole.vocab.src \
-            -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
-            -src_vocab_size 1000 -tgt_vocab_size 1000 \
-            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5, "position_encoding_type": None}}' \
-            -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "model_path": "'"$TMP_OUT_DIR"'/eole.model", "save_checkpoint_steps": 10}' \
-            -report_every 5 \
-            >> ${LOG_FILE} 2>&1
-sed -i '1s/^/new_tok\t100000000\n/' $TMP_OUT_DIR/eole.vocab.src >> ${LOG_FILE} 2>&1
-${PYTHON} eole/bin/main.py train \
-            -config ${DATA_DIR}/data.yaml \
-            -src_vocab $TMP_OUT_DIR/eole.vocab.src \
-            -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
-            -src_vocab_size 1000 -tgt_vocab_size 1000 \
-            -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 20, "train_from": "'"$TMP_OUT_DIR"'/eole.model/step_10", "save_checkpoint_steps": 10, "update_vocab": True, "reset_optim": "states"}' \
-            -report_every 5 \
-            >> ${LOG_FILE} 2>&1
-[ "$?" -eq 0 ] || error_exit
-echo "Succeeded" | tee -a ${LOG_FILE}
-
-echo -n "  [+] Testing Checkpoint Vocabulary Update with LM..."
-${PYTHON} eole/bin/main.py train \
-            -config ${DATA_DIR}/lm_data.yaml \
-            -src_vocab $TMP_OUT_DIR/eole.vocab.src \
-            -tgt_vocab $TMP_OUT_DIR/eole.vocab.src \
-            -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "heads": 4}}' \
-            -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "model_path": "'"$TMP_OUT_DIR"'/lm.eole.model", "save_checkpoint_steps": 10}' \
-            -report_every 5 \
-            -src_vocab_size 1000 \
-            -tgt_vocab_size 1000 \
-            >> ${LOG_FILE} 2>&1
-sed -i '1s/^/new_tok2\t100000000\n/' $TMP_OUT_DIR/eole.vocab.src >> ${LOG_FILE} 2>&1
-${PYTHON} eole/bin/main.py train \
-            -config ${DATA_DIR}/lm_data.yaml \
-            -src_vocab $TMP_OUT_DIR/eole.vocab.src \
-            -tgt_vocab $TMP_OUT_DIR/eole.vocab.src \
-            -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "heads": 4}}' \
-            -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 20, "train_from": "'"$TMP_OUT_DIR"'/lm.eole.model/step_10", "save_checkpoint_steps": 10, "update_vocab": True, "reset_optim": "states"}' \
-            -report_every 5 \
-            -src_vocab_size 1000 \
-            -tgt_vocab_size 1000 \
-            >> ${LOG_FILE} 2>&1
-[ "$?" -eq 0 ] || error_exit
-echo "Succeeded" | tee -a ${LOG_FILE}
-
 #
 # Translation test
 #
 echo "[+] Doing translation test..."
 
-echo -n "  [+] Testing NMT translation..."
+echo -n "  [+] Testing RNN translation..."
 head ${DATA_DIR}/src-test.txt > $TMP_OUT_DIR/src-test.txt
 ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model -src $TMP_OUT_DIR/src-test.txt -verbose >> ${LOG_FILE} 2>&1
 [ "$?" -eq 0 ] || error_exit
 echo "Succeeded" | tee -a ${LOG_FILE}
 rm $TMP_OUT_DIR/src-test.txt
 
-echo -n "  [+] Testing NMT ensemble translation..."
+echo -n "  [+] Testing RNN ensemble translation..."
 head ${DATA_DIR}/src-test.txt > $TMP_OUT_DIR/src-test.txt
 ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model ${TEST_DIR}/test_model \
             -src $TMP_OUT_DIR/src-test.txt -verbose >> ${LOG_FILE} 2>&1
@@ -337,7 +288,7 @@ ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model ${TEST_DIR
 echo "Succeeded" | tee -a ${LOG_FILE}
 rm $TMP_OUT_DIR/src-test.txt
 
-echo -n "  [+] Testing NMT translation w/ Beam search..."
+echo -n "  [+] Testing RNN translation w/ Beam search..."
 ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model2  \
             -src ${DATA_DIR}/morph/src.valid   \
             -verbose \
@@ -350,7 +301,7 @@ diff ${DATA_DIR}/morph/tgt.valid $TMP_OUT_DIR/trans_beam
 echo "Succeeded" | tee -a ${LOG_FILE}
 rm $TMP_OUT_DIR/trans_beam
 
-echo -n "  [+] Testing NMT translation w/ Random Sampling..."
+echo -n "  [+] Testing RNN translation w/ Random Sampling..."
 ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model2  \
             -src ${DATA_DIR}/morph/src.valid   \
             -verbose -batch_size 10     \
@@ -366,7 +317,6 @@ echo "Succeeded" | tee -a ${LOG_FILE}
 rm $TMP_OUT_DIR/trans_sampling
 
 echo -n "  [+] Testing LM generation..."
-echo "  [+] Testing LM generation..." | tee -a ${LOG_FILE}
 head ${DATA_DIR}/src-test.txt > $TMP_OUT_DIR/src-test.txt
 ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model_lm -src $TMP_OUT_DIR/src-test.txt -verbose >> ${LOG_FILE} 2>&1
 [ "$?" -eq 0 ] || error_exit
@@ -374,7 +324,6 @@ echo "Succeeded" | tee -a ${LOG_FILE}
 rm $TMP_OUT_DIR/src-test.txt
 
 echo -n "  [+] Testing LM generation w/ Beam search..."
-echo "  [+] Testing LM generation w/ Beam search..." | tee -a ${LOG_FILE}
 ${PYTHON} eole/bin/main.py predict -model_path ${TEST_DIR}/test_model_lm  \
             -src ${DATA_DIR}/data_lm/src-gen.txt   \
             -verbose -batch_size 1     \
@@ -442,7 +391,6 @@ rm $TMP_OUT_DIR/gen_sampling
 # Inference engines test
 #
 echo -n "  [+] Testing PY LM inference engine .."
-echo "  [+] Testing PY LM inference engine .."| tee -a ${LOG_FILE}
 head ${DATA_DIR}/src-test.txt > $TMP_OUT_DIR/src-test.txt
 ${PYTHON} eole/tests/test_inference_engines.py -model ${TEST_DIR}/test_model_lm \
             -model_type decoder \
@@ -455,7 +403,7 @@ rm $TMP_OUT_DIR/src-test.txt
 rm $TMP_OUT_DIR/inference_engine_lm_py_outputs_file.json
 rm $TMP_OUT_DIR/inference_engine_lm_py_outputs_list.json
 
-echo "  [+] Testing CT2 LM inference engine .."| tee -a ${LOG_FILE}
+echo -n "  [+] Testing CT2 LM inference engine .."
 head ${DATA_DIR}/src-test.txt > $TMP_OUT_DIR/src-test.txt
 ${PYTHON} eole/tests/test_inference_engines.py -model ${TEST_DIR} \
             -model_type decoder \
@@ -470,7 +418,6 @@ rm $TMP_OUT_DIR/inference_engine_lm_ct2_outputs_file.json
 rm $TMP_OUT_DIR/inference_engine_lm_ct2_outputs_list.json
 
 echo -n "  [+] Testing PY SEQ2SEQ inference engine .."
-echo "  [+] Testing PY SEQ2SEQ inference engine .."| tee -a ${LOG_FILE}
 head ${DATA_DIR}/src-test.txt > $TMP_OUT_DIR/src-test.txt
 ${PYTHON} eole/tests/test_inference_engines.py -model ${TEST_DIR}/test_model \
             -model_type encoder_decoder \
@@ -513,6 +460,53 @@ rm $TMP_OUT_DIR/q_gloveembeddings*
 echo -n "  [+] Doing extract embeddings test..."
 PYTHONPATH=${PROJECT_ROOT}:${PYTHONPATH} ${PYTHON} eole/bin/main.py model extract_embeddings \
         -model eole/tests/test_model  >> ${LOG_FILE} 2>&1
+[ "$?" -eq 0 ] || error_exit
+echo "Succeeded" | tee -a ${LOG_FILE}
+
+echo -n "  [+] Testing architecture rnn Checkpoint Vocabulary Update..."
+${PYTHON} eole/bin/main.py train \
+            -config ${DATA_DIR}/data.yaml \
+            -src_vocab $TMP_OUT_DIR/eole.vocab.src \
+            -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
+            -src_vocab_size 1000 -tgt_vocab_size 1000 \
+            -model '{"architecture": "rnn", "hidden_size": 10, "embeddings": {"word_vec_size": 5, "position_encoding_type": None}}' \
+            -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "model_path": "'"$TMP_OUT_DIR"'/eole.model", "save_checkpoint_steps": 10}' \
+            -report_every 5 \
+            >> ${LOG_FILE} 2>&1
+sed -i '1s/^/new_tok\t100000000\n/' $TMP_OUT_DIR/eole.vocab.src >> ${LOG_FILE} 2>&1
+${PYTHON} eole/bin/main.py train \
+            -config ${DATA_DIR}/data.yaml \
+            -src_vocab $TMP_OUT_DIR/eole.vocab.src \
+            -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
+            -src_vocab_size 1000 -tgt_vocab_size 1000 \
+            -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 20, "train_from": "'"$TMP_OUT_DIR"'/eole.model/step_10", "save_checkpoint_steps": 10, "update_vocab": True, "reset_optim": "states"}' \
+            -report_every 5 \
+            >> ${LOG_FILE} 2>&1
+[ "$?" -eq 0 ] || error_exit
+echo "Succeeded" | tee -a ${LOG_FILE}
+
+echo -n "  [+] Testing Checkpoint Vocabulary Update with LM..."
+${PYTHON} eole/bin/main.py train \
+            -config ${DATA_DIR}/lm_data.yaml \
+            -src_vocab $TMP_OUT_DIR/eole.vocab.src \
+            -tgt_vocab $TMP_OUT_DIR/eole.vocab.src \
+            -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "heads": 4}}' \
+            -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "model_path": "'"$TMP_OUT_DIR"'/lm.eole.model", "save_checkpoint_steps": 10}' \
+            -report_every 5 \
+            -src_vocab_size 1000 \
+            -tgt_vocab_size 1000 \
+            >> ${LOG_FILE} 2>&1
+sed -i '1s/^/new_tok2\t100000000\n/' $TMP_OUT_DIR/eole.vocab.src >> ${LOG_FILE} 2>&1
+${PYTHON} eole/bin/main.py train \
+            -config ${DATA_DIR}/lm_data.yaml \
+            -src_vocab $TMP_OUT_DIR/eole.vocab.src \
+            -tgt_vocab $TMP_OUT_DIR/eole.vocab.src \
+            -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "heads": 4}}' \
+            -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 20, "train_from": "'"$TMP_OUT_DIR"'/lm.eole.model/step_10", "save_checkpoint_steps": 10, "update_vocab": True, "reset_optim": "states"}' \
+            -report_every 5 \
+            -src_vocab_size 1000 \
+            -tgt_vocab_size 1000 \
+            >> ${LOG_FILE} 2>&1
 [ "$?" -eq 0 ] || error_exit
 echo "Succeeded" | tee -a ${LOG_FILE}
 

@@ -108,7 +108,7 @@ def get_autocast(enabled=True, device_type="auto"):
         device_type = get_device_type()
 
     if device_type == "cuda":
-        return torch.cuda.amp.autocast()
+        return torch.amp.autocast("cuda")
     elif device_type == "mps":
         return torch.amp.autocast(device_type="mps")
     else:

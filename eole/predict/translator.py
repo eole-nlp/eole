@@ -4,7 +4,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from eole.predict.beam_search import BeamSearch
 from eole.predict.greedy_search import GreedySearch
-from eole.utils.misc import tile, sequence_mask
+from eole.utils.misc import tile
 from eole.utils.alignment import extract_alignment
 from eole.predict.inference import Inference
 
@@ -59,18 +59,17 @@ class Translator(Inference):
 
         # (4) reshape and apply pad masking in the target sequence
         tgt = batch_tgt_idxs.view(-1, batch_tgt_idxs.size(-1))
-        src_pad_idx = self.model.src_emb.word_padding_idx
-        tgt_pad_idx = self.model.tgt_emb.word_padding_idx
-        src_pad_mask = src.eq(src_pad_idx).unsqueeze(1)
-        tgt_pad_mask = tgt[:, :-1].eq(tgt_pad_idx).unsqueeze(1)
-
+        src_pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)
+        tgt_pad_mask = tgt[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)
         dec_in = tgt[:, :-1]
+        position_embeddings = self.model.rope.update(dec_in.size(1), step=0)
         _, attns = self.model.decoder(
             self.model.tgt_emb(dec_in),
             enc_out=enc_out,
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
             with_align=True,
+            position_embeddings=position_embeddings,
         )
 
         alignment_attn = attns["align"]  # ``(B, tgt_len-1, src_len)``
@@ -141,9 +140,12 @@ class Translator(Inference):
         src = batch["src"]
         src_len = batch["srclen"]
         batch_size = len(batch["srclen"])
-        mask = sequence_mask(src_len)
         emb = self.model.src_emb(src)
-        enc_out, enc_final_hs = self.model.encoder(emb, mask)
+        pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
+        position_embeddings = self.model.rope.update(src.size(1), step=0)
+        enc_out, enc_final_hs = self.model.encoder(
+            emb, pad_mask=pad_mask, position_embeddings=position_embeddings
+        )
 
         if src_len is None:
             assert not isinstance(
@@ -212,10 +214,8 @@ class Translator(Inference):
             log_probs, attn = self._decode_and_generate(
                 decoder_input,
                 enc_out,
-                batch,
                 src_len=decode_strategy.src_len,
                 step=step,
-                batch_offset=decode_strategy.batch_offset,
                 return_attn=decode_strategy.return_attention,
             )
 
@@ -256,14 +256,13 @@ class Translator(Inference):
                 device=dec_in.device,
             )
             dec_in = torch.cat((prepend_value, dec_in), dim=1)
-            src_max_len = src_len2.max()
-            src_pad_mask = sequence_mask(src_len2, src_max_len).unsqueeze(
-                1
-            )  # [B, 1, T_src]
+            src_pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
             tgt_pad_mask = (
                 dec_in[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)
             )  # [B, 1, T_tgt]
             emb = self.model.tgt_emb(dec_in[:, :-1])
+            self.model.decoder._disable_cache()
+            position_embeddings = self.model.rope.update(dec_in[:, :-1].size(1), step=0)
             dec_out, _ = self.model.decoder(
                 emb,
                 enc_out=enc_out2,
@@ -272,6 +271,7 @@ class Translator(Inference):
                 return_attn=False,
                 src_pad_mask=src_pad_mask,
                 tgt_pad_mask=tgt_pad_mask,
+                position_embeddings=position_embeddings,
             )
             pad_mask2 = ~dec_in[:, :-1].eq(self._tgt_pad_idx)
             in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
@@ -304,7 +304,6 @@ class Translator(Inference):
         log_probs, attn = self._decode_and_generate(
             tgt_in,
             enc_out,
-            batch,
             src_len=src_len,
         )
 

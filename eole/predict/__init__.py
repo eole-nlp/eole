@@ -28,7 +28,7 @@ def build_predictor(config, device_id=0, report_score=True, logger=None):
     )
 
     vocabs, model, model_config = load_test_model(config, device_id)
-    config.model = model_config
+    config.update(model=model_config)
 
     scorer = GNMTGlobalScorer.from_config(config)
 

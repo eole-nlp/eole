@@ -48,9 +48,7 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
         scoring_preparator.warm_up(validset_transforms)
     scorers_cls = get_scorers_cls(config.valid_metrics)
     valid_scorers = build_scorers(config, scorers_cls)
-
     running_config = config.training
-    trunc_size = running_config.truncated_decoder  # Badly named...
     norm_method = running_config.normalization
     accum_count = running_config.accum_count
     accum_steps = running_config.accum_steps
@@ -86,7 +84,6 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
         scoring_preparator,
         valid_scorers,
         optim,
-        trunc_size,
         norm_method,
         accum_count,
         accum_steps,
@@ -127,8 +124,6 @@ class Trainer(object):
           of the validation metrics
         optim(:obj:`eole.utils.optimizers.Optimizer`):
           the optimizer responsible for update
-        trunc_size(int): length of truncated back propagation
-          through time
         accum_count(list): accumulate gradients this many times.
         accum_steps(list): steps for accum gradients changes.
         n_gpu (int): number of gpu.
@@ -160,7 +155,6 @@ class Trainer(object):
         scoring_preparator,
         valid_scorers,
         optim,
-        trunc_size=0,
         norm_method="sents",
         accum_count=[1],
         accum_steps=[0],
@@ -188,11 +182,9 @@ class Trainer(object):
         self.estim_loss_lambda = estim_loss_lambda[0]
         self.estim_loss_lambda_steps = estim_loss_lambda_steps
         self.valid_loss = valid_loss
-
         self.scoring_preparator = scoring_preparator
         self.valid_scorers = valid_scorers
         self.optim = optim
-        self.trunc_size = trunc_size
         self.norm_method = norm_method
         self.accum_count_l = accum_count
         self.accum_count = accum_count[0]
@@ -469,6 +461,7 @@ class Trainer(object):
 
                 # Update statistics.
                 stats.update(metric_stats)
+                valid_model.decoder._disable_cache()
 
         if moving_average:
             for param_data, param in zip(model_params_data, self.model.parameters()):
@@ -487,80 +480,54 @@ class Trainer(object):
         Perform a backward on the loss of each sub_batch and
         finally update the params at the end of the big batch."""
 
-        if self.accum_count > 1:
-            self.optim.zero_grad(set_to_none=True)
+        self.optim.zero_grad(set_to_none=True)
 
         for k, batch in enumerate(true_batches):
-            target_size = batch["tgt"].size(1)
-            # Truncated BPTT: reminder not compatible with accum > 1
-            if self.trunc_size:
-                trunc_size = self.trunc_size
-            else:
-                trunc_size = target_size
 
             src = batch["src"]
             src_len = batch["srclen"]
             if src_len is not None:
                 report_stats.n_src_words += src_len.sum().item()
                 total_stats.n_src_words += src_len.sum().item()
+            tgt = batch["tgt"]
 
-            tgt_outer = batch["tgt"]
+            try:
+                with get_autocast(enabled=self.optim.amp):
+                    model_out, attns, estim = self.model(
+                        src, tgt, src_len, with_align=self.with_align
+                    )
+                    if self.zero_out_prompt_loss:
+                        # The loss of the prompt will be set to zero.
+                        batch = self.train_loss.ignore_prompt(batch)
+                    loss, batch_stats, auxloss = self.train_loss(
+                        batch,
+                        model_out,
+                        attns,
+                        estim=estim,
+                    )
+                if loss is not None:
+                    loss /= normalization
+                    auxloss /= self.accum_count * src_len.size(0)
+                    loss = loss + auxloss * self.estim_loss_lambda
+                    self.optim.backward(loss)
 
-            bptt = False
-            for j in range(0, target_size - 1, trunc_size):
-                # 1. Create truncated target.
+                total_stats.update(batch_stats)
+                report_stats.update(batch_stats)
 
-                tgt = tgt_outer[:, j : j + trunc_size]
-
-                # 2. F-prop all but generator.
-                if self.accum_count == 1:
-                    self.optim.zero_grad(set_to_none=True)
-                try:
-                    with get_autocast(enabled=self.optim.amp):
-                        model_out, attns, estim = self.model(
-                            src, tgt, src_len, bptt=bptt, with_align=self.with_align
-                        )
-                        bptt = True
-
-                        # 3. Compute loss.
-                        if self.zero_out_prompt_loss:
-                            # The loss of the prompt will be set to zero.
-                            batch = self.train_loss.ignore_prompt(batch)
-                        loss, batch_stats, auxloss = self.train_loss(
-                            batch,
-                            model_out,
-                            attns,
-                            trunc_start=j,
-                            trunc_size=trunc_size,
-                            estim=estim,
-                        )
-                    if loss is not None:
-                        loss /= normalization
-                        auxloss /= self.accum_count * src_len.size(0)
-                        loss = loss + auxloss * self.estim_loss_lambda
-                        self.optim.backward(loss)
-
-                    total_stats.update(batch_stats)
-                    report_stats.update(batch_stats)
-
-                except Exception as exc:
-                    trace_content = traceback.format_exc()
-                    if "CUDA out of memory" in trace_content:
-                        logger.info(
-                            "Step %d, cuda OOM - batch removed",
-                            self.optim.training_step,
-                        )
-                        clear_gpu_cache()
-                        if self.n_gpu > 1 and self.parallel_mode == "tensor_parallel":
-                            torch.distributed.destroy_process_group()
-                            sys.exit()
-                    else:
-                        traceback.print_exc()
-                        raise exc
-
-                # If truncated, don't backprop fully.
-                if self.model.decoder is not None and self.model.decoder.state != {}:
-                    self.model.decoder.detach_state()
+            except Exception as exc:
+                trace_content = traceback.format_exc()
+                if "CUDA out of memory" in trace_content:
+                    logger.info(
+                        "Step %d, cuda OOM - batch removed",
+                        self.optim.training_step,
+                    )
+                    clear_gpu_cache()
+                    if self.n_gpu > 1 and self.parallel_mode == "tensor_parallel":
+                        torch.distributed.destroy_process_group()
+                        sys.exit()
+                else:
+                    traceback.print_exc()
+                    raise exc
 
         # in case of multi step gradient accumulation,
         # update only after accum batches
