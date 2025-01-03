@@ -97,7 +97,6 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
         self_attn, _ = self.self_attn(
             norm_layer_in,
             attn_mask=attn_mask,
-            sliding_window=self.sliding_window,
             step=step,
             return_attn=return_attn,
             position_embeddings=position_embeddings,
