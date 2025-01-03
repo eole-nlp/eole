@@ -34,6 +34,13 @@ class NoOpPosition:
         return None
 
 
+def build_rope(model_config):
+    if model_config.embeddings.position_encoding_type == PositionEncodingType.Rotary:
+        return RotaryPosition(model_config)
+    else:
+        return NoOpPosition()
+
+
 def build_encoder(model_config, running_config=None):
     """
     Various encoder dispatcher function.
@@ -776,13 +783,6 @@ class EncoderDecoderModel(BaseModel):
             src_emb=src_emb,
         )
         decoder = build_decoder(model_config, running_config=running_config)
-        if (
-            model_config.embeddings.position_encoding_type
-            == PositionEncodingType.Rotary
-        ):
-            rope = RotaryPosition(model_config)
-        else:
-            rope = NoOpPosition()
         return cls(
             encoder=encoder,
             decoder=decoder,
@@ -790,7 +790,7 @@ class EncoderDecoderModel(BaseModel):
             tgt_emb=tgt_emb,
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.decoder.hidden_size,
-            rope=rope,
+            rope=build_rope(model_config),
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
@@ -863,19 +863,12 @@ class DecoderModel(BaseModel):
     def build_blocks(cls, model_config, vocabs, running_config=None):
         tgt_emb = build_tgt_emb(model_config, vocabs, running_config=running_config)
         decoder = build_decoder(model_config, running_config=running_config)
-        if (
-            model_config.embeddings.position_encoding_type
-            == PositionEncodingType.Rotary
-        ):
-            rope = RotaryPosition(model_config)
-        else:
-            rope = NoOpPosition()
         return cls(
             decoder=decoder,
             tgt_emb=tgt_emb,
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.decoder.hidden_size,
-            rope=rope,
+            rope=build_rope(model_config),
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
@@ -932,19 +925,12 @@ class EncoderModel(BaseModel):
     def build_blocks(cls, model_config, vocabs, running_config=None):
         src_emb = build_src_emb(model_config, vocabs, running_config=running_config)
         encoder = build_encoder(model_config, running_config=running_config)
-        if (
-            model_config.embeddings.position_encoding_type
-            == PositionEncodingType.Rotary
-        ):
-            rope = RotaryPosition(model_config)
-        else:
-            rope = NoOpPosition()
         return cls(
             encoder=encoder,
             src_emb=src_emb,
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.encoder.hidden_size,
-            rope=rope,
+            rope=build_rope(model_config),
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 

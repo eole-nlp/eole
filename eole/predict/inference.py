@@ -662,7 +662,6 @@ class Inference(object):
         # and [batch, src_len, hidden] as enc_out
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
-        emb = self.model.tgt_emb(decoder_in, step=step)
         # we still rely on src_len here because updated at each beam search step
         if isinstance(enc_out, tuple):
             src_max_len = enc_out[0].size(1)
@@ -679,7 +678,7 @@ class Inference(object):
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
         position_embeddings = self.model.rope.update(decoder_in.size(1), step=step)
         dec_out, dec_attn = self.model.decoder(
-            emb,
+            self.model.tgt_emb(decoder_in, step=step),
             enc_out=enc_out,
             src_len=src_len,
             step=step,

@@ -113,7 +113,7 @@ class TransformerLMDecoder(TransformerDecoderBase):
         self.layer_norm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
-        self._clear_cache()
+        self._disable_cache()
 
     def forward(self, emb, **kwargs):
         """Decode, possibly stepwise."""
@@ -129,7 +129,7 @@ class TransformerLMDecoder(TransformerDecoderBase):
         position_embeddings = kwargs.pop("position_embeddings", None)
 
         if step == 0:
-            self._init_cache(emb.device, pad_mask)
+            self._enable_cache(emb.device, pad_mask)
 
         for layer in self.transformer_layers:
             emb, attn, _ = layer(
@@ -148,7 +148,7 @@ class TransformerLMDecoder(TransformerDecoderBase):
         # TODO change the way attns is returned dict => list or tuple (onnx)
         return emb, attns
 
-    def _init_cache(self, device, pad_mask):
+    def _enable_cache(self, device, pad_mask):
         for layer in self.transformer_layers:
             if hasattr(layer, "self_attn"):
                 layer.self_attn.layer_cache = (
@@ -160,7 +160,7 @@ class TransformerLMDecoder(TransformerDecoderBase):
                     },
                 )
 
-    def _clear_cache(self):
+    def _disable_cache(self):
         for layer in self.transformer_layers:
             if hasattr(layer, "self_attn"):
                 layer.self_attn.layer_cache = (

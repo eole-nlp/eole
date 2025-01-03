@@ -461,7 +461,7 @@ class Trainer(object):
 
                 # Update statistics.
                 stats.update(metric_stats)
-                valid_model.decoder._clear_cache()
+                valid_model.decoder._disable_cache()
 
         if moving_average:
             for param_data, param in zip(model_params_data, self.model.parameters()):

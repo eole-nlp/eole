@@ -168,7 +168,7 @@ class TransformerDecoder(TransformerDecoderBase):
         self.layer_norm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
-        self._clear_cache()
+        self._disable_cache()
 
     def forward(self, emb, **kwargs):
         """Decode, possibly stepwise."""
@@ -187,7 +187,7 @@ class TransformerDecoder(TransformerDecoderBase):
         attn_aligns = []
 
         if step == 0:
-            self._init_cache(enc_out.device)
+            self._enable_cache(enc_out.device)
 
         for layer in self.transformer_layers:
             emb, attn, attn_align = layer(
@@ -213,7 +213,7 @@ class TransformerDecoder(TransformerDecoderBase):
         # TODO change the way attns is returned dict => list or tuple (onnx)
         return emb, attns
 
-    def _init_cache(self, device):
+    def _enable_cache(self, device):
         for layer in self.transformer_layers:
             # first value set to True triggered by the beginning of decoding
             # layer_cache becomes active in the MultiHeadedAttention fwd
@@ -232,7 +232,7 @@ class TransformerDecoder(TransformerDecoderBase):
                 },
             )
 
-    def _clear_cache(self):
+    def _disable_cache(self):
         for layer in self.transformer_layers:
             layer.self_attn.layer_cache = (
                 False,

@@ -178,7 +178,7 @@ class GeneratorLM(Inference):
             dec_in = torch.cat((src, dec_in), 1)
             tgt_pad_mask = dec_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, T_tgt]
             emb = self.model.tgt_emb(dec_in)
-            self.model.decoder._clear_cache()
+            self.model.decoder._disable_cache()
             position_embeddings = self.model.rope.update(dec_in.size(1), step=0)
             dec_out, _ = self.model.decoder(
                 emb,
