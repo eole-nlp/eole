@@ -367,12 +367,15 @@ class BaseModel(nn.Module):
 
         checkpoint_model_config = checkpoint["config"].model
         # we actually need to merge inference opts and config here
-        config.model = checkpoint_model_config
+        update_dict = {
+            "model": checkpoint_model_config,
+        }
         # if not set in inference config, override with checkpoint (generalize to more fields?)
         if "quant_type" not in config.model_fields_set:
-            config.quant_type = checkpoint["config"].training.quant_type
+            update_dict["quant_type"] = checkpoint["config"].training.quant_type
         if "quant_layers" not in config.model_fields_set:
-            config.quant_layers = checkpoint["config"].training.quant_layers
+            update_dict["quant_layers"] = checkpoint["config"].training.quant_layers
+        config.update(**update_dict)
         vocabs = None
         # not super clean inheritance anti-pattern,
         # might be enhanced if checkpoint loading is split from model instanciation
