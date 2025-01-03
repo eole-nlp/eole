@@ -287,9 +287,11 @@ class TransformerConfig(Config):
 
     @model_validator(mode="after")
     def _validate_transformer_config(self):
+        """
         if self.position_encoding_type == PositionEncodingType.Rotary:
             if self.rope_config is None:
                 self.rope_config = RotaryPositionConfig()
+        """
         if self.add_qkvbias and "add_final_linear_bias" not in self.model_fields_set:
             self.update(add_final_linear_bias=True)
         return self
@@ -503,40 +505,67 @@ class BaseModelConfig(Config):
         return data
 
     def update_model_opts(self):
-        if self.embeddings is not None and self.embeddings.word_vec_size > 0:
-            self.embeddings.src_word_vec_size = self.embeddings.word_vec_size
-            self.embeddings.tgt_word_vec_size = self.embeddings.word_vec_size
+        update_dict = {}
+        if (
+            self.embeddings.position_encoding_type == PositionEncodingType.Rotary
+            and not self.rope_config
+        ):
+            self.rope_config = RotaryPositionConfig()
 
-        # Backward compatibility with "fix_word_vecs_*" opts
-        # We can probably drop this now...
-        # if hasattr(self, "fix_word_vecs_enc"):
-        #     self.embeddings.freeze_word_vecs_enc = self.embeddings.fix_word_vecs_enc
-        # if hasattr(self, "fix_word_vecs_dec"):
-        #     self.embeddings.freeze_word_vecs_dec = self.embeddings.fix_word_vecs_dec
+        if self.embeddings is not None and self.embeddings.word_vec_size > 0:
+            update_dict["embeddings"] = {
+                "src_word_vec_size": self.embeddings.word_vec_size,
+                "tgt_word_vec_size": self.embeddings.word_vec_size,
+            }
+        if self.embeddings is not None and "embeddings" in update_dict.keys():
+            self.embeddings.update(**update_dict.pop("embeddings"))
 
         if (
             getattr(self.encoder, "encoder_type", None) == "brnn"
             and self.decoder.decoder_type == "rnn"
         ):
-            self.decoder.bidirectional_encoder = True
+            update_dict["decoder"] = {"bidirectional_encoder": True}
 
         if self.encoder is not None:
-            self.encoder.src_word_vec_size = self.embeddings.src_word_vec_size
+            update_dict["encoder"] = {
+                "src_word_vec_size": self.embeddings.src_word_vec_size
+            }
             if getattr(self.encoder, "encoder_type", None) == "transformer":
-                self.encoder.position_encoding_type = (
-                    self.embeddings.position_encoding_type
+                update_dict["encoder"].update(
+                    {
+                        "position_encoding_type": self.embeddings.position_encoding_type,
+                        "n_positions": self.embeddings.n_positions,
+                        "rope_config": self.rope_config,
+                    }
                 )
-                self.encoder.n_positions = self.embeddings.n_positions
+                update_dict[
+                    "position_encoding_type"
+                ] = self.embeddings.position_encoding_type
+        if self.encoder is not None and "encoder" in update_dict.keys():
+            self.encoder.update(**update_dict.pop("encoder"))
+
         if self.decoder is not None:
-            self.decoder.tgt_word_vec_size = self.embeddings.tgt_word_vec_size
+            update_dict["decoder"] = {
+                "tgt_word_vec_size": self.embeddings.tgt_word_vec_size
+            }
             if getattr(self.decoder, "decoder_type", None) in [
                 "transformer",
                 "transformer_lm",
             ]:
-                self.decoder.position_encoding_type = (
-                    self.embeddings.position_encoding_type
+                update_dict["decoder"].update(
+                    {
+                        "position_encoding_type": self.embeddings.position_encoding_type,
+                        "n_positions": self.embeddings.n_positions,
+                        "rope_config": self.rope_config,
+                    }
                 )
-                self.decoder.n_positions = self.embeddings.n_positions
+                update_dict[
+                    "position_encoding_type"
+                ] = self.embeddings.position_encoding_type
+        if self.decoder is not None and "decoder" in update_dict.keys():
+            self.decoder.update(**update_dict.pop("decoder"))
+
+        self.update(**update_dict)
 
         # causing some weird recursion issue in unit test, to investigate
         # if self.encoder is not None:
@@ -584,7 +613,7 @@ class BaseModelConfig(Config):
         return self
 
 
-class CustomModelConfig(BaseModelConfig):
+class CustomModelConfig(TransformerConfig, BaseModelConfig):
     """
     Wrap anything that does not fit a set common architecture.
     """

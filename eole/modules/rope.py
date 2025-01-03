@@ -45,6 +45,7 @@ class RotaryPosition(nn.Module):
         inv_freq = 1.0 / (
             self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim)
         )
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
         # TODO: extend with other scaling types
         if getattr(self.model_config.rope_config, "scaling_type", None) == "llama3":
             self.llama3_scaling()
@@ -56,7 +57,6 @@ class RotaryPosition(nn.Module):
         sin = torch.cat((sin, sin), dim=-1)  # Double the size by repeating `sin`
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
-        self.register_buffer("inv_freq", inv_freq, persistent=False)
 
     def llama3_scaling(self):
         """

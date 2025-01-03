@@ -226,7 +226,7 @@ ${PYTHON} eole/bin/main.py train \
             -scoring_debug \
             -dump_preds $TMP_OUT_DIR/dump_pred \
             -tensorboard_log_dir $TMP_OUT_DIR/logs_dynamic-scoring_and_rotary >> ${LOG_FILE} 2>&1
-      
+
 ${PYTHON} eole/tests/test_events.py --logdir $TMP_OUT_DIR/logs_dynamic-scoring_and_rotary -tensorboard_checks valid_metrics
 [ "$?" -eq 0 ] || error_exit
 echo "Succeeded" | tee -a ${LOG_FILE}
