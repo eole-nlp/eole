@@ -506,11 +506,14 @@ class BaseModelConfig(Config):
 
     def update_model_opts(self):
         update_dict = {}
-        if (
-            self.embeddings.position_encoding_type == PositionEncodingType.Rotary
-            and not self.rope_config
-        ):
-            self.rope_config = RotaryPositionConfig()
+        if self.embeddings.position_encoding_type == PositionEncodingType.Rotary:
+            if not self.rope_config:
+                update_dict["rope_config"] = RotaryPositionConfig()
+                rope_config = update_dict["rope_config"]
+            else:
+                rope_config = self.rope_config
+        else:
+            rope_config = None
 
         if self.embeddings is not None and self.embeddings.word_vec_size > 0:
             update_dict["embeddings"] = {
@@ -535,7 +538,7 @@ class BaseModelConfig(Config):
                     {
                         "position_encoding_type": self.embeddings.position_encoding_type,
                         "n_positions": self.embeddings.n_positions,
-                        "rope_config": self.rope_config,
+                        "rope_config": rope_config,
                     }
                 )
                 update_dict[
@@ -556,7 +559,7 @@ class BaseModelConfig(Config):
                     {
                         "position_encoding_type": self.embeddings.position_encoding_type,
                         "n_positions": self.embeddings.n_positions,
-                        "rope_config": self.rope_config,
+                        "rope_config": rope_config,
                     }
                 )
                 update_dict[
