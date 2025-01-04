@@ -91,23 +91,15 @@ def gradio_translation_interface(source_lang, target_lang, source_text):
 with gr.Blocks(title="EuroLLM-Eole Multilingual Translator") as iface:
     # Add Title
     with gr.Row():
-        gr.Markdown(
-            "<h1 style='text-align: center;'>EuroLLM-Eole Multilingual Translator</h1>"
-        )
+        gr.Markdown("<h1 style='text-align: center;'>EuroLLM-Eole Multilingual Translator</h1>")
 
     # Add side-by-side inputs
     with gr.Row(equal_height=True):
         with gr.Column(scale=1):
-            source_lang = gr.Dropdown(
-                languages, label="Source Language", value="English"
-            )
-            source_text = gr.Textbox(
-                placeholder="Enter text here...", lines=10, label="Source Text"
-            )
+            source_lang = gr.Dropdown(languages, label="Source Language", value="English")
+            source_text = gr.Textbox(placeholder="Enter text here...", lines=10, label="Source Text")
         with gr.Column(scale=1):
-            target_lang = gr.Dropdown(
-                languages, label="Target Language", value="French"
-            )
+            target_lang = gr.Dropdown(languages, label="Target Language", value="French")
             translated_text = gr.Textbox(
                 placeholder="Translation will appear here...",
                 lines=10,

@@ -1,4 +1,5 @@
 """ Multi-Head Attention module """
+
 import torch
 import torch.nn as nn
 from math import log, sqrt
@@ -44,9 +45,7 @@ def apply_rotary_emb(query, key, rope, interleave):
         key_rotated_imag = key_[..., 0] * sin + key_[..., 1] * cos
         key_out = torch.stack((key_rotated, key_rotated_imag), dim=-1).flatten(3)
 
-        return query_out.transpose(1, 2).type_as(query), key_out.transpose(
-            1, 2
-        ).type_as(key)
+        return query_out.transpose(1, 2).type_as(query), key_out.transpose(1, 2).type_as(key)
 
         # Old code with complex instead
         # rope_complex = torch.complex(cos, sin)
@@ -61,12 +60,8 @@ def apply_rotary_emb(query, key, rope, interleave):
         rotary_dim = cos.size(1)
         head_dim = query.size(3)
         if rotary_dim < head_dim:
-            q_embed = (query[:, :, :, :rotary_dim] * cos) + (
-                rotate_half(query[:, :, :, :rotary_dim]) * sin
-            )
-            k_embed = (key[:, :, :, :rotary_dim] * cos) + (
-                rotate_half(key[:, :, :, :rotary_dim]) * sin
-            )
+            q_embed = (query[:, :, :, :rotary_dim] * cos) + (rotate_half(query[:, :, :, :rotary_dim]) * sin)
+            k_embed = (key[:, :, :, :rotary_dim] * cos) + (rotate_half(key[:, :, :, :rotary_dim]) * sin)
             q_embed = torch.cat([q_embed, query[:, :, :, rotary_dim:]], dim=-1)
             k_embed = torch.cat([k_embed, key[:, :, :, rotary_dim:]], dim=-1)
         else:
@@ -116,9 +111,7 @@ def gen_relative_positions(
     return final_mat
 
 
-def _relative_position_bucket(
-    relative_position, bidirectional=True, num_buckets=32, max_distance=128
-):
+def _relative_position_bucket(relative_position, bidirectional=True, num_buckets=32, max_distance=128):
     """
     Adapted from Mesh Tensorflow:
     https://github.com/tensorflow/mesh/blob/0cb87fe07da627bf0b7e60475d59f95ed6b5be3d/
@@ -149,9 +142,7 @@ def _relative_position_bucket(
         relative_buckets += (relative_position > 0).to(torch.long) * num_buckets
         relative_position = torch.abs(relative_position)
     else:
-        relative_position = -torch.min(
-            relative_position, torch.zeros_like(relative_position)
-        )
+        relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
     # now relative_position is in the range [0, inf)
     # half of the buckets are for exact increments in positions
     max_exact = num_buckets // 2
@@ -160,18 +151,14 @@ def _relative_position_bucket(
     # The other half of the buckets are for logarithmically bigger bins in positions
     # up to max_distance
     relative_position_if_large = max_exact + (
-        torch.log(relative_position.float() / max_exact)
-        / log(max_distance / max_exact)
-        * (num_buckets - max_exact)
+        torch.log(relative_position.float() / max_exact) / log(max_distance / max_exact) * (num_buckets - max_exact)
     ).to(torch.long)
     relative_position_if_large = torch.min(
         relative_position_if_large,
         torch.full_like(relative_position_if_large, num_buckets - 1),
     )
 
-    relative_buckets += torch.where(
-        is_small, relative_position, relative_position_if_large
-    )
+    relative_buckets += torch.where(is_small, relative_position, relative_position_if_large)
     return relative_buckets
 
 
@@ -184,13 +171,9 @@ def compute_bias(
     device=None,
 ):
     """Compute binned relative position bias"""
-    context_position = torch.arange(query_length, dtype=torch.long, device=device)[
-        :, None
-    ]
+    context_position = torch.arange(query_length, dtype=torch.long, device=device)[:, None]
     memory_position = torch.arange(key_length, dtype=torch.long, device=device)[None, :]
-    relative_position = (
-        memory_position - context_position
-    )  # shape (query_length, key_length)
+    relative_position = memory_position - context_position  # shape (query_length, key_length)
     relative_position_bucket = _relative_position_bucket(
         relative_position,  # shape (query_length, key_length)
         bidirectional=(not is_decoder),
@@ -271,18 +254,12 @@ class MultiHeadedAttention(torch.nn.Module):
         super(MultiHeadedAttention, self).__init__()
         self.dim_per_head = model_config.dim_per_head
         self.heads = model_config.heads
-        self.heads_kv = (
-            model_config.heads_kv
-            if model_config.heads_kv is not None
-            else model_config.heads
-        )
+        self.heads_kv = model_config.heads_kv if model_config.heads_kv is not None else model_config.heads
         self.parallel_gpu = running_config.parallel_gpu
 
         assert (
             self.dim_per_head * self.heads_kv
-        ) % self.parallel_gpu == 0, (
-            "Model dimension must be divisible by the number of partitions"
-        )
+        ) % self.parallel_gpu == 0, "Model dimension must be divisible by the number of partitions"
         self.linear_keys = skip_init(
             nn.Linear,
             in_features=model_config.hidden_size,
@@ -327,9 +304,7 @@ class MultiHeadedAttention(torch.nn.Module):
         self.relative_attention_bias = None
         self.rotary_interleave = None
         if self.relative_positions_buckets > 0:
-            self.relative_attention_bias = nn.Embedding(
-                self.relative_positions_buckets, self.heads
-            )
+            self.relative_attention_bias = nn.Embedding(self.relative_positions_buckets, self.heads)
             self.relative_positions_embeddings = None
         elif self.position_encoding_type == PositionEncodingType.Relative:
             # https://arxiv.org/pdf/1803.02155.pdf
@@ -338,9 +313,7 @@ class MultiHeadedAttention(torch.nn.Module):
             # relative_key. We implemented the same embed
             # for both.
             vocab_size = self.n_positions * 2 + 1
-            self.relative_positions_embeddings = nn.Embedding(
-                vocab_size, self.dim_per_head
-            )
+            self.relative_positions_embeddings = nn.Embedding(vocab_size, self.dim_per_head)
         elif self.position_encoding_type == PositionEncodingType.Rotary:
             if model_config.rope_config.rotary_dim == 0:
                 self.rotary_dim = self.dim_per_head
@@ -350,18 +323,12 @@ class MultiHeadedAttention(torch.nn.Module):
         elif self.position_encoding_type == PositionEncodingType.Alibi:
             self.alibi = AlibiPositionalBias(self.heads)
 
-        self.maybe_ckpt = (
-            checkpoint
-            if "mha" in getattr(running_config, "use_ckpting", [])
-            else lambda f, x: f(x)
-        )
+        self.maybe_ckpt = checkpoint if "mha" in getattr(running_config, "use_ckpting", []) else lambda f, x: f(x)
 
         if getattr(running_config, "self_attn_backend", "") == "flash":
             flash_pack = import_module("flash_attn")
             self.flash_attn_func = getattr(flash_pack, "flash_attn_func")
-            self.flash_attn_with_kvcache = getattr(
-                flash_pack, "flash_attn_with_kvcache"
-            )
+            self.flash_attn_with_kvcache = getattr(flash_pack, "flash_attn_with_kvcache")
             self.flash = True
         else:
             self.flash = False
@@ -405,9 +372,7 @@ class MultiHeadedAttention(torch.nn.Module):
             seqlen = query.size(2)
             cos = position_embeddings[0][:seqlen]
             sin = position_embeddings[1][:seqlen]
-            query, key = apply_rotary_emb(
-                query, key, (cos, sin), interleave=self.rotary_interleave
-            )
+            query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
         return key, value, query
 
     def _compute_attention(
@@ -450,8 +415,7 @@ class MultiHeadedAttention(torch.nn.Module):
 
         # 2) When standard pos. enc. or rotary, use flash attention or SDPA
         if (
-            self.position_encoding_type
-            not in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
+            self.position_encoding_type not in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
             and not return_attn
             and query.device.type != "cpu"
         ):
@@ -483,9 +447,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 values = self.relative_attention_bias(
                     relative_position_bucket
                 )  # shape (query_length, key_length, num_heads)
-                position_bias = values.permute([2, 0, 1]).unsqueeze(
-                    0
-                )  # shape (1, num_heads, query_length, key_length)
+                position_bias = values.permute([2, 0, 1]).unsqueeze(0)  # shape (1, num_heads, query_length, key_length)
                 if self.layer_cache[0]:
                     position_bias = position_bias[:, :, -query.size(2) :, :]
                 scores.add_(position_bias)
@@ -500,9 +462,7 @@ class MultiHeadedAttention(torch.nn.Module):
                     device=key.device,
                 )
                 #  1 or key_len x key_len x dim_per_head
-                relations_keys = self.relative_positions_embeddings(
-                    relative_positions_matrix
-                )
+                relations_keys = self.relative_positions_embeddings(relative_positions_matrix)
                 scores.add_(relative_matmul(query, relations_keys, True))
             elif self.position_encoding_type == PositionEncodingType.Alibi:
                 scores = self.alibi(scores)
@@ -511,9 +471,7 @@ class MultiHeadedAttention(torch.nn.Module):
 
             if attn_mask is not None:
                 # not 100% necessary but expand to nb of heads
-                attn_mask = attn_mask.expand(
-                    -1, self.heads // self.parallel_gpu, -1, -1
-                )
+                attn_mask = attn_mask.expand(-1, self.heads // self.parallel_gpu, -1, -1)
                 # now mask and scores have the same shape
                 scores = scores.masked_fill(~attn_mask, -1e18)
 
@@ -593,9 +551,7 @@ class SelfMHA(MultiHeadedAttention):
             seqlen = query.size(2)
             cos = position_embeddings[0][step : step + seqlen]
             sin = position_embeddings[1][step : step + seqlen]
-            query, key = apply_rotary_emb(
-                query, key, (cos, sin), interleave=self.rotary_interleave
-            )
+            query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
 
         if step == 0:
             # mask keys for LM left padding by batch
@@ -637,10 +593,8 @@ class SelfMHA(MultiHeadedAttention):
             if (
                 step == 0
                 or not self.flash
-                or self.position_encoding_type
-                in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
-                or query.dtype
-                not in [torch.float16, torch.bfloat16]  # to match with flash
+                or self.position_encoding_type in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
+                or query.dtype not in [torch.float16, torch.bfloat16]  # to match with flash
             ):
                 key, value, query = self._prepare_inputs_w_cache(
                     query,
@@ -675,15 +629,11 @@ class SelfMHA(MultiHeadedAttention):
                     # all_reduce is an inplace op - not easily backprop
                     attn_output1 = attn_output.detach().clone()
                     all_reduce(attn_output1)
-                    attn_output.copy_(
-                        attn_output1 + (attn_output - attn_output.detach())
-                    )
+                    attn_output.copy_(attn_output1 + (attn_output - attn_output.detach()))
                 return attn_output, None
 
         else:
-            key, value, query = super()._prepare_inputs(
-                query, query, query, position_embeddings=position_embeddings
-            )
+            key, value, query = super()._prepare_inputs(query, query, query, position_embeddings=position_embeddings)
 
         return super()._compute_attention(
             key,

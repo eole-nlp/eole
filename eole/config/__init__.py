@@ -14,11 +14,7 @@ def calculate_depth(value, current_depth=0):
     if isinstance(value, (dict, Config)):
         if isinstance(value, Config):
             value = value.__dict__
-        return (
-            max(calculate_depth(v, current_depth + 1) for v in value.values())
-            if value
-            else current_depth
-        )
+        return max(calculate_depth(v, current_depth + 1) for v in value.values()) if value else current_depth
     return current_depth
 
 
@@ -63,9 +59,7 @@ def recursive_model_fields_set(model):
             "encoder_type",
             "decoder_type",
         }.intersection(set(model.__fields__.keys()))
-        nested_models = {
-            key for key, value in model.__dict__.items() if isinstance(value, Config)
-        }
+        nested_models = {key for key, value in model.__dict__.items() if isinstance(value, Config)}
         fields_to_check = model.model_fields_set | discriminator_fields | nested_models
     for field in fields_to_check:
         if isinstance(model, dict):

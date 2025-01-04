@@ -75,17 +75,13 @@ class Embedding(nn.Embedding, LoRALayer):
             if self.merge_weights and self.merged:
                 # Make sure that the weights are not merged
                 if self.r > 0:
-                    self.weight.data -= (self.lora_B @ self.lora_A).transpose(
-                        0, 1
-                    ) * self.scaling
+                    self.weight.data -= (self.lora_B @ self.lora_A).transpose(0, 1) * self.scaling
                 self.merged = False
         else:
             if self.merge_weights and not self.merged:
                 # Merge the weights and mark it
                 if self.r > 0:
-                    self.weight.data += (self.lora_B @ self.lora_A).transpose(
-                        0, 1
-                    ) * self.scaling
+                    self.weight.data += (self.lora_B @ self.lora_A).transpose(0, 1) * self.scaling
                 self.merged = True
 
     def forward(self, x: torch.Tensor):
@@ -136,9 +132,7 @@ class QLinear(type):
         class QLoraLinear_cls(layer_class, LoRALayer):
             def __init__(self, *args, **kwargs):
                 if quant_type == "bnb_8bit":
-                    super(QLoraLinear_cls, self).__init__(
-                        *args, bias=bias, has_fp16_weights=False, threshold=threshold
-                    )
+                    super(QLoraLinear_cls, self).__init__(*args, bias=bias, has_fp16_weights=False, threshold=threshold)
                 elif quant_type in ["bnb_FP4", "bnb_NF4"]:
                     super(QLoraLinear_cls, self).__init__(
                         *args,
@@ -158,9 +152,7 @@ class QLinear(type):
                     # Freezing the pre-trained weight matrix
                     self.weight.requires_grad = False
                 self.reset_parameters()
-                self.maybe_ckpt = (
-                    checkpoint if "lora" in use_ckpting else lambda f, x: f(x)
-                )
+                self.maybe_ckpt = checkpoint if "lora" in use_ckpting else lambda f, x: f(x)
 
             def reset_parameters(self):
                 # we do not super().reset_parameters() save lot of time and useless when no grad.
@@ -177,17 +169,13 @@ class QLinear(type):
                         if self.merge_weights and self.merged:
                             # Make sure that the weights are not merged
                             if self.r > 0:
-                                self.weight.data -= (
-                                    self.lora_B @ self.lora_A
-                                ) * self.scaling
+                                self.weight.data -= (self.lora_B @ self.lora_A) * self.scaling
                             self.merged = False
                     else:
                         if self.merge_weights and not self.merged:
                             # Merge the weights and mark it
                             if self.r > 0:
-                                self.weight.data += (
-                                    self.lora_B @ self.lora_A
-                                ) * self.scaling
+                                self.weight.data += (self.lora_B @ self.lora_A) * self.scaling
                             self.merged = True
                 else:
                     # cannot merge/unmerge quantized weigts with unquantized lora_X
@@ -197,23 +185,15 @@ class QLinear(type):
                 if self.r > 0 and not self.merged:
                     result = (
                         self.maybe_ckpt(super().forward, x)
-                        + (
-                            self.lora_dropout(x)
-                            @ self.lora_A.transpose(0, 1)
-                            @ self.lora_B.transpose(0, 1)
-                        )
+                        + (self.lora_dropout(x) @ self.lora_A.transpose(0, 1) @ self.lora_B.transpose(0, 1))
                         * self.scaling
                     )
                 else:
                     result = self.maybe_ckpt(super().forward, x)
                 return result
 
-        instance = QLoraLinear_cls.__new__(
-            QLoraLinear_cls
-        )  # Create a new instance of QLoraLinear_cls
-        instance.__init__(
-            *args, **kwargs
-        )  # Invoke the __init__ method of QLoraLinear_cls
+        instance = QLoraLinear_cls.__new__(QLoraLinear_cls)  # Create a new instance of QLoraLinear_cls
+        instance.__init__(*args, **kwargs)  # Invoke the __init__ method of QLoraLinear_cls
 
         """
         # Check if QLoraLinear has a custom __init__ method
@@ -260,9 +240,7 @@ def lora_state_dict(model: nn.Module, bias: str = "none") -> Dict[str, torch.Ten
     if bias == "none":
         return {k: my_state_dict[k] for k in my_state_dict if "lora_" in k}
     elif bias == "all":
-        return {
-            k: my_state_dict[k] for k in my_state_dict if "lora_" in k or "bias" in k
-        }
+        return {k: my_state_dict[k] for k in my_state_dict if "lora_" in k or "bias" in k}
     elif bias == "lora_only":
         to_return = {}
         for k in my_state_dict:

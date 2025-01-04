@@ -1,4 +1,5 @@
 """Define a minimal encoder."""
+
 from eole.encoders.encoder import EncoderBase
 import torch
 

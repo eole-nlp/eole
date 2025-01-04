@@ -25,9 +25,7 @@ class NoOpPosition:
 
 
 opt = TrainConfig(
-    data={
-        "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
-    },  # actual file path (tested in validate)
+    data={"dummy": Dataset(path_src="eole/tests/data/src-train.txt")},  # actual file path (tested in validate)
     src_vocab="dummy",
     share_vocab=True,
     model=CustomModelConfig(),
@@ -100,14 +98,10 @@ class TestModel(unittest.TestCase):
         if opt.model.decoder.decoder_type == "transformer":
             input = torch.cat([test_src, test_src], 1)
             res = emb(input)
-            compare_to = torch.zeros(
-                bsize, source_l * 2, opt.model.embeddings.src_word_vec_size
-            )
+            compare_to = torch.zeros(bsize, source_l * 2, opt.model.embeddings.src_word_vec_size)
         else:
             res = emb(test_src)
-            compare_to = torch.zeros(
-                bsize, source_l, opt.model.embeddings.src_word_vec_size
-            )
+            compare_to = torch.zeros(bsize, source_l, opt.model.embeddings.src_word_vec_size)
 
         self.assertEqual(res.size(), compare_to.size())
 
@@ -133,9 +127,7 @@ class TestModel(unittest.TestCase):
         enc_out, hidden_t = enc(emb_src, pad_mask=pad_mask)
 
         # Initialize vectors to compare size with
-        test_hid = torch.zeros(
-            opt.model.encoder.layers, bsize, opt.model.encoder.hidden_size
-        )
+        test_hid = torch.zeros(opt.model.encoder.layers, bsize, opt.model.encoder.hidden_size)
         test_out = torch.zeros(bsize, source_l, opt.model.decoder.hidden_size)
 
         # Ensure correct sizes and types

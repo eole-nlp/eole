@@ -1,4 +1,5 @@
 """ Report manager utility """
+
 import time
 from datetime import datetime
 
@@ -12,16 +13,12 @@ def build_report_manager(config, gpu_rank):
         from torch.utils.tensorboard import SummaryWriter
 
         if getattr(config, "tensorboard_log_dir_dated", None) is None:
-            config.tensorboard_log_dir_dated = (
-                config.tensorboard_log_dir + datetime.now().strftime("/%b-%d_%H-%M-%S")
-            )
+            config.tensorboard_log_dir_dated = config.tensorboard_log_dir + datetime.now().strftime("/%b-%d_%H-%M-%S")
         writer = SummaryWriter(config.tensorboard_log_dir_dated, comment="Unmt")
     else:
         writer = None
 
-    report_mgr = ReportMgr(
-        config.report_every, start_time=-1, tensorboard_writer=writer
-    )
+    report_mgr = ReportMgr(config.report_every, start_time=-1, tensorboard_writer=writer)
     return report_mgr
 
 
@@ -49,9 +46,7 @@ class ReportMgrBase(object):
     def log(self, *args, **kwargs):
         logger.info(*args, **kwargs)
 
-    def report_training(
-        self, step, num_steps, learning_rate, patience, report_stats, multigpu=False
-    ):
+    def report_training(self, step, num_steps, learning_rate, patience, report_stats, multigpu=False):
         """
         This is the user-defined batch-level traing progress
         report function.
@@ -72,9 +67,7 @@ class ReportMgrBase(object):
         if step % self.report_every == 0:
             if multigpu:
                 report_stats = eole.utils.Statistics.all_gather_stats(report_stats)
-            self._report_training(
-                step, num_steps, learning_rate, patience, report_stats
-            )
+            self._report_training(step, num_steps, learning_rate, patience, report_stats)
             return eole.utils.Statistics()
         else:
             return report_stats
@@ -94,9 +87,7 @@ class ReportMgrBase(object):
             train_stats(Statistics): training stats
             valid_stats(Statistics): validation stats
         """
-        self._report_step(
-            lr, patience, step, valid_stats=valid_stats, train_stats=train_stats
-        )
+        self._report_step(lr, patience, step, valid_stats=valid_stats, train_stats=train_stats)
 
     def _report_step(self, *args, **kwargs):
         raise NotImplementedError()
@@ -118,18 +109,14 @@ class ReportMgr(ReportMgrBase):
 
     def maybe_log_tensorboard(self, stats, prefix, learning_rate, patience, step):
         if self.tensorboard_writer is not None:
-            stats.log_tensorboard(
-                prefix, self.tensorboard_writer, learning_rate, patience, step
-            )
+            stats.log_tensorboard(prefix, self.tensorboard_writer, learning_rate, patience, step)
 
     def _report_training(self, step, num_steps, learning_rate, patience, report_stats):
         """
         See base class method `ReportMgrBase.report_training`.
         """
         report_stats.output(step, num_steps, learning_rate, self.start_time)
-        self.maybe_log_tensorboard(
-            report_stats, "progress", learning_rate, patience, step
-        )
+        self.maybe_log_tensorboard(report_stats, "progress", learning_rate, patience, step)
         report_stats = eole.utils.Statistics()
 
         return report_stats

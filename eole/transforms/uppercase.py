@@ -6,9 +6,7 @@ import random
 
 
 class UpperCaseConfig(TransformConfig):
-    upper_corpus_ratio: float | None = Field(
-        default=0.01, description="Corpus ratio to apply uppercasing."
-    )
+    upper_corpus_ratio: float | None = Field(default=0.01, description="Corpus ratio to apply uppercasing.")
 
 
 @register_transform(name="uppercase")
@@ -38,19 +36,13 @@ class UpperCaseTransform(Transform):
             return example
 
         src_str = " ".join(example["src"])
-        src_str = "".join(
-            c
-            for c in unicodedata.normalize("NFD", src_str.upper())
-            if unicodedata.category(c) != "Mn"
-        )
+        src_str = "".join(c for c in unicodedata.normalize("NFD", src_str.upper()) if unicodedata.category(c) != "Mn")
         example["src"] = src_str.split(" ")
 
         if example["tgt"] is not None:
             tgt_str = " ".join(example["tgt"])
             tgt_str = "".join(
-                c
-                for c in unicodedata.normalize("NFD", tgt_str.upper())
-                if unicodedata.category(c) != "Mn"
+                c for c in unicodedata.normalize("NFD", tgt_str.upper()) if unicodedata.category(c) != "Mn"
             )
             example["tgt"] = tgt_str.split(" ")
 

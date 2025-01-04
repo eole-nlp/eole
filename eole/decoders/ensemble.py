@@ -51,10 +51,7 @@ class EnsembleEncoder(EncoderBase):
 
     def forward(self, emb, pad_mask=None, **kwargs):
         enc_out, enc_final_hs = zip(
-            *[
-                model_encoder(emb[i], pad_mask=pad_mask, **kwargs)
-                for i, model_encoder in enumerate(self.model_encoders)
-            ]
+            *[model_encoder(emb[i], pad_mask=pad_mask, **kwargs) for i, model_encoder in enumerate(self.model_encoders)]
         )
         return enc_out, enc_final_hs
 
@@ -108,9 +105,7 @@ class EnsembleDecoder(DecoderBase):
     def combine_attns(self, attns):
         result = {}
         for key in attns[0].keys():
-            result[key] = torch.stack(
-                [attn[key] for attn in attns if attn[key] is not None]
-            ).mean(0)
+            result[key] = torch.stack([attn[key] for attn in attns if attn[key] is not None]).mean(0)
         return result
 
     def init_state(self, enc_out=None, src=None, enc_final_hs=None):
@@ -124,9 +119,7 @@ class EnsembleDecoder(DecoderBase):
                 enc_final_hs_i = enc_final_hs[i]
             else:
                 enc_final_hs_i = None
-            model_decoder.init_state(
-                src=src, enc_out=enc_out_i, enc_final_hs=enc_final_hs_i
-            )
+            model_decoder.init_state(src=src, enc_out=enc_out_i, enc_final_hs=enc_final_hs_i)
 
     def map_state(self, fn):
         for model_decoder in self.model_decoders:
@@ -151,10 +144,7 @@ class EnsembleGenerator(nn.Module):
         All models in the ensemble must share a target vocabulary.
         """
         distributions = torch.stack(
-            [
-                mg(h) if attn is None else mg(h, attn, src_map)
-                for h, mg in zip(hidden, self.model_generators)
-            ]
+            [mg(h) if attn is None else mg(h, attn, src_map) for h, mg in zip(hidden, self.model_generators)]
         )
         if self._raw_probs:
             return torch.log(torch.exp(distributions).mean(0))
@@ -178,9 +168,7 @@ class EnsembleModel(EncoderDecoderModel):
             tgt_emb=tgt_emb,
             hidden_size=hidden_size,
         )
-        self.generator = EnsembleGenerator(
-            [model.generator for model in models], raw_probs
-        )
+        self.generator = EnsembleGenerator([model.generator for model in models], raw_probs)
         self.models = nn.ModuleList(models)
         self.rope = models[0].rope
 
@@ -193,9 +181,7 @@ def load_test_model(config, device_id=0):
     config2 = copy.deepcopy(config)
     for i, model_path in enumerate(config.model_path):
         config2.model_path = [config.model_path[i]]
-        vocabs, model, model_config = BaseModel.load_test_model(
-            config2, device_id, model_path=model_path
-        )
+        vocabs, model, model_config = BaseModel.load_test_model(config2, device_id, model_path=model_path)
         if shared_vocabs is None:
             shared_vocabs = vocabs
         else:

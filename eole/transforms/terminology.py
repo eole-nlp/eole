@@ -6,9 +6,7 @@ import re
 
 
 class TerminologyConfig(TransformConfig):
-    termbase_path: str | None = Field(
-        default=None, description="Path to a dictionary file with terms."
-    )
+    termbase_path: str | None = Field(default=None, description="Path to a dictionary file with terms.")
     src_spacy_language_model: str | None = Field(
         default=None,
         description="Name of the spaCy language model for the source corpus.",
@@ -17,21 +15,11 @@ class TerminologyConfig(TransformConfig):
         default=None,
         description="Name of the spaCy language model for the target corpus.",
     )
-    term_corpus_ratio: float | None = Field(
-        default=0.3, description="Ratio of corpus to augment with terms."
-    )
-    term_example_ratio: float | None = Field(
-        default=0.2, description="Maximum terms allowed in an example."
-    )
-    src_term_stoken: str | None = Field(
-        default="｟src_term_start｠", description="The source term start token."
-    )
-    tgt_term_stoken: str | None = Field(
-        default="｟tgt_term_start｠", description="The target term start token."
-    )
-    tgt_term_etoken: str | None = Field(
-        default="｟tgt_term_end｠", description="The target term end token."
-    )
+    term_corpus_ratio: float | None = Field(default=0.3, description="Ratio of corpus to augment with terms.")
+    term_example_ratio: float | None = Field(default=0.2, description="Maximum terms allowed in an example.")
+    src_term_stoken: str | None = Field(default="｟src_term_start｠", description="The source term start token.")
+    tgt_term_stoken: str | None = Field(default="｟tgt_term_start｠", description="The target term start token.")
+    tgt_term_etoken: str | None = Field(default="｟tgt_term_end｠", description="The target term end token.")
     term_source_delimiter: str | None = Field(
         default="｟fuzzy｠",
         description="Any special token used for augmented source sentences. "
@@ -91,21 +79,11 @@ class TermMatcher(object):
             pairs = file.readlines()
             for pair in pairs:
                 src_term, tgt_term = map(str, pair.split("\t"))
-                src_lemma = " ".join(
-                    "∥".join(tok.lemma_.split(" ")) for tok in self.src_nlp(src_term)
-                ).strip()
-                tgt_lemma = " ".join(
-                    tok.lemma_ for tok in self.tgt_nlp(tgt_term)
-                ).strip()
-                if (
-                    src_lemma.lower() not in src_stopwords
-                    and tgt_lemma.lower() not in tgt_stopwords
-                ):
+                src_lemma = " ".join("∥".join(tok.lemma_.split(" ")) for tok in self.src_nlp(src_term)).strip()
+                tgt_lemma = " ".join(tok.lemma_ for tok in self.tgt_nlp(tgt_term)).strip()
+                if src_lemma.lower() not in src_stopwords and tgt_lemma.lower() not in tgt_stopwords:
                     termbase.append((src_lemma, tgt_lemma))
-        logger.debug(
-            f"Created termbase with {len(termbase)} lemmas "
-            f"for Terminology transform"
-        )
+        logger.debug(f"Created termbase with {len(termbase)} lemmas " f"for Terminology transform")
         return termbase
 
     def _create_automaton(self):
@@ -121,9 +99,7 @@ class TermMatcher(object):
 
         maybe_augmented = source_string.split(self.delimiter)
         source_only = maybe_augmented[0].strip()
-        augmented_part = (
-            maybe_augmented[1].strip() if len(maybe_augmented) > 1 else None
-        )
+        augmented_part = maybe_augmented[1].strip() if len(maybe_augmented) > 1 else None
 
         doc_src = self.src_nlp(source_only)
         doc_tgt = self.tgt_nlp(target_string)
@@ -141,9 +117,7 @@ class TermMatcher(object):
 
         max_terms_allowed = int(len(tokenized_source) * self.term_example_ratio)
         is_match = False
-        for match_end, (src_entry, tgt_entry) in self.automaton.iter_long(
-            lemmatized_source_string
-        ):
+        for match_end, (src_entry, tgt_entry) in self.automaton.iter_long(lemmatized_source_string):
 
             if term_counter == max_terms_allowed:
                 break
@@ -160,10 +134,7 @@ class TermMatcher(object):
                     len(lemmatized_source_string) != match_end + 1
                     and not (lemmatized_source_string[match_end + 1].isspace())
                 )
-                or (
-                    not lemmatized_source_string[match_start - 1].isspace()
-                    and match_start != 0
-                )
+                or (not lemmatized_source_string[match_start - 1].isspace() and match_start != 0)
             ):
                 continue
             else:
@@ -182,9 +153,7 @@ class TermMatcher(object):
                 # We need to know if the term is multiword
                 num_words_in_src_term = len(src_entry.split(" "))
                 src_term = " ".join(
-                    tokenized_source[
-                        lemma_list_index : lemma_list_index + num_words_in_src_term
-                    ]
+                    tokenized_source[lemma_list_index : lemma_list_index + num_words_in_src_term]
                 ).strip()
 
                 # Join multiword target lemmas with a unique separator so
@@ -203,11 +172,7 @@ class TermMatcher(object):
             source_with_terms.append(lemmatized_source_string[offset:])
             tokenized_source_with_terms = "".join(source_with_terms).split(" ")
 
-            if not (
-                len(tokenized_source)
-                == len(lemmatized_source)
-                == len(tokenized_source_with_terms)
-            ):
+            if not (len(tokenized_source) == len(lemmatized_source) == len(tokenized_source_with_terms)):
                 final_string = " ".join(tokenized_source)
                 fixed_punct = re.sub(r" ([^\w\s｟\-\–])", r"\1", final_string)
                 return fixed_punct.split(" "), not is_match
@@ -229,11 +194,7 @@ class TermMatcher(object):
                     completed_tokenized_source.append(src_lemma)
 
             if augmented_part is not None:
-                final_string = " ".join(
-                    completed_tokenized_source
-                    + [self.delimiter]
-                    + augmented_part.split(" ")
-                )
+                final_string = " ".join(completed_tokenized_source + [self.delimiter] + augmented_part.split(" "))
             else:
                 final_string = " ".join(completed_tokenized_source)
 
@@ -268,9 +229,7 @@ class TerminologyTransform(Transform):
     def get_specials(cls, config):
         """Add the term tokens to the src vocab."""
         src_specials = list()
-        src_specials.extend(
-            [config.src_term_stoken, config.tgt_term_stoken, config.tgt_term_etoken]
-        )
+        src_specials.extend([config.src_term_stoken, config.tgt_term_stoken, config.tgt_term_etoken])
         return (src_specials, list())
 
     def warm_up(self, vocabs=None):
@@ -300,9 +259,7 @@ class TerminologyTransform(Transform):
             if i % 2 == 0:
                 original_src = ex["src"]
                 augmented_example, is_match = self.apply(ex, is_train, stats, **kwargs)
-                if is_match and (
-                    examples_with_terms < bucket_size * self.term_corpus_ratio
-                ):
+                if is_match and (examples_with_terms < bucket_size * self.term_corpus_ratio):
                     examples_with_terms += 1
                     ex["src"] = augmented_example["src"]
                 else:

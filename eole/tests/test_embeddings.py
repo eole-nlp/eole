@@ -44,7 +44,7 @@ class TestEmbeddings(unittest.TestCase):
         lengths = [random.randint(0, max_seq_len) for _ in range(batch_size)]
         lengths[0] = max_seq_len
         inps = torch.empty((batch_size, max_seq_len), dtype=torch.long)
-        for (voc_size, pad_idx) in zip(voc_sizes, pad_idxs):
+        for voc_size, pad_idx in zip(voc_sizes, pad_idxs):
             for b, len_ in enumerate(lengths):
                 inps[b, :len_] = torch.randint(0, voc_size - 1, (len_,))
                 inps[b, len_:] = pad_idx
@@ -67,16 +67,11 @@ class TestEmbeddings(unittest.TestCase):
     def test_embeddings_trainable_params(self):
         for params, init_case in itertools.product(self.PARAMS, self.cases()):
             emb = Embeddings(**init_case)
-            trainable_params = {
-                n: p for n, p in emb.named_parameters() if p.requires_grad
-            }
+            trainable_params = {n: p for n, p in emb.named_parameters() if p.requires_grad}
             # first check there's nothing unexpectedly not trainable
             for key in emb.state_dict():
                 if key not in trainable_params:
-                    if (
-                        key.endswith("embeddings.weight")
-                        and init_case["freeze_word_vecs"]
-                    ):
+                    if key.endswith("embeddings.weight") and init_case["freeze_word_vecs"]:
                         # ok: word embeddings shouldn't be trainable
                         # if word vecs are freezed
                         continue
@@ -85,24 +80,16 @@ class TestEmbeddings(unittest.TestCase):
                         assert init_case["position_encoding_type"]
                         continue
                     else:
-                        self.fail(
-                            "Param {:s} is unexpectedly not " "trainable.".format(key)
-                        )
+                        self.fail("Param {:s} is unexpectedly not " "trainable.".format(key))
             # then check nothing unexpectedly trainable
             if init_case["freeze_word_vecs"]:
                 self.assertFalse(
-                    any(
-                        trainable_param.endswith("embeddings.weight")
-                        for trainable_param in trainable_params
-                    ),
+                    any(trainable_param.endswith("embeddings.weight") for trainable_param in trainable_params),
                     "Word embedding is trainable but word vecs are freezed.",
                 )
             if init_case["position_encoding_type"]:
                 self.assertFalse(
-                    any(
-                        trainable_p.endswith(".pe.pe")
-                        for trainable_p in trainable_params
-                    ),
+                    any(trainable_p.endswith(".pe.pe") for trainable_p in trainable_params),
                     "Positional encoding is trainable.",
                 )
 
@@ -112,9 +99,7 @@ class TestEmbeddings(unittest.TestCase):
             for n, p in emb.named_parameters():
                 if "weight" in n and p.dim() > 1:
                     xavier_uniform_(p)
-            trainable_params = {
-                n: p for n, p in emb.named_parameters() if p.requires_grad
-            }
+            trainable_params = {n: p for n, p in emb.named_parameters() if p.requires_grad}
             if len(trainable_params) > 0:
                 old_weights = deepcopy(trainable_params)
                 dummy_in = self.dummy_inputs(params, init_case)

@@ -31,9 +31,7 @@ class TransformerDecoderLayerBase(nn.Module):
         self.alignment_heads = model_config.alignment_heads
         self.sliding_window = model_config.sliding_window
 
-        self.input_layernorm = LayerNorm[model_config.layer_norm](
-            model_config.hidden_size, eps=model_config.norm_eps
-        )
+        self.input_layernorm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
         self.self_attn = SelfMHA(
             model_config,
             running_config=running_config,
@@ -103,9 +101,7 @@ class TransformerDecoderLayerBase(nn.Module):
         if not future:
             # Add triangular future_mask and pad_mask, result mask in (B, T, T).
             future_mask = torch.tril(
-                torch.ones(
-                    (tgt_len, tgt_len), device=tgt_pad_mask.device, dtype=torch.bool
-                ),
+                torch.ones((tgt_len, tgt_len), device=tgt_pad_mask.device, dtype=torch.bool),
                 diagonal=0,
             )
             if self.sliding_window > 0:

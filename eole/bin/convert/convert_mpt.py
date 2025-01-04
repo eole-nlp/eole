@@ -32,12 +32,8 @@ class MPTConverter(BaseBin):
             required=True,
             help="""Path to the tokenizer model""",
         )
-        parser.add_argument(
-            "--output", type=str, required=True, help="""Path to the model directory"""
-        )
-        parser.add_argument(
-            "--nshards", type=int, default=1, help="""Path to the model directory"""
-        )
+        parser.add_argument("--output", type=str, required=True, help="""Path to the model directory""")
+        parser.add_argument("--nshards", type=int, default=1, help="""Path to the model directory""")
 
     @classmethod
     def run(cls, args):
@@ -70,20 +66,14 @@ class MPTConverter(BaseBin):
             eole_safetensor = {}
 
             if shard == 0:
-                eole_safetensor["tgt_emb.embeddings.weight"] = checkpoint[
-                    "transformer.wte.weight"
-                ]
-                eole_safetensor["decoder.layer_norm.weight"] = checkpoint[
-                    "transformer.norm_f.weight"
-                ]
+                eole_safetensor["tgt_emb.embeddings.weight"] = checkpoint["transformer.wte.weight"]
+                eole_safetensor["decoder.layer_norm.weight"] = checkpoint["transformer.norm_f.weight"]
                 eole_safetensor["decoder.layer_norm.bias"] = torch.zeros(
                     eole_safetensor["decoder.layer_norm.weight"].size(0),
                     dtype=torch.float16,
                 )
 
-                eole_safetensor["generator.weight"] = checkpoint[
-                    "transformer.wte.weight"
-                ].clone()
+                eole_safetensor["generator.weight"] = checkpoint["transformer.wte.weight"].clone()
                 eole_safetensor["generator.bias"] = torch.zeros(
                     eole_safetensor["generator.weight"].size(0), dtype=torch.float16
                 )
@@ -93,76 +83,46 @@ class MPTConverter(BaseBin):
                 min(-(decoder_layers // -args.nshards) * (shard + 1), decoder_layers),
                 1,
             ):
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.linear_query.weight"
-                ] = checkpoint["transformer.blocks." + str(i) + ".attn.Wqkv.weight"][
-                    :hidden_size, :
-                ].clone()
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.linear_keys.weight"
-                ] = checkpoint["transformer.blocks." + str(i) + ".attn.Wqkv.weight"][
-                    hidden_size : (hidden_size * 2), :
-                ].clone()
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.linear_values.weight"
-                ] = checkpoint["transformer.blocks." + str(i) + ".attn.Wqkv.weight"][
-                    (hidden_size * 2) :, :
-                ].clone()
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_query.weight"] = checkpoint[
+                    "transformer.blocks." + str(i) + ".attn.Wqkv.weight"
+                ][:hidden_size, :].clone()
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_keys.weight"] = checkpoint[
+                    "transformer.blocks." + str(i) + ".attn.Wqkv.weight"
+                ][hidden_size : (hidden_size * 2), :].clone()
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"] = (
+                    checkpoint["transformer.blocks." + str(i) + ".attn.Wqkv.weight"][(hidden_size * 2) :, :].clone()
+                )
 
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.final_linear.weight"
-                ] = checkpoint["transformer.blocks." + str(i) + ".attn.out_proj.weight"]
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.final_linear.weight"] = checkpoint[
+                    "transformer.blocks." + str(i) + ".attn.out_proj.weight"
+                ]
 
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".layer_norm_1.weight"
-                ] = checkpoint["transformer.blocks." + str(i) + ".norm_1.weight"]
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".layer_norm_1.bias"
-                ] = torch.zeros(
-                    eole_safetensor[
-                        "decoder.transformer_layers." + str(i) + ".layer_norm_1.weight"
-                    ].size(0),
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_1.weight"] = checkpoint[
+                    "transformer.blocks." + str(i) + ".norm_1.weight"
+                ]
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_1.bias"] = torch.zeros(
+                    eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_1.weight"].size(0),
                     dtype=torch.float16,
                 )
 
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".feed_forward.w_1.weight"
-                ] = checkpoint["transformer.blocks." + str(i) + ".ffn.up_proj.weight"]
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.w_1.weight"] = checkpoint[
+                    "transformer.blocks." + str(i) + ".ffn.up_proj.weight"
+                ]
 
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".feed_forward.w_2.weight"
-                ] = checkpoint["transformer.blocks." + str(i) + ".ffn.down_proj.weight"]
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.w_2.weight"] = checkpoint[
+                    "transformer.blocks." + str(i) + ".ffn.down_proj.weight"
+                ]
 
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".feed_forward.layer_norm.weight"
-                ] = checkpoint["transformer.blocks." + str(i) + ".norm_2.weight"]
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".feed_forward.layer_norm.bias"
-                ] = torch.zeros(
-                    eole_safetensor[
-                        "decoder.transformer_layers."
-                        + str(i)
-                        + ".feed_forward.layer_norm.weight"
-                    ].size(0),
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"] = (
+                    checkpoint["transformer.blocks." + str(i) + ".norm_2.weight"]
+                )
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.bias"] = torch.zeros(
+                    eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"].size(0),
                     dtype=torch.float16,
                 )
 
             if shard == 0:
-                transformer_ff = eole_safetensor[
-                    "decoder.transformer_layers.0.feed_forward.w_1.weight"
-                ].size(0)
+                transformer_ff = eole_safetensor["decoder.transformer_layers.0.feed_forward.w_1.weight"].size(0)
                 vocab_size = eole_safetensor["generator.weight"].size(0)
             print("Saving output model shard: %d" % shard)
             save_file(
@@ -182,9 +142,7 @@ class MPTConverter(BaseBin):
         with open(os.path.join(args.output, "vocab.json"), "w", encoding="utf-8") as f:
             json.dump(vocab_dict, f, indent=2, ensure_ascii=False)
 
-        with open(
-            os.path.join(args.output, "vocab.txt"), "w", encoding="utf-8"
-        ) as vocabfile:
+        with open(os.path.join(args.output, "vocab.txt"), "w", encoding="utf-8") as vocabfile:
             for tok in vocab_dict["src"]:
                 vocabfile.write(tok + "\n")
 
@@ -206,9 +164,7 @@ class MPTConverter(BaseBin):
             vocab_size_multiple=8,
             decoder_start_token=vocabs["decoder_start_token"],
             transforms=["filtertoolong"],
-            transforms_configs={
-                "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}
-            },
+            transforms_configs={"filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}},
             model=TransformerLMModelConfig(
                 layers=decoder_layers,
                 hidden_size=hidden_size,

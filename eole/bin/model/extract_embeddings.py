@@ -21,9 +21,7 @@ class ExtractEmbeddings(BaseBin):
     @classmethod
     def add_args(cls, parser):
         parser.add_argument("-model", required=True, help="Path to model .pt file")
-        parser.add_argument(
-            "-output_dir", default=".", help="""Path to output the embeddings"""
-        )
+        parser.add_argument("-output_dir", default=".", help="""Path to output the embeddings""")
         parser.add_argument("-gpu", type=int, default=-1, help="Device to run on")
 
     @classmethod
@@ -41,23 +39,17 @@ class ExtractEmbeddings(BaseBin):
 
         model_config = checkpoint["config"].model
 
-        model = get_model_class(model_config).build_base_model(
-            model_config, vocabs, running_config=None
-        )
+        model = get_model_class(model_config).build_base_model(model_config, vocabs, running_config=None)
         model.load_safe_state_dict(args.model)
 
         encoder_embeddings = model.src_emb.embeddings.weight.data.tolist()
         decoder_embeddings = model.tgt_emb.embeddings.weight.data.tolist()
 
         logger.info("Writing source embeddings")
-        write_embeddings(
-            args.output_dir + "/src_embeddings.txt", src_vocab, encoder_embeddings
-        )
+        write_embeddings(args.output_dir + "/src_embeddings.txt", src_vocab, encoder_embeddings)
 
         logger.info("Writing target embeddings")
-        write_embeddings(
-            args.output_dir + "/tgt_embeddings.txt", tgt_vocab, decoder_embeddings
-        )
+        write_embeddings(args.output_dir + "/tgt_embeddings.txt", tgt_vocab, decoder_embeddings)
 
         logger.info("... done.")
         logger.info("Converting model...")

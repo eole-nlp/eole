@@ -32,12 +32,8 @@ class RedPajamaConverter(BaseBin):
             required=True,
             help="""Path to the tokenizer model""",
         )
-        parser.add_argument(
-            "--output", type=str, required=True, help="""Path to the model directory"""
-        )
-        parser.add_argument(
-            "--nshards", type=int, default=1, help="""Path to the model directory"""
-        )
+        parser.add_argument("--output", type=str, required=True, help="""Path to the model directory""")
+        parser.add_argument("--nshards", type=int, default=1, help="""Path to the model directory""")
 
     @classmethod
     def run(cls, args):
@@ -70,16 +66,10 @@ class RedPajamaConverter(BaseBin):
             eole_safetensor = {}
 
             if shard == 0:
-                eole_safetensor["tgt_emb.embeddings.weight"] = checkpoint[
-                    "gpt_neox.embed_in.weight"
-                ]
+                eole_safetensor["tgt_emb.embeddings.weight"] = checkpoint["gpt_neox.embed_in.weight"]
 
-                eole_safetensor["decoder.layer_norm.weight"] = checkpoint[
-                    "gpt_neox.final_layer_norm.weight"
-                ]
-                eole_safetensor["decoder.layer_norm.bias"] = checkpoint[
-                    "gpt_neox.final_layer_norm.bias"
-                ]
+                eole_safetensor["decoder.layer_norm.weight"] = checkpoint["gpt_neox.final_layer_norm.weight"]
+                eole_safetensor["decoder.layer_norm.bias"] = checkpoint["gpt_neox.final_layer_norm.bias"]
 
                 eole_safetensor["generator.weight"] = checkpoint["embed_out.weight"]
                 eole_safetensor["generator.bias"] = torch.zeros(
@@ -95,132 +85,86 @@ class RedPajamaConverter(BaseBin):
                 # it is heads interleaved to we need to slice first
                 # also it uses the HF rotary so we need to permute Q and K interleave
 
-                qkv_W = checkpoint[
-                    "gpt_neox.layers." + str(i) + ".attention.query_key_value.weight"
-                ].view(heads, 3 * hidden_size // heads, hidden_size)
-                qkv_B = checkpoint[
-                    "gpt_neox.layers." + str(i) + ".attention.query_key_value.bias"
-                ].view(heads, 3 * hidden_size // heads)
+                qkv_W = checkpoint["gpt_neox.layers." + str(i) + ".attention.query_key_value.weight"].view(
+                    heads, 3 * hidden_size // heads, hidden_size
+                )
+                qkv_B = checkpoint["gpt_neox.layers." + str(i) + ".attention.query_key_value.bias"].view(
+                    heads, 3 * hidden_size // heads
+                )
 
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.linear_query.weight"
-                ] = (
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_query.weight"] = (
                     qkv_W[:, : hidden_size // heads, :]
                     .view(heads, 2, hidden_size // heads // 2, hidden_size)
                     .transpose(1, 2)
                     .reshape(hidden_size, hidden_size)
                 )
 
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.linear_keys.weight"
-                ] = (
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_keys.weight"] = (
                     qkv_W[:, hidden_size // heads : 2 * hidden_size // heads, :]
                     .view(heads, 2, hidden_size // heads // 2, hidden_size)
                     .transpose(1, 2)
                     .reshape(hidden_size, hidden_size)
                 )
 
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.linear_values.weight"
-                ] = qkv_W[
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"] = qkv_W[
                     :, 2 * hidden_size // heads : 3 * hidden_size // heads, :
-                ].reshape(
-                    hidden_size, hidden_size
-                )
+                ].reshape(hidden_size, hidden_size)
 
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.linear_query.bias"
-                ] = (
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_query.bias"] = (
                     qkv_B[:, : hidden_size // heads]
                     .view(heads, 2, hidden_size // heads // 2)
                     .transpose(1, 2)
                     .reshape(hidden_size)
                 )
 
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.linear_keys.bias"
-                ] = (
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_keys.bias"] = (
                     qkv_B[:, hidden_size // heads : 2 * hidden_size // heads]
                     .view(heads, 2, hidden_size // heads // 2)
                     .transpose(1, 2)
                     .reshape(hidden_size)
                 )
 
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.linear_values.bias"
-                ] = qkv_B[
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_values.bias"] = qkv_B[
                     :, 2 * hidden_size // heads : 3 * hidden_size // heads
-                ].reshape(
-                    hidden_size
-                )
+                ].reshape(hidden_size)
 
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.final_linear.weight"
-                ] = checkpoint["gpt_neox.layers." + str(i) + ".attention.dense.weight"]
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.final_linear.bias"
-                ] = checkpoint["gpt_neox.layers." + str(i) + ".attention.dense.bias"]
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.final_linear.weight"] = checkpoint[
+                    "gpt_neox.layers." + str(i) + ".attention.dense.weight"
+                ]
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.final_linear.bias"] = checkpoint[
+                    "gpt_neox.layers." + str(i) + ".attention.dense.bias"
+                ]
 
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".layer_norm_1.weight"
-                ] = checkpoint["gpt_neox.layers." + str(i) + ".input_layernorm.weight"]
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".layer_norm_1.bias"
-                ] = checkpoint["gpt_neox.layers." + str(i) + ".input_layernorm.bias"]
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_1.weight"] = checkpoint[
+                    "gpt_neox.layers." + str(i) + ".input_layernorm.weight"
+                ]
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_1.bias"] = checkpoint[
+                    "gpt_neox.layers." + str(i) + ".input_layernorm.bias"
+                ]
 
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".feed_forward.w_1.weight"
-                ] = checkpoint[
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.w_1.weight"] = checkpoint[
                     "gpt_neox.layers." + str(i) + ".mlp.dense_h_to_4h.weight"
                 ]
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".feed_forward.w_1.bias"
-                ] = checkpoint["gpt_neox.layers." + str(i) + ".mlp.dense_h_to_4h.bias"]
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.w_1.bias"] = checkpoint[
+                    "gpt_neox.layers." + str(i) + ".mlp.dense_h_to_4h.bias"
+                ]
 
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".feed_forward.w_2.weight"
-                ] = checkpoint[
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.w_2.weight"] = checkpoint[
                     "gpt_neox.layers." + str(i) + ".mlp.dense_4h_to_h.weight"
                 ]
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".feed_forward.w_2.bias"
-                ] = checkpoint["gpt_neox.layers." + str(i) + ".mlp.dense_4h_to_h.bias"]
-
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".feed_forward.layer_norm.weight"
-                ] = checkpoint[
-                    "gpt_neox.layers." + str(i) + ".post_attention_layernorm.weight"
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.w_2.bias"] = checkpoint[
+                    "gpt_neox.layers." + str(i) + ".mlp.dense_4h_to_h.bias"
                 ]
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".feed_forward.layer_norm.bias"
-                ] = checkpoint[
+
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"] = (
+                    checkpoint["gpt_neox.layers." + str(i) + ".post_attention_layernorm.weight"]
+                )
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.bias"] = checkpoint[
                     "gpt_neox.layers." + str(i) + ".post_attention_layernorm.bias"
                 ]
 
             if shard == 0:
-                transformer_ff = eole_safetensor[
-                    "decoder.transformer_layers.0.feed_forward.w_1.weight"
-                ].size(0)
+                transformer_ff = eole_safetensor["decoder.transformer_layers.0.feed_forward.w_1.weight"].size(0)
                 vocab_size = eole_safetensor["generator.weight"].size(0)
             print("Saving output model shard: %d" % shard)
             save_file(
@@ -240,9 +184,7 @@ class RedPajamaConverter(BaseBin):
         with open(os.path.join(args.output, "vocab.json"), "w", encoding="utf-8") as f:
             json.dump(vocab_dict, f, indent=2, ensure_ascii=False)
 
-        with open(
-            os.path.join(args.output, "vocab.txt"), "w", encoding="utf-8"
-        ) as vocabfile:
+        with open(os.path.join(args.output, "vocab.txt"), "w", encoding="utf-8") as vocabfile:
             for tok in vocab_dict["src"]:
                 vocabfile.write(tok + "\n")
 
@@ -264,9 +206,7 @@ class RedPajamaConverter(BaseBin):
             vocab_size_multiple=8,
             decoder_start_token=vocabs["decoder_start_token"],
             transforms=["filtertoolong"],
-            transforms_configs={
-                "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}
-            },
+            transforms_configs={"filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}},
             model=TransformerLMModelConfig(
                 layers=decoder_layers,
                 hidden_size=hidden_size,
