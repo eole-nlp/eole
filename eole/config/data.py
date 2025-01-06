@@ -77,9 +77,7 @@ class VocabConfig(BaseVocabConfig):
 
 
 class Dataset(Config):
-    name: str | None = (
-        None  # we could put some auto name generation in validation (from path, uuid ,etc.) # noqa: E501
-    )
+    name: str | None = None  # we could put some auto name generation in validation (from path, uuid ,etc.) # noqa: E501
     weight: int | None = 1
     # streams: List[Stream] # maybe implemented later
     transforms: List[str] | None = None
