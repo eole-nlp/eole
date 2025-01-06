@@ -1,4 +1,5 @@
 """Module that contain iterator used for dynamic data."""
+
 import torch
 from itertools import cycle
 from eole.constants import CorpusTask
@@ -239,13 +240,17 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             skip_empty_level=skip_empty_level,
             stride=stride,
             offset=offset,
-            score_threshold=0
-            if isinstance(config, PredictConfig)
-            else running_config.score_threshold,
+            score_threshold=(
+                0
+                if isinstance(config, PredictConfig)
+                else running_config.score_threshold
+            ),
             left_pad=getattr(config.model, "left_pad", False),
-            model_type=model_type
-            if model_type is not None
-            else getattr(config.model, "model_type", None),
+            model_type=(
+                model_type
+                if model_type is not None
+                else getattr(config.model, "model_type", None)
+            ),
         )
 
     def _init_datasets(self, worker_id):
@@ -402,7 +407,7 @@ class OnDeviceDatasetIter:
         self.device = device
 
     def __iter__(self):
-        for (tensor_batch, bucket_idx) in self.data_iter:
+        for tensor_batch, bucket_idx in self.data_iter:
             for key in tensor_batch.keys():
                 if key not in [
                     "cid",

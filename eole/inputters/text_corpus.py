@@ -1,11 +1,14 @@
 """Module that contain shard utils for dynamic data."""
+
 import os
+import re
 from eole.utils.logging import logger
 from eole.constants import CorpusName, CorpusTask
 from eole.transforms import TransformPipe
 from eole.inputters.text_utils import transform_bucket
 from contextlib import contextmanager
 import itertools
+from datasets import load_dataset
 
 
 @contextmanager
@@ -103,6 +106,28 @@ class ParallelCorpus(object):
         self.sco = sco
         self.align = align
 
+    def _is_hf_dataset(self, path):
+        """
+        Check if a given path refers to a Hugging Face dataset.
+        Matchs the 'hf://' prefix and assumes the dataset is in streaming mode.
+        Match the last '/field' to get the language / score field
+        """
+        pattern = r"hf://([^/]+/[^/]+)/([^/]+)"
+        if isinstance(path, str):
+            return re.match(pattern, path)
+        else:
+            return None
+
+    def _load_hf_dataset(self, path):
+        """
+        Load a Hugging Face dataset from the given identifier.
+        Matchs the 'hf://' prefix and assumes the dataset is in streaming mode.
+        Match the last '/field' to get the language / score field
+        """
+        pattern = r"hf://([^/]+/[^/]+)/([^/]+)"
+        dataset_name = re.match(pattern, self.src).group(1)
+        return load_dataset(dataset_name, split="train", streaming=True)
+
     def load(self, offset=0, stride=1):
         """
         Load file and iterate by lines.
@@ -136,6 +161,17 @@ class ParallelCorpus(object):
                     if scoline is None:
                         scoline = 1.0
                     yield make_ex(sline, tline, scoline, align)
+
+        elif self._is_hf_dataset(self.src):
+            # If `src` is a Hugging Face dataset identifier
+            dataset = self._load_hf_dataset(self.src)
+            for i, example in enumerate(dataset):
+                if (i // stride) % stride == offset:
+                    sline = example.get(self.src.split("/")[-1])
+                    tline = example.get(self.tgt.split("/")[-1])
+                    scoline = example.get(self.sco.split("/")[-1], 1.0)
+                    yield make_ex(sline, tline, scoline, None)
+
         else:
             with exfile_open(self.src, mode="rb") as fs, exfile_open(
                 self.tgt, mode="rb"

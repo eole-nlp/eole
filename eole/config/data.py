@@ -77,7 +77,9 @@ class VocabConfig(BaseVocabConfig):
 
 
 class Dataset(Config):
-    name: str | None = None  # we could put some auto name generation in validation (from path, uuid ,etc.) # noqa: E501
+    name: str | None = (
+        None  # we could put some auto name generation in validation (from path, uuid ,etc.) # noqa: E501
+    )
     weight: int | None = 1
     # streams: List[Stream] # maybe implemented later
     transforms: List[str] | None = None
@@ -242,7 +244,7 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
     @staticmethod
     def _validate_file(file_path, info):
         """Check `file_path` is valid or raise `IOError`."""
-        if file_path == "dummy":
+        if file_path == "dummy" or file_path.startswith("hf://"):
             # hack to allow creating objects with required fields
             pass
         elif not os.path.isfile(file_path):
