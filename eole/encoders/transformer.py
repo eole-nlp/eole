@@ -1,5 +1,5 @@
 """
-Implementation of "Attention is All You Need"
+Implementation of "Attention is All You Need" Transformer Encoder
 """
 
 import torch.nn as nn
@@ -25,9 +25,10 @@ class TransformerEncoderLayer(nn.Module):
         running_config=None,
     ):
         super(TransformerEncoderLayer, self).__init__()
-
         self.parallel_residual = model_config.parallel_residual
         self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
+
+        # order of layers corresponds to forward flow of tensors
         self.input_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
@@ -83,15 +84,7 @@ class TransformerEncoder(EncoderBase):
 
     Args:
         model_config (eole.config.TransformerEncoderConfig): full encoder config
-        embeddings (eole.modules.Embeddings):
-          embeddings to use, should have positional encodings
         running_config (TrainingConfig / InferenceConfig)
-    Returns:
-        (torch.FloatTensor, torch.FloatTensor):
-
-        * enc_out ``(batch_size, src_len, model_dim)``
-        * encoder final state: None in the case of Transformer
-        * src_len ``(batch_size)``
     """
 
     def __init__(
@@ -124,7 +117,20 @@ class TransformerEncoder(EncoderBase):
         )
 
     def forward(self, emb, **kwargs):
-        """See :func:`EncoderBase.forward()`"""
+        """See :func:`EncoderBase.forward()`
+
+        Args:
+            emb (eole.modules.Embeddings):
+                embeddings to use, should have positional encodings
+            **kwargs
+                pad_mask: ``(batch, maxlen)`` False when value, True when pad
+
+        Returns:
+            (torch.FloatTensor, torch.FloatTensor):
+        * enc_out ``(batch_size, src_len, model_dim)``
+        * encoder final state: None in the case of Transformer
+        """
+
         pad_mask = kwargs.pop("pad_mask", None)
         assert pad_mask is not None, "TransformerEncoder requires a src pad mask"
         position_embeddings = kwargs.pop("position_embeddings", None)

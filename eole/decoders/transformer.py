@@ -1,6 +1,5 @@
 """
-Implementation of "Attention is All You Need" and of
-subsequent transformer based architectures
+Implementation of "Attention is All You Need" Transformer Decoder
 """
 
 import torch
@@ -13,24 +12,29 @@ from eole.constants import LayerNorm
 
 
 class TransformerDecoderLayer(nn.Module):
+    """The Transformer encoder from "Attention is All You Need"
+    :cite:`DBLP:journals/corr/VaswaniSPUJGKP17`
+
+    Args:
+        model_config (eole.config.TransformerEncoderConfig): full encoder config
+        running_config (TrainingConfig / InferenceConfig)
+        with_cross_attn (True when used with an encoder)
+    """
+
     def __init__(
         self,
         model_config,
         running_config=None,
         with_cross_attn=False,
     ):
-        """
-        Args:
-            model_config (eole.config.TransformerDecoderConfig): full decoder config
-        """
         super(TransformerDecoderLayer, self).__init__()
-
         self.parallel_residual = model_config.parallel_residual
         self.shared_layer_norm = model_config.shared_layer_norm
         self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
         self.full_context_alignment = model_config.full_context_alignment
         self.alignment_heads = model_config.alignment_heads
 
+        # order of layers corresponds to forward flow of tensors
         self.input_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
@@ -69,19 +73,23 @@ class TransformerDecoderLayer(nn.Module):
             )
 
     def forward(self, layer_in, **kwargs):
-        """Extend `_forward` for (possibly) multiple decoder pass:
-        Always a default (future masked) decoder forward pass,
-        Possibly a second future aware decoder pass for joint learn
-        full context alignement, :cite:`garg2019jointly`.
-
+        """
         Args:
+            layer_in (FloatTensor): ``(batch_size, tgt_len, model_dim)``
+            **kwargs
+                enc_out: (only when using encoder/decoder)
+                src_pad_mask: (only when using encoder/decoder)
+                attn_mask (BoolTensor): ``(batch_size, 1, src/tgt_len, tgt_len)``
+                step: int
+                return_attention: bool
+                position_embeddings (FloatTensor): rotary position encodings, if any
 
         Returns:
-            (FloatTensor, FloatTensor, FloatTensor or None):
-
-            * layer_out ``(batch_size, T, model_dim)``
-            * attns ``(batch_size, heads, T, src_len)``
+            (FloatTensor, FloatTensor):
+            * layer_out ``(batch_size, tgt_len, model_dim)``
+            * attns
         """
+
         enc_out = kwargs.pop("enc_out", None)
         src_pad_mask = kwargs.pop("src_pad_mask", None)
         attn_mask = kwargs.pop("attn_mask", None)
@@ -139,6 +147,7 @@ class TransformerDecoderLayer(nn.Module):
         return layer_out, attns
 
     def get_attn_align(self, layer_in, **kwargs):
+        """:cite:`garg2019jointly`."""
         attns = kwargs.pop("attns", None)
         if self.full_context_alignment:
             # return _, (B, Q_len, K_len)
@@ -162,6 +171,15 @@ class TransformerDecoderLayer(nn.Module):
 
 
 class TransformerDecoder(DecoderBase):
+    """The Transformer encoder from "Attention is All You Need"
+    :cite:`DBLP:journals/corr/VaswaniSPUJGKP17`
+
+    Args:
+        model_config (eole.config.TransformerEncoderConfig): full encoder config
+        running_config (TrainingConfig / InferenceConfig)
+        with_cross_attn (True when used with an encoder)
+    """
+
     def __init__(
         self,
         model_config,
