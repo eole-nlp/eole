@@ -258,7 +258,7 @@ ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/lm_data.yaml \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
             -share_vocab \
-            -model '{"hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "layers": 2, "heads": 4}}' \
+            -model '{"hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer", "layers": 2, "heads": 4}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -report_every 5 \
             -src_vocab_size 1000 \
@@ -490,7 +490,7 @@ ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/lm_data.yaml \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.src \
-            -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "heads": 4}}' \
+            -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer", "heads": 4}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "model_path": "'"$TMP_OUT_DIR"'/lm.eole.model", "save_checkpoint_steps": 10}' \
             -report_every 5 \
             -src_vocab_size 1000 \
@@ -501,7 +501,7 @@ ${PYTHON} eole/bin/main.py train \
             -config ${DATA_DIR}/lm_data.yaml \
             -src_vocab $TMP_OUT_DIR/eole.vocab.src \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.src \
-            -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "heads": 4}}' \
+            -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer", "heads": 4}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 20, "train_from": "'"$TMP_OUT_DIR"'/lm.eole.model/step_10", "save_checkpoint_steps": 10, "update_vocab": True, "reset_optim": "states"}' \
             -report_every 5 \
             -src_vocab_size 1000 \

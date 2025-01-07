@@ -2,7 +2,7 @@
   "model": {
     "decoder": {
       "hidden_size": 64,
-      "decoder_type": "transformer_lm",
+      "decoder_type": "transformer",
       "add_ffnbias": true,
       "transformer_ff": 256,
       "tgt_word_vec_size": 64,

@@ -53,7 +53,7 @@ def build_encoder(model_config, running_config=None):
     )  # full config for now
 
 
-def build_decoder(model_config, running_config=None):
+def build_decoder(model_config, running_config=None, with_cross_attn=False):
     """
     Various decoder dispatcher function.
     Args:
@@ -65,7 +65,9 @@ def build_decoder(model_config, running_config=None):
         else model_config.decoder.decoder_type
     )
     return str2dec[dec_type].from_config(
-        model_config.decoder, running_config=running_config
+        model_config.decoder,
+        running_config=running_config,
+        with_cross_attn=with_cross_attn,
     )
 
 
@@ -785,7 +787,9 @@ class EncoderDecoderModel(BaseModel):
             share_embeddings=model_config.share_embeddings,
             src_emb=src_emb,
         )
-        decoder = build_decoder(model_config, running_config=running_config)
+        decoder = build_decoder(
+            model_config, running_config=running_config, with_cross_attn=True
+        )
         return cls(
             encoder=encoder,
             decoder=decoder,
@@ -865,7 +869,9 @@ class DecoderModel(BaseModel):
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         tgt_emb = build_tgt_emb(model_config, vocabs, running_config=running_config)
-        decoder = build_decoder(model_config, running_config=running_config)
+        decoder = build_decoder(
+            model_config, running_config=running_config, with_cross_attn=False
+        )
         return cls(
             decoder=decoder,
             tgt_emb=tgt_emb,
