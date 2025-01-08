@@ -10,9 +10,7 @@ class TestEvents:
         self.scalars = {}
         self.scalars["train"] = [("progress/" + stat) for stat in stats]
         self.scalars["valid"] = [("valid/" + stat) for stat in stats]
-        self.scalars["valid_metrics"] = self.scalars["valid"] + [
-            ("valid/" + metric) for metric in metrics
-        ]
+        self.scalars["valid_metrics"] = self.scalars["valid"] + [("valid/" + metric) for metric in metrics]
 
     def reload_events(self, path):
         ea = event_accumulator.EventAccumulator(

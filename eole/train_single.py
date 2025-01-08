@@ -39,8 +39,7 @@ def prepare_transforms_vocabs(config, transforms_cls):
     transforms = make_transforms(config, transforms_cls, vocabs)
     if config.n_sample != 0:
         logger.warning(
-            "`-n_sample` != 0: Training will not be started. "
-            f"Stop after saving {config.n_sample} samples/corpus."
+            "`-n_sample` != 0: Training will not be started. " f"Stop after saving {config.n_sample} samples/corpus."
         )
         save_transformed_sample(config, transforms, n_sample=config.n_sample)
         logger.info("Sample saved, please check it before restart training.")
@@ -92,23 +91,12 @@ def _init_train(config):
     if config.training.train_from and not config.training.update_vocab:
         logger.info("Keeping checkpoint vocabulary")
         vocabs = dict_to_vocabs(checkpoint["vocab"])
-    logger.info(
-        "The first 10 tokens of the vocabs are:"
-        f"{vocabs_to_dict(vocabs)['src'][0:10]}"
-    )
+    logger.info("The first 10 tokens of the vocabs are:" f"{vocabs_to_dict(vocabs)['src'][0:10]}")
     logger.info(f"The decoder start token is: {config.decoder_start_token}")
-    logger.info(
-        f"bos_token token is: {config.bos_token} id: {vocabs['src']([config.bos_token])}"
-    )
-    logger.info(
-        f"eos_token token is: {config.eos_token} id: {vocabs['src']([config.eos_token])}"
-    )
-    logger.info(
-        f"pad_token token is: {config.pad_token} id: {vocabs['src']([config.pad_token])}"
-    )
-    logger.info(
-        f"unk_token token is: {config.unk_token} id: {vocabs['src']([config.unk_token])}"
-    )
+    logger.info(f"bos_token token is: {config.bos_token} id: {vocabs['src']([config.bos_token])}")
+    logger.info(f"eos_token token is: {config.eos_token} id: {vocabs['src']([config.eos_token])}")
+    logger.info(f"pad_token token is: {config.pad_token} id: {vocabs['src']([config.pad_token])}")
+    logger.info(f"unk_token token is: {config.unk_token} id: {vocabs['src']([config.unk_token])}")
     return checkpoint, vocabs, transforms, config
 
 
@@ -121,9 +109,7 @@ def configure_process(config, device_id):
 
 def update_config_with_checkpoint(config, checkpoint=None):
     if checkpoint is not None:
-        defaults = TrainConfig.get_defaults(
-            architecture=checkpoint["config"].model.architecture
-        )
+        defaults = TrainConfig.get_defaults(architecture=checkpoint["config"].model.architecture)
         checkpoint_non_defaults = recursive_model_fields_set(checkpoint["config"])
         new_config = recursive_model_fields_set(config)
         # override data explicitly,
@@ -134,12 +120,8 @@ def update_config_with_checkpoint(config, checkpoint=None):
         ) and hasattr(checkpoint_non_defaults, "tensorboard_log_dir_dated"):
             # ensure tensorboard output is written in the directory
             # of previous checkpoints
-            new_config.tensorboard_log_dir_dated = checkpoint_non_defaults[
-                "tensorboard_log_dir_dated"
-            ]
-        updated_config = recursive_update_dict(
-            checkpoint_non_defaults, new_config, defaults
-        )
+            new_config.tensorboard_log_dir_dated = checkpoint_non_defaults["tensorboard_log_dir_dated"]
+        updated_config = recursive_update_dict(checkpoint_non_defaults, new_config, defaults)
         config = TrainConfig(**updated_config)
     return config
 
@@ -164,22 +146,14 @@ def main(config, device_id):
     if validset_transforms:
         config.transforms = validset_transforms
         if config.data.get("valid", {}).tgt_prefix:
-            config.transforms_configs.prefix.tgt_prefix = config.data.get(
-                "valid", {}
-            ).tgt_prefix
+            config.transforms_configs.prefix.tgt_prefix = config.data.get("valid", {}).tgt_prefix
             # config.tgt_file_prefix = True
         if config.data.get("valid", {}).src_prefix:
-            config.transforms_configs.prefix.src_prefix = config.data.get(
-                "valid", {}
-            ).src_prefix
+            config.transforms_configs.prefix.src_prefix = config.data.get("valid", {}).src_prefix
         if config.data.get("valid", {}).tgt_suffix:
-            config.transforms_configs.suffix.tgt_suffix = config.data.get(
-                "valid", {}
-            ).tgt_suffix
+            config.transforms_configs.suffix.tgt_suffix = config.data.get("valid", {}).tgt_suffix
         if config.data.get("valid", {}).src_suffix:
-            config.transforms_configs.suffix.src_suffix = config.data.get(
-                "valid", {}
-            ).src_suffix
+            config.transforms_configs.suffix.src_suffix = config.data.get("valid", {}).src_suffix
 
     # Build model.
     # model = build_model(config, vocabs, checkpoint, device_id)
@@ -207,18 +181,10 @@ def main(config, device_id):
     # Build model saver
     model_saver = build_model_saver(config, model, vocabs, optim, device_id, transforms)
 
-    trainer = build_trainer(
-        config, device_id, model, vocabs, optim, model_saver=model_saver
-    )
+    trainer = build_trainer(config, device_id, model, vocabs, optim, model_saver=model_saver)
 
-    offset = (
-        max(0, device_id) if config.training.parallel_mode == "data_parallel" else 0
-    )
-    stride = (
-        max(1, len(config.training.gpu_ranks))
-        if config.training.parallel_mode == "data_parallel"
-        else 1
-    )
+    offset = max(0, device_id) if config.training.parallel_mode == "data_parallel" else 0
+    stride = max(1, len(config.training.gpu_ranks)) if config.training.parallel_mode == "data_parallel" else 1
 
     train_iter = build_dynamic_dataset_iter(
         config,

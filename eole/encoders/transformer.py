@@ -58,9 +58,7 @@ class TransformerEncoderLayer(nn.Module):
             * layer_out ``(batch_size, src_len, model_dim)``
         """
         norm_layer_in = self.input_layernorm(layer_in)
-        context, _ = self.self_attn(
-            norm_layer_in, attn_mask=~pad_mask, position_embeddings=position_embeddings
-        )
+        context, _ = self.self_attn(norm_layer_in, attn_mask=~pad_mask, position_embeddings=position_embeddings)
         if self.dropout_p > 0:
             context = self.dropout(context)
         if self.parallel_residual:
@@ -134,9 +132,7 @@ class TransformerEncoder(EncoderBase):
         position_embeddings = kwargs.pop("position_embeddings", None)
         enc_out = emb
         pad_mask = pad_mask.unsqueeze(1)  # batch x 1 x 1 x maxlen
-        pad_mask = pad_mask.expand(
-            -1, -1, pad_mask.size(3), -1
-        )  # batch x 1 x maxlen x maxlen
+        pad_mask = pad_mask.expand(-1, -1, pad_mask.size(3), -1)  # batch x 1 x maxlen x maxlen
         # 1 to be expanded to number of heads in MHA
 
         for layer in self.transformer_layers:

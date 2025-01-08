@@ -169,30 +169,20 @@ class GreedySearch(DecodeStrategy):
 
     def initialize(self, enc_out, src_len, device=None, target_prefix=None):
         """Initialize for decoding."""
-        (fn_map_state, enc_out, target_prefix) = self.initialize_tile(
-            enc_out, src_len, target_prefix
-        )
+        (fn_map_state, enc_out, target_prefix) = self.initialize_tile(enc_out, src_len, target_prefix)
         if device is None:
             device = self.get_device_from_enc_out(enc_out)
 
         self.eos_t = torch.tensor(self.eos).to(device)
         super(GreedySearch, self).initialize(device, target_prefix)
-        self.select_indices = torch.arange(
-            self.batch_size * self.beam_size, dtype=torch.long, device=device
-        )
-        self.original_batch_idx = fn_map_state(
-            torch.arange(self.batch_size, dtype=torch.long, device=device), dim=0
-        )
-        self.beams_scores = torch.zeros(
-            (self.batch_size * self.beam_size, 1), dtype=torch.float, device=device
-        )
+        self.select_indices = torch.arange(self.batch_size * self.beam_size, dtype=torch.long, device=device)
+        self.original_batch_idx = fn_map_state(torch.arange(self.batch_size, dtype=torch.long, device=device), dim=0)
+        self.beams_scores = torch.zeros((self.batch_size * self.beam_size, 1), dtype=torch.float, device=device)
         # MPS doesn't support torch.isin() in Torch 2.3
         # Avoiding need to CPU fallback by adding alternative implementation
         # Can be removed when Torch 2.4 is supported
         self._is_finished_list = (
-            self._is_finished_list_mps
-            if (device is not None and device.type == "mps")
-            else self._is_finished_list_isin
+            self._is_finished_list_mps if (device is not None and device.type == "mps") else self._is_finished_list_isin
         )
         return fn_map_state, enc_out
 
@@ -212,9 +202,7 @@ class GreedySearch(DecodeStrategy):
         """
         # maybe fix some prediction at this step by modifying log_probs
         log_probs = self.target_prefixing(log_probs)
-        topk_ids, topk_scores = sample_with_temperature(
-            log_probs, self.temperature, self.top_k, self.top_p
-        )
+        topk_ids, topk_scores = sample_with_temperature(log_probs, self.temperature, self.top_k, self.top_p)
 
         return topk_ids, topk_scores
 
@@ -262,12 +250,8 @@ class GreedySearch(DecodeStrategy):
         """Finalize scores and predictions."""
         # shape: (sum(~ self.is_finished), 1)
         step = len(self)
-        non_finished_batch = [
-            b for b, fin in enumerate(self.is_finished_list) if not fin[0]
-        ]
-        length_penalty = self.global_scorer.length_penalty(
-            step, alpha=self.global_scorer.alpha
-        )
+        non_finished_batch = [b for b, fin in enumerate(self.is_finished_list) if not fin[0]]
+        length_penalty = self.global_scorer.length_penalty(step, alpha=self.global_scorer.alpha)
         for b in [i for i, fin in enumerate(self.is_finished_list) if fin[0]]:
             b_orig = self.original_batch_idx[b]
             score = self.beams_scores[b, 0] / length_penalty
@@ -285,17 +269,13 @@ class GreedySearch(DecodeStrategy):
         self.done = len(non_finished_batch) == 0
         if self.done:
             for b in range(self.batch_size):
-                best_hyp = sorted(self.hypotheses[b], key=lambda x: x[0], reverse=True)[
-                    : self.num_hyp
-                ]
+                best_hyp = sorted(self.hypotheses[b], key=lambda x: x[0], reverse=True)[: self.num_hyp]
                 for score, pred, attn in best_hyp:
                     self.scores[b].append(score)
                     self.predictions[b].append(pred)
                     self.attention[b].append(attn)
             return
-        self.select_indices = torch.tensor(
-            non_finished_batch, device=self.alive_seq.device
-        )
+        self.select_indices = torch.tensor(non_finished_batch, device=self.alive_seq.device)
         self.alive_seq = self.alive_seq[self.select_indices]
         self.beams_scores = self.beams_scores[self.select_indices]
         self.src_len = self.src_len[self.select_indices]
@@ -321,9 +301,7 @@ class GreedySearchLM(GreedySearch):
         if device is None:
             device = src.device
         self.eos_t = torch.tensor(self.eos).to(device)
-        (fn_map_state, _) = super(GreedySearchLM, self).initialize(
-            None, src_len, device, target_prefix
-        )
+        (fn_map_state, _) = super(GreedySearchLM, self).initialize(None, src_len, device, target_prefix)
 
         return fn_map_state, src
 

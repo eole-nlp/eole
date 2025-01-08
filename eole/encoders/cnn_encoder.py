@@ -1,6 +1,7 @@
 """
 Implementation of "Convolutional Sequence to Sequence Learning"
 """
+
 import torch.nn as nn
 
 from eole.encoders.encoder import EncoderBase
@@ -17,9 +18,7 @@ class CNNEncoder(EncoderBase):
     def __init__(self, model_config, running_config=None):
         super(CNNEncoder, self).__init__()
 
-        input_size = (
-            model_config.hidden_size
-        )  # we need embeddings.src_word_vec_size instead
+        input_size = model_config.hidden_size  # we need embeddings.src_word_vec_size instead
         self.linear = nn.Linear(input_size, model_config.hidden_size)
         self.cnn = StackedCNN(
             model_config.layers,

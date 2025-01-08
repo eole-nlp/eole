@@ -13,10 +13,7 @@ class GeneratorLM(Inference):
     @classmethod
     def validate_task(cls, task):
         if task != ModelType.DECODER:
-            raise ValueError(
-                f"GeneratorLM does not support task {task}."
-                f" Tasks supported: {ModelType.DECODER}"
-            )
+            raise ValueError(f"GeneratorLM does not support task {task}." f" Tasks supported: {ModelType.DECODER}")
 
     def _align_forward(self, batch, predictions):
         """
@@ -115,15 +112,11 @@ class GeneratorLM(Inference):
         if left_pad:
             target_prefix = None
         else:
-            src, src_len, target_prefix = self.split_src_to_prevent_padding(
-                src, src_len
-            )
+            src, src_len, target_prefix = self.split_src_to_prevent_padding(src, src_len)
 
         # (2) init decoder
         self.model.decoder.init_state(src=src)
-        gold_score, gold_log_probs = self._gold_score(
-            batch, None, src_len, None, batch_size, src
-        )
+        gold_score, gold_log_probs = self._gold_score(batch, None, src_len, None, batch_size, src)
 
         # (3) prep decode_strategy. Possibly repeat src objects.
         (fn_map_state, src) = decode_strategy.initialize(
@@ -135,9 +128,7 @@ class GeneratorLM(Inference):
         # (4) Begin decoding step by step:
         # beg_time = time()
         for step in range(decode_strategy.max_length):
-            decoder_input = (
-                src if step == 0 else decode_strategy.current_predictions.view(-1, 1)
-            )
+            decoder_input = src if step == 0 else decode_strategy.current_predictions.view(-1, 1)
             log_probs, attn = self._decode_and_generate(
                 decoder_input,
                 None,
@@ -146,14 +137,10 @@ class GeneratorLM(Inference):
             )
 
             if step == 0:
-                log_probs = self.tile_to_beam_size_after_initial_step(
-                    fn_map_state, log_probs
-                )
+                log_probs = self.tile_to_beam_size_after_initial_step(fn_map_state, log_probs)
 
             decode_strategy.advance(log_probs, attn)
-            any_finished = any(
-                [any(sublist) for sublist in decode_strategy.is_finished_list]
-            )
+            any_finished = any([any(sublist) for sublist in decode_strategy.is_finished_list])
             if any_finished:
                 decode_strategy.update_finished()
                 if decode_strategy.done:
@@ -168,13 +155,9 @@ class GeneratorLM(Inference):
 
         if self.add_estimator:
             # Prepare estimator input = decoder out of each pred with initial enc_out
-            dec_in = [
-                item for sublist in decode_strategy.predictions for item in sublist
-            ]
+            dec_in = [item for sublist in decode_strategy.predictions for item in sublist]
             src = tile(src, parallel_paths, dim=0)
-            dec_in = pad_sequence(
-                dec_in, batch_first=True, padding_value=self._tgt_pad_idx
-            )
+            dec_in = pad_sequence(dec_in, batch_first=True, padding_value=self._tgt_pad_idx)
             dec_in = torch.cat((src, dec_in), 1)
             tgt_pad_mask = dec_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, T_tgt]
             emb = self.model.tgt_emb(dec_in)
@@ -188,13 +171,10 @@ class GeneratorLM(Inference):
                 position_embeddings=position_embeddings,
             )
             pad_mask = ~dec_in.eq(self._tgt_pad_idx)
-            in_estim = (dec_out * pad_mask.unsqueeze(-1).float()).sum(
-                dim=1
-            ) / pad_mask.sum(dim=1, keepdim=True).float()
+            in_estim = (dec_out * pad_mask.unsqueeze(-1).float()).sum(dim=1) / pad_mask.sum(dim=1, keepdim=True).float()
             estim = self.model.estimator(in_estim.to(dec_out.dtype)).squeeze(-1)
             estim = [
-                [estim[i].item() for i in range(j, j + self.beam_size)]
-                for j in range(0, len(estim), self.beam_size)
+                [estim[i].item() for i in range(j, j + self.beam_size)] for j in range(0, len(estim), self.beam_size)
             ]
         else:
             estim = [[1.0 for _ in range(self.beam_size)] for _ in range(batch_size)]

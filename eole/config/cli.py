@@ -69,6 +69,6 @@ def add_model(parser, model):
                 dest=name,
                 type=parse_type_annotation(field.annotation),
                 default=field.default,
-                help=field.description
+                help=field.description,
                 # help=field.field_info.description,
             )

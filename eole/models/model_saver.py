@@ -72,9 +72,7 @@ def load_checkpoint(model_path):
             raise FileNotFoundError(f"{model_path} does not contain vocab.json")
         optim_path = os.path.join(model_path, "optimizer.pt")
         if os.path.exists(optim_path):
-            checkpoint["optim"] = torch.load(
-                optim_path, map_location=torch.device("cpu"), weights_only=True
-            )
+            checkpoint["optim"] = torch.load(optim_path, map_location=torch.device("cpu"), weights_only=True)
     else:
         raise FileNotFoundError(f"{model_path} is not a directory.")
 
@@ -141,9 +139,7 @@ class TrainingModelSaver(ModelSaverBase):
     def cleanup(self):
         if self.keep_checkpoint > 0:
             if len(self.checkpoint_queue) == self.checkpoint_queue.maxlen:
-                step_dir_to_delete = os.path.join(
-                    self.model_path, self.checkpoint_queue.popleft()
-                )
+                step_dir_to_delete = os.path.join(self.model_path, self.checkpoint_queue.popleft())
                 try:
                     shutil.rmtree(step_dir_to_delete)
                 except FileNotFoundError:
@@ -154,12 +150,8 @@ class TrainingModelSaver(ModelSaverBase):
             self.checkpoint_queue.append(self.step_dir)
 
     def _maybe_lora(self, model):
-        if (
-            hasattr(self.config.training, "lora_layers")
-            and len(self.config.training.lora_layers) > 0
-        ) or (
-            hasattr(self.config.training, "lora_embedding")
-            and self.config.training.lora_embedding
+        if (hasattr(self.config.training, "lora_layers") and len(self.config.training.lora_layers) > 0) or (
+            hasattr(self.config.training, "lora_embedding") and self.config.training.lora_embedding
         ):
             model_state_dict = lora_state_dict(model, bias="lora_only")
             for k, v in model.state_dict().items():
@@ -188,38 +180,21 @@ class TrainingModelSaver(ModelSaverBase):
             # we probably should try and improve this to rely on dimensions instead of names
             match key_1, key_2:
                 case "lora_A", _ if key_2 in averaged_params:
-                    full_state_dict[key] = (
-                        sum([full_model[i][key].cpu() for i in range(world_size)])
-                        / world_size
-                    )
+                    full_state_dict[key] = sum([full_model[i][key].cpu() for i in range(world_size)]) / world_size
                 case "lora_A", _ if key_2 in cat_params:
-                    full_state_dict[key] = torch.cat(
-                        [full_model[i][key].cpu() for i in range(world_size)], 1
-                    )
+                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 1)
                 case "lora_B", _ if key_2 in averaged_params:
-                    full_state_dict[key] = torch.cat(
-                        [full_model[i][key].cpu() for i in range(world_size)], 0
-                    )
+                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 0)
                 case "lora_B", _ if key_2 in cat_params:
-                    full_state_dict[key] = torch.cat(
-                        [full_model[i][key].cpu() for i in range(world_size)], 1
-                    )
+                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 1)
                 case _ if key_1 in averaged_params:
-                    full_state_dict[key] = torch.cat(
-                        [full_model[i][key].cpu() for i in range(world_size)], 0
-                    )
+                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 0)
                 case _ if key_1 in cat_params:
-                    full_state_dict[key] = torch.cat(
-                        [full_model[i][key].cpu() for i in range(world_size)], 1
-                    )
+                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 1)
                 case _ if key_2 in averaged_params:
-                    full_state_dict[key] = torch.cat(
-                        [full_model[i][key].cpu() for i in range(world_size)], 0
-                    )
+                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 0)
                 case _ if key_2 in cat_params:
-                    full_state_dict[key] = torch.cat(
-                        [full_model[i][key].cpu() for i in range(world_size)], 1
-                    )
+                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 1)
                 case _, _:
                     full_state_dict[key] = full_model[0][key]
         return full_state_dict
@@ -245,9 +220,7 @@ class TrainingModelSaver(ModelSaverBase):
             os.symlink(symlink_src_path, symlink_dst_path)
         except PermissionError:
             # If a symlink cannot be created, copy the file instead
-            shutil.copy2(
-                os.path.join(self.model_path, symlink_src_path), symlink_dst_path
-            )
+            shutil.copy2(os.path.join(self.model_path, symlink_src_path), symlink_dst_path)
 
     def _save_optimizer(self):
         optim_data = self.optim.state_dict()
@@ -257,18 +230,10 @@ class TrainingModelSaver(ModelSaverBase):
 
     def _save_weights(self, model_state_dict):
         # we might implement sharding later
-        model_path = os.path.join(
-            self.model_path, self.step_dir, "model.00.safetensors"
-        )
-        if (
-            self.config.model.share_embeddings
-            and "tgt_emb.embeddings.weight" in model_state_dict
-        ):
+        model_path = os.path.join(self.model_path, self.step_dir, "model.00.safetensors")
+        if self.config.model.share_embeddings and "tgt_emb.embeddings.weight" in model_state_dict:
             model_state_dict.pop("tgt_emb.embeddings.weight")
-        if (
-            self.config.model.share_decoder_embeddings
-            and "generator.weight" in model_state_dict
-        ):
+        if self.config.model.share_decoder_embeddings and "generator.weight" in model_state_dict:
             model_state_dict.pop("generator.weight")
         save_file(model_state_dict, model_path)
         self._make_symlink("model.00.safetensors")
@@ -291,9 +256,7 @@ class TrainingModelSaver(ModelSaverBase):
         if self.transforms is not None:
             checkpoint_path = os.path.join(self.model_path, self.step_dir)
             for transform_name, transform in self.transforms.items():
-                transform_save_config, artifacts = transform._save_artifacts(
-                    checkpoint_path
-                )
+                transform_save_config, artifacts = transform._save_artifacts(checkpoint_path)
                 setattr(
                     self.config.transforms_configs,
                     transform_name,
@@ -316,21 +279,14 @@ class TrainingModelSaver(ModelSaverBase):
 
         if world_size > 1:
             # gather model split across GPUs for tensor parallelism
-            model_state_dict = self._tensor_parallel_state_dict(
-                model_state_dict, world_size
-            )
+            model_state_dict = self._tensor_parallel_state_dict(model_state_dict, world_size)
 
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             self.update_step_dir(step)
-            logger.info(
-                f"Saving optimizer and weights to {self.step_dir}, and symlink to {self.model_path}"
-            )
+            logger.info(f"Saving optimizer and weights to {self.step_dir}, and symlink to {self.model_path}")
             self._save_optimizer()
             self._save_weights(model_state_dict)
-            logger.info(
-                "Saving transforms artifacts, if any, "
-                f"to {os.path.join(self.model_path, self.step_dir)}"
-            )
+            logger.info("Saving transforms artifacts, if any, " f"to {os.path.join(self.model_path, self.step_dir)}")
             self._save_transforms_artifacts()
             logger.info(f"Saving config and vocab to {self.model_path}")
             self._save_vocab()

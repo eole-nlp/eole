@@ -1,9 +1,7 @@
 import torch.nn as nn
 
 
-def replace_awq_linear(
-    model, module_to_convert=[], w_bit=4, group_size=128, q_type="llm_awq"
-):
+def replace_awq_linear(model, module_to_convert=[], w_bit=4, group_size=128, q_type="llm_awq"):
     if q_type in ["awq_gemm", "awq_gemv"]:
         try:
             from awq.modules.linear import WQLinear_GEMM, WQLinear_GEMV

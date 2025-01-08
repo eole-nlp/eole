@@ -56,14 +56,10 @@ class OptimizerConfig(Config):
         "a value of 0.98 for beta2, this parameter may not work well "
         "for normal models / default baselines.",
     )
-    weight_decay: float = Field(
-        default=0.0, description="Weight decay to forward to torch Optimizer."
-    )
+    weight_decay: float = Field(default=0.0, description="Weight decay to forward to torch Optimizer.")
     learning_rate: float = Field(
         default=1.0,
-        description="Starting learning rate. "
-        "Recommended settings: "
-        "sgd=1, adagrad=0.1, adadelta=1, adam=0.001.",
+        description="Starting learning rate. " "Recommended settings: " "sgd=1, adagrad=0.1, adadelta=1, adam=0.001.",
     )
     learning_rate_decay: float = Field(
         default=0.5,
@@ -73,15 +69,11 @@ class OptimizerConfig(Config):
         default=50000,
         description="Start decaying every decay_steps after this many steps.",
     )
-    decay_steps: int = Field(
-        default=10000, description="Frequency for learning rate decay, in steps."
-    )
+    decay_steps: int = Field(default=10000, description="Frequency for learning rate decay, in steps.")
     decay_method: Literal["noam", "noamwd", "cosine", "rsqrt", "none"] = Field(
         default="none", description="Custom decay method to use."
     )
-    warmup_steps: int = Field(
-        default=4000, description="Number of warmup steps for custom decay."
-    )
+    warmup_steps: int = Field(default=4000, description="Number of warmup steps for custom decay.")
     reset_optim: Literal["none", "all", "states", "keep_states"] = Field(
         default="none", description="Optimization resetter when using train_from."
     )  # note: this is validated against update_vocab in TrainingConfig
@@ -106,22 +98,16 @@ class TrainingConfig(
     param_init_method: Literal["xavier_uniform", "uniform", "normal"] = Field(
         default="uniform", description="Parameter initialization method."
     )
-    freeze_encoder: bool = Field(
-        default=False, description="Freeze parameters in encoder."
-    )
-    freeze_decoder: bool = Field(
-        default=False, description="Freeze parameters in decoder."
-    )
+    freeze_encoder: bool = Field(default=False, description="Freeze parameters in encoder.")
+    freeze_decoder: bool = Field(default=False, description="Freeze parameters in decoder.")
     # Pretrained word vectors (might be deprecated)
     pre_word_vecs_enc: str | None = Field(
         default=None,
-        description="If a valid path is specified, will load pretrained "
-        "word embeddings on the encoder side.",
+        description="If a valid path is specified, will load pretrained " "word embeddings on the encoder side.",
     )
     pre_word_vecs_dec: str | None = Field(
         default=None,
-        description="If a valid path is specified, will load pretrained "
-        "word embeddings on the decoder side.",
+        description="If a valid path is specified, will load pretrained " "word embeddings on the decoder side.",
     )
     data_type: str | None = "text"  # not really useful for now
     bucket_size: int = Field(
@@ -133,13 +119,11 @@ class TrainingConfig(
     )
     bucket_size_init: int = Field(
         default=-1,
-        description="Bucket size is initialized with this amount of examples "
-        "(see bucket_size_increment).",
+        description="Bucket size is initialized with this amount of examples " "(see bucket_size_increment).",
     )
     bucket_size_increment: int = Field(
         default=0,
-        description="Bucket size incremented with this amount of examples "
-        "at each new bucket (up to bucket_size).",
+        description="Bucket size incremented with this amount of examples " "at each new bucket (up to bucket_size).",
     )
     prefetch_factor: int = Field(
         default=200,
@@ -149,12 +133,8 @@ class TrainingConfig(
     save_format: Literal["pytorch", "safetensors"] = Field(
         default="pytorch", description="Format to save the model weights."
     )
-    save_checkpoint_steps: int = Field(
-        default=5000, description="Frequency of checkpoint saving (in steps)."
-    )
-    keep_checkpoint: int = Field(
-        default=-1, description="Number of checkpoints to retain. (-1 retains all)"
-    )
+    save_checkpoint_steps: int = Field(default=5000, description="Frequency of checkpoint saving (in steps).")
+    keep_checkpoint: int = Field(default=-1, description="Number of checkpoints to retain. (-1 retains all)")
     train_from: str | None = Field(
         default=None,
         description="Pretrained model/checkpoint weights to continue training from.",
@@ -163,12 +143,8 @@ class TrainingConfig(
         default=2, description="Number of workers for pytorch.DataLoader objects."
     )  # dataloading related stuff (move to dataloader config ?
     batch_size: int = Field(default=64, description="Maximum batch size for training.")
-    batch_size_multiple: int = Field(
-        default=1, description="Batch size multiple for token batches."
-    )
-    batch_type: Literal["sents", "tokens"] = Field(
-        default="sents", description="Batch grouping for batch_size."
-    )
+    batch_size_multiple: int = Field(default=1, description="Batch size multiple for token batches.")
+    batch_type: Literal["sents", "tokens"] = Field(default="sents", description="Batch grouping for batch_size.")
     normalization: Literal["sents", "tokens"] = Field(
         default="sents", description="Normalization method of the gradient."
     )
@@ -179,23 +155,16 @@ class TrainingConfig(
         "batch_size * accum_count batches at once. "
         "Recommended for transformer.",
     )
-    accum_steps: List[int] = Field(
-        default=[0], description="Steps at which accum_count values change."
-    )
-    valid_steps: int = Field(
-        default=10000, description="Frequency of validation, in steps."
-    )
-    valid_batch_size: int = Field(
-        default=32, description="Maximum batch size for validation."
-    )
+    accum_steps: List[int] = Field(default=[0], description="Steps at which accum_count values change.")
+    valid_steps: int = Field(default=10000, description="Frequency of validation, in steps.")
+    valid_batch_size: int = Field(default=32, description="Maximum batch size for validation.")
     train_steps: int = Field(default=100000, description="Number of training steps.")
     single_pass: bool = Field(
         default=False, description="Make a single pass over the training dataset."
     )  # deprecated? (not really manageable with weighted datasets)
     early_stopping: int = Field(
         default=0,
-        description="Number of validation steps without improving that "
-        "will trigger early stop of training.",
+        description="Number of validation steps without improving that " "will trigger early stop of training.",
     )
     early_stopping_criteria: str | None = Field(
         default=None, description="Criteria to use for early stopping."
@@ -206,12 +175,8 @@ class TrainingConfig(
         "renormalize it to have the norm equal to max_grad_norm.",
     )
     dropout: List[float] = Field(default=[0.3], description="Dropout probability.")
-    attention_dropout: List[float] = Field(
-        default=[0.1], description="Attention dropout probability."
-    )
-    dropout_steps: List[int] = Field(
-        default=[0], description="Steps at which dropout changes."
-    )
+    attention_dropout: List[float] = Field(default=[0.1], description="Attention dropout probability.")
+    dropout_steps: List[int] = Field(default=[0], description="Steps at which dropout changes.")
     label_smoothing: float = Field(
         default=0.0,
         description="Label smoothing value epsilon. "
@@ -255,20 +220,12 @@ class TrainingConfig(
         default=False, description="Update source and target existing vocabularies."
     )  # not linked to model per se, rather to the training instance of the model
 
-    lm_prior_model: str | None = Field(
-        default=None, description="LM model to use to train the TM."
-    )
+    lm_prior_model: str | None = Field(default=None, description="LM model to use to train the TM.")
     lm_prior_lambda: float = Field(default=0.0, description="LM Prior Lambda")
     lm_prior_tau: float = Field(default=1.0, description="LM Prior Tau")
-    estim_loss_lambda: List[float] = Field(
-        default=[1.0], description="Weight applied to estimator loss"
-    )
-    estim_loss_lambda_steps: List[int] = Field(
-        default=[0], description="Steps at which estimator loss lambda changes"
-    )
-    score_threshold: float = Field(
-        default=0.68, description="Threshold to filterout data"
-    )
+    estim_loss_lambda: List[float] = Field(default=[1.0], description="Weight applied to estimator loss")
+    estim_loss_lambda_steps: List[int] = Field(default=[0], description="Steps at which estimator loss lambda changes")
+    score_threshold: float = Field(default=0.68, description="Threshold to filterout data")
 
     @computed_field
     @cached_property
@@ -315,23 +272,13 @@ class TrainingConfig(
         super()._validate_running_config()
         # self._validate_language_model_compatibilities_opts()
         if self.world_size < len(self.gpu_ranks):
+            raise AssertionError("parameter counts of -gpu_ranks must be less or equal " "than -world_size.")
+        if self.world_size == len(self.gpu_ranks) and self.world_size > 0 and min(self.gpu_ranks) > 0:
             raise AssertionError(
-                "parameter counts of -gpu_ranks must be less or equal "
-                "than -world_size."
-            )
-        if (
-            self.world_size == len(self.gpu_ranks)
-            and self.world_size > 0
-            and min(self.gpu_ranks) > 0
-        ):
-            raise AssertionError(
-                "-gpu_ranks should have master(=0) rank "
-                "unless -world_size is greater than len(gpu_ranks)."
+                "-gpu_ranks should have master(=0) rank " "unless -world_size is greater than len(gpu_ranks)."
             )
 
-        assert len(self.dropout) == len(
-            self.dropout_steps
-        ), "Number of dropout values must match accum_steps values"
+        assert len(self.dropout) == len(self.dropout_steps), "Number of dropout values must match accum_steps values"
 
         assert len(self.attention_dropout) == len(
             self.dropout_steps
@@ -353,14 +300,10 @@ class TrainingConfig(
             and self.param_init != 0.0
             and self.param_init_method == "xavier_uniform"
         ):
-            logger.warn(
-                f"xavier_uniform initialization does not require param_init ({self.param_init})"
-            )
+            logger.warn(f"xavier_uniform initialization does not require param_init ({self.param_init})")
 
         if self.optim == "fusedadam":
-            assert (
-                self.compute_dtype == torch.float16
-            ), "optim: fusedam requires fp16 compute_dtype"
+            assert self.compute_dtype == torch.float16, "optim: fusedam requires fp16 compute_dtype"
         assert (
             self.compute_dtype != torch.int8
         ), "int8 compute_dtype is currently only used for inference dynamic quantization"

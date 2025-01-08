@@ -18,17 +18,12 @@ def main():
             subparser = subparsers.add_parser(bin_type)
             sub_subparsers = subparser.add_subparsers(dest="sub_bin")
             for bin_name, bin_cls in bins.items():
-                sub_subparser = sub_subparsers.add_parser(
-                    bin_name
-                )  # define some helpstring in the tool class
+                sub_subparser = sub_subparsers.add_parser(bin_name)  # define some helpstring in the tool class
                 bin_cls.add_args(sub_subparser)
 
     args = parser.parse_args()
 
-    if (
-        args.bin in AVAILABLE_BINS.keys()
-        and args.sub_bin in AVAILABLE_BINS[args.bin].keys()
-    ):
+    if args.bin in AVAILABLE_BINS.keys() and args.sub_bin in AVAILABLE_BINS[args.bin].keys():
         bin_cls = AVAILABLE_BINS[args.bin][args.sub_bin]
     elif args.bin in AVAILABLE_BINS["run"].keys():
         bin_cls = AVAILABLE_BINS["run"][args.bin]

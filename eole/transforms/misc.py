@@ -18,30 +18,18 @@ class FilterTooLongStats(ObservableStats):
 
 
 class FilterTooLongConfig(TransformConfig):
-    src_seq_length: int | None = Field(
-        default=192, description="Maximum source sequence length."
-    )
-    tgt_seq_length: int | None = Field(
-        default=192, description="Maximum target sequence length."
-    )
+    src_seq_length: int | None = Field(default=192, description="Maximum source sequence length.")
+    tgt_seq_length: int | None = Field(default=192, description="Maximum target sequence length.")
 
 
 class PrefixConfig(TransformConfig):
-    src_prefix: str | None = Field(
-        default="", description="String to prepend to all source examples."
-    )
-    tgt_prefix: str | None = Field(
-        default="", description="String to prepend to all target examples."
-    )
+    src_prefix: str | None = Field(default="", description="String to prepend to all source examples.")
+    tgt_prefix: str | None = Field(default="", description="String to prepend to all target examples.")
 
 
 class SuffixConfig(TransformConfig):
-    src_suffix: str | None = Field(
-        default="", description="String to append to all source examples."
-    )
-    tgt_suffix: str | None = Field(
-        default="", description="String to append to all target examples."
-    )
+    src_suffix: str | None = Field(default="", description="String to append to all source examples.")
+    tgt_suffix: str | None = Field(default="", description="String to append to all target examples.")
 
 
 @register_transform(name="filtertoolong")
@@ -71,9 +59,7 @@ class FilterTooLongTransform(Transform):
 
     def _repr_args(self):
         """Return str represent key arguments for class."""
-        return "{}={}, {}={}".format(
-            "src_seq_length", self.src_seq_length, "tgt_seq_length", self.tgt_seq_length
-        )
+        return "{}={}, {}={}".format("src_seq_length", self.src_seq_length, "tgt_seq_length", self.tgt_seq_length)
 
 
 @register_transform(name="prefix")
@@ -113,16 +99,12 @@ class PrefixTransform(Transform):
             if "infer" not in prefix_dict.keys():
                 prefix_dict["infer"] = {}
             prefix_dict["infer"]["src"] = config.transforms_configs.prefix.src_prefix
-            logger.debug(
-                f"Get prefix for src infer: {config.transforms_configs.prefix.src_prefix}"
-            )
+            logger.debug(f"Get prefix for src infer: {config.transforms_configs.prefix.src_prefix}")
         if getattr(config.transforms_configs.prefix, "tgt_prefix", None) is not None:
             if "infer" not in prefix_dict.keys():
                 prefix_dict["infer"] = {}
             prefix_dict["infer"]["tgt"] = config.transforms_configs.prefix.tgt_prefix
-            logger.debug(
-                f"Get prefix for tgt infer: {config.transforms_configs.prefix.tgt_prefix}"
-            )
+            logger.debug(f"Get prefix for tgt infer: {config.transforms_configs.prefix.tgt_prefix}")
         return prefix_dict
 
     @classmethod
@@ -218,16 +200,12 @@ class SuffixTransform(Transform):
             if "infer" not in suffix_dict.keys():
                 suffix_dict["infer"] = {}
             suffix_dict["infer"]["src"] = config.transforms_configs.prefix.src_suffix
-            logger.debug(
-                f"Get suffix for src infer: {config.transforms_configs.prefix.src_suffix}"
-            )
+            logger.debug(f"Get suffix for src infer: {config.transforms_configs.prefix.src_suffix}")
         if hasattr(config.transforms_configs.prefix, "tgt_suffix"):
             if "infer" not in suffix_dict.keys():
                 suffix_dict["infer"] = {}
             suffix_dict["infer"]["tgt"] = config.transforms_configs.prefix.tgt_suffix
-            logger.debug(
-                f"Get suffix for tgt infer: {config.transforms_configs.prefix.tgt_suffix}"
-            )
+            logger.debug(f"Get suffix for tgt infer: {config.transforms_configs.prefix.tgt_suffix}")
 
         return suffix_dict
 

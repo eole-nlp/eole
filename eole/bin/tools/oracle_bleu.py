@@ -30,15 +30,9 @@ def chunks(lgth, n):
 class OracleBleu(BaseBin):
     @classmethod
     def add_args(cls, parser):
-        parser.add_argument(
-            "--nbest-hyp", type=str, help="file with nbest to rerank", required=True
-        )
-        parser.add_argument(
-            "--nbest-ref", type=str, help="ref repeated n times", required=True
-        )
-        parser.add_argument(
-            "--nbest-order", type=int, help="nbest order", required=True
-        )
+        parser.add_argument("--nbest-hyp", type=str, help="file with nbest to rerank", required=True)
+        parser.add_argument("--nbest-ref", type=str, help="ref repeated n times", required=True)
+        parser.add_argument("--nbest-order", type=int, help="nbest order", required=True)
         parser.add_argument("--output", type=str, help="output file", required=True)
 
     @classmethod

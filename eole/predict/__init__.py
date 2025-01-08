@@ -1,4 +1,5 @@
 """ Modules for prediction """
+
 from eole.predict.translator import Translator
 from eole.predict.generator import GeneratorLM
 from eole.predict.encoder import Encoder
@@ -21,11 +22,7 @@ def get_infer_class(model_config):
 def build_predictor(config, device_id=0, report_score=True, logger=None):
     # right now config is a full (non nested) PredictConfig
 
-    load_test_model = (
-        ensemble_load_test_model
-        if len(config.model_path) > 1
-        else BaseModel.load_test_model
-    )
+    load_test_model = ensemble_load_test_model if len(config.model_path) > 1 else BaseModel.load_test_model
 
     vocabs, model, model_config = load_test_model(config, device_id)
     config.update(model=model_config)

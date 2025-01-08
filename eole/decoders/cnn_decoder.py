@@ -1,6 +1,7 @@
 """Implementation of the CNN Decoder part of
 "Convolutional Sequence to Sequence Learning"
 """
+
 import torch
 import torch.nn as nn
 
@@ -45,10 +46,7 @@ class CNNDecoder(DecoderBase):
             ]
         )
         self.attn_layers = nn.ModuleList(
-            [
-                ConvMultiStepAttention(model_config.hidden_size)
-                for i in range(model_config.layers)
-            ]
+            [ConvMultiStepAttention(model_config.hidden_size) for i in range(model_config.layers)]
         )
 
     @classmethod

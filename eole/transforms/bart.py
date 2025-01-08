@@ -1,4 +1,5 @@
 """Transforms relate to noising from BART: based on code of fairseq."""
+
 import math
 import numpy as np
 import torch
@@ -14,38 +15,27 @@ class BARTNoiseConfig(TransformConfig):
     permute_sent_ratio: float | None = Field(
         default=0.0,
         description="Permute this proportion of sentences "
-        "(boundaries defined by {}) in all inputs.".format(
-            DefaultTokens.SENT_FULL_STOPS
-        ),
+        "(boundaries defined by {}) in all inputs.".format(DefaultTokens.SENT_FULL_STOPS),
     )
-    rotate_ratio: float | None = Field(
-        default=0.0, description="Rotate this proportion of inputs."
-    )
-    insert_ratio: float | None = Field(
-        default=0.0, description="Insert this percentage of additional random tokens."
-    )
+    rotate_ratio: float | None = Field(default=0.0, description="Rotate this proportion of inputs.")
+    insert_ratio: float | None = Field(default=0.0, description="Insert this percentage of additional random tokens.")
     random_ratio: float | None = Field(
         default=0.0,
-        description="Instead of using {}, use random token "
-        "this often.".format(DefaultTokens.MASK),
+        description="Instead of using {}, use random token " "this often.".format(DefaultTokens.MASK),
     )
-    mask_ratio: float | None = Field(
-        default=0.0, description="Fraction of words/subwords that will be masked."
-    )
+    mask_ratio: float | None = Field(default=0.0, description="Fraction of words/subwords that will be masked.")
     mask_length: Literal["subword", "word", "span-poisson"] | None = Field(
         default="subword", description="Length of masking window to apply."
     )
     poisson_lambda: float | None = Field(
         default=3.0,
-        description="Lambda for Poisson distribution to sample span length "
-        "if `-mask_length` set to span-poisson.",
+        description="Lambda for Poisson distribution to sample span length " "if `-mask_length` set to span-poisson.",
     )
     replace_length: int | None = Field(
         default=-1,
         ge=-1,
         le=1,
-        description="When masking N tokens, replace with 0, 1, "
-        "or N tokens. (use -1 for N)",
+        description="When masking N tokens, replace with 0, 1, " "or N tokens. (use -1 for N)",
     )
 
 
@@ -160,9 +150,7 @@ class BARTNoising(object):
 
     def _get_sentence_borders(self, tokens):
         """Return lengths of each sentence in the token sequence."""
-        full_stops = np.array(
-            [True if token in self.full_stop_token else False for token in tokens]
-        )
+        full_stops = np.array([True if token in self.full_stop_token else False for token in tokens])
         # Pretend it ends with a full stop so last span is a sentence
         full_stops[-1] = True
         # Tokens that are full stops, where the previous token is not
@@ -247,9 +235,7 @@ class BARTNoising(object):
             # keep index, but replace it with [MASK]
             for i in indices.tolist():
                 tokens[i] = self.mask_tok
-            random_tok_ids = torch.randint(
-                0, len(self.vocab), size=(mask_random.sum(),)
-            ).tolist()
+            random_tok_ids = torch.randint(0, len(self.vocab), size=(mask_random.sum(),)).tolist()
             for i, rid in zip(indices[mask_random].tolist(), random_tok_ids):
                 tokens[i] = self.vocab[rid]
 
@@ -281,9 +267,7 @@ class BARTNoising(object):
                     # keep index, but replace it with [MASK]: 1 mask per token
                     for i in indices.tolist():
                         tokens[i] = self.mask_tok
-                    random_tok_ids = torch.randint(
-                        0, len(self.vocab), size=(mask_random.sum(),)
-                    ).tolist()
+                    random_tok_ids = torch.randint(0, len(self.vocab), size=(mask_random.sum(),)).tolist()
                     for i, rid in zip(indices[mask_random].tolist(), random_tok_ids):
                         tokens[i] = self.vocab[rid]
         else:
@@ -300,9 +284,7 @@ class BARTNoising(object):
                     # keep index, but replace it with [MASK]
                     for i in indices.tolist():
                         tokens[i] = self.mask_tok
-                    random_tok_ids = torch.randint(
-                        0, len(self.vocab), size=(mask_random.sum(),)
-                    ).tolist()
+                    random_tok_ids = torch.randint(0, len(self.vocab), size=(mask_random.sum(),)).tolist()
                     for i, rid in zip(indices[mask_random].tolist(), random_tok_ids):
                         tokens[i] = self.vocab[rid]
 
@@ -329,9 +311,7 @@ class BARTNoising(object):
         result = np.empty(shape=(n_tokens + n_insert,), dtype=object)
         result[noise_indices[n_random:]] = self.mask_tok
         if n_random > 0:
-            result[noise_indices[:n_random]] = np.random.choice(
-                self.vocab, size=n_random
-            )
+            result[noise_indices[:n_random]] = np.random.choice(self.vocab, size=n_random)
         result[~noise_mask] = tokens
 
         assert all([item is not None for item in result]), "Error when inserting noise."
@@ -402,8 +382,7 @@ class BARTNoiseTransform(Transform):
         if self.config.mask_length == "subword":
             if subword_type == "none":
                 raise ValueError(
-                    f"src_subword_type={subword_type} incompatible with "
-                    f"mask_length={self.config.mask_length}!"
+                    f"src_subword_type={subword_type} incompatible with " f"mask_length={self.config.mask_length}!"
                 )
         is_joiner = (subword_type == "bpe") if subword_type != "none" else None
         self.bart_noise = BARTNoising(

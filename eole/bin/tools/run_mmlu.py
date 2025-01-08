@@ -117,9 +117,7 @@ def format_example(df, idx, include_answer=True):
 
 
 def gen_prompt(train_df, subject, k=-1):
-    prompt = "The following are multiple choice questions (with answers) about {}.\n\n".format(
-        format_subject(subject)
-    )
+    prompt = "The following are multiple choice questions (with answers) about {}.\n\n".format(format_subject(subject))
     if k == -1:
         k = train_df.shape[0]
     for i in range(k):
@@ -154,12 +152,8 @@ def evaluate(args, data_dir):
         logger.info("Testing %s ..." % task)
         records = []
         src = []
-        dev_df = pd.read_csv(
-            os.path.join(data_dir, "dev", task + "_dev.csv"), header=None
-        )[:ntrain]
-        test_df = pd.read_csv(
-            os.path.join(data_dir, "test", task + "_test.csv"), header=None
-        )
+        dev_df = pd.read_csv(os.path.join(data_dir, "dev", task + "_dev.csv"), header=None)[:ntrain]
+        test_df = pd.read_csv(os.path.join(data_dir, "test", task + "_test.csv"), header=None)
         for i in range(test_df.shape[0]):
             # get prompt and make sure it fits
             k = ntrain
@@ -181,9 +175,7 @@ def evaluate(args, data_dir):
 
         scores, _, preds = engine.infer_list(src)
 
-        pred_answers = [
-            x.lstrip() for sublist in preds for x in sublist
-        ]  # flatten the list of list
+        pred_answers = [x.lstrip() for sublist in preds for x in sublist]  # flatten the list of list
 
         gold_answers = [record["answer"] for record in records]
         run_results[task] = {"pred_answers": pred_answers, "gold_answers": gold_answers}

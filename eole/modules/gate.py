@@ -1,11 +1,10 @@
 """ ContextGate module """
+
 import torch
 import torch.nn as nn
 
 
-def context_gate_factory(
-    gate_type, embeddings_size, decoder_size, attention_size, output_size
-):
+def context_gate_factory(gate_type, embeddings_size, decoder_size, attention_size, output_size):
     """Returns the correct ContextGate class"""
 
     gate_types = {
@@ -15,9 +14,7 @@ def context_gate_factory(
     }
 
     assert gate_type in gate_types, "Not valid ContextGate type: {0}".format(gate_type)
-    return gate_types[gate_type](
-        embeddings_size, decoder_size, attention_size, output_size
-    )
+    return gate_types[gate_type](embeddings_size, decoder_size, attention_size, output_size)
 
 
 class ContextGate(nn.Module):
@@ -50,9 +47,7 @@ class SourceContextGate(nn.Module):
 
     def __init__(self, embeddings_size, decoder_size, attention_size, output_size):
         super(SourceContextGate, self).__init__()
-        self.context_gate = ContextGate(
-            embeddings_size, decoder_size, attention_size, output_size
-        )
+        self.context_gate = ContextGate(embeddings_size, decoder_size, attention_size, output_size)
         self.tanh = nn.Tanh()
 
     def forward(self, prev_emb, dec_state, attn_state):
@@ -65,9 +60,7 @@ class TargetContextGate(nn.Module):
 
     def __init__(self, embeddings_size, decoder_size, attention_size, output_size):
         super(TargetContextGate, self).__init__()
-        self.context_gate = ContextGate(
-            embeddings_size, decoder_size, attention_size, output_size
-        )
+        self.context_gate = ContextGate(embeddings_size, decoder_size, attention_size, output_size)
         self.tanh = nn.Tanh()
 
     def forward(self, prev_emb, dec_state, attn_state):
@@ -80,9 +73,7 @@ class BothContextGate(nn.Module):
 
     def __init__(self, embeddings_size, decoder_size, attention_size, output_size):
         super(BothContextGate, self).__init__()
-        self.context_gate = ContextGate(
-            embeddings_size, decoder_size, attention_size, output_size
-        )
+        self.context_gate = ContextGate(embeddings_size, decoder_size, attention_size, output_size)
         self.tanh = nn.Tanh()
 
     def forward(self, prev_emb, dec_state, attn_state):

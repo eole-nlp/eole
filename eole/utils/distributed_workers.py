@@ -2,6 +2,7 @@
     This piece of code was heavily inspired by the equivalent of Fairseq-py
     https://github.com/pytorch/fairseq
 """
+
 import torch.distributed
 from datetime import timedelta
 from eole.predict import build_predictor
@@ -55,14 +56,10 @@ def spawned_train(process_fn, config, device_id, error_queue):  # noqa: E501
         error_queue.put((config.training.gpu_ranks[device_id], traceback.format_exc()))
 
 
-def spawned_infer(
-    config, device_id, error_queue, queue_instruct, queue_result, queue_settings=None
-):
+def spawned_infer(config, device_id, error_queue, queue_instruct, queue_result, queue_settings=None):
     """Run various functions for prediction in spawned process on `device_id`."""
     try:
-        running_config = (
-            config  # will probably switch to config.inference at some point
-        )
+        running_config = config  # will probably switch to config.inference at some point
         gpu_rank = multi_init(running_config, device_id)
         if gpu_rank != running_config.gpu_ranks[device_id]:
             raise AssertionError(
