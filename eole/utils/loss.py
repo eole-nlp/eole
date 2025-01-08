@@ -2,6 +2,7 @@
 This includes: LossComputeBase and the standard NMTLossCompute, and
                sharded loss compute stuff.
 """
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -77,9 +78,7 @@ class LossCompute(nn.Module):
         The Criterion and LossCompute options are triggered by opt settings.
         """
 
-        device = torch.device(
-            get_device() if eole.utils.misc.use_gpu(config.training) else "cpu"
-        )
+        device = torch.device(get_device() if eole.utils.misc.use_gpu(config.training) else "cpu")
         pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
         padding_idx = vocabs["tgt"][pad_token]
 
@@ -90,8 +89,7 @@ class LossCompute(nn.Module):
             if config.model.decoder.lambda_coverage != 0:
                 lambda_coverage = config.model.decoder.lambda_coverage
                 assert config.model.decoder.coverage_attn, (
-                    "--coverage_attn needs to be set in "
-                    "order to use --lambda_coverage != 0"
+                    "--coverage_attn needs to be set in " "order to use --lambda_coverage != 0"
                 )
             else:
                 lambda_coverage = 0
@@ -148,9 +146,7 @@ class LossCompute(nn.Module):
             lm_prior_tau=lm_prior_tau,
             lm_prior_model=lm_prior_model,
         )
-        compute.to(
-            device
-        )  # this sometimes make embeddings move to the wrong device (cpu), not sure why
+        compute.to(device)  # this sometimes make embeddings move to the wrong device (cpu), not sure why
 
         return compute
 
@@ -227,10 +223,7 @@ class LossCompute(nn.Module):
         src_len = src[:, :, 0].ne(self.padding_idx).sum(1)
         # ct2 expects src with lengths without padding
         lm_outs, _ = self.lm_prior_model(src, None, src_len, with_align=False)
-        lm_scores = (
-            self.lm_prior_model.generator(self._bottle(lm_outs)).detach().clone()
-            / self.lm_prior_tau
-        )
+        lm_scores = self.lm_prior_model.generator(self._bottle(lm_outs)).detach().clone() / self.lm_prior_tau
         # again we use raw probs to rescale with tau and apply log_softmax
         lm_scores = F.log_softmax(lm_scores.to(torch.float32), dim=-1)
         lm_scores[:, self.vocabs["tgt"]["unk_token"]] = -50
@@ -303,21 +296,15 @@ class LossCompute(nn.Module):
             batch_size, pad_tgt_size = batch["tgt"].size()
             _, pad_src_size = batch["src"].size()
             align_matrix_size = [batch_size, pad_tgt_size, pad_src_size]
-            ref_align = eole.utils.make_batch_align_matrix(
-                align_idx, align_matrix_size, normalize=True
-            )
+            ref_align = eole.utils.make_batch_align_matrix(align_idx, align_matrix_size, normalize=True)
             ref_align = ref_align[:, self.tgt_shift_index :, :]
             if ref_align.dtype != loss.dtype:
                 ref_align = ref_align.to(loss.dtype)
-            align_loss = self._compute_alignement_loss(
-                align_head=align_head, ref_align=ref_align
-            )
+            align_loss = self._compute_alignement_loss(align_head=align_head, ref_align=ref_align)
             loss += align_loss
 
         if self.lambda_coverage != 0.0:
-            coverage_loss = self._compute_coverage_loss(
-                attns["std"], attns["coverage"], flat_tgt
-            )
+            coverage_loss = self._compute_coverage_loss(attns["std"], attns["coverage"], flat_tgt)
             loss += coverage_loss
 
         if self.lm_generator is not None:
@@ -335,9 +322,7 @@ class LossCompute(nn.Module):
             estimloss = torch.tensor([0.0], device=loss.device)
         n_sents = len(batch["srclen"])
 
-        stats = self._stats(
-            n_sents, loss.sum().item(), estimloss.item(), scores, flat_tgt
-        )
+        stats = self._stats(n_sents, loss.sum().item(), estimloss.item(), scores, flat_tgt)
 
         return loss, stats, estimloss
 

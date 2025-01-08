@@ -59,18 +59,16 @@ class ScoringPreparator:
         scorer = GNMTGlobalScorer.from_config(predict_config)
         model_config = self.config.model
         model_config._validate_model_config()
-        translator = (
-            Translator.from_config(  # we need to review opt/config stuff in translator
-                model,
-                self.vocabs,
-                predict_config,
-                model_config,
-                device_id=gpu_rank,
-                global_scorer=scorer,
-                report_align=predict_config.report_align,
-                report_score=False,
-                logger=None,
-            )
+        translator = Translator.from_config(  # we need to review opt/config stuff in translator
+            model,
+            self.vocabs,
+            predict_config,
+            model_config,
+            device_id=gpu_rank,
+            global_scorer=scorer,
+            report_align=predict_config.report_align,
+            report_score=False,
+            logger=None,
         )
 
         # ################### #
@@ -84,13 +82,9 @@ class ScoringPreparator:
         predict_config.transforms_configs = self.config.transforms_configs
         predict_config.model = model_config
         # Retrieve raw references and sources
-        with codecs.open(
-            self.config.data["valid"].path_tgt, "r", encoding="utf-8"
-        ) as f:
+        with codecs.open(self.config.data["valid"].path_tgt, "r", encoding="utf-8") as f:
             raw_refs = [line.strip("\n") for line in f if line.strip("\n")]
-        with codecs.open(
-            self.config.data["valid"].path_src, "r", encoding="utf-8"
-        ) as f:
+        with codecs.open(self.config.data["valid"].path_src, "r", encoding="utf-8") as f:
             raw_srcs = [line.strip("\n") for line in f if line.strip("\n")]
 
         infer_iter = build_dynamic_dataset_iter(
@@ -119,11 +113,7 @@ class ScoringPreparator:
         # Flatten predictions
         preds = [x.lstrip() for sublist in preds for x in sublist]
         # Save results
-        if (
-            len(preds) > 0
-            and self.config.scoring_debug
-            and self.config.dump_preds is not None
-        ):
+        if len(preds) > 0 and self.config.scoring_debug and self.config.dump_preds is not None:
             path = os.path.join(self.config.dump_preds, f"preds.valid_step_{step}.txt")
             with open(path, "a") as file:
                 for i in range(len(raw_srcs)):

@@ -25,9 +25,7 @@ class ReleaseModel(BaseBin):
 
     @classmethod
     def run(cls, args):
-        raise NotImplementedError(
-            "Model release and CTranslate2 conversion are not yet implemented for Eole models."
-        )
+        raise NotImplementedError("Model release and CTranslate2 conversion are not yet implemented for Eole models.")
         model = torch.load(args.model, map_location=torch.device("cpu"))
         if args.format == "pytorch":
             model["optim"] = None

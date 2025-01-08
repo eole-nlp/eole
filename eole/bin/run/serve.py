@@ -54,12 +54,8 @@ class TextResponse(BaseModel):
     Response of TextRequest.
     """
 
-    predictions: List[List[str]] = Field(
-        description="List of prediction(s) for each input(s)."
-    )
-    scores: List[List[float]] = Field(
-        description="Pred scores from the model for each prediction."
-    )
+    predictions: List[List[str]] = Field(description="List of prediction(s) for each input(s).")
+    scores: List[List[float]] = Field(description="Pred scores from the model for each prediction.")
 
     class Config:
         json_schema_extra = {
@@ -79,10 +75,7 @@ class TextResponse(BaseModel):
         Automatically apply some formatting to the provided text response.
         This logic might be moved elsewhere at some point.
         """
-        self.predictions = [
-            [pred.replace(DefaultTokens.SEP, "\n") for pred in preds]
-            for preds in self.predictions
-        ]
+        self.predictions = [[pred.replace(DefaultTokens.SEP, "\n") for pred in preds] for preds in self.predictions]
         return self
 
 
@@ -92,9 +85,7 @@ class ChatRequest(DecodingConfig):
     """
 
     model: int | str = Field(description="Model identifier from server configuration.")
-    messages: List[dict] = Field(
-        description="List of message dictionaries with 'role' and 'content' keys."
-    )
+    messages: List[dict] = Field(description="List of message dictionaries with 'role' and 'content' keys.")
 
     class Config:
         json_schema_extra = {
@@ -212,13 +203,8 @@ class Model(object):
         except Exception:
             self.local_path = os.path.expandvars(self.model_path)
         else:
-            self.local_path = os.path.expandvars(
-                os.path.join(self.models_root, self.model_path)
-            )
-            logger.info(
-                f"Downloading {self.model_path} from huggingface, "
-                f"to local directory {self.local_path}"
-            )
+            self.local_path = os.path.expandvars(os.path.join(self.models_root, self.model_path))
+            logger.info(f"Downloading {self.model_path} from huggingface, " f"to local directory {self.local_path}")
             snapshot_download(repo_id=self.model_path, local_dir=self.local_path)
 
     def load(self):
@@ -272,9 +258,7 @@ class Model(object):
         if not (self.loaded):
             self.load()
         if is_chat:
-            assert hasattr(
-                self.config, "chat_template"
-            ), "Chat requests can't be performed without a chat_template."
+            assert hasattr(self.config, "chat_template"), "Chat requests can't be performed without a chat_template."
             inputs = [self.apply_chat_template(inputs)]
         scores, _, preds = self.engine.infer_list(inputs, settings=settings)
         return scores, preds
@@ -359,9 +343,7 @@ def create_app(config_file):
         Run inference on the given input.
         """
         if isinstance(request, TextRequest):
-            inputs = (
-                request.inputs if isinstance(request.inputs, list) else [request.inputs]
-            )
+            inputs = request.inputs if isinstance(request.inputs, list) else [request.inputs]
         else:  # ChatRequest
             # no batch support right now
             inputs = request.messages
@@ -369,9 +351,7 @@ def create_app(config_file):
         # automatically grab anything that is not model/inputs
         # (we could probably rely on pydantic model once properly implemented)
         non_settings_keys = ["inputs", "messages", "model"]
-        settings = {
-            k: v for k, v in request.model_dump().items() if k not in non_settings_keys
-        }
+        settings = {k: v for k, v in request.model_dump().items() if k not in non_settings_keys}
         # TODO: move this in some `infer` method in the `Server` class?
         server.maybe_load_model(model_id)
         scores, preds = server.models[model_id].infer(

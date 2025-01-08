@@ -11,16 +11,13 @@ from eole.config.config import Config
 
 class BaseVocabConfig(Config):
     src_vocab: str | None = Field(
-        description="Path to src (or shared) vocabulary file. "
-        "Format: one <word> or <word>\t<count> per line."
+        description="Path to src (or shared) vocabulary file. " "Format: one <word> or <word>\t<count> per line."
     )
     tgt_vocab: str | None = Field(
         default=None,
         description="Path to tgt vocabulary file. Format: one <word> or <word>\t<count> per line.",
     )
-    share_vocab: bool = Field(
-        default=False, description="Share source and target vocabulary."
-    )
+    share_vocab: bool = Field(default=False, description="Share source and target vocabulary.")
     decoder_start_token: str = Field(
         default=constants.DefaultTokens.BOS,
         description="Default decoder start token. For most models it is <s> = BOS. "
@@ -51,29 +48,18 @@ class BaseVocabConfig(Config):
         default=None,
         description="Path to the embeddings file to use for target tokens.",
     )
-    embeddings_type: Literal["GloVe", "word2vec"] | None = Field(
-        default=None, description="Type of embeddings file."
-    )
+    embeddings_type: Literal["GloVe", "word2vec"] | None = Field(default=None, description="Type of embeddings file.")
 
 
 class VocabConfig(BaseVocabConfig):
-    src_vocab_size: int = Field(
-        default=32758, description="Maximum size of the source vocabulary."
-    )
-    tgt_vocab_size: int = Field(
-        default=32768, description="Maximum size of the target vocabulary."
-    )
+    src_vocab_size: int = Field(default=32758, description="Maximum size of the source vocabulary.")
+    tgt_vocab_size: int = Field(default=32768, description="Maximum size of the target vocabulary.")
     vocab_size_multiple: int = Field(
         default=8,
-        description="Make the vocabulary size a multiple of this value. "
-        "(Adds dummy tokens if needed.)",
+        description="Make the vocabulary size a multiple of this value. " "(Adds dummy tokens if needed.)",
     )
-    src_words_min_frequency: int = Field(
-        default=0, description="Discard source words with lower frequency."
-    )
-    tgt_words_min_frequency: int = Field(
-        default=0, description="Discard target words with lower frequency."
-    )
+    src_words_min_frequency: int = Field(default=0, description="Discard source words with lower frequency.")
+    tgt_words_min_frequency: int = Field(default=0, description="Discard target words with lower frequency.")
 
 
 class Dataset(Config):
@@ -84,9 +70,7 @@ class Dataset(Config):
     path_src: str | None = None
     path_tgt: str | None = None
     path_sco: str | None = None
-    path_txt: str | None = (
-        None  # not sure we need this one with proper path_src handling
-    )
+    path_txt: str | None = None  # not sure we need this one with proper path_src handling
     path_align: str | None = None
     # optional stuff for some transforms
     # TODO: define a better mechanism to support such settings
@@ -136,17 +120,14 @@ NestedAllTransformsConfig = create_model(
 
 class DataConfig(VocabConfig):  # , AllTransformsConfig):
     data: Dict[str, Dataset] | None = Field(
-        description="All datasets and their specifications. "
-        "See examples/*.yaml for further details."
+        description="All datasets and their specifications. " "See examples/*.yaml for further details."
     )
     transforms: List[str] = Field(
         default=[],
         description="Default transform pipeline to apply to data. "
         "Can be specified in each corpus of data to override.",
     )  # this should be validated against AVAILABLE_TRANSFORMS.keys() (Enum ?)
-    transforms_configs: NestedAllTransformsConfig | None = Field(
-        default_factory=NestedAllTransformsConfig
-    )
+    transforms_configs: NestedAllTransformsConfig | None = Field(default_factory=NestedAllTransformsConfig)
     _all_transforms: List[str]
     # NameError: Fields must not use names with leading underscores
     # _all_transforms: List[str] = Field(
@@ -165,12 +146,9 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
     n_sample: int | None = 0  # mostly overridden in Vocab/Train configs
     save_data: str | None = Field(
         default=None,
-        description="Output base path for objects that will be saved "
-        "(vocab, transforms, embeddings, ...)",
+        description="Output base path for objects that will be saved " "(vocab, transforms, embeddings, ...)",
     )  # "required" depending on build_vocab_only originally
-    overwrite: bool = Field(
-        default=False, description="Overwrite existing objects if any."
-    )
+    overwrite: bool = Field(default=False, description="Overwrite existing objects if any.")
 
     @field_validator("transforms_configs", mode="before")
     @classmethod
@@ -190,19 +168,11 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
                 _transforms = set(corpus.transforms)
                 if len(_transforms) != 0:
                     all_transforms.update(_transforms)
-        if (
-            hasattr(self, "model")
-            and getattr(getattr(self.model, "decoder", None), "lambda_align", 0.0) > 0.0
-        ):
+        if hasattr(self, "model") and getattr(getattr(self.model, "decoder", None), "lambda_align", 0.0) > 0.0:
             if not all_transforms.isdisjoint({"sentencepiece", "bpe", "onmt_tokenize"}):
-                raise ValueError(
-                    "lambda_align is not compatible with" " on-the-fly tokenization."
-                )
+                raise ValueError("lambda_align is not compatible with" " on-the-fly tokenization.")
             if not all_transforms.isdisjoint({"tokendrop", "prefix", "bart"}):
-                raise ValueError(
-                    "lambda_align is not compatible yet with"
-                    " potentiel token deletion/addition."
-                )
+                raise ValueError("lambda_align is not compatible yet with" " potentiel token deletion/addition.")
         self._all_transform = all_transforms
 
     def _validate_vocab_config(self, build_vocab_only=False):
@@ -231,9 +201,7 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
                 self.tgt_embeddings is not None,
             ]
         ):
-            assert (
-                self.embeddings_type is not None
-            ), "You need to specify an -embeddings_type!"
+            assert self.embeddings_type is not None, "You need to specify an -embeddings_type!"
             assert (
                 self.save_data
             ), "-save_data should be set if use \
@@ -253,9 +221,7 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
         default_transforms = self.transforms
         if len(default_transforms) != 0 and len(self.data) > 0:
             # 0 datasets means we're loading a converted model
-            logger.info(
-                f"Default transforms (might be overridden downstream): {default_transforms}."
-            )
+            logger.info(f"Default transforms (might be overridden downstream): {default_transforms}.")
 
         corpora = self.data
 
@@ -263,10 +229,7 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
             # Check Transforms
             _transforms = corpus.transforms
             if _transforms is None:
-                logger.info(
-                    f"Missing transforms field for {cname} data, "
-                    f"set to default: {default_transforms}."
-                )
+                logger.info(f"Missing transforms field for {cname} data, " f"set to default: {default_transforms}.")
                 corpus.transforms = default_transforms
             # Check path
             if corpus.path_src is None:
@@ -278,42 +241,23 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
             else:
                 self.__class__._validate_file(corpus.path_src, info=f"{cname}/path_src")
                 if corpus.path_tgt is None:
-                    logger.debug(
-                        "path_tgt is None, it should be set unless the task"
-                        " is language modeling"
-                    )
+                    logger.debug("path_tgt is None, it should be set unless the task" " is language modeling")
                     # tgt is src for LM task
                     # corpus["path_tgt"] = path_src
                     corpora[cname] = corpus
                     # path_tgt = path_src
                 else:
-                    self.__class__._validate_file(
-                        corpus.path_tgt, info=f"{cname}/path_tgt"
-                    )
+                    self.__class__._validate_file(corpus.path_tgt, info=f"{cname}/path_tgt")
             if corpus.path_align is None:
-                if (
-                    hasattr(self, "model")
-                    and getattr(
-                        getattr(self.model, "decoder", None), "lambda_align", 0.0
-                    )
-                    > 0.0
-                ):
-                    raise ValueError(
-                        f"Corpus {cname} alignment file path are "
-                        "required when lambda_align > 0.0"
-                    )
+                if hasattr(self, "model") and getattr(getattr(self.model, "decoder", None), "lambda_align", 0.0) > 0.0:
+                    raise ValueError(f"Corpus {cname} alignment file path are " "required when lambda_align > 0.0")
                 corpus.path_align = None
             else:
-                self.__class__._validate_file(
-                    corpus.path_align, info=f"{cname}/path_align"
-                )
+                self.__class__._validate_file(corpus.path_align, info=f"{cname}/path_align")
             # Check weight
             if corpus.weight is None:
                 if cname != constants.CorpusName.VALID:
-                    logger.warning(
-                        f"Corpus {cname}'s weight should be given."
-                        " We default it to 1 for you."
-                    )
+                    logger.warning(f"Corpus {cname}'s weight should be given." " We default it to 1 for you.")
                 corpus.weight = 1
         if len(corpora) > 0:
             logger.info(f"Parsed {len(corpora)} corpora from -data.")
@@ -339,7 +283,5 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
             return self
         if self.model.huggingface_model is not None:
             if hasattr(self.transforms_configs, "huggingface_tokenize"):
-                self.transforms_configs.huggingface_tokenize.huggingface_model = (
-                    self.model.huggingface_model
-                )
+                self.transforms_configs.huggingface_tokenize.huggingface_model = self.model.huggingface_model
         return self

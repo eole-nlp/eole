@@ -1,4 +1,5 @@
 """  Weights normalization modules  """
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -61,9 +62,7 @@ class WeightNormLinear(nn.Linear):
     def forward(self, x, init=False):
         if init is True:
             # out_features * in_features
-            self.V.data.copy_(
-                torch.randn(self.V.data.size()).type_as(self.V.data) * 0.05
-            )
+            self.V.data.copy_(torch.randn(self.V.data.size()).type_as(self.V.data) * 0.05)
             # norm is out_features * 1
             v_norm = self.V.data / self.V.data.norm(2, 1).expand_as(self.V.data)
             # batch_size * out_features
@@ -74,17 +73,13 @@ class WeightNormLinear(nn.Linear):
             scale_init = self.init_scale / torch.sqrt(v_init + 1e-10)
             self.g.data.copy_(scale_init)
             self.b.data.copy_(-m_init * scale_init)
-            x_init = scale_init.view(1, -1).expand_as(x_init) * (
-                x_init - m_init.view(1, -1).expand_as(x_init)
-            )
+            x_init = scale_init.view(1, -1).expand_as(x_init) * (x_init - m_init.view(1, -1).expand_as(x_init))
             self.V_avg.copy_(self.V.data)
             self.g_avg.copy_(self.g.data)
             self.b_avg.copy_(self.b.data)
             return x_init
         else:
-            v, g, b = get_vars_maybe_avg(
-                self, ["V", "g", "b"], self.training, polyak_decay=self.polyak_decay
-            )
+            v, g, b = get_vars_maybe_avg(self, ["V", "g", "b"], self.training, polyak_decay=self.polyak_decay)
             # batch_size * out_features
             x = F.linear(x, v)
             scalar = g / torch.norm(v, 2, 1).squeeze(1)
@@ -127,40 +122,26 @@ class WeightNormConv2d(nn.Conv2d):
     def forward(self, x, init=False):
         if init is True:
             # out_channels, in_channels // groups, * kernel_size
-            self.V.data.copy_(
-                torch.randn(self.V.data.size()).type_as(self.V.data) * 0.05
-            )
-            v_norm = self.V.data / self.V.data.view(self.out_channels, -1).norm(
-                2, 1
-            ).view(self.out_channels, *([1] * (len(self.kernel_size) + 1))).expand_as(
-                self.V.data
-            )
-            x_init = F.conv2d(
-                x, v_norm, None, self.stride, self.padding, self.dilation, self.groups
-            ).data
+            self.V.data.copy_(torch.randn(self.V.data.size()).type_as(self.V.data) * 0.05)
+            v_norm = self.V.data / self.V.data.view(self.out_channels, -1).norm(2, 1).view(
+                self.out_channels, *([1] * (len(self.kernel_size) + 1))
+            ).expand_as(self.V.data)
+            x_init = F.conv2d(x, v_norm, None, self.stride, self.padding, self.dilation, self.groups).data
             t_x_init = x_init.transpose(0, 1).contiguous().view(self.out_channels, -1)
             m_init, v_init = t_x_init.mean(1).squeeze(1), t_x_init.var(1).squeeze(1)
             # out_features
             scale_init = self.init_scale / torch.sqrt(v_init + 1e-10)
             self.g.data.copy_(scale_init)
             self.b.data.copy_(-m_init * scale_init)
-            scale_init_shape = scale_init.view(
-                1, self.out_channels, *([1] * (len(x_init.size()) - 2))
-            )
-            m_init_shape = m_init.view(
-                1, self.out_channels, *([1] * (len(x_init.size()) - 2))
-            )
-            x_init = scale_init_shape.expand_as(x_init) * (
-                x_init - m_init_shape.expand_as(x_init)
-            )
+            scale_init_shape = scale_init.view(1, self.out_channels, *([1] * (len(x_init.size()) - 2)))
+            m_init_shape = m_init.view(1, self.out_channels, *([1] * (len(x_init.size()) - 2)))
+            x_init = scale_init_shape.expand_as(x_init) * (x_init - m_init_shape.expand_as(x_init))
             self.V_avg.copy_(self.V.data)
             self.g_avg.copy_(self.g.data)
             self.b_avg.copy_(self.b.data)
             return x_init
         else:
-            v, g, b = get_vars_maybe_avg(
-                self, ["V", "g", "b"], self.training, polyak_decay=self.polyak_decay
-            )
+            v, g, b = get_vars_maybe_avg(self, ["V", "g", "b"], self.training, polyak_decay=self.polyak_decay)
 
             scalar = torch.norm(v.view(self.out_channels, -1), 2, 1)
             if len(scalar.size()) == 2:
@@ -168,12 +149,7 @@ class WeightNormConv2d(nn.Conv2d):
             else:
                 scalar = g / scalar
 
-            w = (
-                scalar.view(self.out_channels, *([1] * (len(v.size()) - 1))).expand_as(
-                    v
-                )
-                * v
-            )
+            w = scalar.view(self.out_channels, *([1] * (len(v.size()) - 1))).expand_as(v) * v
 
             x = F.conv2d(x, w, b, self.stride, self.padding, self.dilation, self.groups)
             return x
@@ -223,16 +199,10 @@ class WeightNormConvTranspose2d(nn.ConvTranspose2d):
     def forward(self, x, init=False):
         if init is True:
             # in_channels, out_channels, *kernel_size
-            self.V.data.copy_(
-                torch.randn(self.V.data.size()).type_as(self.V.data) * 0.05
-            )
-            v_norm = self.V.data / self.V.data.transpose(0, 1).contiguous().view(
-                self.out_channels, -1
-            ).norm(2, 1).view(
+            self.V.data.copy_(torch.randn(self.V.data.size()).type_as(self.V.data) * 0.05)
+            v_norm = self.V.data / self.V.data.transpose(0, 1).contiguous().view(self.out_channels, -1).norm(2, 1).view(
                 self.in_channels, self.out_channels, *([1] * len(self.kernel_size))
-            ).expand_as(
-                self.V.data
-            )
+            ).expand_as(self.V.data)
             x_init = F.conv_transpose2d(
                 x,
                 v_norm,
@@ -250,35 +220,18 @@ class WeightNormConvTranspose2d(nn.ConvTranspose2d):
             scale_init = self.init_scale / torch.sqrt(v_init + 1e-10)
             self.g.data.copy_(scale_init)
             self.b.data.copy_(-m_init * scale_init)
-            scale_init_shape = scale_init.view(
-                1, self.out_channels, *([1] * (len(x_init.size()) - 2))
-            )
-            m_init_shape = m_init.view(
-                1, self.out_channels, *([1] * (len(x_init.size()) - 2))
-            )
+            scale_init_shape = scale_init.view(1, self.out_channels, *([1] * (len(x_init.size()) - 2)))
+            m_init_shape = m_init.view(1, self.out_channels, *([1] * (len(x_init.size()) - 2)))
 
-            x_init = scale_init_shape.expand_as(x_init) * (
-                x_init - m_init_shape.expand_as(x_init)
-            )
+            x_init = scale_init_shape.expand_as(x_init) * (x_init - m_init_shape.expand_as(x_init))
             self.V_avg.copy_(self.V.data)
             self.g_avg.copy_(self.g.data)
             self.b_avg.copy_(self.b.data)
             return x_init
         else:
-            v, g, b = get_vars_maybe_avg(
-                self, ["V", "g", "b"], self.training, polyak_decay=self.polyak_decay
-            )
-            scalar = g / torch.norm(
-                v.transpose(0, 1).contiguous().view(self.out_channels, -1), 2, 1
-            ).squeeze(1)
-            w = (
-                scalar.view(
-                    self.in_channels, self.out_channels, *([1] * (len(v.size()) - 2))
-                ).expand_as(v)
-                * v
-            )
+            v, g, b = get_vars_maybe_avg(self, ["V", "g", "b"], self.training, polyak_decay=self.polyak_decay)
+            scalar = g / torch.norm(v.transpose(0, 1).contiguous().view(self.out_channels, -1), 2, 1).squeeze(1)
+            w = scalar.view(self.in_channels, self.out_channels, *([1] * (len(v.size()) - 2))).expand_as(v) * v
 
-            x = F.conv_transpose2d(
-                x, w, b, self.stride, self.padding, self.output_padding, self.groups
-            )
+            x = F.conv_transpose2d(x, w, b, self.stride, self.padding, self.output_padding, self.groups)
             return x

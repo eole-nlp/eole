@@ -110,9 +110,7 @@ class TransformerLMDecoder(TransformerDecoderBase):
             ]
         )
         # This is the Decoder out layer norm
-        self.layer_norm = LayerNorm[model_config.layer_norm](
-            model_config.hidden_size, eps=model_config.norm_eps
-        )
+        self.layer_norm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
         self._disable_cache()
 
     def forward(self, emb, **kwargs):

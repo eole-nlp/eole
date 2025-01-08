@@ -32,12 +32,8 @@ class FalconConverter(BaseBin):
             required=True,
             help="""Path to the tokenizer model""",
         )
-        parser.add_argument(
-            "--output", type=str, required=True, help="""Path to the model directory"""
-        )
-        parser.add_argument(
-            "--nshards", type=int, default=1, help="""Path to the model directory"""
-        )
+        parser.add_argument("--output", type=str, required=True, help="""Path to the model directory""")
+        parser.add_argument("--nshards", type=int, default=1, help="""Path to the model directory""")
 
     @classmethod
     def run(cls, args):
@@ -70,32 +66,20 @@ class FalconConverter(BaseBin):
 
             if shard == 0:
                 ckpt = wmap["weight_map"]["transformer.word_embeddings.weight"]
-                checkpoint = torch.load(
-                    os.path.join(args.model_dir, ckpt), map_location=torch.device("cpu")
-                )
-                eole_safetensor["tgt_emb.embeddings.weight"] = checkpoint[
-                    "transformer.word_embeddings.weight"
-                ].to(torch.float16)
-
-                ckpt = wmap["weight_map"]["transformer.ln_f.weight"]
-                checkpoint = torch.load(
-                    os.path.join(args.model_dir, ckpt), map_location=torch.device("cpu")
-                )
-                eole_safetensor["decoder.layer_norm.weight"] = checkpoint[
-                    "transformer.ln_f.weight"
-                ].to(torch.float16)
-                eole_safetensor["decoder.layer_norm.bias"] = checkpoint[
-                    "transformer.ln_f.bias"
-                ].to(torch.float16)
-
-                ckpt = wmap["weight_map"]["lm_head.weight"]
-                checkpoint = torch.load(
-                    os.path.join(args.model_dir, ckpt), map_location=torch.device("cpu")
-                )
-
-                eole_safetensor["generator.weight"] = checkpoint["lm_head.weight"].to(
+                checkpoint = torch.load(os.path.join(args.model_dir, ckpt), map_location=torch.device("cpu"))
+                eole_safetensor["tgt_emb.embeddings.weight"] = checkpoint["transformer.word_embeddings.weight"].to(
                     torch.float16
                 )
+
+                ckpt = wmap["weight_map"]["transformer.ln_f.weight"]
+                checkpoint = torch.load(os.path.join(args.model_dir, ckpt), map_location=torch.device("cpu"))
+                eole_safetensor["decoder.layer_norm.weight"] = checkpoint["transformer.ln_f.weight"].to(torch.float16)
+                eole_safetensor["decoder.layer_norm.bias"] = checkpoint["transformer.ln_f.bias"].to(torch.float16)
+
+                ckpt = wmap["weight_map"]["lm_head.weight"]
+                checkpoint = torch.load(os.path.join(args.model_dir, ckpt), map_location=torch.device("cpu"))
+
+                eole_safetensor["generator.weight"] = checkpoint["lm_head.weight"].to(torch.float16)
                 eole_safetensor["generator.bias"] = torch.zeros(
                     eole_safetensor["generator.weight"].size(0), dtype=torch.float16
                 )
@@ -120,15 +104,11 @@ class FalconConverter(BaseBin):
 
             for ckpt in ckpt_list:
                 print("Loading %s" % (os.path.join(args.model_dir, ckpt)))
-                checkpoint = torch.load(
-                    os.path.join(args.model_dir, ckpt), map_location=torch.device("cpu")
-                )
+                checkpoint = torch.load(os.path.join(args.model_dir, ckpt), map_location=torch.device("cpu"))
 
                 for i in range(
                     -(decoder_layers // -args.nshards) * shard,
-                    min(
-                        -(decoder_layers // -args.nshards) * (shard + 1), decoder_layers
-                    ),
+                    min(-(decoder_layers // -args.nshards) * (shard + 1), decoder_layers),
                     1,
                 ):
 
@@ -136,18 +116,9 @@ class FalconConverter(BaseBin):
                     # it is heads interleaved to we need to slice first
                     # also it uses the HF rotary so we need to permute Q and K interleave
 
-                    if (
-                        "transformer.h."
-                        + str(i)
-                        + ".self_attention.query_key_value.weight"
-                        in checkpoint.keys()
-                    ):
+                    if "transformer.h." + str(i) + ".self_attention.query_key_value.weight" in checkpoint.keys():
                         qkv_W = (
-                            checkpoint[
-                                "transformer.h."
-                                + str(i)
-                                + ".self_attention.query_key_value.weight"
-                            ]
+                            checkpoint["transformer.h." + str(i) + ".self_attention.query_key_value.weight"]
                             .view(
                                 -1,
                                 heads // num_kv + 2,
@@ -157,170 +128,69 @@ class FalconConverter(BaseBin):
                             .to(torch.float16)
                         )
 
-                        eole_safetensor[
-                            "decoder.transformer_layers."
-                            + str(i)
-                            + ".self_attn.linear_query.weight"
-                        ] = (
+                        eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_query.weight"] = (
                             qkv_W[:, :-2]  # [8, 16, 64, 8192] ou [1, 71, 64, 4544]
                             .reshape(
                                 heads, 2, hidden_size // heads // 2, hidden_size
                             )  # [128, 2, 32, 8192] ou [71, 2, 32, 4544]
-                            .transpose(
-                                1, 2
-                            )  # invert 1,2 for rotary "llama original way"
-                            .reshape(
-                                hidden_size, hidden_size
-                            )  # [8192, 8192] ou [4544, 4544]
+                            .transpose(1, 2)  # invert 1,2 for rotary "llama original way"
+                            .reshape(hidden_size, hidden_size)  # [8192, 8192] ou [4544, 4544]
                         )
 
-                        eole_safetensor[
-                            "decoder.transformer_layers."
-                            + str(i)
-                            + ".self_attn.linear_keys.weight"
-                        ] = (
+                        eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_keys.weight"] = (
                             qkv_W[:, [-2]]  # [8, 1, 64, 8192] ou [1, 1, 64, 4544]
                             .reshape(
                                 num_kv, 2, hidden_size // heads // 2, hidden_size
                             )  # [8, 2, 32, 8192] ou [1, 2, 32, 4544]
                             .transpose(1, 2)
-                            .reshape(
-                                hidden_size // heads * num_kv, hidden_size
-                            )  # [512, 8192] ou [64, 4544]
+                            .reshape(hidden_size // heads * num_kv, hidden_size)  # [512, 8192] ou [64, 4544]
                         )
 
-                        eole_safetensor[
-                            "decoder.transformer_layers."
-                            + str(i)
-                            + ".self_attn.linear_values.weight"
-                        ] = qkv_W[:, [-1]].reshape(
-                            hidden_size // heads * num_kv, hidden_size
+                        eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"] = (
+                            qkv_W[:, [-1]].reshape(hidden_size // heads * num_kv, hidden_size)
                         )
-                    if (
-                        "transformer.h." + str(i) + ".self_attention.dense.weight"
-                        in checkpoint.keys()
-                    ):
-                        eole_safetensor[
-                            "decoder.transformer_layers."
-                            + str(i)
-                            + ".self_attn.final_linear.weight"
-                        ] = checkpoint[
-                            "transformer.h." + str(i) + ".self_attention.dense.weight"
-                        ].to(
-                            torch.float16
+                    if "transformer.h." + str(i) + ".self_attention.dense.weight" in checkpoint.keys():
+                        eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.final_linear.weight"] = (
+                            checkpoint["transformer.h." + str(i) + ".self_attention.dense.weight"].to(torch.float16)
                         )
                     if shared_layer:
-                        if (
-                            "transformer.h." + str(i) + ".input_layernorm.weight"
-                            in checkpoint.keys()
-                        ):
-                            eole_safetensor[
-                                "decoder.transformer_layers."
-                                + str(i)
-                                + ".layer_norm_1.weight"
-                            ] = checkpoint[
-                                "transformer.h." + str(i) + ".input_layernorm.weight"
-                            ].to(
-                                torch.float16
+                        if "transformer.h." + str(i) + ".input_layernorm.weight" in checkpoint.keys():
+                            eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_1.weight"] = (
+                                checkpoint["transformer.h." + str(i) + ".input_layernorm.weight"].to(torch.float16)
                             )
-                        if (
-                            "transformer.h." + str(i) + ".input_layernorm.bias"
-                            in checkpoint.keys()
-                        ):
-                            eole_safetensor[
-                                "decoder.transformer_layers."
-                                + str(i)
-                                + ".layer_norm_1.bias"
-                            ] = checkpoint[
+                        if "transformer.h." + str(i) + ".input_layernorm.bias" in checkpoint.keys():
+                            eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_1.bias"] = checkpoint[
                                 "transformer.h." + str(i) + ".input_layernorm.bias"
-                            ].to(
-                                torch.float16
-                            )
+                            ].to(torch.float16)
                     else:
-                        if (
-                            "transformer.h." + str(i) + ".ln_attn.weight"
-                            in checkpoint.keys()
-                        ):
-                            eole_safetensor[
-                                "decoder.transformer_layers."
-                                + str(i)
-                                + ".layer_norm_1.weight"
-                            ] = checkpoint[
-                                "transformer.h." + str(i) + ".ln_attn.weight"
-                            ].to(
-                                torch.float16
+                        if "transformer.h." + str(i) + ".ln_attn.weight" in checkpoint.keys():
+                            eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_1.weight"] = (
+                                checkpoint["transformer.h." + str(i) + ".ln_attn.weight"].to(torch.float16)
                             )
-                        if (
-                            "transformer.h." + str(i) + ".ln_attn.weight"
-                            in checkpoint.keys()
-                        ):
-                            eole_safetensor[
-                                "decoder.transformer_layers."
-                                + str(i)
-                                + ".layer_norm_1.bias"
-                            ] = checkpoint[
+                        if "transformer.h." + str(i) + ".ln_attn.weight" in checkpoint.keys():
+                            eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_1.bias"] = checkpoint[
                                 "transformer.h." + str(i) + ".ln_attn.bias"
-                            ].to(
-                                torch.float16
+                            ].to(torch.float16)
+                        if "transformer.h." + str(i) + ".ln_mlp.weight" in checkpoint.keys():
+                            eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_res.weight"] = (
+                                checkpoint["transformer.h." + str(i) + ".ln_mlp.weight"].to(torch.float16)
                             )
-                        if (
-                            "transformer.h." + str(i) + ".ln_mlp.weight"
-                            in checkpoint.keys()
-                        ):
-                            eole_safetensor[
-                                "decoder.transformer_layers."
-                                + str(i)
-                                + ".layer_norm_res.weight"
-                            ] = checkpoint[
-                                "transformer.h." + str(i) + ".ln_mlp.weight"
-                            ].to(
-                                torch.float16
-                            )
-                        if (
-                            "transformer.h." + str(i) + ".ln_mlp.bias"
-                            in checkpoint.keys()
-                        ):
-                            eole_safetensor[
-                                "decoder.transformer_layers."
-                                + str(i)
-                                + ".layer_norm_res.bias"
-                            ] = checkpoint[
-                                "transformer.h." + str(i) + ".ln_mlp.bias"
-                            ].to(
-                                torch.float16
+                        if "transformer.h." + str(i) + ".ln_mlp.bias" in checkpoint.keys():
+                            eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_res.bias"] = (
+                                checkpoint["transformer.h." + str(i) + ".ln_mlp.bias"].to(torch.float16)
                             )
 
-                    if (
-                        "transformer.h." + str(i) + ".mlp.dense_h_to_4h.weight"
-                        in checkpoint.keys()
-                    ):
-                        eole_safetensor[
-                            "decoder.transformer_layers."
-                            + str(i)
-                            + ".feed_forward.w_1.weight"
-                        ] = checkpoint[
-                            "transformer.h." + str(i) + ".mlp.dense_h_to_4h.weight"
-                        ].to(
-                            torch.float16
+                    if "transformer.h." + str(i) + ".mlp.dense_h_to_4h.weight" in checkpoint.keys():
+                        eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.w_1.weight"] = (
+                            checkpoint["transformer.h." + str(i) + ".mlp.dense_h_to_4h.weight"].to(torch.float16)
                         )
-                    if (
-                        "transformer.h." + str(i) + ".mlp.dense_4h_to_h.weight"
-                        in checkpoint.keys()
-                    ):
-                        eole_safetensor[
-                            "decoder.transformer_layers."
-                            + str(i)
-                            + ".feed_forward.w_2.weight"
-                        ] = checkpoint[
-                            "transformer.h." + str(i) + ".mlp.dense_4h_to_h.weight"
-                        ].to(
-                            torch.float16
+                    if "transformer.h." + str(i) + ".mlp.dense_4h_to_h.weight" in checkpoint.keys():
+                        eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.w_2.weight"] = (
+                            checkpoint["transformer.h." + str(i) + ".mlp.dense_4h_to_h.weight"].to(torch.float16)
                         )
 
             if shard == 0:
-                transformer_ff = eole_safetensor[
-                    "decoder.transformer_layers.0.feed_forward.w_1.weight"
-                ].size(0)
+                transformer_ff = eole_safetensor["decoder.transformer_layers.0.feed_forward.w_1.weight"].size(0)
                 vocab_size = eole_safetensor["generator.weight"].size(0)
             print("Saving output model shard: %d" % shard)
             save_file(
@@ -340,9 +210,7 @@ class FalconConverter(BaseBin):
         with open(os.path.join(args.output, "vocab.json"), "w", encoding="utf-8") as f:
             json.dump(vocab_dict, f, indent=2, ensure_ascii=False)
 
-        with open(
-            os.path.join(args.output, "vocab.txt"), "w", encoding="utf-8"
-        ) as vocabfile:
+        with open(os.path.join(args.output, "vocab.txt"), "w", encoding="utf-8") as vocabfile:
             for tok in vocab_dict["src"]:
                 vocabfile.write(tok + "\n")
 
@@ -364,9 +232,7 @@ class FalconConverter(BaseBin):
             vocab_size_multiple=8,
             decoder_start_token=vocabs["decoder_start_token"],
             transforms=["filtertoolong"],
-            transforms_configs={
-                "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}
-            },
+            transforms_configs={"filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}},
             model=TransformerLMModelConfig(
                 layers=decoder_layers,
                 hidden_size=hidden_size,

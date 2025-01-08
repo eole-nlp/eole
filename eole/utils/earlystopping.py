@@ -103,9 +103,7 @@ def scorers_from_config(config):
     else:
         scorers = []
         for criterion in set(config.early_stopping_criteria):
-            assert criterion in SCORER_BUILDER.keys(), "Criterion {} not found".format(
-                criterion
-            )
+            assert criterion in SCORER_BUILDER.keys(), "Criterion {} not found".format(criterion)
             scorers.append(SCORER_BUILDER[criterion]())
         return scorers
 
@@ -147,17 +145,10 @@ class EarlyStopping(object):
             # Don't do anything
             return
 
-        if all(
-            [scorer.is_improving(valid_stats) for scorer in self.early_stopping_scorers]
-        ):
+        if all([scorer.is_improving(valid_stats) for scorer in self.early_stopping_scorers]):
             self._update_increasing(valid_stats, step)
 
-        elif all(
-            [
-                scorer.is_decreasing(valid_stats)
-                for scorer in self.early_stopping_scorers
-            ]
-        ):
+        elif all([scorer.is_decreasing(valid_stats) for scorer in self.early_stopping_scorers]):
             self._update_decreasing()
 
         else:
@@ -166,9 +157,7 @@ class EarlyStopping(object):
     def _update_stalled(self):
         self.stalled_tolerance -= 1
 
-        logger.info(
-            "Stalled patience: {}/{}".format(self.stalled_tolerance, self.tolerance)
-        )
+        logger.info("Stalled patience: {}/{}".format(self.stalled_tolerance, self.tolerance))
 
         if self.stalled_tolerance == 0:
             logger.info("Training finished after stalled validations. Early Stop!")
@@ -180,9 +169,7 @@ class EarlyStopping(object):
         self.current_step_best = step
         for scorer in self.early_stopping_scorers:
             logger.info(
-                "Model is improving {}: {:g} --> {:g}.".format(
-                    scorer.name, scorer.best_score, scorer(valid_stats)
-                )
+                "Model is improving {}: {:g} --> {:g}.".format(scorer.name, scorer.best_score, scorer(valid_stats))
             )
             # Update best score of each criteria
             scorer.update(valid_stats)
@@ -199,9 +186,7 @@ class EarlyStopping(object):
         self.current_tolerance -= 1
 
         # Log
-        logger.info(
-            "Decreasing patience: {}/{}".format(self.current_tolerance, self.tolerance)
-        )
+        logger.info("Decreasing patience: {}/{}".format(self.current_tolerance, self.tolerance))
         # Log
         if self.current_tolerance == 0:
             logger.info("Training finished after not improving. Early Stop!")

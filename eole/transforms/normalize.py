@@ -22,16 +22,10 @@ class NormalizeConfig(TransformConfig):
     src_lang: str | None = Field(default="", description="Source language code")
     tgt_lang: str | None = Field(default="", description="Target language code")
     penn: bool | None = Field(default=True, description="Penn substitution")
-    norm_quote_commas: bool | None = Field(
-        default=True, description="Normalize quotations and commas"
-    )
+    norm_quote_commas: bool | None = Field(default=True, description="Normalize quotations and commas")
     norm_numbers: bool | None = Field(default=True, description="Normalize numbers")
-    pre_replace_unicode_punct: bool | None = Field(
-        default=False, description="Replace unicode punct"
-    )
-    post_remove_control_chars: bool | None = Field(
-        default=False, description="Remove control chars"
-    )
+    pre_replace_unicode_punct: bool | None = Field(default=False, description="Replace unicode punct")
+    post_remove_control_chars: bool | None = Field(default=False, description="Remove control chars")
 
 
 class MosesPunctNormalizer:
@@ -274,18 +268,10 @@ class NormalizeTransform(Transform):
         self.src_lang_dict = self.get_config_dict(self.full_config, "src_lang", "")
         self.tgt_lang_dict = self.get_config_dict(self.full_config, "tgt_lang", "")
         self.penn_dict = self.get_config_dict(self.full_config, "penn", True)
-        self.norm_quote_commas_dict = self.get_config_dict(
-            self.full_config, "norm_quote_commas", True
-        )
-        self.norm_numbers_dict = self.get_config_dict(
-            self.full_config, "norm_numbers", True
-        )
-        self.pre_dict = self.get_config_dict(
-            self.full_config, "pre_replace_unicode_punct", False
-        )
-        self.post_dict = self.get_config_dict(
-            self.full_config, "post_remove_control_chars", False
-        )
+        self.norm_quote_commas_dict = self.get_config_dict(self.full_config, "norm_quote_commas", True)
+        self.norm_numbers_dict = self.get_config_dict(self.full_config, "norm_numbers", True)
+        self.pre_dict = self.get_config_dict(self.full_config, "pre_replace_unicode_punct", False)
+        self.post_dict = self.get_config_dict(self.full_config, "post_remove_control_chars", False)
         self.src_lang_dict["infer"] = self.src_lang
         self.tgt_lang_dict["infer"] = self.tgt_lang
         self.penn_dict["infer"] = self.penn

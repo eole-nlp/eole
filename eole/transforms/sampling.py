@@ -1,4 +1,5 @@
 """Transforms relate to hamming distance sampling."""
+
 import random
 import numpy as np
 from eole.constants import DefaultTokens
@@ -8,15 +9,11 @@ from pydantic import Field
 
 
 class TokenDropConfig(TransformConfig):
-    tokendrop_temperature: float | None = Field(
-        default=1.0, description="Sampling temperature for token deletion."
-    )
+    tokendrop_temperature: float | None = Field(default=1.0, description="Sampling temperature for token deletion.")
 
 
 class TokenMaskConfig(TransformConfig):
-    tokenmask_temperature: float | None = Field(
-        default=1.0, description="Sampling temperature for token masking."
-    )
+    tokenmask_temperature: float | None = Field(default=1.0, description="Sampling temperature for token masking.")
 
 
 class SwitchOutConfig(TransformConfig):
@@ -115,12 +112,8 @@ class SwitchOutTransform(HammingDistanceSamplingTransform):
     def apply(self, example, is_train=False, stats=None, **kwargs):
         """Apply switchout to both src and tgt side tokens."""
         if is_train:
-            example["src"] = self._switchout(
-                example["src"], self.vocabs["src"].ids_to_tokens, stats
-            )
-            example["tgt"] = self._switchout(
-                example["tgt"], self.vocabs["tgt"].ids_to_tokens, stats
-            )
+            example["src"] = self._switchout(example["src"], self.vocabs["src"].ids_to_tokens, stats)
+            example["tgt"] = self._switchout(example["tgt"], self.vocabs["tgt"].ids_to_tokens, stats)
         return example
 
     def _repr_args(self):

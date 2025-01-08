@@ -1,4 +1,5 @@
 """ Alibi position bias """
+
 import math
 import torch
 import torch.nn as nn
@@ -23,9 +24,7 @@ class AlibiPositionalBias(nn.Module):
     def get_bias(self, i, j, device):
         i_arange = torch.arange(j - i, j, device=device)
         j_arange = torch.arange(j, device=device)
-        bias = -torch.abs(
-            j_arange.unsqueeze(0).unsqueeze(0) - i_arange.unsqueeze(1).unsqueeze(0)
-        )
+        bias = -torch.abs(j_arange.unsqueeze(0).unsqueeze(0) - i_arange.unsqueeze(1).unsqueeze(0))
         return bias
 
     @staticmethod
@@ -41,9 +40,7 @@ class AlibiPositionalBias(nn.Module):
 
         return (
             get_slopes_power_of_2(closest_power_of_2)
-            + get_slopes_power_of_2(2 * closest_power_of_2)[0::2][
-                : heads - closest_power_of_2
-            ]
+            + get_slopes_power_of_2(2 * closest_power_of_2)[0::2][: heads - closest_power_of_2]
         )
 
     def forward(self, qk_dots):

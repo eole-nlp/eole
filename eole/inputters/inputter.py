@@ -37,13 +37,9 @@ def build_vocab(config, specials):
 
     src_vocab = _read_vocab_file(config.src_vocab, config.src_words_min_frequency)
 
-    src_specials = [
-        item for item in (default_specials + specials["src"]) if item not in src_vocab
-    ]
+    src_specials = [item for item in (default_specials + specials["src"]) if item not in src_vocab]
 
-    if DefaultTokens.SEP in src_specials and (
-        "<0x0A>" in src_vocab or "Ċ" in src_vocab
-    ):
+    if DefaultTokens.SEP in src_specials and ("<0x0A>" in src_vocab or "Ċ" in src_vocab):
         # this is hack: if the special separator ｟newline｠is returned because of the
         # "docify" transform.get_specials we don't add it if the corresponding newline code
         # is already included in the sentencepiece or BPE-with-gpt2-pretok.
@@ -54,9 +50,7 @@ def build_vocab(config, specials):
     )
     src_vocab.default_id = src_vocab[config.unk_token]
     if src_vocab.default_id >= len(src_vocab):
-        src_vocab.default_id = (
-            0  # patch that assigns OOV to id=0 when UNK does not exist
-        )
+        src_vocab.default_id = 0  # patch that assigns OOV to id=0 when UNK does not exist
 
     if config.vocab_size_multiple > 1:
         src_vocab = _pad_vocab_to_multiple(src_vocab, config.vocab_size_multiple)
@@ -65,23 +59,15 @@ def build_vocab(config, specials):
         vocabs["tgt"] = src_vocab
     else:
         tgt_vocab = _read_vocab_file(config.tgt_vocab, config.tgt_words_min_frequency)
-        tgt_specials = [
-            item
-            for item in (default_specials + specials["tgt"])
-            if item not in tgt_vocab
-        ]
-        if DefaultTokens.SEP in tgt_specials and (
-            "<0x0A>" in tgt_vocab or "Ċ" in src_vocab
-        ):
+        tgt_specials = [item for item in (default_specials + specials["tgt"]) if item not in tgt_vocab]
+        if DefaultTokens.SEP in tgt_specials and ("<0x0A>" in tgt_vocab or "Ċ" in src_vocab):
             tgt_specials.remove(DefaultTokens.SEP)
         tgt_vocab = pyonmttok.build_vocab_from_tokens(
             tgt_vocab, maximum_size=config.tgt_vocab_size, special_tokens=tgt_specials
         )
         tgt_vocab.default_id = tgt_vocab[DefaultTokens.UNK]
         if tgt_vocab.default_id >= len(tgt_vocab):
-            tgt_vocab.default_id = (
-                0  # patch that assigns OOV to id=0 when UNK does not exist
-            )
+            tgt_vocab.default_id = 0  # patch that assigns OOV to id=0 when UNK does not exist
         if config.vocab_size_multiple > 1:
             tgt_vocab = _pad_vocab_to_multiple(tgt_vocab, config.vocab_size_multiple)
         vocabs["tgt"] = tgt_vocab

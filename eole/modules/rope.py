@@ -42,9 +42,7 @@ class RotaryPosition(nn.Module):
             rotary_dim = model_config.rope_config.rotary_dim
         self.rotary_interleave = model_config.rope_config.rotary_interleave
         self.rotary_theta = model_config.rope_config.rotary_theta
-        inv_freq = 1.0 / (
-            self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim)
-        )
+        inv_freq = 1.0 / (self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
         # TODO: extend with other scaling types
         if getattr(self.model_config.rope_config, "scaling_type", None) == "llama3":
@@ -73,30 +71,18 @@ class RotaryPosition(nn.Module):
         """
         rope_config = self.model_config.rope_config
         factor = rope_config.scaling_factor  # `8` in the original implementation
-        low_freq_factor = (
-            rope_config.low_freq_factor
-        )  # `1` in the original implementation
-        high_freq_factor = (
-            rope_config.high_freq_factor
-        )  # `4` in the original implementation
-        old_context_len = (
-            rope_config.original_max_position_embeddings
-        )  # `8192` in the original implementation
+        low_freq_factor = rope_config.low_freq_factor  # `1` in the original implementation
+        high_freq_factor = rope_config.high_freq_factor  # `4` in the original implementation
+        old_context_len = rope_config.original_max_position_embeddings  # `8192` in the original implementation
 
         low_freq_wavelen = old_context_len / low_freq_factor
         high_freq_wavelen = old_context_len / high_freq_factor
 
         wavelen = 2 * math.pi / self.inv_freq
-        inv_freq_llama = torch.where(
-            wavelen > low_freq_wavelen, self.inv_freq / factor, self.inv_freq
-        )
+        inv_freq_llama = torch.where(wavelen > low_freq_wavelen, self.inv_freq / factor, self.inv_freq)
 
-        smooth_factor = (old_context_len / wavelen - low_freq_factor) / (
-            high_freq_factor - low_freq_factor
-        )
-        smoothed_inv_freq = (
-            1 - smooth_factor
-        ) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
+        smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor)
+        smoothed_inv_freq = (1 - smooth_factor) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
         inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
         self.register_buffer("inv_freq", inv_freq_llama, persistent=False)
@@ -123,18 +109,14 @@ class RotaryPosition(nn.Module):
         """
         if step is None:
             step = 0
-        offset = (
-            32  # make sure we have at least 32 positions for flash_attn_with_kvcache
-        )
+        offset = 32  # make sure we have at least 32 positions for flash_attn_with_kvcache
         # This could probably a bit cleaner/homogenized with the offset case
         if self.cos.size(0) >= max(offset + step, 0) + maxseqlen:
             return self.cos, self.sin
         else:
             maxseqlen = maxseqlen + prefetch
 
-        tmax = torch.arange(
-            max(offset + step, 0) + maxseqlen, device=self.inv_freq.device
-        )
+        tmax = torch.arange(max(offset + step, 0) + maxseqlen, device=self.inv_freq.device)
         rope = torch.outer(tmax, self.inv_freq)
         cos = torch.cos(rope)
         sin = torch.sin(rope)

@@ -1,4 +1,5 @@
 """Base Transform class and relate utils."""
+
 import os
 import shutil
 import copy
@@ -226,9 +227,7 @@ class TransformPipe(Transform):
     def build_from(cls, transform_list):
         """Return a `TransformPipe` instance build from `transform_list`."""
         for transform in transform_list:
-            assert isinstance(
-                transform, Transform
-            ), "transform should be a instance of Transform."
+            assert isinstance(transform, Transform), "transform should be a instance of Transform."
         transform_pipe = cls(None, transform_list)
         return transform_pipe
 
@@ -258,9 +257,7 @@ class TransformPipe(Transform):
 
         """
         for transform in self.transforms:
-            example = transform.apply(
-                example, is_train=is_train, stats=self.statistics, **kwargs
-            )
+            example = transform.apply(example, is_train=is_train, stats=self.statistics, **kwargs)
             if example is None:
                 break
         return example
@@ -273,9 +270,7 @@ class TransformPipe(Transform):
 
         """
         for transform in self.transforms:
-            batch = transform.batch_apply(
-                batch, is_train=is_train, stats=self.statistics, **kwargs
-            )
+            batch = transform.batch_apply(batch, is_train=is_train, stats=self.statistics, **kwargs)
             if batch is None:
                 break
         return batch
@@ -312,9 +307,7 @@ def make_transforms(config, transforms_cls, vocabs):
     if transforms_cls:
         for name, transform_cls in transforms_cls.items():
             if transform_cls.require_vocab() and vocabs is None:
-                logger.warning(
-                    f"{transform_cls.__name__} require vocab to apply, skip it."
-                )
+                logger.warning(f"{transform_cls.__name__} require vocab to apply, skip it.")
                 continue
             # let's look for saved transform config in model_path dir
             # model_path = config.get_model_path()

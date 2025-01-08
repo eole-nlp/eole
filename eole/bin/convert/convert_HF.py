@@ -253,8 +253,7 @@ class LlamaHFConverter(BaseBin):
             type=str,
             default=None,
             choices=TORCH_DTYPES.keys(),
-            help="Specify which dtype to save model parameters into, "
-            "default will keep the same as the input.",
+            help="Specify which dtype to save model parameters into, " "default will keep the same as the input.",
         )
         parser.add_argument(
             "--tokenizer",
@@ -271,16 +270,10 @@ class LlamaHFConverter(BaseBin):
             if os.path.exists(os.path.join(args.model_dir, "config.json")):
                 config_path = os.path.join(args.model_dir, "config.json")
             else:
-                raise ValueError(
-                    "You used a local directory but config.json is missing"
-                )
-            if os.path.exists(
-                os.path.join(args.model_dir, "model.safetensors.index.json")
-            ):
+                raise ValueError("You used a local directory but config.json is missing")
+            if os.path.exists(os.path.join(args.model_dir, "model.safetensors.index.json")):
                 wmap_path = os.path.join(args.model_dir, "model.safetensors.index.json")
-            elif os.path.exists(
-                os.path.join(args.model_dir, "pytorch_model.bin.index.json")
-            ):
+            elif os.path.exists(os.path.join(args.model_dir, "pytorch_model.bin.index.json")):
                 wmap_path = os.path.join(args.model_dir, "pytorch_model.bin.index.json")
             elif os.path.exists(os.path.join(args.model_dir, "model.safetensors")):
                 wmap_path = None
@@ -289,17 +282,11 @@ class LlamaHFConverter(BaseBin):
                 wmap_path = None
                 model_path = os.path.join(args.model_dir, "pytorch_model.bin")
             else:
-                raise ValueError(
-                    "Could not find any proper model configuration, please check your files"
-                )
+                raise ValueError("Could not find any proper model configuration, please check your files")
             if os.path.exists(os.path.join(args.model_dir, "tokenizer.model")):
                 tokenizer_model = os.path.join(args.model_dir, "tokenizer.model")
-            elif os.path.exists(
-                os.path.join(args.model_dir, "sentencepiece.bpe.model")
-            ):
-                tokenizer_model = os.path.join(
-                    args.model_dir, "sentencepiece.bpe.model"
-                )
+            elif os.path.exists(os.path.join(args.model_dir, "sentencepiece.bpe.model")):
+                tokenizer_model = os.path.join(args.model_dir, "sentencepiece.bpe.model")
             else:
                 tokenizer_model = None
             if os.path.exists(os.path.join(args.model_dir, "tokenizer.json")):
@@ -311,21 +298,15 @@ class LlamaHFConverter(BaseBin):
                     " and/or tokenizer.json are missing",
                 )
             if os.path.exists(os.path.join(args.model_dir, "tokenizer_config.json")):
-                tokenizer_config_json = os.path.join(
-                    args.model_dir, "tokenizer_config.json"
-                )
+                tokenizer_config_json = os.path.join(args.model_dir, "tokenizer_config.json")
             else:
                 tokenizer_config_json = None
             if os.path.exists(os.path.join(args.model_dir, "special_tokens_map.json")):
-                tokenizer_config_json = os.path.join(
-                    args.model_dir, "special_tokens_map.json"
-                )
+                tokenizer_config_json = os.path.join(args.model_dir, "special_tokens_map.json")
             else:
                 tokenizer_config_json = None
             if os.path.exists(os.path.join(args.model_dir, "generation_config.json")):
-                generation_config_json = os.path.join(
-                    args.model_dir, "generation_config.json"
-                )
+                generation_config_json = os.path.join(args.model_dir, "generation_config.json")
             else:
                 generation_config_json = None
         else:
@@ -422,9 +403,7 @@ class LlamaHFConverter(BaseBin):
                             )
                             wmap_path = None
                         except huggingface_hub.utils.EntryNotFoundError:
-                            raise huggingface_hub.utils.EntryNotFoundError(
-                                "No valid model files found"
-                            )
+                            raise huggingface_hub.utils.EntryNotFoundError("No valid model files found")
             try:
                 try:
                     special_tokens_json = huggingface_hub.hf_hub_download(
@@ -434,8 +413,7 @@ class LlamaHFConverter(BaseBin):
                     )
                 except huggingface_hub.utils.EntryNotFoundError:
                     raise huggingface_hub.utils.EntryNotFoundError(
-                        "Something went wrong the repo does not contain"
-                        "any special_tokens_map.json file"
+                        "Something went wrong the repo does not contain" "any special_tokens_map.json file"
                     )
             except Exception as e:
                 if isinstance(e, huggingface_hub.utils.EntryNotFoundError):
@@ -482,10 +460,7 @@ class LlamaHFConverter(BaseBin):
 
         if "multi_query" in config.keys() and config["multi_query"]:
             heads_kv = 1  # might be usefull for old config
-        elif (
-            "num_key_value_heads" in config.keys()
-            and config["num_key_value_heads"] != heads
-        ):
+        elif "num_key_value_heads" in config.keys() and config["num_key_value_heads"] != heads:
             heads_kv = config["num_key_value_heads"]
         elif "num_kv_heads" in config.keys() and config["num_kv_heads"] != heads:
             heads_kv = config["num_kv_heads"]
@@ -518,21 +493,15 @@ class LlamaHFConverter(BaseBin):
         if "rotary_dim" in config.keys():
             rope_config["rotary_dim"] = config["rotary_dim"]
         elif "partial_rotary_factor" in config.keys():
-            rope_config["rotary_dim"] = int(
-                config["partial_rotary_factor"] * (hidden_size // heads)
-            )
+            rope_config["rotary_dim"] = int(config["partial_rotary_factor"] * (hidden_size // heads))
         if config.get("rope_scaling", None) is not None:
             rope_config["scaling_type"] = config["rope_scaling"].get("rope_type", None)
             rope_config["scaling_factor"] = config["rope_scaling"].get("factor", 8.0)
-            rope_config["low_freq_factor"] = config["rope_scaling"].get(
-                "low_freq_factor", 1.0
+            rope_config["low_freq_factor"] = config["rope_scaling"].get("low_freq_factor", 1.0)
+            rope_config["high_freq_factor"] = config["rope_scaling"].get("high_freq_factor", 4.0)
+            rope_config["original_max_position_embeddings"] = config["rope_scaling"].get(
+                "original_max_position_embeddings", 8192
             )
-            rope_config["high_freq_factor"] = config["rope_scaling"].get(
-                "high_freq_factor", 4.0
-            )
-            rope_config["original_max_position_embeddings"] = config[
-                "rope_scaling"
-            ].get("original_max_position_embeddings", 8192)
         if "sliding_window" in config.keys():
             sliding_window = config["sliding_window"]
             if sliding_window is None:
@@ -669,9 +638,7 @@ class LlamaHFConverter(BaseBin):
                         token=args.token,
                     )
                 except huggingface_hub.utils.EntryNotFoundError:
-                    raise huggingface_hub.utils.EntryNotFoundError(
-                        "Checkpoint not found on the hub"
-                    )
+                    raise huggingface_hub.utils.EntryNotFoundError("Checkpoint not found on the hub")
                 except PermissionError:
                     ckpt_path = os.path.join(dir_path, file_path)
             if ckpt_path[-4:] == ".bin":
@@ -688,9 +655,7 @@ class LlamaHFConverter(BaseBin):
                 else:
                     return None
             else:
-                with safetensors.safe_open(
-                    checkpoint, framework="pt", device="cpu"
-                ) as f:
+                with safetensors.safe_open(checkpoint, framework="pt", device="cpu") as f:
                     if tensor_name in f.keys():
                         return f.get_tensor(tensor_name).contiguous()
                     else:
@@ -727,9 +692,7 @@ class LlamaHFConverter(BaseBin):
                     if target in key_maps[arch].keys():
                         source = key_maps[arch][target]
                         if wmap_path:
-                            checkpoint = get_load_ckpt(
-                                os.path.split(wmap_path)[0], wmap["weight_map"][source]
-                            )
+                            checkpoint = get_load_ckpt(os.path.split(wmap_path)[0], wmap["weight_map"][source])
                         else:
                             checkpoint = get_load_ckpt(*os.path.split(model_path))
                         w = get_weight(checkpoint, source)
@@ -745,14 +708,8 @@ class LlamaHFConverter(BaseBin):
                 for key in weightmap.keys():
                     if (
                         (
-                            (
-                                decoder_layer_prefix is not None
-                                and key.startswith(decoder_layer_prefix)
-                            )
-                            or (
-                                encoder_layer_prefix is not None
-                                and key.startswith(encoder_layer_prefix)
-                            )
+                            (decoder_layer_prefix is not None and key.startswith(decoder_layer_prefix))
+                            or (encoder_layer_prefix is not None and key.startswith(encoder_layer_prefix))
                         )
                         and int(key.split(".")[2])
                         in range(
@@ -849,9 +806,7 @@ class LlamaHFConverter(BaseBin):
                                     if w is not None:
                                         if isinstance(source, tuple):
                                             w = eval("w" + srcmap).contiguous()
-                                        eole_safetensor[
-                                            eole_prefix + str(i) + target + param
-                                        ] = w
+                                        eole_safetensor[eole_prefix + str(i) + target + param] = w
 
                         if shared_layer_norm:
                             idx = 0
@@ -859,94 +814,54 @@ class LlamaHFConverter(BaseBin):
                             idx = 1
                         for p in ["weight", "bias"]:
                             if ".input_layernorm." + p in key_maps[arch].keys():
-                                if isinstance(
-                                    key_maps[arch][".input_layernorm." + p], tuple
-                                ):
+                                if isinstance(key_maps[arch][".input_layernorm." + p], tuple):
                                     w = get_weight(
                                         checkpoint,
-                                        layer_prefix
-                                        + str(i)
-                                        + key_maps[arch][".input_layernorm." + p][idx],
+                                        layer_prefix + str(i) + key_maps[arch][".input_layernorm." + p][idx],
                                     )
                                 else:
                                     w = get_weight(
                                         checkpoint,
-                                        layer_prefix
-                                        + str(i)
-                                        + key_maps[arch][".input_layernorm." + p],
+                                        layer_prefix + str(i) + key_maps[arch][".input_layernorm." + p],
                                     )
                                 if w is not None:
-                                    eole_safetensor[
-                                        eole_prefix + str(i) + ".input_layernorm." + p
-                                    ] = w
+                                    eole_safetensor[eole_prefix + str(i) + ".input_layernorm." + p] = w
                             if ".layer_norm_res." + p in key_maps[arch].keys():
                                 w = get_weight(
                                     checkpoint,
-                                    layer_prefix
-                                    + str(i)
-                                    + key_maps[arch][".layer_norm_res." + p],
+                                    layer_prefix + str(i) + key_maps[arch][".layer_norm_res." + p],
                                 )
                                 if w is not None:
-                                    eole_safetensor[
-                                        eole_prefix + str(i) + ".layer_norm_res." + p
-                                    ] = w
-                            if (
-                                ".post_attention_layernorm." + p
-                                in key_maps[arch].keys()
-                            ):
+                                    eole_safetensor[eole_prefix + str(i) + ".layer_norm_res." + p] = w
+                            if ".post_attention_layernorm." + p in key_maps[arch].keys():
                                 w = get_weight(
                                     checkpoint,
-                                    layer_prefix
-                                    + str(i)
-                                    + key_maps[arch][".post_attention_layernorm." + p],
+                                    layer_prefix + str(i) + key_maps[arch][".post_attention_layernorm." + p],
                                 )
                                 if w is not None:
-                                    eole_safetensor[
-                                        eole_prefix
-                                        + str(i)
-                                        + ".post_attention_layernorm."
-                                        + p
-                                    ] = w
+                                    eole_safetensor[eole_prefix + str(i) + ".post_attention_layernorm." + p] = w
 
                             if ".mlp.gate." + p in key_maps[arch].keys():
                                 w = get_weight(
                                     checkpoint,
-                                    layer_prefix
-                                    + str(i)
-                                    + key_maps[arch][".mlp.gate." + p],
+                                    layer_prefix + str(i) + key_maps[arch][".mlp.gate." + p],
                                 )
                                 if w is not None:
-                                    eole_safetensor[
-                                        eole_prefix + str(i) + ".mlp.gate." + p
-                                    ] = w
+                                    eole_safetensor[eole_prefix + str(i) + ".mlp.gate." + p] = w
 
                             for j in range(num_experts):
-                                if (
-                                    f".mlp.experts.{j}.layer_norm." + p
-                                    in key_maps[arch].keys()
-                                ):
+                                if f".mlp.experts.{j}.layer_norm." + p in key_maps[arch].keys():
                                     w = get_weight(
                                         checkpoint,
-                                        layer_prefix
-                                        + str(i)
-                                        + key_maps[arch][
-                                            f".mlp.experts.{j}.layer_norm." + p
-                                        ],
+                                        layer_prefix + str(i) + key_maps[arch][f".mlp.experts.{j}.layer_norm." + p],
                                     )
                                     if w is not None:
-                                        eole_safetensor[
-                                            eole_prefix
-                                            + str(i)
-                                            + f".mlp.experts.{j}.layer_norm."
-                                            + p
-                                        ] = w
+                                        eole_safetensor[eole_prefix + str(i) + f".mlp.experts.{j}.layer_norm." + p] = w
 
             # Convert to another dtype if specified
             if args.dtype is not None:
                 for key in eole_safetensor.keys():
-                    eole_safetensor[key] = eole_safetensor[key].to(
-                        TORCH_DTYPES[compute_dtype]
-                    )
+                    eole_safetensor[key] = eole_safetensor[key].to(TORCH_DTYPES[compute_dtype])
             print("Saving output model shard: %d" % shard)
             save_file(
                 eole_safetensor,
@@ -974,19 +889,14 @@ class LlamaHFConverter(BaseBin):
                 eos_token_id = config.get("eos_token_id", None)
                 if isinstance(eos_token_id, list):
                     if "added_tokens_decoder" in data.keys():
-                        eos_tokens = [
-                            data["added_tokens_decoder"][str(index)]["content"]
-                            for index in eos_token_id
-                        ]
+                        eos_tokens = [data["added_tokens_decoder"][str(index)]["content"] for index in eos_token_id]
                         optional_eos = eos_tokens[1:]
                 # Automatically convert added_tokens into mapped_tokens
                 if "added_tokens_decoder" in data.keys():
                     mapped_tokens = [
                         (
                             token["content"],
-                            re.sub(
-                                r"<\|([^|]*)\|>", "\uff5f\\1\uff60", token["content"]
-                            ),
+                            re.sub(r"<\|([^|]*)\|>", "\uff5f\\1\uff60", token["content"]),
                         )
                         for token in data["added_tokens_decoder"].values()
                     ]
@@ -1013,18 +923,14 @@ class LlamaHFConverter(BaseBin):
 
         if generation_config_json is not None:
             with open(generation_config_json, encoding="utf-8") as f:
-                data = json.loads(
-                    f.read().replace(",\n}", "\n}")
-                )  # dirty patch to remove trailing comma...
+                data = json.loads(f.read().replace(",\n}", "\n}"))  # dirty patch to remove trailing comma...
                 generation_config_dict = {}
                 # we probably need a better mapping at some point
                 keys = ["top_k", "top_p", "temperature", "max_length"]
                 for key in keys:
                     if key in data.keys():
                         generation_config_dict[key] = data[key]
-        if (
-            tokenizer_model is not None
-        ):  # sentencepiece mode (might be good to check it's a SP model)
+        if tokenizer_model is not None:  # sentencepiece mode (might be good to check it's a SP model)
             src_subword_type = "sentencepiece"
             tokenizer_basename = os.path.basename(tokenizer_model)
             tokenizer = Tokenizer(model_path=tokenizer_model)
@@ -1033,11 +939,7 @@ class LlamaHFConverter(BaseBin):
                 # We need to add 'added_tokens' that are not in the SP model
                 with open(tokenizer_json, encoding="utf-8") as f:
                     data = json.load(f)
-                newtokens = [
-                    tok["content"]
-                    for tok in data["added_tokens"]
-                    if tok["content"] not in vocab
-                ]
+                newtokens = [tok["content"] for tok in data["added_tokens"] if tok["content"] not in vocab]
                 vocab.extend(newtokens)
                 for tok in data["added_tokens"]:
                     vocab[tok["id"]] = tok["content"]
@@ -1082,9 +984,7 @@ class LlamaHFConverter(BaseBin):
 
             tokenizer_basename = "bpe.model"
 
-            with open(
-                os.path.join(directory_path, tokenizer_basename), "w", encoding="utf-8"
-            ) as bpemodel:
+            with open(os.path.join(directory_path, tokenizer_basename), "w", encoding="utf-8") as bpemodel:
                 bpemodel.write("v3;false;false;false;Ġ;Ġ\n")
                 for merge in data["model"]["merges"]:
                     if isinstance(merge, str):
@@ -1092,14 +992,10 @@ class LlamaHFConverter(BaseBin):
                     elif isinstance(merge, list):
                         bpemodel.write(" ".join(merge) + "\n")
                     else:
-                        raise NotImplementedError(
-                            f"Type {type(merge)} is not supported for BPE merges."
-                        )
+                        raise NotImplementedError(f"Type {type(merge)} is not supported for BPE merges.")
 
         if arch in tok_table.keys() and args.tokenizer == "hf":
-            transforms = [
-                tok_table[arch]
-            ]  # , "filtertoolong"] filtertoolong not plug-n-play with id_tokenize
+            transforms = [tok_table[arch]]  # , "filtertoolong"] filtertoolong not plug-n-play with id_tokenize
         else:
             transforms = ["onmt_tokenize"]
 
@@ -1114,9 +1010,7 @@ class LlamaHFConverter(BaseBin):
                     "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512},
                     "onmt_tokenize": {
                         "src_subword_type": src_subword_type,
-                        "src_subword_model": os.path.join(
-                            "${MODEL_PATH}", tokenizer_basename
-                        ),
+                        "src_subword_model": os.path.join("${MODEL_PATH}", tokenizer_basename),
                         "gpt2_pretok": gpt2_pretok,
                         "mapped_tokens": mapped_tokens,
                     },
@@ -1129,14 +1023,10 @@ class LlamaHFConverter(BaseBin):
         else:
             vocabs["decoder_start_token"] = ""
         vocab_dict = vocabs_to_dict(vocabs)
-        with open(
-            os.path.join(directory_path, "vocab.json"), "w", encoding="utf-8"
-        ) as f:
+        with open(os.path.join(directory_path, "vocab.json"), "w", encoding="utf-8") as f:
             json.dump(vocab_dict, f, indent=2, ensure_ascii=False)
 
-        with open(
-            os.path.join(directory_path, "vocab.txt"), "w", encoding="utf-8"
-        ) as vocabfile:
+        with open(os.path.join(directory_path, "vocab.txt"), "w", encoding="utf-8") as vocabfile:
             for tok in vocab_dict["src"]:
                 vocabfile.write(tok + "\n")
 
@@ -1212,7 +1102,5 @@ class LlamaHFConverter(BaseBin):
 
         config_dict["inference"] = inference_dict
 
-        with open(
-            os.path.join(directory_path, "config.json"), "w", encoding="utf-8"
-        ) as f:
+        with open(os.path.join(directory_path, "config.json"), "w", encoding="utf-8") as f:
             json.dump(config_dict, f, indent=2, ensure_ascii=False)

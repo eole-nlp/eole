@@ -32,9 +32,7 @@ def evaluate(config, engine, input_file, out, method, model_type=None):
     dur = time.time() - start
     print(f"Time to generate {len(preds)} answers: {dur}s")
     if engine == "eole":
-        scores = [
-            [_score.cpu().numpy().tolist() for _score in _scores] for _scores in scores
-        ]
+        scores = [[_score.cpu().numpy().tolist() for _score in _scores] for _scores in scores]
     run_results = {"pred_answers": preds, "score": scores, "duration": dur}
     output_filename = out + f"_{method}.json"
     with open(output_filename, "w") as f:
@@ -52,9 +50,7 @@ def main():
         type=str,
         choices=["decoder", "encoder_decoder"],
     )
-    parser.add_argument(
-        "-inference_config_file", help="Inference config file", required=True, type=str
-    )
+    parser.add_argument("-inference_config_file", help="Inference config file", required=True, type=str)
     parser.add_argument(
         "-engine",
         help="Engine",
