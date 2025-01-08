@@ -749,7 +749,6 @@ class EncoderDecoderModel(BaseModel):
         dec_out, attns = self.decoder(
             self.tgt_emb(dec_in),
             enc_out=enc_out,
-            src_len=src_len,
             with_align=with_align,
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
@@ -813,9 +812,6 @@ class DecoderModel(BaseModel):
         position_embeddings = self.rope.update(src.size(1), step=0)
         dec_out, attns = self.decoder(
             self.tgt_emb(src),
-            enc_out=None,
-            src_len=src_len,
-            with_align=with_align,
             tgt_pad_mask=src.eq(self.pad_idx).unsqueeze(1),
             position_embeddings=position_embeddings,
         )
