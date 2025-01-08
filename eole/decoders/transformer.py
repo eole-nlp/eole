@@ -12,8 +12,7 @@ from eole.constants import LayerNorm
 
 
 class TransformerDecoderLayer(nn.Module):
-    """The Transformer encoder from "Attention is All You Need"
-    :cite:`DBLP:journals/corr/VaswaniSPUJGKP17`
+    """Single layer of a transformer decoder
 
     Args:
         model_config (eole.config.TransformerEncoderConfig): full encoder config
@@ -43,7 +42,6 @@ class TransformerDecoderLayer(nn.Module):
             running_config=running_config,
         )
         self.dropout = nn.Dropout(self.dropout_p)
-
         if with_cross_attn:
             self.precontext_layernorm = LayerNorm[model_config.layer_norm](
                 model_config.hidden_size, eps=model_config.norm_eps
@@ -54,16 +52,13 @@ class TransformerDecoderLayer(nn.Module):
             )
         else:
             self.context_attn = None
-
         if model_config.parallel_residual and not model_config.shared_layer_norm:
             self.residual_layernorm = LayerNorm[model_config.layer_norm](
                 model_config.hidden_size, eps=model_config.norm_eps
             )
-
         self.post_attention_layernorm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
-
         if model_config.num_experts > 0:
             self.mlp = MoE(model_config, running_config)
         else:
@@ -187,6 +182,10 @@ class TransformerDecoder(DecoderBase):
         with_cross_attn=False,
     ):
         super(TransformerDecoder, self).__init__()
+        self.alignment_layer = model_config.alignment_layer
+        self.with_cross_attn = with_cross_attn
+        self.sliding_window = model_config.sliding_window
+
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerDecoderLayer(
@@ -197,14 +196,10 @@ class TransformerDecoder(DecoderBase):
                 for i in range(model_config.layers)
             ]
         )
-        # This is the Decoder out layer norm
         self.layer_norm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
         self._disable_cache()
-        self.alignment_layer = model_config.alignment_layer
-        self.with_cross_attn = with_cross_attn
-        self.sliding_window = model_config.sliding_window
 
     @classmethod
     def from_config(cls, model_config, running_config=None, with_cross_attn=False):
@@ -220,8 +215,6 @@ class TransformerDecoder(DecoderBase):
         pass
 
     def map_state(self, fn):
-        # if self.state["src"] is not None:
-        #    self.state["src"] = fn(self.state["src"], 0)
         for layer in self.transformer_layers:
             if self.with_cross_attn:
                 if layer.context_attn.layer_cache[1]["keys"].numel() != 0:
@@ -241,14 +234,11 @@ class TransformerDecoder(DecoderBase):
                     "key_pad_mask": z,
                 }
 
-    def detach_state(self):
-        raise NotImplementedError
-
     def update_dropout(self, dropout, attention_dropout):
         for layer in self.transformer_layers:
             layer.update_dropout(dropout, attention_dropout)
 
-    def _compute_attn_mask(self, tgt_pad_mask):
+    def _causal_attn_mask(self, tgt_pad_mask):
         tgt_len = tgt_pad_mask.size(-1)
         # Add triangular future_mask and pad_mask, result mask in (B, T, T).
         future_mask = torch.tril(
@@ -260,14 +250,32 @@ class TransformerDecoder(DecoderBase):
         if self.sliding_window > 0:
             future_mask = future_mask.triu_(-self.sliding_window)
         attn_mask = ~tgt_pad_mask & future_mask.unsqueeze(0)
+        attn_mask = attn_mask.unsqueeze(1)
+        attn_mask = attn_mask.expand(-1, -1, attn_mask.size(3), -1)
         return attn_mask
 
     def forward(self, emb, **kwargs):
-        """Decode, possibly stepwise."""
+        """Decode, possibly stepwise.
 
+        Args:
+            emb (FloatTensor): ``(batch_size, tgt_len, model_dim)``
+            **kwargs
+                enc_out: (only when using encoder/decoder)
+                src_pad_mask: (only when using encoder/decoder)
+                tgt_pad_mask (BoolTensor): ``(batch_size, tgt_len)``
+                    used to build the attention mask
+                step: int
+                with_aligh: bool
+                return_attention: bool, set by `attn_debug`
+                position_embeddings (FloatTensor): rotary position encodings, if any
+
+        Returns:
+            (FloatTensor, FloatTensor):
+            * emb: decoder_out ``(batch_size, tgt_len, model_dim)``
+            * attns: standard and align if set
+        """
         assert emb.dim() == 3  # batch x len x embedding_dim
         enc_out = kwargs.pop("enc_out", None)
-
         tgt_pad_mask = kwargs.pop("tgt_pad_mask", None)
         assert tgt_pad_mask is not None, "TransformerDecoder requires a tgt pad mask"
         src_pad_mask = kwargs.pop("src_pad_mask", None)
@@ -282,16 +290,14 @@ class TransformerDecoder(DecoderBase):
         attn_aligns = []
 
         if emb.size(1) > 1:
-            # masking is necessary when sequence length is greater than one
-            attn_mask = self._compute_attn_mask(tgt_pad_mask)
-            attn_mask = attn_mask.unsqueeze(1)
-            attn_mask = attn_mask.expand(-1, -1, attn_mask.size(3), -1)
+            # causal masking is necessary when sequence length is greater than one
+            attn_mask = self._causal_attn_mask(tgt_pad_mask)
             if self.with_cross_attn:
                 src_pad_mask = src_pad_mask.unsqueeze(1).expand(
                     -1, -1, attn_mask.size(3), -1
                 )
             # mask now are (batch x 1 x tlen x s or t len)
-            # 1 = heads to be expanded in MHA
+            # dim 1 to be broadcasted to heads in MHA
         else:
             attn_mask = None
             if self.with_cross_attn:
@@ -331,23 +337,13 @@ class TransformerDecoder(DecoderBase):
         attns = {"std": top_attn}
         if with_align:
             attns["align"] = attn_aligns[self.alignment_layer]  # `(B, Q, K)`
-            # attns["align"] = torch.stack(attn_aligns, 0).mean(0)  # All avg
 
-        # TODO change the way attns is returned dict => list or tuple (onnx)
         return emb, attns
 
     def _enable_cache(self, device, pad_mask):
         for layer in self.transformer_layers:
             # first value set to True triggered by the beginning of decoding
             # layer_cache becomes active in the MultiHeadedAttention fwd
-            if layer.context_attn:
-                layer.context_attn.layer_cache = (
-                    True,
-                    {
-                        "keys": torch.tensor([], device=device),
-                        "values": torch.tensor([], device=device),
-                    },
-                )
             layer.self_attn.layer_cache = (
                 True,
                 {
@@ -356,6 +352,14 @@ class TransformerDecoder(DecoderBase):
                     "key_pad_mask": pad_mask,
                 },
             )
+            if layer.context_attn:
+                layer.context_attn.layer_cache = (
+                    True,
+                    {
+                        "keys": torch.tensor([], device=device),
+                        "values": torch.tensor([], device=device),
+                    },
+                )
 
     def _disable_cache(self):
         for layer in self.transformer_layers:

@@ -93,7 +93,6 @@ class TransformerEncoder(EncoderBase):
         running_config=None,
     ):
         super(TransformerEncoder, self).__init__()
-
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerEncoderLayer(
@@ -103,7 +102,6 @@ class TransformerEncoder(EncoderBase):
                 for i in range(model_config.layers)
             ]
         )
-        # This is the Encoder out layer norm
         self.layer_norm = LayerNorm[model_config.layer_norm](
             model_config.hidden_size, eps=model_config.norm_eps
         )
@@ -112,7 +110,7 @@ class TransformerEncoder(EncoderBase):
     def from_config(cls, model_config, running_config=None):
         """Alternate constructor."""
         return cls(
-            model_config,  # TransformerEncoderConfig
+            model_config,
             running_config,
         )
 
