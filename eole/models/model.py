@@ -504,7 +504,13 @@ class BaseModel(nn.Module):
             else:
                 row_slice_start = 0
                 row_slice_end = param.data.size(1)
-            assert param.data.size() == ckpt_t[col_slice_start:col_slice_end, row_slice_start:row_slice_end,].size(), (
+            assert (
+                param.data.size()
+                == ckpt_t[
+                    col_slice_start:col_slice_end,
+                    row_slice_start:row_slice_end,
+                ].size()
+            ), (
                 "An error in model's partition and checkpoint's slice was detected, "
                 f"[{name}, {module}, {param_name}, {param.data.size()}, {ckpt_t.size()}]"
             )

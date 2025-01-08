@@ -370,7 +370,9 @@ class TestSubwordTransform(unittest.TestCase):
 
         # Test mask location
         ex = {
-            "src": ("### Instruction: ｟newline｠instruction｟newline｠｟newline｠" "### Response : ｟newline｠response"),
+            "src": (
+                "### Instruction: ｟newline｠instruction｟newline｠｟newline｠" "### Response : ｟newline｠response"
+            ),
             "tgt": "",
         }
         ex["src"] = ex["src"].split(" ")
@@ -443,7 +445,9 @@ class TestSubwordTransform(unittest.TestCase):
 
         # Test mask location
         ex = {
-            "src": ("### Instruction: ｟newline｠instruction｟newline｠｟newline｠" "### Response : ｟newline｠response"),
+            "src": (
+                "### Instruction: ｟newline｠instruction｟newline｠｟newline｠" "### Response : ｟newline｠response"
+            ),
             "tgt": "",
         }
         ex["src"] = ex["src"].split(" ")

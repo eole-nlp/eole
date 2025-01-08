@@ -328,12 +328,27 @@ class BaseModelConfig(Config):
         default_factory=EmbeddingsConfig,
         description="Contains most of the args useful to build the Embeddings module.",
     )
-    encoder: (Union[TransformerEncoderConfig, RnnEncoderConfig, CnnEncoderConfig, MeanEncoderConfig,] | None) = Field(
+    encoder: (
+        Union[
+            TransformerEncoderConfig,
+            RnnEncoderConfig,
+            CnnEncoderConfig,
+            MeanEncoderConfig,
+        ]
+        | None
+    ) = Field(
         default=None,
         discriminator="encoder_type",
         description="Major parameters of an encoder.",
     )  # we shall use discriminators here
-    decoder: Union[TransformerDecoderConfig, RnnDecoderConfig, CnnDecoderConfig,] | None = Field(
+    decoder: (
+        Union[
+            TransformerDecoderConfig,
+            RnnDecoderConfig,
+            CnnDecoderConfig,
+        ]
+        | None
+    ) = Field(
         default=None,
         discriminator="decoder_type",
         description="Major parameters of a decoder.",

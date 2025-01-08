@@ -129,12 +129,12 @@ class T5Converter(BaseBin):
                 eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_keys.weight"] = checkpoint[
                     "decoder.block." + str(i) + ".layer.0.SelfAttention.k.weight"
                 ].to(torch.float16)
-                eole_safetensor[
-                    "encoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"
-                ] = checkpoint["encoder.block." + str(i) + ".layer.0.SelfAttention.v.weight"].to(torch.float16)
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"
-                ] = checkpoint["decoder.block." + str(i) + ".layer.0.SelfAttention.v.weight"].to(torch.float16)
+                eole_safetensor["encoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"] = (
+                    checkpoint["encoder.block." + str(i) + ".layer.0.SelfAttention.v.weight"].to(torch.float16)
+                )
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"] = (
+                    checkpoint["decoder.block." + str(i) + ".layer.0.SelfAttention.v.weight"].to(torch.float16)
+                )
 
                 eole_safetensor["encoder.transformer_layers." + str(i) + ".self_attn.final_linear.weight"] = checkpoint[
                     "encoder.block." + str(i) + ".layer.0.SelfAttention.o.weight"
@@ -171,15 +171,15 @@ class T5Converter(BaseBin):
                 eole_safetensor["decoder.transformer_layers." + str(i) + ".context_attn.linear_query.weight"] = (
                     checkpoint["decoder.block." + str(i) + ".layer.1.EncDecAttention.q.weight"] / (dimperhead**-0.5)
                 ).to(torch.float16)
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".context_attn.linear_keys.weight"
-                ] = checkpoint["decoder.block." + str(i) + ".layer.1.EncDecAttention.k.weight"].to(torch.float16)
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".context_attn.linear_values.weight"
-                ] = checkpoint["decoder.block." + str(i) + ".layer.1.EncDecAttention.v.weight"].to(torch.float16)
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".context_attn.final_linear.weight"
-                ] = checkpoint["decoder.block." + str(i) + ".layer.1.EncDecAttention.o.weight"].to(torch.float16)
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".context_attn.linear_keys.weight"] = (
+                    checkpoint["decoder.block." + str(i) + ".layer.1.EncDecAttention.k.weight"].to(torch.float16)
+                )
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".context_attn.linear_values.weight"] = (
+                    checkpoint["decoder.block." + str(i) + ".layer.1.EncDecAttention.v.weight"].to(torch.float16)
+                )
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".context_attn.final_linear.weight"] = (
+                    checkpoint["decoder.block." + str(i) + ".layer.1.EncDecAttention.o.weight"].to(torch.float16)
+                )
 
                 eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_2.weight"] = checkpoint[
                     "decoder.block." + str(i) + ".layer.1.layer_norm.weight"
@@ -196,12 +196,12 @@ class T5Converter(BaseBin):
                     "decoder.block." + str(i) + ".layer.2.DenseReluDense.wi_1.weight"
                 ].to(torch.float16)
 
-                eole_safetensor[
-                    "encoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"
-                ] = checkpoint["encoder.block." + str(i) + ".layer.1.layer_norm.weight"].to(torch.float16)
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"
-                ] = checkpoint["decoder.block." + str(i) + ".layer.2.layer_norm.weight"].to(torch.float16)
+                eole_safetensor["encoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"] = (
+                    checkpoint["encoder.block." + str(i) + ".layer.1.layer_norm.weight"].to(torch.float16)
+                )
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"] = (
+                    checkpoint["decoder.block." + str(i) + ".layer.2.layer_norm.weight"].to(torch.float16)
+                )
 
             if shard == 0:
                 transformer_ff = eole_safetensor["decoder.transformer_layers.0.feed_forward.w_1.weight"].size(0)

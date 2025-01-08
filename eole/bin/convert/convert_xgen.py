@@ -100,9 +100,9 @@ class XgenConverter(BaseBin):
                     .transpose(1, 2)
                     .reshape(hidden_size, hidden_size)
                 ).to(torch.float16)
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"
-                ] = checkpoint["model.layers." + str(i) + ".self_attn.v_proj.weight"].to(torch.float16)
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"] = (
+                    checkpoint["model.layers." + str(i) + ".self_attn.v_proj.weight"].to(torch.float16)
+                )
 
                 eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.final_linear.weight"] = checkpoint[
                     "model.layers." + str(i) + ".self_attn.o_proj.weight"
@@ -123,9 +123,9 @@ class XgenConverter(BaseBin):
                     "model.layers." + str(i) + ".mlp.up_proj.weight"
                 ].to(torch.float16)
 
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"
-                ] = checkpoint["model.layers." + str(i) + ".post_attention_layernorm.weight"].to(torch.float16)
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"] = (
+                    checkpoint["model.layers." + str(i) + ".post_attention_layernorm.weight"].to(torch.float16)
+                )
 
             if shard == 0:
                 transformer_ff = eole_safetensor["decoder.transformer_layers.0.feed_forward.w_1.weight"].size(0)
