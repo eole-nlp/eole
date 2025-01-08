@@ -504,13 +504,7 @@ class BaseModel(nn.Module):
             else:
                 row_slice_start = 0
                 row_slice_end = param.data.size(1)
-            assert (
-                param.data.size()
-                == ckpt_t[
-                    col_slice_start:col_slice_end,
-                    row_slice_start:row_slice_end,
-                ].size()
-            ), (
+            assert param.data.size() == ckpt_t[col_slice_start:col_slice_end, row_slice_start:row_slice_end,].size(), (
                 "An error in model's partition and checkpoint's slice was detected, "
                 f"[{name}, {module}, {param_name}, {param.data.size()}, {ckpt_t.size()}]"
             )
@@ -715,9 +709,7 @@ class EncoderDecoderModel(BaseModel):
             share_embeddings=model_config.share_embeddings,
             src_emb=src_emb,
         )
-        decoder = build_decoder(
-            model_config, running_config=running_config, with_cross_attn=True
-        )
+        decoder = build_decoder(model_config, running_config=running_config, with_cross_attn=True)
         return cls(
             encoder=encoder,
             decoder=decoder,
@@ -797,9 +789,7 @@ class DecoderModel(BaseModel):
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         tgt_emb = build_tgt_emb(model_config, vocabs, running_config=running_config)
-        decoder = build_decoder(
-            model_config, running_config=running_config, with_cross_attn=False
-        )
+        decoder = build_decoder(model_config, running_config=running_config, with_cross_attn=False)
         return cls(
             decoder=decoder,
             tgt_emb=tgt_emb,

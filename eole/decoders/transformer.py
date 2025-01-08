@@ -34,9 +34,7 @@ class TransformerDecoderLayer(nn.Module):
         self.alignment_heads = model_config.alignment_heads
 
         # order of layers corresponds to forward flow of tensors
-        self.input_layernorm = LayerNorm[model_config.layer_norm](
-            model_config.hidden_size, eps=model_config.norm_eps
-        )
+        self.input_layernorm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
         self.self_attn = SelfMHA(
             model_config,
             running_config=running_config,
@@ -196,9 +194,7 @@ class TransformerDecoder(DecoderBase):
                 for i in range(model_config.layers)
             ]
         )
-        self.layer_norm = LayerNorm[model_config.layer_norm](
-            model_config.hidden_size, eps=model_config.norm_eps
-        )
+        self.layer_norm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
         self._disable_cache()
 
     @classmethod
@@ -242,9 +238,7 @@ class TransformerDecoder(DecoderBase):
         tgt_len = tgt_pad_mask.size(-1)
         # Add triangular future_mask and pad_mask, result mask in (B, T, T).
         future_mask = torch.tril(
-            torch.ones(
-                (tgt_len, tgt_len), device=tgt_pad_mask.device, dtype=torch.bool
-            ),
+            torch.ones((tgt_len, tgt_len), device=tgt_pad_mask.device, dtype=torch.bool),
             diagonal=0,
         )
         if self.sliding_window > 0:
@@ -280,9 +274,7 @@ class TransformerDecoder(DecoderBase):
         assert tgt_pad_mask is not None, "TransformerDecoder requires a tgt pad mask"
         src_pad_mask = kwargs.pop("src_pad_mask", None)
         if self.with_cross_attn:
-            assert (
-                src_pad_mask is not None
-            ), "TransformerDecoder requires a src pad mask"
+            assert src_pad_mask is not None, "TransformerDecoder requires a src pad mask"
         step = kwargs.pop("step", None)
         with_align = kwargs.pop("with_align", False)
         return_attn = with_align or kwargs.pop("return_attn", False)
@@ -293,9 +285,7 @@ class TransformerDecoder(DecoderBase):
             # causal masking is necessary when sequence length is greater than one
             attn_mask = self._causal_attn_mask(tgt_pad_mask)
             if self.with_cross_attn:
-                src_pad_mask = src_pad_mask.unsqueeze(1).expand(
-                    -1, -1, attn_mask.size(3), -1
-                )
+                src_pad_mask = src_pad_mask.unsqueeze(1).expand(-1, -1, attn_mask.size(3), -1)
             # mask now are (batch x 1 x tlen x s or t len)
             # dim 1 to be broadcasted to heads in MHA
         else:

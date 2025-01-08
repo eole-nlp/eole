@@ -29,9 +29,7 @@ class TransformerEncoderLayer(nn.Module):
         self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
 
         # order of layers corresponds to forward flow of tensors
-        self.input_layernorm = LayerNorm[model_config.layer_norm](
-            model_config.hidden_size, eps=model_config.norm_eps
-        )
+        self.input_layernorm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
         self.self_attn = SelfMHA(
             model_config,
             running_config=running_config,
@@ -100,9 +98,7 @@ class TransformerEncoder(EncoderBase):
                 for i in range(model_config.layers)
             ]
         )
-        self.layer_norm = LayerNorm[model_config.layer_norm](
-            model_config.hidden_size, eps=model_config.norm_eps
-        )
+        self.layer_norm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
 
     @classmethod
     def from_config(cls, model_config, running_config=None):

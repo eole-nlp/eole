@@ -156,9 +156,9 @@ class RedPajamaConverter(BaseBin):
                     "gpt_neox.layers." + str(i) + ".mlp.dense_4h_to_h.bias"
                 ]
 
-                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"] = (
-                    checkpoint["gpt_neox.layers." + str(i) + ".post_attention_layernorm.weight"]
-                )
+                eole_safetensor[
+                    "decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"
+                ] = checkpoint["gpt_neox.layers." + str(i) + ".post_attention_layernorm.weight"]
                 eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.bias"] = checkpoint[
                     "gpt_neox.layers." + str(i) + ".post_attention_layernorm.bias"
                 ]

@@ -104,9 +104,9 @@ class LlamaLegacyConverter(BaseBin):
                     "layers." + str(i) + ".attention.wk.weight"
                 ]
 
-                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"] = (
-                    checkpoint["layers." + str(i) + ".attention.wv.weight"]
-                )
+                eole_safetensor[
+                    "decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"
+                ] = checkpoint["layers." + str(i) + ".attention.wv.weight"]
 
                 eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_query.weight"] = checkpoint[
                     "layers." + str(i) + ".attention.wq.weight"
@@ -132,9 +132,9 @@ class LlamaLegacyConverter(BaseBin):
                     "layers." + str(i) + ".feed_forward.w3.weight"
                 ]
 
-                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"] = (
-                    checkpoint["layers." + str(i) + ".ffn_norm.weight"].clone()
-                )
+                eole_safetensor[
+                    "decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"
+                ] = checkpoint["layers." + str(i) + ".ffn_norm.weight"].clone()
 
             input_shard = 1
             while os.path.exists(os.path.join(args.model_dir, "consolidated.0" + str(input_shard) + ".pth")):
@@ -169,52 +169,44 @@ class LlamaLegacyConverter(BaseBin):
                     min(-(decoder_layers // -args.nshards) * (shard + 1), decoder_layers),
                     1,
                 ):
-                    eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_keys.weight"] = (
-                        torch.cat(
-                            (
-                                eole_safetensor[
-                                    "decoder.transformer_layers." + str(i) + ".self_attn.linear_keys.weight"
-                                ],
-                                checkpoint["layers." + str(i) + ".attention.wk.weight"],
-                            ),
-                            dim=0,
-                        )
+                    eole_safetensor[
+                        "decoder.transformer_layers." + str(i) + ".self_attn.linear_keys.weight"
+                    ] = torch.cat(
+                        (
+                            eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_keys.weight"],
+                            checkpoint["layers." + str(i) + ".attention.wk.weight"],
+                        ),
+                        dim=0,
                     )
 
-                    eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"] = (
-                        torch.cat(
-                            (
-                                eole_safetensor[
-                                    "decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"
-                                ],
-                                checkpoint["layers." + str(i) + ".attention.wv.weight"],
-                            ),
-                            dim=0,
-                        )
+                    eole_safetensor[
+                        "decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"
+                    ] = torch.cat(
+                        (
+                            eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"],
+                            checkpoint["layers." + str(i) + ".attention.wv.weight"],
+                        ),
+                        dim=0,
                     )
 
-                    eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_query.weight"] = (
-                        torch.cat(
-                            (
-                                eole_safetensor[
-                                    "decoder.transformer_layers." + str(i) + ".self_attn.linear_query.weight"
-                                ],
-                                checkpoint["layers." + str(i) + ".attention.wq.weight"],
-                            ),
-                            dim=0,
-                        )
+                    eole_safetensor[
+                        "decoder.transformer_layers." + str(i) + ".self_attn.linear_query.weight"
+                    ] = torch.cat(
+                        (
+                            eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_query.weight"],
+                            checkpoint["layers." + str(i) + ".attention.wq.weight"],
+                        ),
+                        dim=0,
                     )
 
-                    eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.final_linear.weight"] = (
-                        torch.cat(
-                            (
-                                eole_safetensor[
-                                    "decoder.transformer_layers." + str(i) + ".self_attn.final_linear.weight"
-                                ],
-                                checkpoint["layers." + str(i) + ".attention.wo.weight"],
-                            ),
-                            dim=1,
-                        )
+                    eole_safetensor[
+                        "decoder.transformer_layers." + str(i) + ".self_attn.final_linear.weight"
+                    ] = torch.cat(
+                        (
+                            eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.final_linear.weight"],
+                            checkpoint["layers." + str(i) + ".attention.wo.weight"],
+                        ),
+                        dim=1,
                     )
 
                     eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.w_1.weight"] = torch.cat(

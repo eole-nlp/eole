@@ -89,9 +89,9 @@ class MPTConverter(BaseBin):
                 eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_keys.weight"] = checkpoint[
                     "transformer.blocks." + str(i) + ".attn.Wqkv.weight"
                 ][hidden_size : (hidden_size * 2), :].clone()
-                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"] = (
-                    checkpoint["transformer.blocks." + str(i) + ".attn.Wqkv.weight"][(hidden_size * 2) :, :].clone()
-                )
+                eole_safetensor[
+                    "decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"
+                ] = checkpoint["transformer.blocks." + str(i) + ".attn.Wqkv.weight"][(hidden_size * 2) :, :].clone()
 
                 eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.final_linear.weight"] = checkpoint[
                     "transformer.blocks." + str(i) + ".attn.out_proj.weight"
@@ -113,9 +113,9 @@ class MPTConverter(BaseBin):
                     "transformer.blocks." + str(i) + ".ffn.down_proj.weight"
                 ]
 
-                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"] = (
-                    checkpoint["transformer.blocks." + str(i) + ".norm_2.weight"]
-                )
+                eole_safetensor[
+                    "decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"
+                ] = checkpoint["transformer.blocks." + str(i) + ".norm_2.weight"]
                 eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.bias"] = torch.zeros(
                     eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"].size(0),
                     dtype=torch.float16,
