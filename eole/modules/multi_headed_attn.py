@@ -2,194 +2,23 @@
 
 import torch
 import torch.nn as nn
-from math import log, sqrt
+import torch.nn.functional as F
+from math import sqrt
 from torch import Tensor
 from typing import Optional, Tuple
-from torch.nn.functional import scaled_dot_product_attention
 from torch.utils.checkpoint import checkpoint
 from torch.nn.utils import skip_init
-from .alibi_position_bias import AlibiPositionalBias
 from torch.distributed import all_reduce
 from importlib import import_module
 from eole.constants import PositionEncodingType
-
-# Help functions for Rotary Embeddings
-# https://arxiv.org/pdf/2104.09864.pdf
-
-
-def rotate_half(x):
-    """Rotates half the hidden dims of the input."""
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
-
-
-def apply_rotary_emb(query, key, rope, interleave):
-    # now rope is a tuple (cos, sin)
-    cos, sin = rope
-    if interleave:
-        query = query.transpose(1, 2)
-        key = key.transpose(1, 2)
-        query_ = query.float().reshape(*query.shape[:-1], -1, 2)
-        key_ = key.float().reshape(*key.shape[:-1], -1, 2)
-
-        # Reshape cos and sin to match the dimensions of query_ and key_
-        cos = cos[:, : cos.size(1) // 2].view(1, query_.size(1), 1, query_.size(3))
-        sin = sin[:, : sin.size(1) // 2].view(1, key_.size(1), 1, key_.size(3))
-
-        query_rotated = query_[..., 0] * cos - query_[..., 1] * sin
-        query_rotated_imag = query_[..., 0] * sin + query_[..., 1] * cos
-        query_out = torch.stack((query_rotated, query_rotated_imag), dim=-1).flatten(3)
-
-        key_rotated = key_[..., 0] * cos - key_[..., 1] * sin
-        key_rotated_imag = key_[..., 0] * sin + key_[..., 1] * cos
-        key_out = torch.stack((key_rotated, key_rotated_imag), dim=-1).flatten(3)
-
-        return query_out.transpose(1, 2).type_as(query), key_out.transpose(1, 2).type_as(key)
-
-        # Old code with complex instead
-        # rope_complex = torch.complex(cos, sin)
-        # query_ = torch.view_as_complex(query_)
-        # key_ = torch.view_as_complex(key_)
-        # query_out = torch.view_as_real(query_ * rope_complex).flatten(3)
-        # key_out = torch.view_as_real(key_ * rope_complex).flatten(3)
-        # return query_out.transpose(1, 2).type_as(query), key_out.transpose(
-        #     1, 2
-        # ).type_as(key)
-    else:
-        rotary_dim = cos.size(1)
-        head_dim = query.size(3)
-        if rotary_dim < head_dim:
-            q_embed = (query[:, :, :, :rotary_dim] * cos) + (rotate_half(query[:, :, :, :rotary_dim]) * sin)
-            k_embed = (key[:, :, :, :rotary_dim] * cos) + (rotate_half(key[:, :, :, :rotary_dim]) * sin)
-            q_embed = torch.cat([q_embed, query[:, :, :, rotary_dim:]], dim=-1)
-            k_embed = torch.cat([k_embed, key[:, :, :, rotary_dim:]], dim=-1)
-        else:
-            q_embed = (query * cos) + (rotate_half(query) * sin)
-            k_embed = (key * cos) + (rotate_half(key) * sin)
-        return q_embed.type_as(query), k_embed.type_as(key)
-
-
-# Help functions for "Relative" position encoding
-# https://arxiv.org/abs/1803.02155
-
-
-def relative_matmul(x: Tensor, z: Tensor, transpose: bool) -> Tensor:
-    """
-    Helper function for relative positions attention.
-    https://arxiv.org/pdf/1803.02155.pdf
-    x shape [batch_size x heads x q_len x k_len]
-    """
-    batch_size, heads, length, _ = x.size()
-    x_t = x.permute(2, 0, 1, 3)
-    x_t_r = x_t.contiguous().view(length, heads * batch_size, -1)
-    if transpose:
-        z = z.transpose(1, 2)
-    x_tz_matmul = torch.matmul(x_t_r, z)
-    x_tz_matmul_r = x_tz_matmul.view(length, batch_size, heads, -1)
-    x_tz_matmul_r_t = x_tz_matmul_r.permute(1, 2, 0, 3)
-    return x_tz_matmul_r_t
-
-
-def gen_relative_positions(
-    length: int,
-    n_positions: int,
-    cache: bool = False,
-    device: Optional[torch.device] = None,
-) -> Tensor:
-    """Generate the clipped relative positions matrix
-    for a given length and maximum relative positions"""
-    if cache:
-        distance_mat = torch.arange(-length + 1, 1, 1, device=device).unsqueeze(0)
-    else:
-        range_vec = torch.arange(length, device=device)
-        range_mat = range_vec.unsqueeze(-1).expand(-1, length).transpose(0, 1)
-        distance_mat = range_mat - range_mat.transpose(0, 1)
-    distance_mat_clipped = torch.clamp(distance_mat, min=-n_positions, max=n_positions)
-    # Shift values to be >= 0
-    final_mat = distance_mat_clipped + n_positions
-    return final_mat
-
-
-def _relative_position_bucket(relative_position, bidirectional=True, num_buckets=32, max_distance=128):
-    """
-    Adapted from Mesh Tensorflow:
-    https://github.com/tensorflow/mesh/blob/0cb87fe07da627bf0b7e60475d59f95ed6b5be3d/
-    mesh_tensorflow/transformer/transformer_layers.py#L593
-    Translate relative position to a bucket number for relative attention.
-    The relative position is defined as memory_position - query_position,
-    i.e. the distance in tokens from the attending position to the attended-to
-    position. If bidirectional=False, then positive relative positions are invalid.
-    We use smaller buckets for small absolute relative_position and larger buckets for
-    larger absolute relative_positions. All relative positions >=max_distance map to the
-    same bucket. All relative positions <=-max_distance map to the same bucket.
-    This should allow for more graceful generalization to longer sequences than the
-    model has been trained on
-
-    Args:
-        relative_position: an int32 Tensor
-        bidirectional: a boolean - whether the attention is bidirectional
-        num_buckets: an integer
-        max_distance: an integer
-
-    Returns:
-        a Tensor with the same shape as relative_position, containing int32 values
-        in the range [0, num_buckets)
-    """
-    relative_buckets = 0
-    if bidirectional:
-        num_buckets //= 2
-        relative_buckets += (relative_position > 0).to(torch.long) * num_buckets
-        relative_position = torch.abs(relative_position)
-    else:
-        relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
-    # now relative_position is in the range [0, inf)
-    # half of the buckets are for exact increments in positions
-    max_exact = num_buckets // 2
-    is_small = relative_position < max_exact
-
-    # The other half of the buckets are for logarithmically bigger bins in positions
-    # up to max_distance
-    relative_position_if_large = max_exact + (
-        torch.log(relative_position.float() / max_exact) / log(max_distance / max_exact) * (num_buckets - max_exact)
-    ).to(torch.long)
-    relative_position_if_large = torch.min(
-        relative_position_if_large,
-        torch.full_like(relative_position_if_large, num_buckets - 1),
-    )
-
-    relative_buckets += torch.where(is_small, relative_position, relative_position_if_large)
-    return relative_buckets
-
-
-def compute_bias(
-    query_length,
-    key_length,
-    is_decoder,
-    n_positions,
-    relative_positions_buckets,
-    device=None,
-):
-    """Compute binned relative position bias"""
-    context_position = torch.arange(query_length, dtype=torch.long, device=device)[:, None]
-    memory_position = torch.arange(key_length, dtype=torch.long, device=device)[None, :]
-    relative_position = memory_position - context_position  # shape (query_length, key_length)
-    relative_position_bucket = _relative_position_bucket(
-        relative_position,  # shape (query_length, key_length)
-        bidirectional=(not is_decoder),
-        num_buckets=relative_positions_buckets,
-        max_distance=n_positions,
-    )
-    return relative_position_bucket
+from .relative_position_bias import relative_matmul, gen_relative_positions, compute_bias
+from .alibi_position_bias import AlibiPositionalBias
+from .rope import apply_rotary_emb
 
 
 # Help functions to split model dim per head
-
-
 def shape(x: Tensor, dim_per_head: int) -> Tensor:
-    """
-    Projection.
-    [batchsize x length x modeldim]
+    """[batchsize x length x modeldim]
     -> [batchsize x heads x length x dimperhead]
     """
     x_0, x_1, _ = x.size()
@@ -197,9 +26,7 @@ def shape(x: Tensor, dim_per_head: int) -> Tensor:
 
 
 def unshape(x: Tensor) -> Tensor:
-    """
-    Compute context.
-    [batchsize x heads x length x dimperhead]
+    """[batchsize x heads x length x dimperhead]
     -> [batchsize x length x modeldim]
     """
     x_0, x_1, _, x_3 = x.size()
@@ -245,12 +72,7 @@ class MultiHeadedAttention(torch.nn.Module):
         is_decoder: bool, true if called by the Decoder layers
     """
 
-    def __init__(
-        self,
-        model_config,
-        running_config=None,
-        is_decoder: bool = True,
-    ) -> None:
+    def __init__(self, model_config, running_config=None, is_decoder: bool = True) -> None:
         super(MultiHeadedAttention, self).__init__()
         self.dim_per_head = model_config.dim_per_head
         self.heads = model_config.heads
@@ -278,7 +100,6 @@ class MultiHeadedAttention(torch.nn.Module):
             out_features=self.dim_per_head * self.heads // self.parallel_gpu,
             bias=model_config.add_qkvbias,
         )
-        self.softmax = nn.Softmax(dim=-1)
         self.dropout_p = getattr(running_config, "attention_dropout", [0.0])[0]
         self.dropout = nn.Dropout(self.dropout_p)
 
@@ -302,10 +123,9 @@ class MultiHeadedAttention(torch.nn.Module):
         # TODO find a cleaner way to initialize?
         self.relative_positions_embeddings = None
         self.relative_attention_bias = None
-        self.rotary_interleave = None
+        self.rotary_interleave = None # for flash_kvcache without rotary
         if self.relative_positions_buckets > 0:
             self.relative_attention_bias = nn.Embedding(self.relative_positions_buckets, self.heads)
-            self.relative_positions_embeddings = None
         elif self.position_encoding_type == PositionEncodingType.Relative:
             # https://arxiv.org/pdf/1803.02155.pdf
             # in the paper they suggest either two embeds
@@ -406,12 +226,10 @@ class MultiHeadedAttention(torch.nn.Module):
         if self.heads_kv < self.heads:
             qh = query.size(1)
             # expand key on heads dimension when it's less than query heads (multi-query variant)
-            key = key.view(b, -1, 1, l, d).repeat(1, 1, qh // h, 1, 1)
-            key = key.view(b, qh, l, d)
+            key = key.view(b, -1, 1, l, d).repeat(1, 1, qh // h, 1, 1).view(b, qh, l, d)
 
             # expand value on heads dimension when it's less than query heads (multi-query variant)
-            value = value.view(b, -1, 1, l, d).repeat(1, 1, qh // h, 1, 1)
-            value = value.view(b, qh, l, d)
+            value = value.view(b, -1, 1, l, d).repeat(1, 1, qh // h, 1, 1).view(b, qh, l, d)
 
         # 2) When standard pos. enc. or rotary, use flash attention or SDPA
         if (
@@ -420,11 +238,11 @@ class MultiHeadedAttention(torch.nn.Module):
             and query.device.type != "cpu"
         ):
             # Apply pytorch scaled_dot_product_attention.
-            attn_output = scaled_dot_product_attention(
+            attn_output = F.scaled_dot_product_attention(
                 query,
                 key,
                 value,
-                attn_mask if attn_mask is not None else None,
+                attn_mask,
                 self.dropout_p,
                 is_causal=False,
             )
@@ -476,7 +294,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 scores = scores.masked_fill(~attn_mask, -1e18)
 
             # 3) Apply attention dropout and compute context vectors.
-            attn = self.softmax(scores).to(query.dtype)
+            attn = F.softmax(scores, dim=-1).to(query.dtype)
             drop_attn = self.dropout(attn) if self.dropout_p > 0 else attn
 
             attn_output = torch.matmul(drop_attn, value)
@@ -503,17 +321,12 @@ class MultiHeadedAttention(torch.nn.Module):
 
 
 class SelfMHA(MultiHeadedAttention):
-    def __init__(
-        self,
-        model_config,
-        running_config=None,
-        is_decoder: bool = True,
-    ) -> None:
+    def __init__(self, model_config, running_config=None, is_decoder: bool = True) -> None:
         self.position_encoding_type = model_config.position_encoding_type
         self.n_positions = model_config.n_positions
         super(SelfMHA, self).__init__(model_config, running_config, is_decoder)
 
-    def _expand_cache(self, add_length, step):
+    def _expand_cache(self, add_length: int, step: int) -> int:
         b, h, l, dph = self.layer_cache[1]["keys"].shape
         if step >= l:
             ktype = self.layer_cache[1]["keys"].dtype
@@ -540,13 +353,8 @@ class SelfMHA(MultiHeadedAttention):
             return step
 
     def _prepare_inputs_w_cache(
-        self,
-        query,
-        key,
-        value,
-        step: Optional[int] = 0,
-        position_embeddings=None,
-    ):
+        self, query: Tensor, key: Tensor, value: Tensor, step: Optional[int] = 0, position_embeddings=None
+    ) -> Tuple[Tensor, Tensor, Tensor]:
         if self.position_encoding_type == PositionEncodingType.Rotary:
             seqlen = query.size(2)
             cos = position_embeddings[0][step : step + seqlen]
@@ -611,8 +419,7 @@ class SelfMHA(MultiHeadedAttention):
                     cos = position_embeddings[0][:, :rotdim].to(query.dtype)
                     sin = position_embeddings[1][:, :rotdim].to(query.dtype)
                 else:
-                    cos = None
-                    sin = None
+                    cos, sin = None, None
                 context = self.flash_attn_with_kvcache(
                     query.transpose(1, 2),
                     self.layer_cache[1]["keys"].transpose(1, 2),
@@ -654,7 +461,7 @@ class ContextMHA(MultiHeadedAttention):
         self.n_positions = 0
         super(ContextMHA, self).__init__(model_config, running_config, True)
 
-    def _prepare_inputs_w_cache(self, key, value, query):
+    def _prepare_inputs_w_cache(self, key: Tensor, value: Tensor, query: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
         query = self.linear_query(query)
         query = shape(query, self.dim_per_head)
         if self.layer_cache[1]["keys"].numel() == 0:
