@@ -123,7 +123,7 @@ class MultiHeadedAttention(torch.nn.Module):
         # TODO find a cleaner way to initialize?
         self.relative_positions_embeddings = None
         self.relative_attention_bias = None
-        self.rotary_interleave = None # for flash_kvcache without rotary
+        self.rotary_interleave = None  # for flash_kvcache without rotary
         if self.relative_positions_buckets > 0:
             self.relative_attention_bias = nn.Embedding(self.relative_positions_buckets, self.heads)
         elif self.position_encoding_type == PositionEncodingType.Relative:
