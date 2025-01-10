@@ -84,8 +84,8 @@ class TransformerDecoderLayer(nn.Module):
         """
 
         enc_out = kwargs.pop("enc_out", None)
-        src_pad_mask = kwargs.pop("src_pad_mask", None)
         attn_mask = kwargs.pop("attn_mask", None)
+        src_pad_mask = kwargs.pop("src_pad_mask", None)
         step = kwargs.pop("step", None)
         return_attn = kwargs.pop("return_attn", False)
         position_embeddings = kwargs.pop("position_embeddings", None)
@@ -211,6 +211,8 @@ class TransformerDecoder(DecoderBase):
         pass
 
     def map_state(self, fn):
+        z = fn(self.left_pad_mask, 0)
+        self.left_pad_mask = z
         for layer in self.transformer_layers:
             if self.with_cross_attn:
                 if layer.context_attn.layer_cache[1]["keys"].numel() != 0:
@@ -220,15 +222,7 @@ class TransformerDecoder(DecoderBase):
             if layer.self_attn.layer_cache[1]["keys"].numel() != 0:
                 x = fn(layer.self_attn.layer_cache[1]["keys"], 0)
                 y = fn(layer.self_attn.layer_cache[1]["values"], 0)
-                if layer.self_attn.layer_cache[1].get("key_pad_mask", None) is not None:
-                    z = fn(layer.self_attn.layer_cache[1]["key_pad_mask"], 0)
-                else:
-                    z = None
-                layer.self_attn.layer_cache = True, {
-                    "keys": x,
-                    "values": y,
-                    "key_pad_mask": z,
-                }
+                layer.self_attn.layer_cache = True, {"keys": x, "values": y}
 
     def update_dropout(self, dropout, attention_dropout):
         for layer in self.transformer_layers:
@@ -275,26 +269,34 @@ class TransformerDecoder(DecoderBase):
         src_pad_mask = kwargs.pop("src_pad_mask", None)
         if self.with_cross_attn:
             assert src_pad_mask is not None, "TransformerDecoder requires a src pad mask"
+        left_pad = kwargs.pop("left_pad", False)
         step = kwargs.pop("step", None)
         with_align = kwargs.pop("with_align", False)
         return_attn = with_align or kwargs.pop("return_attn", False)
         position_embeddings = kwargs.pop("position_embeddings", None)
         attn_aligns = []
 
+        if step == 0:
+            self._enable_cache(emb.device, tgt_pad_mask)
+
         if emb.size(1) > 1:
-            # causal masking is necessary when sequence length is greater than one
+            # training or first step decoding
             attn_mask = self._causal_attn_mask(tgt_pad_mask)
             if self.with_cross_attn:
                 src_pad_mask = src_pad_mask.unsqueeze(1).expand(-1, -1, attn_mask.size(3), -1)
             # mask now are (batch x 1 x tlen x s or t len)
             # dim 1 to be broadcasted to heads in MHA
         else:
-            attn_mask = None
+            # step by step decoding
+            # we rebuild the pad mask of previous steps (left padded prompt)
+            if left_pad:
+                pad_mask = torch.zeros([emb.size(0), 1, step + 1], dtype=torch.bool, device=emb.device)
+                pad_mask[:, :, : self.left_pad_mask.size(2)] = self.left_pad_mask
+                attn_mask = ~pad_mask.unsqueeze(1)
+            else:
+                attn_mask = None
             if self.with_cross_attn:
                 src_pad_mask = src_pad_mask.unsqueeze(1)
-
-        if step == 0:
-            self._enable_cache(emb.device, tgt_pad_mask)
 
         for layer in self.transformer_layers:
             emb, attn = layer(
@@ -331,6 +333,7 @@ class TransformerDecoder(DecoderBase):
         return emb, attns
 
     def _enable_cache(self, device, pad_mask):
+        self.left_pad_mask = pad_mask
         for layer in self.transformer_layers:
             # first value set to True triggered by the beginning of decoding
             # layer_cache becomes active in the MultiHeadedAttention fwd
@@ -339,7 +342,6 @@ class TransformerDecoder(DecoderBase):
                 {
                     "keys": torch.tensor([], device=device),
                     "values": torch.tensor([], device=device),
-                    "key_pad_mask": pad_mask,
                 },
             )
             if layer.context_attn:
@@ -352,13 +354,13 @@ class TransformerDecoder(DecoderBase):
                 )
 
     def _disable_cache(self):
+        self.left_pad_mask = torch.tensor([])
         for layer in self.transformer_layers:
             layer.self_attn.layer_cache = (
                 False,
                 {
                     "keys": torch.tensor([]),
                     "values": torch.tensor([]),
-                    "key_pad_mask": None,
                 },
             )
             if layer.context_attn:

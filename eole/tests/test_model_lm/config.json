@@ -11,6 +11,7 @@
       "heads": 2
     },
     "architecture": "custom",
+    "left_pad": false,
     "encoder": null,
     "embeddings": {
       "tgt_word_vec_size": 64,

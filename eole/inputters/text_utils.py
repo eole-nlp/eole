@@ -252,4 +252,6 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
     if minibatch[0][0]["cid"] != "infer":
         tensor_batch["sco"] = torch.tensor([ex["sco"] for ex, indice in minibatch], device=device)
 
+    tensor_batch["left_pad"] = left_pad
+
     return tensor_batch

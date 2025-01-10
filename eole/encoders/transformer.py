@@ -122,19 +122,17 @@ class TransformerEncoder(EncoderBase):
         * enc_out ``(batch_size, src_len, model_dim)``
         * encoder final state: None in the case of Transformer
         """
-
         pad_mask = kwargs.pop("pad_mask", None)
         assert pad_mask is not None, "TransformerEncoder requires a src pad mask"
         position_embeddings = kwargs.pop("position_embeddings", None)
-        enc_out = emb
         pad_mask = pad_mask.unsqueeze(1)  # batch x 1 x 1 x maxlen
         pad_mask = pad_mask.expand(-1, -1, pad_mask.size(3), -1)  # batch x 1 x maxlen x maxlen
         # 1 to be expanded to number of heads in MHA
 
         for layer in self.transformer_layers:
-            enc_out = layer(enc_out, pad_mask, position_embeddings=position_embeddings)
-        enc_out = self.layer_norm(enc_out)
-        return enc_out, None
+            emb = layer(emb, pad_mask, position_embeddings=position_embeddings)
+        emb = self.layer_norm(emb)
+        return emb, None
 
     def update_dropout(self, dropout, attention_dropout):
         for layer in self.transformer_layers:

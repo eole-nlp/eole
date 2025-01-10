@@ -162,7 +162,6 @@ class Translator(Inference):
 
         # (1) Run the encoder on the src.
         src, enc_final_hs, enc_out, src_len = self._run_encoder(batch)
-
         self.model.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
 
         gold_score, gold_log_probs = self._gold_score(

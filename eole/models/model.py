@@ -352,6 +352,7 @@ class BaseModel(nn.Module):
         model, vocabs, model_config = get_model_class(config.model).from_config(
             config, vocabs, checkpoint, device_id, running_config=config
         )
+
         return vocabs, model, model_config
 
     def init_weights(self, running_config):

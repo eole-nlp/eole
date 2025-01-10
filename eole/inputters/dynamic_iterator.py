@@ -391,6 +391,7 @@ class OnDeviceDatasetIter:
                     "cid",
                     "ind_in_bucket",
                     "cid_line_number",
+                    "left_pad",
                 ]:
                     tensor_batch[key] = tensor_batch[key].to(self.device)
             yield (tensor_batch, bucket_idx)

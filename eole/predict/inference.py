@@ -163,6 +163,11 @@ class Inference(object):
         self.add_estimator = add_estimator
         self.id_tokenization = id_tokenization
 
+        torch.backends.cuda.enable_mem_efficient_sdp(True)
+        torch.backends.cuda.enable_flash_sdp(False)
+        torch.backends.cuda.enable_math_sdp(False)
+        torch.backends.cuda.enable_cudnn_sdp(False)
+
     @classmethod
     def from_config(
         cls,
@@ -606,6 +611,7 @@ class Inference(object):
         src_len,
         step=None,
         return_attn=False,
+        left_pad=False,
     ):
 
         # Decoder forward, takes [batch, tgt_len, nfeats] as input
@@ -632,6 +638,7 @@ class Inference(object):
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
             position_embeddings=position_embeddings,
+            left_pad=left_pad,
         )
         # Generator forward.
         if "std" in dec_attn:

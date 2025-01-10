@@ -78,8 +78,8 @@ class GeneratorLM(Inference):
         min_len_batch = torch.min(src_len).item()
         target_prefix = None
         if min_len_batch > 0 and min_len_batch < src.size(1):
-            target_prefix = src[:, min_len_batch:, :]
-            src = src[:, :min_len_batch, :]
+            target_prefix = src[:, min_len_batch:]
+            src = src[:, :min_len_batch]
             src_len[:] = min_len_batch
         return src, src_len, target_prefix
 
@@ -90,7 +90,7 @@ class GeneratorLM(Inference):
             log_probs = log_probs[:, -1, :]
         return log_probs
 
-    def _predict_batch_with_strategy(self, batch, decode_strategy, left_pad=True):
+    def _predict_batch_with_strategy(self, batch, decode_strategy):
         """Predict a batch of sentences step by step using cache.
 
         Args:
@@ -109,7 +109,7 @@ class GeneratorLM(Inference):
         src = batch["src"]
         src_len = batch["srclen"]
 
-        if left_pad:
+        if batch["left_pad"]:
             target_prefix = None
         else:
             src, src_len, target_prefix = self.split_src_to_prevent_padding(src, src_len)
@@ -134,6 +134,7 @@ class GeneratorLM(Inference):
                 None,
                 src_len=decode_strategy.src_len,
                 step=step if step == 0 else step + max(src_len.tolist()),
+                left_pad=batch["left_pad"],
             )
 
             if step == 0:
