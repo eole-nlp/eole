@@ -169,11 +169,9 @@ class RotaryPosition(nn.Module):
         rope = torch.outer(tmax, self.inv_freq)
         cos = torch.cos(rope)
         sin = torch.sin(rope)
-        # cos = torch.cat((cos, cos), dim=-1)  # Double the size by repeating `cos`
-        # sin = torch.cat((sin, sin), dim=-1)  # Double the size by repeating `sin`
+        cos = torch.cat((cos, cos), dim=-1)  # Double the size by repeating `cos`
+        sin = torch.cat((sin, sin), dim=-1)  # Double the size by repeating `sin`
 
-        cos = torch.tile(cos, (1, 2))
-        sin = torch.tile(sin, (1, 2))
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
         return cos, sin

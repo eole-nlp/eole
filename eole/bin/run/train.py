@@ -24,6 +24,11 @@ def train(config):
     config._validate_vocab_config()
     init_logger(config.log_file)
     set_random_seed(config.seed, False)
+    # Allow only Memory Efficient path for sdpa
+    torch.backends.cuda.enable_mem_efficient_sdp(True)
+    torch.backends.cuda.enable_flash_sdp(False)
+    torch.backends.cuda.enable_math_sdp(False)
+    torch.backends.cuda.enable_cudnn_sdp(False)
 
     train_process = partial(single_main)
 

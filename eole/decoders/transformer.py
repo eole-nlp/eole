@@ -238,8 +238,8 @@ class TransformerDecoder(DecoderBase):
         if self.sliding_window > 0:
             future_mask = future_mask.triu_(-self.sliding_window)
         attn_mask = ~tgt_pad_mask & future_mask.unsqueeze(0)
-        attn_mask = attn_mask.unsqueeze(1)
-        attn_mask = attn_mask.expand(-1, -1, attn_mask.size(3), -1)
+        attn_mask = attn_mask.unsqueeze(1)  # (batch x 1 x 1 x tgt_len)
+        # dim 1 (heads) and 2 (tgt_len) will be broadcasted automatically in MHA
         return attn_mask
 
     def forward(self, emb, **kwargs):
@@ -269,6 +269,8 @@ class TransformerDecoder(DecoderBase):
         src_pad_mask = kwargs.pop("src_pad_mask", None)
         if self.with_cross_attn:
             assert src_pad_mask is not None, "TransformerDecoder requires a src pad mask"
+            src_pad_mask = src_pad_mask.unsqueeze(1)  # (batch x 1 x 1 x src_len)
+            # dim 1 (heads) and 2 (tgt_len) will be broadcasted automatically in MHA
         left_pad = kwargs.pop("left_pad", False)
         step = kwargs.pop("step", None)
         with_align = kwargs.pop("with_align", False)
@@ -282,10 +284,6 @@ class TransformerDecoder(DecoderBase):
         if emb.size(1) > 1:
             # training or first step decoding
             attn_mask = self._causal_attn_mask(tgt_pad_mask)
-            if self.with_cross_attn:
-                src_pad_mask = src_pad_mask.unsqueeze(1).expand(-1, -1, attn_mask.size(3), -1)
-            # mask now are (batch x 1 x tlen x s or t len)
-            # dim 1 to be broadcasted to heads in MHA
         else:
             # step by step decoding
             # we rebuild the pad mask of previous steps (left padded prompt)
@@ -295,8 +293,6 @@ class TransformerDecoder(DecoderBase):
                 attn_mask = ~pad_mask.unsqueeze(1)
             else:
                 attn_mask = None
-            if self.with_cross_attn:
-                src_pad_mask = src_pad_mask.unsqueeze(1)
 
         for layer in self.transformer_layers:
             emb, attn = layer(

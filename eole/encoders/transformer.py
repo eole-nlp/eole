@@ -126,8 +126,7 @@ class TransformerEncoder(EncoderBase):
         assert pad_mask is not None, "TransformerEncoder requires a src pad mask"
         position_embeddings = kwargs.pop("position_embeddings", None)
         pad_mask = pad_mask.unsqueeze(1)  # batch x 1 x 1 x maxlen
-        pad_mask = pad_mask.expand(-1, -1, pad_mask.size(3), -1)  # batch x 1 x maxlen x maxlen
-        # 1 to be expanded to number of heads in MHA
+        # dim 1 (heads) and 2 (src_len) will be broadcasted automatically in MHA
 
         for layer in self.transformer_layers:
             emb = layer(emb, pad_mask, position_embeddings=position_embeddings)

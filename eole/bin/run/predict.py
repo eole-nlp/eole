@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import torch
 from eole.inference_engine import InferenceEnginePY, InferenceEngineCT2
 from eole.constants import ModelType
 from argparse import ArgumentParser
@@ -36,6 +37,10 @@ def predict(config):
 class Predict(RunBin):
     config_class = PredictConfig
     require_config = False
+    torch.backends.cuda.enable_mem_efficient_sdp(True)
+    torch.backends.cuda.enable_flash_sdp(False)
+    torch.backends.cuda.enable_math_sdp(False)
+    torch.backends.cuda.enable_cudnn_sdp(False)
 
     @classmethod
     def run(cls, args):
