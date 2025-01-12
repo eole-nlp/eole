@@ -7,30 +7,23 @@ import string
 
 
 class InlineTagsConfig(TransformConfig):
-    tags_dictionary_path: str | None = Field(
-        default=None, description="Path to a flat term dictionary."
-    )
-    tags_corpus_ratio: float | None = Field(
-        default=0.1, description="Ratio of corpus to augment with tags."
-    )
+    tags_dictionary_path: str | None = Field(default=None, description="Path to a flat term dictionary.")
+    tags_corpus_ratio: float | None = Field(default=0.1, description="Ratio of corpus to augment with tags.")
     max_tags: int | None = Field(
         default=12,
         description="Maximum number of tags that " "can be added to a single sentence.",
     )
     paired_stag: str | None = Field(
         default="｟ph_#_beg｠",
-        description="The format of an opening paired inline tag. "
-        "Must include the character #.",
+        description="The format of an opening paired inline tag. " "Must include the character #.",
     )
     paired_etag: str | None = Field(
         default="｟ph_#_end｠",
-        description="The format of a closing paired inline tag. "
-        "Must include the character #.",
+        description="The format of a closing paired inline tag. " "Must include the character #.",
     )
     isolated_tag: str | None = Field(
         default="｟ph_#_std｠",
-        description="The format of an isolated inline tag. "
-        "Must include the character #.",
+        description="The format of an isolated inline tag. " "Must include the character #.",
     )
     src_delimiter: str | None = Field(
         default="｟fuzzy｠",
@@ -63,18 +56,10 @@ class InlineTagger(object):
         self.max_tags = max_tags
         self.tag_corpus_ratio = tag_corpus_ratio
         self.src_delimiter = src_delimiter
-        self.internal_dictionary = self._create_internal_dictionary(
-            tags_dictionary_path
-        )
-        self.paired_stag_prefix, self.paired_stag_suffix = map(
-            str, paired_start_tag.split("#")
-        )
-        self.paired_etag_prefix, self.paired_etag_suffix = map(
-            str, paired_end_tag.split("#")
-        )
-        self.isolated_tag_prefix, self.isolated_tag_suffix = map(
-            str, isolated_tag.split("#")
-        )
+        self.internal_dictionary = self._create_internal_dictionary(tags_dictionary_path)
+        self.paired_stag_prefix, self.paired_stag_suffix = map(str, paired_start_tag.split("#"))
+        self.paired_etag_prefix, self.paired_etag_suffix = map(str, paired_end_tag.split("#"))
+        self.isolated_tag_prefix, self.isolated_tag_suffix = map(str, isolated_tag.split("#"))
 
         self.automaton = self._create_automaton()
 
@@ -104,9 +89,7 @@ class InlineTagger(object):
         maybe_augmented = src_example.split(self.src_delimiter)
         source_only = maybe_augmented[0].strip()
 
-        augmented_part = (
-            maybe_augmented[1].strip() if len(maybe_augmented) > 1 else None
-        )
+        augmented_part = maybe_augmented[1].strip() if len(maybe_augmented) > 1 else None
 
         tokenized_source_string = source_only.split(" ")
         tokenized_target_string = tgt_example.split(" ")
@@ -121,12 +104,8 @@ class InlineTagger(object):
         # This way we cover most scenarios met in real usage and
         # the system will learn to handle a fairly large number of
         # numbered tags (but not an excessively large number)
-        paired_tag_start_num = random.choices(
-            range(1, self.max_tags + 1), weights=range(self.max_tags, 0, -1), k=1
-        )[0]
-        single_tag_start_num = random.choices(
-            range(1, self.max_tags + 1), weights=range(self.max_tags, 0, -1), k=1
-        )[0]
+        paired_tag_start_num = random.choices(range(1, self.max_tags + 1), weights=range(self.max_tags, 0, -1), k=1)[0]
+        single_tag_start_num = random.choices(range(1, self.max_tags + 1), weights=range(self.max_tags, 0, -1), k=1)[0]
 
         is_match = False
         tag_counter = 0
@@ -146,14 +125,10 @@ class InlineTagger(object):
                 or (
                     len(source_only) != src_match_end + 1
                     and not (
-                        source_only[src_match_end + 1].isspace()
-                        or source_only[src_match_end + 1] in string.punctuation
+                        source_only[src_match_end + 1].isspace() or source_only[src_match_end + 1] in string.punctuation
                     )
                 )
-                or (
-                    not source_only[src_match_start - 1].isspace()
-                    and src_match_start != 0
-                )
+                or (not source_only[src_match_start - 1].isspace() and src_match_start != 0)
             ):
                 continue
             else:
@@ -173,16 +148,8 @@ class InlineTagger(object):
                     else:
                         target_index += len(w) + 1
 
-                src_term = " ".join(
-                    tokenized_source_string[
-                        source_index : source_index + len(pair[0].split(" "))
-                    ]
-                )
-                tgt_term = " ".join(
-                    tokenized_target_string[
-                        target_index : target_index + len(pair[1].split(" "))
-                    ]
-                )
+                src_term = " ".join(tokenized_source_string[source_index : source_index + len(pair[0].split(" "))])
+                tgt_term = " ".join(tokenized_target_string[target_index : target_index + len(pair[1].split(" "))])
 
                 # Create all possible tag forms. We inject a special
                 # unicode char (∥) as a placeholder for whitespace in order
@@ -217,9 +184,7 @@ class InlineTagger(object):
                 # Make a weighted choice between paired tags or single tags.
                 # We usually encounter, and thus here we favor, paired tags
                 # with a ratio 1/3.
-                choice = random.choices(
-                    [src_single_tags, src_paired_tags], weights=(1, 3), k=1
-                )
+                choice = random.choices([src_single_tags, src_paired_tags], weights=(1, 3), k=1)
 
                 src_with_tags.append(choice[0])
                 src_offset = src_match_end + 1
@@ -236,9 +201,7 @@ class InlineTagger(object):
                 is_match = True
         if is_match:
             if augmented_part is not None:
-                src_with_tags.append(
-                    source_only[src_offset:] + self.src_delimiter + augmented_part
-                )
+                src_with_tags.append(source_only[src_offset:] + self.src_delimiter + augmented_part)
             else:
                 src_with_tags.append(source_only[src_offset:])
 
@@ -272,20 +235,14 @@ class InlineTagsTransform(Transform):
 
         # Check if the tags include the
         # mandatory "#" number placeholder"
-        if (
-            "#" not in config.paired_stag
-            or "#" not in config.paired_etag
-            or "#" not in config.isolated_tag
-        ):
+        if "#" not in config.paired_stag or "#" not in config.paired_etag or "#" not in config.isolated_tag:
             logger.error("Inline tags must include the number " 'placeholder "#"')
 
         # We split the user-defined tags in the # placeholder
         # in order to number them
         paired_stag_prefix, paired_stag_suffix = map(str, config.paired_stag.split("#"))
         paired_etag_prefix, paired_etag_suffix = map(str, config.paired_etag.split("#"))
-        isolated_tag_prefix, isolated_tag_suffix = map(
-            str, config.isolated_tag.split("#")
-        )
+        isolated_tag_prefix, isolated_tag_suffix = map(str, config.isolated_tag.split("#"))
 
         src_specials, tgt_specials = list(), list()
         tags = list()
@@ -329,9 +286,7 @@ class InlineTagsTransform(Transform):
                 original_src = ex["src"]
                 original_tgt = ex["tgt"]
                 augmented_example, is_match = self.apply(ex, is_train, stats, **kwargs)
-                if is_match and (
-                    examples_with_tags < bucket_size * self.tags_corpus_ratio
-                ):
+                if is_match and (examples_with_tags < bucket_size * self.tags_corpus_ratio):
                     examples_with_tags += 1
                     ex["src"] = augmented_example["src"]
                     ex["tgt"] = augmented_example["tgt"]
@@ -345,9 +300,7 @@ class InlineTagsTransform(Transform):
     def apply(self, example, is_train=False, stats=None, **kwargs) -> tuple:
         """Add tags (placeholders) to source and target segments."""
 
-        src_tgt_pair, is_match = self.tagger._tagged_src_tgt(
-            " ".join(example["src"]), " ".join(example["tgt"])
-        )
+        src_tgt_pair, is_match = self.tagger._tagged_src_tgt(" ".join(example["src"]), " ".join(example["tgt"]))
         example["src"] = src_tgt_pair[0]
         example["tgt"] = src_tgt_pair[1]
 

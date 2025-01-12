@@ -10,9 +10,7 @@ class GlobalScorerStub(object):
 
     def __init__(self):
         self.length_penalty = lambda x, alpha: 1.0
-        self.cov_penalty = lambda cov, beta: torch.zeros(
-            (1, cov.shape[-2]), device=cov.device, dtype=torch.float
-        )
+        self.cov_penalty = lambda cov, beta: torch.zeros((1, cov.shape[-2]), device=cov.device, dtype=torch.float)
         self.has_cov_pen = False
         self.has_len_pen = False
 
@@ -80,12 +78,7 @@ class TestGreedySearch(unittest.TestCase):
                 elif i == min_length:
                     # now batch 0 has ended and no others have
                     self.assertTrue(all(samp.is_finished_list[0][:]))
-                    self.assertTrue(
-                        all(
-                            all([not x for x in sublist])
-                            for sublist in samp.is_finished_list[1:][1:]
-                        )
-                    )
+                    self.assertTrue(all(all([not x for x in sublist]) for sublist in samp.is_finished_list[1:][1:]))
                 else:  # i > min_length
                     break
 
@@ -94,9 +87,7 @@ class TestGreedySearch(unittest.TestCase):
             for temp in [1.0, 3.0]:
                 n_words = 100
                 _non_eos_idxs = [47, 51, 13, 88, 99]
-                valid_score_dist_1 = torch.log_softmax(
-                    torch.tensor([6.0, 5.0, 4.0, 3.0, 2.0, 1.0]), dim=0
-                )
+                valid_score_dist_1 = torch.log_softmax(torch.tensor([6.0, 5.0, 4.0, 3.0, 2.0, 1.0]), dim=0)
                 valid_score_dist_2 = torch.log_softmax(torch.tensor([6.0, 1.0]), dim=0)
                 eos_idx = 2
                 lengths = torch.randint(0, 30, (batch_sz,))
@@ -181,9 +172,7 @@ class TestGreedySearch(unittest.TestCase):
             for temp in [1.0, 3.0]:
                 n_words = 100
                 _non_eos_idxs = [47, 51, 13, 88, 99]
-                valid_score_dist_1 = torch.log_softmax(
-                    torch.tensor([6.0, 5.0, 4.0, 3.0, 2.0, 1.0]), dim=0
-                )
+                valid_score_dist_1 = torch.log_softmax(torch.tensor([6.0, 5.0, 4.0, 3.0, 2.0, 1.0]), dim=0)
                 valid_score_dist_2 = torch.log_softmax(torch.tensor([6.0, 1.0]), dim=0)
                 eos_idx = 2
                 lengths = torch.randint(0, 30, (batch_sz,))
@@ -266,9 +255,7 @@ class TestGreedySearch(unittest.TestCase):
                 # step 3
                 i = 2
                 for _ in range(250):
-                    word_probs = torch.full(
-                        (samp.alive_seq.shape[0], n_words), -float("inf")
-                    )
+                    word_probs = torch.full((samp.alive_seq.shape[0], n_words), -float("inf"))
                     # everything dies
                     word_probs[:, eos_idx] = 0
 
@@ -294,9 +281,7 @@ class TestGreedySearch(unittest.TestCase):
                 print(batch_sz, temp)
                 n_words = 100
                 _non_eos_idxs = [47, 51, 13, 88, 99]
-                valid_score_dist_1 = torch.log_softmax(
-                    torch.tensor([6.0, 5.0, 4.0, 3.0, 2.0, 1.0]), dim=0
-                )
+                valid_score_dist_1 = torch.log_softmax(torch.tensor([6.0, 5.0, 4.0, 3.0, 2.0, 1.0]), dim=0)
                 valid_score_dist_2 = torch.log_softmax(torch.tensor([6.0, 1.0]), dim=0)
                 eos_idx = 2
                 lengths = torch.randint(0, 30, (batch_sz,))
@@ -325,9 +310,7 @@ class TestGreedySearch(unittest.TestCase):
                 # finish one beam
                 i = 0
                 for _ in range(100):
-                    word_probs = torch.full(
-                        (batch_sz * beam_size, n_words), -float("inf")
-                    )
+                    word_probs = torch.full((batch_sz * beam_size, n_words), -float("inf"))
 
                     word_probs[beam_size - 2, eos_idx] = valid_score_dist_1[0]
                     # include at least one prediction OTHER than EOS
@@ -339,12 +322,7 @@ class TestGreedySearch(unittest.TestCase):
                     attns = torch.randn(1, batch_sz, 53)
                     samp.advance(word_probs, attns)
                     if all(samp.is_finished_list[beam_size - 2]):
-                        self.assertFalse(
-                            any(
-                                any(sublist)
-                                for sublist in samp.is_finished_list[: beam_size - 2]
-                            )
-                        )
+                        self.assertFalse(any(any(sublist) for sublist in samp.is_finished_list[: beam_size - 2]))
                         self.assertFalse(any(samp.is_finished_list[beam_size - 2 + 1]))
                         break
                 else:
@@ -354,27 +332,17 @@ class TestGreedySearch(unittest.TestCase):
                         "the range of the for-loop."
                     )
                 samp.update_finished()
-                self.assertEqual(
-                    [samp.topk_scores[beam_size - 2]], [valid_score_dist_1[0] / temp]
-                )
+                self.assertEqual([samp.topk_scores[beam_size - 2]], [valid_score_dist_1[0] / temp])
 
                 # step 2
                 # finish example in last batch
                 i = 1
                 for _ in range(100):
-                    word_probs = torch.full(
-                        (batch_sz * beam_size - 1, n_words), -float("inf")
-                    )
+                    word_probs = torch.full((batch_sz * beam_size - 1, n_words), -float("inf"))
                     # (old) batch 8 dies on step 1
-                    word_probs[
-                        (batch_sz - 1) * beam_size + 7, eos_idx
-                    ] = valid_score_dist_2[0]
-                    word_probs[
-                        : (batch_sz - 1) * beam_size + 7, _non_eos_idxs[:2]
-                    ] = valid_score_dist_2
-                    word_probs[
-                        (batch_sz - 1) * beam_size + 8 :, _non_eos_idxs[:2]
-                    ] = valid_score_dist_2
+                    word_probs[(batch_sz - 1) * beam_size + 7, eos_idx] = valid_score_dist_2[0]
+                    word_probs[: (batch_sz - 1) * beam_size + 7, _non_eos_idxs[:2]] = valid_score_dist_2
+                    word_probs[(batch_sz - 1) * beam_size + 8 :, _non_eos_idxs[:2]] = valid_score_dist_2
 
                     attns = torch.randn(1, batch_sz, 53)
                     samp.advance(word_probs, attns)
@@ -396,9 +364,7 @@ class TestGreedySearch(unittest.TestCase):
                 # step 3
                 i = 2
                 for _ in range(250):
-                    word_probs = torch.full(
-                        (samp.alive_seq.shape[0], n_words), -float("inf")
-                    )
+                    word_probs = torch.full((samp.alive_seq.shape[0], n_words), -float("inf"))
                     # everything dies
                     word_probs[:, eos_idx] = 0
 
@@ -422,9 +388,7 @@ class TestGreedySearch(unittest.TestCase):
             for temp in [1.0, 0.3]:
                 n_words = 100
                 _non_eos_idxs = [47, 51, 13, 88, 99]
-                valid_score_dist_1 = torch.log_softmax(
-                    torch.tensor([6.0, 5.0, 4.0, 3.0, 2.0, 1.0]), dim=0
-                )
+                valid_score_dist_1 = torch.log_softmax(torch.tensor([6.0, 5.0, 4.0, 3.0, 2.0, 1.0]), dim=0)
                 valid_score_dist_2 = torch.log_softmax(torch.tensor([6.0, 1.0]), dim=0)
                 eos_idx = 2
                 lengths = torch.randint(0, 30, (batch_sz,))
@@ -510,9 +474,7 @@ class TestGreedySearch(unittest.TestCase):
                 # step 3
                 i = 2
                 for _ in range(250):
-                    word_probs = torch.full(
-                        (samp.alive_seq.shape[0], n_words), -float("inf")
-                    )
+                    word_probs = torch.full((samp.alive_seq.shape[0], n_words), -float("inf"))
                     # everything dies
                     word_probs[:, eos_idx] = 0
 

@@ -3,24 +3,18 @@ from eole.predict.inference import Inference
 from eole.constants import ModelType
 from eole.predict.greedy_search import GreedySearch
 from eole.predict.beam_search import BeamSearch
-from eole.utils.misc import sequence_mask
 
 
 class Encoder(Inference):
     @classmethod
     def validate_task(cls, task):
         if task != ModelType.ENCODER:
-            raise ValueError(
-                f"Encoder does not support task {task}."
-                f" Tasks supported: {ModelType.ENCODER}"
-            )
+            raise ValueError(f"Encoder does not support task {task}." f" Tasks supported: {ModelType.ENCODER}")
 
     def predict_batch(self, batch, attn_debug):
         """Predict a batch of sentences."""
         if self.max_length_ratio > 0:
-            max_length = int(
-                min(self.max_length, batch["src"].size(1) * self.max_length_ratio + 5)
-            )
+            max_length = int(min(self.max_length, batch["src"].size(1) * self.max_length_ratio + 5))
         else:
             max_length = self.max_length
         with torch.no_grad():
@@ -75,17 +69,13 @@ class Encoder(Inference):
         src = batch["src"]
         src_len = batch["srclen"]
         batch_size = len(batch["srclen"])
-        mask = sequence_mask(src_len)
         emb = self.model.src_emb(src)
-        enc_out, enc_final_hs = self.model.encoder(emb, mask)
+        pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)
+        enc_out, enc_final_hs = self.model.encoder(emb, pad_mask=pad_mask)
 
         if src_len is None:
-            assert not isinstance(
-                enc_out, tuple
-            ), "Ensemble decoding only supported for text data"
-            src_len = (
-                torch.Tensor(batch_size).type_as(enc_out).long().fill_(enc_out.size(1))
-            )
+            assert not isinstance(enc_out, tuple), "Ensemble decoding only supported for text data"
+            src_len = torch.Tensor(batch_size).type_as(enc_out).long().fill_(enc_out.size(1))
         return src, enc_final_hs, enc_out, src_len
 
     def _predict_batch_with_strategy(self, batch, decode_strategy):
@@ -142,16 +132,14 @@ class Encoder(Inference):
 
         return results
 
-    def _score_target(self, batch, enc_out, src_len, src_map):
+    def _score_target(self, batch, enc_out, src_len):
         tgt = batch["tgt"]
         tgt_in = tgt[:, :-1, :]
 
         log_probs, attn = self._decode_and_generate(
             tgt_in,
             enc_out,
-            batch,
             src_len=src_len,
-            src_map=src_map,
         )
 
         log_probs[:, :, self._tgt_pad_idx] = 0

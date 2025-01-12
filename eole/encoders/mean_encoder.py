@@ -1,4 +1,5 @@
 """Define a minimal encoder."""
+
 from eole.encoders.encoder import EncoderBase
 import torch
 
@@ -23,15 +24,15 @@ class MeanEncoder(EncoderBase):
         # config = opt.model.encoder  # MeanEncoderConfig
         return cls(model_config)
 
-    def forward(self, emb, mask=None):
+    def forward(self, emb, **kwargs):
         """See :func:`EncoderBase.forward()`"""
-
+        pad_mask = kwargs.pop("pad_mask", None)
         batch, _, emb_dim = emb.size()
 
-        if mask is not None:
+        if pad_mask is not None:
             # we avoid padding while mean pooling
-            mask = (~mask).float()
-            mean = torch.bmm(mask.unsqueeze(1), emb).mean(1)
+            pad_mask = (~pad_mask).float()
+            mean = torch.bmm(pad_mask, emb).mean(1)
         else:
             mean = emb.mean(1)
 

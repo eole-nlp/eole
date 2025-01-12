@@ -8,21 +8,11 @@ import time
 
 class FuzzyMatchConfig(TransformConfig):
     tm_path: str | None = Field(default=None, description="Path to a flat text TM.")
-    fuzzy_corpus_ratio: float | None = Field(
-        default=0.1, description="Ratio of corpus to augment with fuzzy matches."
-    )
-    fuzzy_threshold: float | None = Field(
-        default=70, description="The fuzzy matching threshold."
-    )
-    tm_delimiter: str | None = Field(
-        default="\t", description="The delimiter used in the flat text TM."
-    )
-    fuzzy_token: str | None = Field(
-        default="｟fuzzy｠", description="The fuzzy token to be added with the matches."
-    )
-    fuzzymatch_min_length: int | None = Field(
-        default=4, description="Min length for TM entries and examples to match."
-    )
+    fuzzy_corpus_ratio: float | None = Field(default=0.1, description="Ratio of corpus to augment with fuzzy matches.")
+    fuzzy_threshold: float | None = Field(default=70, description="The fuzzy matching threshold.")
+    tm_delimiter: str | None = Field(default="\t", description="The delimiter used in the flat text TM.")
+    fuzzy_token: str | None = Field(default="｟fuzzy｠", description="The fuzzy token to be added with the matches.")
+    fuzzymatch_min_length: int | None = Field(default=4, description="Min length for TM entries and examples to match.")
     fuzzymatch_min_length: int | None = Field(
         default=70, description="Max length for TM entries and examples to match."
     )
@@ -65,16 +55,11 @@ class FuzzyMatcher(object):
 
                 # Filter out very short or very long sentences
                 # from the TM for better performance
-                if (
-                    len(source) < self.tm_unit_min_length
-                    or len(source) > self.tm_unit_max_length
-                ):
+                if len(source) < self.tm_unit_min_length or len(source) > self.tm_unit_max_length:
                     continue
                 src_segments.append(source.strip())
                 tgt_segments.append(target.strip())
-        logger.debug(
-            f"Translation Memory size for FuzzyMatch transform: " f"{len(src_segments)}"
-        )
+        logger.debug(f"Translation Memory size for FuzzyMatch transform: " f"{len(src_segments)}")
         return [src_segments, tgt_segments]
 
     def _get_batch_matches(self, batch):
@@ -90,9 +75,7 @@ class FuzzyMatcher(object):
         # reduce memory usage.
         # Perfomance is not affected.
         chunk_size = 10000
-        mini_batches = np.array_split(
-            batch, len(batch) // chunk_size if len(batch) > chunk_size else 1
-        )
+        mini_batches = np.array_split(batch, len(batch) // chunk_size if len(batch) > chunk_size else 1)
         for mini_batch in mini_batches:
             plist = list(mini_batch)
             if fuzzy_count >= len(batch) * self.corpus_ratio:
@@ -125,9 +108,7 @@ class FuzzyMatcher(object):
             augmented.extend(plist)
 
         end = time.time()
-        logger.debug(
-            f"FuzzyMatch Transform: Added {fuzzy_count} " f"fuzzies in {end-start} secs"
-        )
+        logger.debug(f"FuzzyMatch Transform: Added {fuzzy_count} " f"fuzzies in {end-start} secs")
 
         return augmented
 

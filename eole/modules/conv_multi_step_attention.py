@@ -1,4 +1,5 @@
 """ Multi Step Attention for CNN """
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -31,9 +32,7 @@ class ConvMultiStepAttention(nn.Module):
         """Apply mask"""
         self.mask = mask
 
-    def forward(
-        self, base_target_emb, input_from_dec, encoder_out_top, encoder_out_combine
-    ):
+    def forward(self, base_target_emb, input_from_dec, encoder_out_top, encoder_out_combine):
         """
         Args:
             base_target_emb: target emb tensor

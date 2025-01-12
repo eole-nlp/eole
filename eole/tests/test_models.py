@@ -8,7 +8,6 @@ import eole
 import eole.inputters
 
 from eole.models.model import build_src_emb, build_tgt_emb, build_encoder, build_decoder
-from eole.utils.misc import sequence_mask
 from eole.config.run import TrainConfig
 from eole.config.data import Dataset
 from eole.config.models import CustomModelConfig
@@ -17,10 +16,16 @@ from eole.config.models import CustomModelConfig
 # but we can't because model building relies on some params
 # not currently in model config (dropout, freeze_word_vecs_enc, etc.)
 
+
+class NoOpPosition:
+    """A no-op position encoding callable."""
+
+    def update(self, *args, **kwargs):
+        return None
+
+
 opt = TrainConfig(
-    data={
-        "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
-    },  # actual file path (tested in validate)
+    data={"dummy": Dataset(path_src="eole/tests/data/src-train.txt")},  # actual file path (tested in validate)
     src_vocab="dummy",
     share_vocab=True,
     model=CustomModelConfig(),
@@ -32,6 +37,7 @@ class TestModel(unittest.TestCase):
         super(TestModel, self).__init__(*args, **kwargs)
         self.opt = opt
         self.opt.training.self_attn_backend = "pytorch"
+        self.rope = NoOpPosition()
 
     def get_vocabs(self):
         src_vocab = pyonmttok.build_vocab_from_tokens(
@@ -92,14 +98,10 @@ class TestModel(unittest.TestCase):
         if opt.model.decoder.decoder_type == "transformer":
             input = torch.cat([test_src, test_src], 1)
             res = emb(input)
-            compare_to = torch.zeros(
-                bsize, source_l * 2, opt.model.embeddings.src_word_vec_size
-            )
+            compare_to = torch.zeros(bsize, source_l * 2, opt.model.embeddings.src_word_vec_size)
         else:
             res = emb(test_src)
-            compare_to = torch.zeros(
-                bsize, source_l, opt.model.embeddings.src_word_vec_size
-            )
+            compare_to = torch.zeros(bsize, source_l, opt.model.embeddings.src_word_vec_size)
 
         self.assertEqual(res.size(), compare_to.size())
 
@@ -120,13 +122,12 @@ class TestModel(unittest.TestCase):
 
         test_src, test_tgt, test_length = self.get_batch(source_l=source_l, bsize=bsize)
         emb_src = embeddings(test_src)
-        mask = sequence_mask(test_length)
-        enc_out, hidden_t = enc(emb_src, mask)
+        pad_idx = embeddings.word_padding_idx
+        pad_mask = test_src.eq(pad_idx).unsqueeze(1)
+        enc_out, hidden_t = enc(emb_src, pad_mask=pad_mask)
 
         # Initialize vectors to compare size with
-        test_hid = torch.zeros(
-            opt.model.encoder.layers, bsize, opt.model.encoder.hidden_size
-        )
+        test_hid = torch.zeros(opt.model.encoder.layers, bsize, opt.model.encoder.hidden_size)
         test_out = torch.zeros(bsize, source_l, opt.model.decoder.hidden_size)
 
         # Ensure correct sizes and types
@@ -166,6 +167,7 @@ class TestModel(unittest.TestCase):
             src_emb=src_emb,
             tgt_emb=tgt_emb,
             hidden_size=opt.model.decoder.hidden_size,
+            rope=NoOpPosition(),
         )
         test_src, test_tgt, test_length = self.get_batch(source_l=source_l, bsize=bsize)
         output, attn, estim = model(test_src, test_tgt, test_length)

@@ -70,9 +70,7 @@ def evaluate(config):
     for data in iterate_examples("val"):
         total += 1
         # retrieve length of tokenized context
-        transformed_context = engine.transform_pipe.apply(
-            {"src": data["ctx"].split(" "), "tgt": None}
-        )
+        transformed_context = engine.transform_pipe.apply({"src": data["ctx"].split(" "), "tgt": None})
         context_length = len(transformed_context["src"])
         label = data["label"]
         examples = [f'{data["ctx"]} {ending}' for ending in data["endings"]]
@@ -92,10 +90,7 @@ def evaluate(config):
         pred_label_norm = norm_scores.index(max(norm_scores))
         correct += int(pred_label == label)
         correct_norm += int(pred_label_norm == label)
-        print(
-            f"{total} acc: {correct/total:.4f} "
-            f"acc_norm: {correct_norm}/{total}={correct_norm/total:.4f}"
-        )
+        print(f"{total} acc: {correct/total:.4f} " f"acc_norm: {correct_norm}/{total}={correct_norm/total:.4f}")
 
 
 @register_bin(name="eval_hellaswag")

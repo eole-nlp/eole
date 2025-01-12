@@ -10,12 +10,8 @@ import regex as re
 
 class CleanConfig(TransformConfig):
     src_eq_tgt: bool | None = Field(default=False, description="Remove ex src==tgt")
-    same_char: bool | None = Field(
-        default=False, description="Remove ex with same char more than 4 times"
-    )
-    same_word: bool | None = Field(
-        default=False, description="Remove ex with same word more than 3 times"
-    )
+    same_char: bool | None = Field(default=False, description="Remove ex with same char more than 4 times")
+    same_word: bool | None = Field(default=False, description="Remove ex with same word more than 3 times")
     scripts_ok: List[str] | None = Field(
         default=["Latin", "Common"],
         description="list of unicodata scripts accepted",
@@ -24,18 +20,10 @@ class CleanConfig(TransformConfig):
         default=[],
         description="list of unicodata scripts not accepted",
     )
-    src_tgt_ratio: float | None = Field(
-        default=2.0, description="ratio between src and tgt"
-    )
-    avg_tok_min: float | None = Field(
-        default=3.0, description="average length of tokens min"
-    )
-    avg_tok_max: float | None = Field(
-        default=20.0, description="average length of tokens max"
-    )
-    langid: List[str] | None = Field(
-        default=[], description="list of languages accepted"
-    )
+    src_tgt_ratio: float | None = Field(default=2.0, description="ratio between src and tgt")
+    avg_tok_min: float | None = Field(default=3.0, description="average length of tokens min")
+    avg_tok_max: float | None = Field(default=20.0, description="average length of tokens max")
+    langid: List[str] | None = Field(default=[], description="list of languages accepted")
 
 
 @register_transform(name="clean")
@@ -59,9 +47,7 @@ class CleanTransform(Transform):
         self.avg_tok_min = self.config.avg_tok_min
         self.avg_tok_max = self.config.avg_tok_max
         self.langid = self.config.langid
-        assert (
-            self.scripts_ok == [] or self.scripts_nok == []
-        ), "Choose either scripts to be included or excluded"
+        assert self.scripts_ok == [] or self.scripts_nok == [], "Choose either scripts to be included or excluded"
 
     # this whole logic could probably be improved
     @staticmethod
@@ -92,31 +78,20 @@ class CleanTransform(Transform):
         super().warm_up(None)
         import fasttext
 
-        self.src_eq_tgt_dict = self.get_config_dict(
-            self.full_config, "src_eq_tgt", True
-        )
+        self.src_eq_tgt_dict = self.get_config_dict(self.full_config, "src_eq_tgt", True)
         self.same_char_dict = self.get_config_dict(self.full_config, "same_char", True)
         self.same_word_dict = self.get_config_dict(self.full_config, "same_word", True)
-        self.scripts_ok_dict = self.get_config_dict(
-            self.full_config, "scripts_ok", ["Latin", "Common"]
-        )
-        self.scripts_nok_dict = self.get_config_dict(
-            self.full_config, "scripts_nok", []
-        )
-        self.src_tgt_ratio_dict = self.get_config_dict(
-            self.full_config, "src_tgt_ratio", 2
-        )
+        self.scripts_ok_dict = self.get_config_dict(self.full_config, "scripts_ok", ["Latin", "Common"])
+        self.scripts_nok_dict = self.get_config_dict(self.full_config, "scripts_nok", [])
+        self.src_tgt_ratio_dict = self.get_config_dict(self.full_config, "src_tgt_ratio", 2)
         self.avg_tok_min_dict = self.get_config_dict(self.full_config, "avg_tok_min", 3)
-        self.avg_tok_max_dict = self.get_config_dict(
-            self.full_config, "avg_tok_max", 20
-        )
+        self.avg_tok_max_dict = self.get_config_dict(self.full_config, "avg_tok_max", 20)
         self.langid_dict = self.get_config_dict(self.full_config, "langid", [])
         fasttext_loc = f"{os.path.dirname(os.path.abspath(__file__))}/lid.176.ftz"
 
         if not os.path.exists(fasttext_loc):
             urllib.request.urlretrieve(
-                "https://dl.fbaipublicfiles.com/"
-                + "fasttext/supervised-models/lid.176.ftz",
+                "https://dl.fbaipublicfiles.com/" + "fasttext/supervised-models/lid.176.ftz",
                 fasttext_loc,
             )
         self.id_func = fasttext.load_model(fasttext_loc)
@@ -133,18 +108,10 @@ class CleanTransform(Transform):
 
         for ex, _, cid in batch:
             if self.scripts_ok_dict[cid]:
-                ok_regex = (
-                    "[^"
-                    + "".join(r"\p{%s}" % sc for sc in self.scripts_ok_dict[cid])
-                    + "]"
-                )
+                ok_regex = "[^" + "".join(r"\p{%s}" % sc for sc in self.scripts_ok_dict[cid]) + "]"
 
             if self.scripts_nok_dict[cid]:
-                nok_regex = (
-                    "["
-                    + "".join(r"\p{%s}" % sc for sc in self.scripts_nok_dict[cid])
-                    + "]"
-                )
+                nok_regex = "[" + "".join(r"\p{%s}" % sc for sc in self.scripts_nok_dict[cid]) + "]"
 
             src_str = " ".join(ex["src"])
             if len(src_str) == 0:
@@ -170,10 +137,7 @@ class CleanTransform(Transform):
                 # print("Some text belong to unwanted scripts")
                 continue
 
-            if (
-                self.langid_dict[cid] != []
-                and _id(src_str) not in self.langid_dict[cid]
-            ):
+            if self.langid_dict[cid] != [] and _id(src_str) not in self.langid_dict[cid]:
                 # print("langid does not match", _id(src_str))
                 continue
 
@@ -185,13 +149,9 @@ class CleanTransform(Transform):
                 if len(tgt_str) == 0:
                     # print("tgt empty")
                     continue
-                if (len(ex["src"]) + 1) / (
-                    len(ex["tgt"]) + 1
-                ) > self.src_tgt_ratio_dict[cid] or (len(ex["src"]) + 1) / (
-                    len(ex["tgt"]) + 1
-                ) < (
-                    1 / self.src_tgt_ratio_dict[cid]
-                ):
+                if (len(ex["src"]) + 1) / (len(ex["tgt"]) + 1) > self.src_tgt_ratio_dict[cid] or (
+                    len(ex["src"]) + 1
+                ) / (len(ex["tgt"]) + 1) < (1 / self.src_tgt_ratio_dict[cid]):
                     # print("src / tgt ratio ", len(src_str) / len(tgt_str))
                     continue
                 if self.same_char_dict[cid] and re.search(r"([^0-9])\1{3}", tgt_str):
@@ -214,10 +174,7 @@ class CleanTransform(Transform):
                     # print("Some text belong to unwanted scripts")
                     continue
 
-                if (
-                    self.langid_dict[cid] != []
-                    and _id(tgt_str) not in self.langid_dict[cid]
-                ):
+                if self.langid_dict[cid] != [] and _id(tgt_str) not in self.langid_dict[cid]:
                     # print("langid does not match", _id(tgt_str))
                     continue
 

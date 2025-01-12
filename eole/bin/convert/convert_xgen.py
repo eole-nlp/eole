@@ -39,15 +39,9 @@ class XgenConverter(BaseBin):
             required=True,
             help="""Path to the model directory""",
         )
-        parser.add_argument(
-            "--vocab_file", type=str, required=True, help="""Path to the vocab file"""
-        )
-        parser.add_argument(
-            "--output", type=str, required=True, help="""Path to the model directory"""
-        )
-        parser.add_argument(
-            "--nshards", type=int, default=1, help="""Path to the model directory"""
-        )
+        parser.add_argument("--vocab_file", type=str, required=True, help="""Path to the vocab file""")
+        parser.add_argument("--output", type=str, required=True, help="""Path to the model directory""")
+        parser.add_argument("--nshards", type=int, default=1, help="""Path to the model directory""")
 
     @classmethod
     def run(cls, args):
@@ -79,16 +73,12 @@ class XgenConverter(BaseBin):
             eole_safetensor = {}
 
             if shard == 0:
-                eole_safetensor[
-                    "tgt_emb.make_embedding.emb_luts.0.weight"
-                ] = checkpoint["model.embed_tokens.weight"].to(torch.float16)
-                eole_safetensor["decoder.layer_norm.weight"] = checkpoint[
-                    "model.norm.weight"
+                eole_safetensor["tgt_emb.make_embedding.emb_luts.0.weight"] = checkpoint[
+                    "model.embed_tokens.weight"
                 ].to(torch.float16)
+                eole_safetensor["decoder.layer_norm.weight"] = checkpoint["model.norm.weight"].to(torch.float16)
 
-                eole_safetensor["generator.weight"] = checkpoint["lm_head.weight"].to(
-                    torch.float16
-                )
+                eole_safetensor["generator.weight"] = checkpoint["lm_head.weight"].to(torch.float16)
                 eole_safetensor["generator.bias"] = torch.zeros(
                     eole_safetensor["generator.weight"].size(0), dtype=torch.float16
                 )
@@ -98,87 +88,47 @@ class XgenConverter(BaseBin):
                 min(-(decoder_layers // -args.nshards) * (shard + 1), decoder_layers),
                 1,
             ):
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.linear_query.weight"
-                ] = (
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_query.weight"] = (
                     checkpoint["model.layers." + str(i) + ".self_attn.q_proj.weight"]
                     .view(heads, 2, hidden_size // heads // 2, hidden_size)
                     .transpose(1, 2)
                     .reshape(hidden_size, hidden_size)
-                ).to(
-                    torch.float16
-                )
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.linear_keys.weight"
-                ] = (
+                ).to(torch.float16)
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_keys.weight"] = (
                     checkpoint["model.layers." + str(i) + ".self_attn.k_proj.weight"]
                     .view(heads, 2, hidden_size // heads // 2, hidden_size)
                     .transpose(1, 2)
                     .reshape(hidden_size, hidden_size)
-                ).to(
-                    torch.float16
-                )
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.linear_values.weight"
-                ] = checkpoint[
-                    "model.layers." + str(i) + ".self_attn.v_proj.weight"
-                ].to(
-                    torch.float16
+                ).to(torch.float16)
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.linear_values.weight"] = (
+                    checkpoint["model.layers." + str(i) + ".self_attn.v_proj.weight"].to(torch.float16)
                 )
 
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".self_attn.final_linear.weight"
-                ] = checkpoint[
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".self_attn.final_linear.weight"] = checkpoint[
                     "model.layers." + str(i) + ".self_attn.o_proj.weight"
-                ].to(
-                    torch.float16
-                )
+                ].to(torch.float16)
 
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".layer_norm_1.weight"
-                ] = checkpoint["model.layers." + str(i) + ".input_layernorm.weight"].to(
-                    torch.float16
-                )
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".layer_norm_1.weight"] = checkpoint[
+                    "model.layers." + str(i) + ".input_layernorm.weight"
+                ].to(torch.float16)
 
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".feed_forward.w_1.weight"
-                ] = checkpoint["model.layers." + str(i) + ".mlp.gate_proj.weight"].to(
-                    torch.float16
-                )
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.w_1.weight"] = checkpoint[
+                    "model.layers." + str(i) + ".mlp.gate_proj.weight"
+                ].to(torch.float16)
 
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".feed_forward.w_2.weight"
-                ] = checkpoint["model.layers." + str(i) + ".mlp.down_proj.weight"].to(
-                    torch.float16
-                )
-                eole_safetensor[
-                    "decoder.transformer_layers." + str(i) + ".feed_forward.w_3.weight"
-                ] = checkpoint["model.layers." + str(i) + ".mlp.up_proj.weight"].to(
-                    torch.float16
-                )
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.w_2.weight"] = checkpoint[
+                    "model.layers." + str(i) + ".mlp.down_proj.weight"
+                ].to(torch.float16)
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.w_3.weight"] = checkpoint[
+                    "model.layers." + str(i) + ".mlp.up_proj.weight"
+                ].to(torch.float16)
 
-                eole_safetensor[
-                    "decoder.transformer_layers."
-                    + str(i)
-                    + ".feed_forward.layer_norm.weight"
-                ] = checkpoint[
-                    "model.layers." + str(i) + ".post_attention_layernorm.weight"
-                ].to(
-                    torch.float16
+                eole_safetensor["decoder.transformer_layers." + str(i) + ".feed_forward.layer_norm.weight"] = (
+                    checkpoint["model.layers." + str(i) + ".post_attention_layernorm.weight"].to(torch.float16)
                 )
 
             if shard == 0:
-                transformer_ff = eole_safetensor[
-                    "decoder.transformer_layers.0.feed_forward.w_1.weight"
-                ].size(0)
+                transformer_ff = eole_safetensor["decoder.transformer_layers.0.feed_forward.w_1.weight"].size(0)
                 vocab_size = eole_safetensor["generator.weight"].size(0)
             print("Saving output model shard: %d" % shard)
             save_file(
@@ -198,9 +148,7 @@ class XgenConverter(BaseBin):
         with open(os.path.join(args.output, "vocab.json"), "w", encoding="utf-8") as f:
             json.dump(vocab_dict, f, indent=2, ensure_ascii=False)
 
-        with open(
-            os.path.join(args.output, "vocab.txt"), "w", encoding="utf-8"
-        ) as vocabfile:
+        with open(os.path.join(args.output, "vocab.txt"), "w", encoding="utf-8") as vocabfile:
             for tok in vocab_dict["src"]:
                 vocabfile.write(tok + "\n")
 
@@ -222,9 +170,7 @@ class XgenConverter(BaseBin):
             vocab_size_multiple=8,
             decoder_start_token=vocabs["decoder_start_token"],
             transforms=["filtertoolong"],
-            transforms_configs={
-                "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}
-            },
+            transforms_configs={"filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512}},
             model=TransformerLMModelConfig(
                 layers=decoder_layers,
                 hidden_size=hidden_size,

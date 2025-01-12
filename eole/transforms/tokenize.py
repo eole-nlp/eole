@@ -1,4 +1,5 @@
 """Transforms relate to tokenization/subword."""
+
 import re
 from eole.utils.logging import logger
 from eole.transforms import register_transform
@@ -9,12 +10,8 @@ from pydantic import model_validator, Field
 
 
 class BaseTokenizerConfig(TransformConfig):
-    src_subword_model: str | None = Field(
-        default=None, description="Path of subword model for src (or shared)."
-    )
-    tgt_subword_model: str | None = Field(
-        default=None, description="Path of subword model for tgt."
-    )
+    src_subword_model: str | None = Field(default=None, description="Path of subword model for src (or shared).")
+    tgt_subword_model: str | None = Field(default=None, description="Path of subword model for tgt.")
 
     src_subword_nbest: int | None = Field(
         default=1,
@@ -39,35 +36,27 @@ class BaseTokenizerConfig(TransformConfig):
 
     src_subword_vocab: str | None = Field(
         default="",
-        description="Path to the vocabulary file for src subword. "
-        "Format: <word>\\t<count> per line.",
+        description="Path to the vocabulary file for src subword. " "Format: <word>\\t<count> per line.",
     )
     tgt_subword_vocab: str | None = Field(
         default="",
-        description="Path to the vocabulary file for tgt subword. "
-        "Format: <word>\\t<count> per line.",
+        description="Path to the vocabulary file for tgt subword. " "Format: <word>\\t<count> per line.",
     )
     src_vocab_threshold: int | None = Field(
         default=0,
-        description="Only produce src subword in src_subword_vocab "
-        "with frequency >= src_vocab_threshold.",
+        description="Only produce src subword in src_subword_vocab " "with frequency >= src_vocab_threshold.",
     )
     tgt_vocab_threshold: int | None = Field(
         default=0,
-        description="Only produce tgt subword in tgt_subword_vocab "
-        "with frequency >= tgt_vocab_threshold.",
+        description="Only produce tgt subword in tgt_subword_vocab " "with frequency >= tgt_vocab_threshold.",
     )
 
     @model_validator(mode="after")
     def check_values(self):
         # TODO: use numeric constraints on Field instead?
         # https://docs.pydantic.dev/latest/concepts/fields/#numeric-constraints
-        assert (
-            0 <= self.src_subword_alpha <= 1
-        ), "src_subword_alpha should be in the range [0, 1]"
-        assert (
-            0 <= self.tgt_subword_alpha <= 1
-        ), "tgt_subword_alpha should be in the range [0, 1]"
+        assert 0 <= self.src_subword_alpha <= 1, "src_subword_alpha should be in the range [0, 1]"
+        assert 0 <= self.tgt_subword_alpha <= 1, "tgt_subword_alpha should be in the range [0, 1]"
         return self
 
 
@@ -81,17 +70,13 @@ class ONMTTokenizerConfig(BaseTokenizerConfig):
     )
     src_onmttok_kwargs: dict | None = Field(
         default={"mode": "none"},
-        description="Other pyonmttok options for src in dict string, "
-        "except subword related options listed earlier.",
+        description="Other pyonmttok options for src in dict string, " "except subword related options listed earlier.",
     )
     tgt_onmttok_kwargs: dict | None = Field(
         default={"mode": "none"},
-        description="Other pyonmttok options for tgt in dict string, "
-        "except subword related options listed earlier.",
+        description="Other pyonmttok options for tgt in dict string, " "except subword related options listed earlier.",
     )
-    gpt2_pretok: bool | None = Field(
-        default=False, description="Preprocess sentence with byte-level mapping."
-    )
+    gpt2_pretok: bool | None = Field(default=False, description="Preprocess sentence with byte-level mapping.")
     mapped_tokens: List[Tuple[str, str]] | None = Field(
         default=None,
         description="Mapped tokens for placeholders preservation",
@@ -175,9 +160,7 @@ class TokenizerTransform(Transform):
         # We need to split sentence on EOS and mapped_tokens
         # to make sure sentencepiece add a joiner just after special tokens
         if getattr(self, "mapped_tokens", None) is not None:
-            delim_list = [mapped_toks[0] for mapped_toks in self.mapped_tokens] + [
-                self.eos_token
-            ]
+            delim_list = [mapped_toks[0] for mapped_toks in self.mapped_tokens] + [self.eos_token]
         else:
             delim_list = [self.eos_token]
         pattern = f"({'|'.join(map(re.escape, delim_list))})"
@@ -257,22 +240,17 @@ class SentencePieceTransform(TokenizerTransform):
         load_src_model = spm.SentencePieceProcessor()
         load_src_model.Load(self.src_subword_model)
         _diff_vocab = (
-            self.src_subword_vocab != self.tgt_subword_vocab
-            or self.src_vocab_threshold != self.tgt_vocab_threshold
+            self.src_subword_vocab != self.tgt_subword_vocab or self.src_vocab_threshold != self.tgt_vocab_threshold
         )
         if self.src_subword_vocab != "" and self.src_vocab_threshold > 0:
-            load_src_model.LoadVocabulary(
-                self.src_subword_vocab, self.src_vocab_threshold
-            )
+            load_src_model.LoadVocabulary(self.src_subword_vocab, self.src_vocab_threshold)
         if self.share_vocab and not _diff_vocab:
             self.load_models = {"src": load_src_model, "tgt": load_src_model}
         else:
             load_tgt_model = spm.SentencePieceProcessor()
             load_tgt_model.Load(self.tgt_subword_model)
             if self.tgt_subword_vocab != "" and self.tgt_vocab_threshold > 0:
-                load_tgt_model.LoadVocabulary(
-                    self.tgt_subword_vocab, self.tgt_vocab_threshold
-                )
+                load_tgt_model.LoadVocabulary(self.tgt_subword_vocab, self.tgt_vocab_threshold)
             self.load_models = {"src": load_src_model, "tgt": load_tgt_model}
 
     def tokenize_string(self, string, side="src", is_train=False):
@@ -401,19 +379,13 @@ class ONMTTokenizerTransform(TokenizerTransform):
         super()._parse_config()
         self.src_subword_type = self.config.src_subword_type
         self.tgt_subword_type = self.config.tgt_subword_type
-        logger.debug(
-            "Parsed pyonmttok kwargs for src: {}".format(self.config.src_onmttok_kwargs)
-        )
-        logger.debug(
-            "Parsed pyonmttok kwargs for tgt: {}".format(self.config.tgt_onmttok_kwargs)
-        )
+        logger.debug("Parsed pyonmttok kwargs for src: {}".format(self.config.src_onmttok_kwargs))
+        logger.debug("Parsed pyonmttok kwargs for tgt: {}".format(self.config.tgt_onmttok_kwargs))
         self.src_other_kwargs = self.config.src_onmttok_kwargs
         self.tgt_other_kwargs = self.config.tgt_onmttok_kwargs
         self.gpt2_pretok = self.config.gpt2_pretok
         self.mapped_tokens = self.config.mapped_tokens
-        self.preserve_placeholders = self.config.tgt_onmttok_kwargs.get(
-            "preserve_placeholders", False
-        )
+        self.preserve_placeholders = self.config.tgt_onmttok_kwargs.get("preserve_placeholders", False)
 
     @classmethod
     def get_specials(cls, config):
@@ -440,15 +412,9 @@ class ONMTTokenizerTransform(TokenizerTransform):
     def _get_subword_kwargs(self, side="src"):
         """Return a dict containing kwargs relate to `side` subwords."""
         subword_type = self.tgt_subword_type if side == "tgt" else self.src_subword_type
-        subword_model = (
-            self.tgt_subword_model if side == "tgt" else self.src_subword_model
-        )
-        subword_nbest = (
-            self.tgt_subword_nbest if side == "tgt" else self.src_subword_nbest
-        )
-        subword_alpha = (
-            self.tgt_subword_alpha if side == "tgt" else self.src_subword_alpha
-        )
+        subword_model = self.tgt_subword_model if side == "tgt" else self.src_subword_model
+        subword_nbest = self.tgt_subword_nbest if side == "tgt" else self.src_subword_nbest
+        subword_alpha = self.tgt_subword_alpha if side == "tgt" else self.src_subword_alpha
         kwargs = dict()
         if subword_type == "bpe":
             kwargs["bpe_model_path"] = subword_model
@@ -459,12 +425,8 @@ class ONMTTokenizerTransform(TokenizerTransform):
             kwargs["sp_alpha"] = subword_alpha
         else:
             logger.debug("No subword method will be applied.")
-        vocabulary_threshold = (
-            self.tgt_vocab_threshold if side == "tgt" else self.src_vocab_threshold
-        )
-        vocabulary_path = (
-            self.tgt_subword_vocab if side == "tgt" else self.src_subword_vocab
-        )
+        vocabulary_threshold = self.tgt_vocab_threshold if side == "tgt" else self.src_vocab_threshold
+        vocabulary_path = self.tgt_subword_vocab if side == "tgt" else self.src_subword_vocab
         if vocabulary_threshold > 0 and vocabulary_path != "":
             kwargs["vocabulary_path"] = vocabulary_path
             kwargs["vocabulary_threshold"] = vocabulary_threshold
@@ -476,24 +438,16 @@ class ONMTTokenizerTransform(TokenizerTransform):
         import pyonmttok
 
         src_subword_kwargs = self._get_subword_kwargs(side="src")
-        src_tokenizer = pyonmttok.Tokenizer(
-            **src_subword_kwargs, **self.src_other_kwargs
-        )
+        src_tokenizer = pyonmttok.Tokenizer(**src_subword_kwargs, **self.src_other_kwargs)
         tgt_subword_kwargs = self._get_subword_kwargs(side="tgt")
-        _diff_vocab = src_subword_kwargs.get(
+        _diff_vocab = src_subword_kwargs.get("vocabulary_path", "") != tgt_subword_kwargs.get(
             "vocabulary_path", ""
-        ) != tgt_subword_kwargs.get("vocabulary_path", "") or src_subword_kwargs.get(
-            "vocabulary_threshold", 0
-        ) != tgt_subword_kwargs.get(
-            "vocabulary_threshold", 0
-        )
+        ) or src_subword_kwargs.get("vocabulary_threshold", 0) != tgt_subword_kwargs.get("vocabulary_threshold", 0)
         if self.share_vocab and not _diff_vocab:
             self.load_models = {"src": src_tokenizer, "tgt": src_tokenizer}
         else:
             tgt_subword_kwargs = self._get_subword_kwargs(side="tgt")
-            tgt_tokenizer = pyonmttok.Tokenizer(
-                **tgt_subword_kwargs, **self.tgt_other_kwargs
-            )
+            tgt_tokenizer = pyonmttok.Tokenizer(**tgt_subword_kwargs, **self.tgt_other_kwargs)
             self.load_models = {"src": src_tokenizer, "tgt": tgt_tokenizer}
         if self.gpt2_pretok:
             """
@@ -525,10 +479,7 @@ class ONMTTokenizerTransform(TokenizerTransform):
                 sentence = sentence.replace(mapped_toks[0], mapped_toks[1])
 
         if self.gpt2_pretok:
-            sentence = "".join(
-                self.maptable[b]
-                for b in sentence.replace(DefaultTokens.SEP, "\n").encode("utf-8")
-            )
+            sentence = "".join(self.maptable[b] for b in sentence.replace(DefaultTokens.SEP, "\n").encode("utf-8"))
             sentence = sentence.replace("ï½Ł", "\uff5f").replace("ï½ł", "\uff60")
             segmented1 = tokenizer(sentence)
             segmented = []
@@ -538,10 +489,7 @@ class ONMTTokenizerTransform(TokenizerTransform):
                     segmented.extend(["Ċ", "Ċ"])
                 else:
                     segmented.append(s)
-        elif (
-            self.src_subword_type
-            == "sentencepiece"  # and not self.preserve_placeholders
-        ):
+        elif self.src_subword_type == "sentencepiece":  # and not self.preserve_placeholders
             sentence = sentence.replace(DefaultTokens.SEP, "\n")
             segmented = tokenizer(sentence)
         else:
@@ -555,14 +503,28 @@ class ONMTTokenizerTransform(TokenizerTransform):
 
     def _detokenize(self, tokens, side="src", is_train=False):
         """Do OpenNMT Tokenizer's detokenize."""
+
+        def hex_to_char(match):
+            # Extract all matched <0x..> sequences into a single hex string
+            hex_sequence = match.group(0)  # Entire matched string
+            # Remove `<0x` and `>` and any spaces
+            hex_values = re.findall(r"<0x([0-9A-Fa-f]{2})>", hex_sequence)
+            # Convert the hex values into a byte sequence
+            byte_sequence = bytes.fromhex("".join(hex_values))
+            # Decode the byte sequence into a UTF-8 string
+            try:
+                return byte_sequence.decode("utf-8")
+            except UnicodeDecodeError:
+                return "�"
+
         tokenizer = self.load_models[side]
         if self.gpt2_pretok:
             sentence = "".join(tokens)
-            detokenized = bytearray([self.revtable[c] for c in sentence]).decode(
-                "utf-8", errors="replace"
-            )
+            detokenized = bytearray([self.revtable[c] for c in sentence]).decode("utf-8", errors="replace")
         else:
             detokenized = tokenizer.detokenize(tokens)
+            # let's match one or more repetitions of the <0x..> pattern
+            detokenized = re.sub(r"(?:<0x[0-9A-Fa-f]{2}>\s*)+", hex_to_char, detokenized)
         return detokenized.replace("\n", DefaultTokens.SEP)
 
     def apply_reverse(self, predicted):
@@ -575,12 +537,8 @@ class ONMTTokenizerTransform(TokenizerTransform):
     def _repr_args(self):
         """Return str represent key arguments for class."""
         repr_str = "{}={}".format("share_vocab", self.share_vocab)
-        repr_str += ", src_subword_kwargs={}".format(
-            self._get_subword_kwargs(side="src")
-        )
+        repr_str += ", src_subword_kwargs={}".format(self._get_subword_kwargs(side="src"))
         repr_str += ", src_onmttok_kwargs={}".format(self.src_other_kwargs)
-        repr_str += ", tgt_subword_kwargs={}".format(
-            self._get_subword_kwargs(side="tgt")
-        )
+        repr_str += ", tgt_subword_kwargs={}".format(self._get_subword_kwargs(side="tgt"))
         repr_str += ", tgt_onmttok_kwargs={}".format(self.tgt_other_kwargs)
         return repr_str

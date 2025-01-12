@@ -159,9 +159,7 @@ class DecodeStrategy(object):
         # self.is_finished = torch.zeros(
         #    [self.batch_size, self.parallel_paths], dtype=torch.bool
         # )
-        self.is_finished_list = [
-            [False for _ in range(self.parallel_paths)] for _ in range(self.batch_size)
-        ]
+        self.is_finished_list = [[False for _ in range(self.parallel_paths)] for _ in range(self.batch_size)]
 
         if target_prefix is not None:
             batch_size, seq_len = target_prefix.size()
@@ -196,8 +194,7 @@ class DecodeStrategy(object):
         if len(self) == self.max_length + 1:
             # print("max length reached", self.max_length)  # for debug
             self.is_finished_list = [
-                [True for _ in range(self.parallel_paths)]
-                for _ in range(len(self.is_finished_list))
+                [True for _ in range(self.parallel_paths)] for _ in range(len(self.is_finished_list))
             ]
 
     def block_ngram_repeats(self, log_probs):
@@ -279,16 +276,8 @@ class DecodeStrategy(object):
         step = len(self)
         if self.target_prefix is not None and step <= self.target_prefix.size(1):
             pick_idx = self.target_prefix[:, step - 1].tolist()  # (B)
-            pick_coo = [
-                [path_i, pick]
-                for path_i, pick in enumerate(pick_idx)
-                if pick not in [*self.eos, self.pad]
-            ]
-            mask_pathid = [
-                path_i
-                for path_i, pick in enumerate(pick_idx)
-                if pick in [*self.eos, self.pad]
-            ]
+            pick_coo = [[path_i, pick] for path_i, pick in enumerate(pick_idx) if pick not in [*self.eos, self.pad]]
+            mask_pathid = [path_i for path_i, pick in enumerate(pick_idx) if pick in [*self.eos, self.pad]]
             if len(pick_coo) > 0:
                 pick_coo = torch.tensor(pick_coo).to(self.target_prefix)
                 pick_fill_value = torch.ones([pick_coo.size(0)], dtype=log_probs.dtype)

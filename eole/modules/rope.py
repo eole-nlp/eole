@@ -42,14 +42,19 @@ class RotaryPosition(nn.Module):
             rotary_dim = model_config.rope_config.rotary_dim
         self.rotary_interleave = model_config.rope_config.rotary_interleave
         self.rotary_theta = model_config.rope_config.rotary_theta
-        self.inv_freq = 1.0 / (
-            self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim)
-        )
+        inv_freq = 1.0 / (self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
         # TODO: extend with other scaling types
         if getattr(self.model_config.rope_config, "scaling_type", None) == "llama3":
             self.llama3_scaling()
-        # cache rope tensor to limit unnecessary computations
-        self.rope = None
+        tmax = torch.arange(1024)
+        rope = torch.outer(tmax, inv_freq)
+        cos = torch.cos(rope)
+        sin = torch.sin(rope)
+        cos = torch.cat((cos, cos), dim=-1)  # Double the size by repeating `cos`
+        sin = torch.cat((sin, sin), dim=-1)  # Double the size by repeating `sin`
+        self.register_buffer("cos", cos, persistent=False)
+        self.register_buffer("sin", sin, persistent=False)
 
     def llama3_scaling(self):
         """
@@ -66,43 +71,29 @@ class RotaryPosition(nn.Module):
         """
         rope_config = self.model_config.rope_config
         factor = rope_config.scaling_factor  # `8` in the original implementation
-        low_freq_factor = (
-            rope_config.low_freq_factor
-        )  # `1` in the original implementation
-        high_freq_factor = (
-            rope_config.high_freq_factor
-        )  # `4` in the original implementation
-        old_context_len = (
-            rope_config.original_max_position_embeddings
-        )  # `8192` in the original implementation
+        low_freq_factor = rope_config.low_freq_factor  # `1` in the original implementation
+        high_freq_factor = rope_config.high_freq_factor  # `4` in the original implementation
+        old_context_len = rope_config.original_max_position_embeddings  # `8192` in the original implementation
 
         low_freq_wavelen = old_context_len / low_freq_factor
         high_freq_wavelen = old_context_len / high_freq_factor
 
         wavelen = 2 * math.pi / self.inv_freq
-        inv_freq_llama = torch.where(
-            wavelen > low_freq_wavelen, self.inv_freq / factor, self.inv_freq
-        )
+        inv_freq_llama = torch.where(wavelen > low_freq_wavelen, self.inv_freq / factor, self.inv_freq)
 
-        smooth_factor = (old_context_len / wavelen - low_freq_factor) / (
-            high_freq_factor - low_freq_factor
-        )
-        smoothed_inv_freq = (
-            1 - smooth_factor
-        ) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
+        smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor)
+        smoothed_inv_freq = (1 - smooth_factor) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
         inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
-        self.inv_freq = inv_freq_llama
+        self.register_buffer("inv_freq", inv_freq_llama, persistent=False)
 
-    def forward(self, emb, step=0, device=None, prefetch=1024):
+    def update(self, maxseqlen, step=0, prefetch=1024):
         """
         Computes the rotary position embeddings for a given input.
 
         Args:
-            emb: The input embeddings to which rotary embeddings will be applied.
+            maxseqlen: max seq length of the input embeddings.
             step: The current step or position within the sequence. Defaults to 0.
-            device: The device on which the computations should be performed.
-                    If None, defaults to the device of `self.inv_freq`.
             offset: An optional offset to apply to the position indices.
                     This is used for the specific `flash_attn_with_kvcache` path,
                     which requires processes by chunks of 32 tokens. Defaults to 0.
@@ -118,27 +109,20 @@ class RotaryPosition(nn.Module):
         """
         if step is None:
             step = 0
-        maxseqlen = emb.size(1)
-        offset = (
-            32  # make sure we have at least 32 positions for flash_attn_with_kvcache
-        )
+        offset = 32  # make sure we have at least 32 positions for flash_attn_with_kvcache
         # This could probably a bit cleaner/homogenized with the offset case
-        if self.rope is not None:
-            if self.rope.size(0) >= max(offset + step, 0) + maxseqlen:
-                return self.rope
-            else:
-                maxseqlen = maxseqlen + prefetch
-        tmax = torch.arange(
-            max(offset + step, 0) + maxseqlen, device=self.inv_freq.device
-        )
-        rope = torch.outer(tmax, self.inv_freq).float()
-        # rope is now matrix [maxseqlen, dim/2]
-        rope = torch.polar(torch.ones_like(rope), rope)
-        rope = torch.cat((rope, rope), dim=1)
-        if device is not None:
-            rope = rope.to(device)
-        # cos = rope[:, : rope.size(1) // 2].real.contiguous().half()
-        # sin = rope[:, : rope.size(1) // 2].imag.contiguous().half()
-        # return rope, cos, sin
-        self.rope = rope
-        return rope
+        if self.cos.size(0) >= max(offset + step, 0) + maxseqlen:
+            return self.cos, self.sin
+        else:
+            maxseqlen = maxseqlen + prefetch
+
+        tmax = torch.arange(max(offset + step, 0) + maxseqlen, device=self.inv_freq.device)
+        rope = torch.outer(tmax, self.inv_freq)
+        cos = torch.cos(rope)
+        sin = torch.sin(rope)
+        cos = torch.cat((cos, cos), dim=-1)  # Double the size by repeating `cos`
+        sin = torch.cat((sin, sin), dim=-1)  # Double the size by repeating `sin`
+
+        self.register_buffer("cos", cos, persistent=False)
+        self.register_buffer("sin", sin, persistent=False)
+        return cos, sin

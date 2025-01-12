@@ -2,15 +2,21 @@
 
 [![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://eole-nlp.github.io/eole)
 
-Open language modeling toolkit based on [PyTorch](https://pytorch.org).
+Open language modeling toolkit based on [PyTorch](https://pytorch.org) initially spun-off of OpenNMT-py
 
-## 👷‍♂️🚧 Work in Progress
+We aim to maintain the research-friendly approach of the original project while including latest architectures (LLMs) and various other techniques.
+Our goal is to provide a comprehensive yet compact and modular codebase for experimenting with various types of language models (encoder, decoder, seq2seq).
 
-[EOLE](https://github.com/eole-nlp/eole) is a spin-off of the [OpenNMT-py](https://github.com/opennmt/opennmt-py) project. We aim to maintain the research-friendly approach of the original project while updating the structure and expanding it to include new topics related to large language models (LLMs) and various other techniques. Our goal is to provide a comprehensive yet compact and modular codebase for experimenting with various types of language models (encoder, decoder, seq2seq).
+## Latest developments
 
----
+- **Web-based (Google translator-like) interface** featuring the latest EuroLLM-8B-Instruct LLM: read more [here](https://github.com/eole-nlp/eole/tree/main/recipes/eurollm)
+- **Estimator layer** which enables to rescore multiple beams in the same model. Read article [here](https://medium.com/p/05b00b271a47) and [here](https://medium.com/p/7dccfe167814)
+- **Support Hugging Face Tokenizers** for better compatiblity
+- **New recipes** for TowerInstruct-llama2 and TowerInstruct-Mistral
+- **Support latest models** for Llama3.1, Gemma2, Pixtral
+- **Replicate CometKiwi(XL/XXL)** Encoder+Estimator models
 
-### Current State
+## Work completed
 
 We have made significant progress in several areas:
 
@@ -18,14 +24,13 @@ We have made significant progress in several areas:
 - **Command Line Entry Points**: Improved using structured subparsers for better organization.
 - **Reproducible Recipes**: Provided for widely used models and tasks, ensuring consistency and reliability.
 - **Core API Simplification**: Refined around the new configuration objects for ease of use.
+- **Revamped Fast API based server**: see above example with EuroLLM-9B-Instruct
 
 ### Future Directions
 
 There are still several exciting avenues to explore:
 
 - **Further Simplification and Refactoring**: Continue enhancing the codebase for clarity and efficiency.
-- **Inference Server**: Develop a robust solution for model inference.
-- **Additional Recipes**: Expand the library of reproducible recipes.
 - **Documentation**: Enhance and expand the documentation for better user guidance.
 - **Test Coverage**: Improve testing to ensure code reliability and performance.
 - **Logging Enhancements**: Implement more sophisticated logging mechanisms.
@@ -37,7 +42,7 @@ There are still several exciting avenues to explore:
 
 - **Versatile Training and Inference**: Train from scratch, finetune, and infer models of various architectures including Transformer Encoder/Decoder/EncoderDecoder and RNN EncoderDecoder.
 - **Dynamic Data Transforms**: Apply on-the-fly transformations in the dataloading logic for both training and inference.
-- **Comprehensive LLM Support**: Includes converters for Llama, Mistral, Phi, OpenLlama, Redpajama, MPT-7B, and Falcon models.
+- **Comprehensive LLM Support**: Includes converters for Llama, Mistral, Phi, Gemma ...
 - **Advanced Quantization**: Support for 8-bit and 4-bit quantization, along with LoRA adapters, with or without checkpointing, as well as mixed precision (FP16).
 - **Efficient Finetuning**: Finetune 7B and 13B models on a single RTX 24GB GPU using 4-bit quantization.
 - **Flexible Inference**: Perform inference in 4-bit or 8-bit using the same layer quantization methods as in finetuning.
@@ -53,16 +58,15 @@ To facilitate setup and reproducibility, we provide Docker images via the GitHub
 
 You can customize the workflow and build your own images based on specific needs using `build.sh` and `Dockerfile` in the `docker` directory of the repository.
 
-There are two images with CUDA 11.8 and 12.1 prebuilt, change the -cudaXX.X to your desired version when pulling the Docker images
 
 To pull the Docker image:
 ```bash
-docker pull ghcr.io/eole-nlp/eole:0.0.2-torch2.3.0-ubuntu22.04-cuda12.1
+docker pull ghcr.io/eole-nlp/eole:0.0.3-torch2.5.1-ubuntu22.04-cuda12.4
 ```
 
 Example one-liner to run a container and open a bash shell within it:
 ```bash
-docker run --rm -it --runtime=nvidia ghcr.io/eole-nlp/eole:0.0.2-torch2.3.0-ubuntu22.04-cuda12.1
+docker run --rm -it --runtime=nvidia ghcr.io/eole-nlp/eole:0.0.3-torch2.5.1-ubuntu22.04-cuda12.4
 ```
 
 > **Note**: Ensure you have the [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (formerly nvidia-docker) installed to take advantage of CUDA/GPU features.
@@ -77,7 +81,7 @@ Depending on your needs, you can add various flags:
 #### Requirements
 
 - Python >= 3.10
-- PyTorch >= 2.3 < 2.4
+- PyTorch >= 2.5 < 2.6
 
 #### Installation from Source
 

@@ -1,4 +1,5 @@
 """Define constant values used across the project."""
+
 from enum import Enum
 import torch
 from eole.modules.rmsnorm import RMSNorm

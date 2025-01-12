@@ -31,9 +31,7 @@ class TransformerDecoderLayerBase(nn.Module):
         self.alignment_heads = model_config.alignment_heads
         self.sliding_window = model_config.sliding_window
 
-        self.input_layernorm = LayerNorm[model_config.layer_norm](
-            model_config.hidden_size, eps=model_config.norm_eps
-        )
+        self.input_layernorm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
         self.self_attn = SelfMHA(
             model_config,
             running_config=running_config,
@@ -98,30 +96,21 @@ class TransformerDecoderLayerBase(nn.Module):
     def _forward(self, *args, **kwargs):
         raise NotImplementedError
 
-    def _compute_dec_mask(self, tgt_pad_mask, future):
+    def _compute_attn_mask(self, tgt_pad_mask, future):
         tgt_len = tgt_pad_mask.size(-1)
         if not future:
             # Add triangular future_mask and pad_mask, result mask in (B, T, T).
-            future_mask = torch.ones(
-                [tgt_len, tgt_len],
-                device=tgt_pad_mask.device,
-                dtype=torch.uint8,
+            future_mask = torch.tril(
+                torch.ones((tgt_len, tgt_len), device=tgt_pad_mask.device, dtype=torch.bool),
+                diagonal=0,
             )
-            future_mask = future_mask.tril_(0)
             if self.sliding_window > 0:
                 future_mask = future_mask.triu_(-self.sliding_window)
-            future_mask = future_mask.bool()
-            future_mask = ~future_mask.view(1, tgt_len, tgt_len)
-            # Patch for scaled dot product attention.
-            patch_mask = ~torch.all(
-                tgt_pad_mask + future_mask, dim=2, keepdim=True
-            ).expand_as(tgt_pad_mask + future_mask)
-            dec_mask = torch.gt(tgt_pad_mask + future_mask, 0)
-            dec_mask = torch.logical_and(dec_mask, patch_mask)
+            attn_mask = ~tgt_pad_mask & future_mask.unsqueeze(0)
         else:
             # Only mask padding, result mask in (B, 1, T).
-            dec_mask = tgt_pad_mask
-        return dec_mask
+            attn_mask = ~tgt_pad_mask
+        return attn_mask
 
 
 class TransformerDecoderBase(DecoderBase):

@@ -10,9 +10,7 @@ class TestEvents:
         self.scalars = {}
         self.scalars["train"] = [("progress/" + stat) for stat in stats]
         self.scalars["valid"] = [("valid/" + stat) for stat in stats]
-        self.scalars["valid_metrics"] = self.scalars["valid"] + [
-            ("valid/" + metric) for metric in metrics
-        ]
+        self.scalars["valid_metrics"] = self.scalars["valid"] + [("valid/" + metric) for metric in metrics]
 
     def reload_events(self, path):
         ea = event_accumulator.EventAccumulator(
@@ -47,5 +45,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     test_event = TestEvents()
     scalars = test_event.scalars[args.tensorboard_checks]
-    print("looking for scalars: ", scalars)
+    print("looking for scalars: ", scalars, end=" ")
     test_event.check_scalars(scalars, args.logdir)

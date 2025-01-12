@@ -1,4 +1,5 @@
 """Here come the tests for implemented transform."""
+
 import unittest
 
 import copy
@@ -37,9 +38,7 @@ class TestTransform(unittest.TestCase):
         transforms_cls = get_transforms_cls(["bart", "switchout"])
         # opt = Namespace(seed=-1, switchout_temperature=1.0)
         opt = TrainConfig(
-            data={
-                "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
-            },  # actual file path (tested in validate)
+            data={"dummy": Dataset(path_src="eole/tests/data/src-train.txt")},  # actual file path (tested in validate)
             src_vocab="dummy",
             share_vocab=True,
             seed=-1,
@@ -69,9 +68,7 @@ class TestTransform(unittest.TestCase):
         """
         )
         # opt = Namespace(data=corpora)
-        opt = TrainConfig(
-            data=corpora, src_vocab="dummy", share_vocab=True, model=CustomModelConfig()
-        )
+        opt = TrainConfig(data=corpora, src_vocab="dummy", share_vocab=True, model=CustomModelConfig())
         specials = get_specials(opt, transforms_cls)
         specials_expected = {"src": ["｟_pf_src｠"], "tgt": ["｟_pf_tgt｠"]}
         self.assertEqual(specials, specials_expected)
@@ -104,14 +101,10 @@ class TestTransform(unittest.TestCase):
         filter_cls = get_transforms_cls(["filtertoolong"])["filtertoolong"]
         # opt = Namespace(src_seq_length=4, tgt_seq_length=4)
         opt = TrainConfig(
-            data={
-                "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
-            },  # actual file path (tested in validate)
+            data={"dummy": Dataset(path_src="eole/tests/data/src-train.txt")},  # actual file path (tested in validate)
             src_vocab="dummy",
             share_vocab=True,
-            transforms_configs={
-                "filtertoolong": {"src_seq_length": 4, "tgt_seq_length": 4}
-            },
+            transforms_configs={"filtertoolong": {"src_seq_length": 4, "tgt_seq_length": 4}},
             model=CustomModelConfig(),
         )
         filter_transform = filter_cls(opt)
@@ -176,9 +169,7 @@ class TestMiscTransform(unittest.TestCase):
         opt = PredictConfig(
             model_path=["dummy"],
             src="dummy",
-            transforms_configs={
-                "filtertoolong": {"src_seq_length": 100, "tgt_seq_length": 100}
-            },
+            transforms_configs={"filtertoolong": {"src_seq_length": 100, "tgt_seq_length": 100}},
         )
         filter_transform = filter_cls(opt)
         # filter_transform.warm_up()
@@ -304,8 +295,7 @@ class TestSubwordTransform(unittest.TestCase):
 
         # Test mask location
         ex = {
-            "src": "### Instruction: ｟newline｠instruction｟newline｠｟newline｠"
-            "### Response : ｟newline｠response",
+            "src": "### Instruction: ｟newline｠instruction｟newline｠｟newline｠" "### Response : ｟newline｠response",
             "tgt": "",
         }
         ex["src"] = ex["src"].split(" ")
@@ -381,8 +371,7 @@ class TestSubwordTransform(unittest.TestCase):
         # Test mask location
         ex = {
             "src": (
-                "### Instruction: ｟newline｠instruction｟newline｠｟newline｠"
-                "### Response : ｟newline｠response"
+                "### Instruction: ｟newline｠instruction｟newline｠｟newline｠" "### Response : ｟newline｠response"
             ),
             "tgt": "",
         }
@@ -457,8 +446,7 @@ class TestSubwordTransform(unittest.TestCase):
         # Test mask location
         ex = {
             "src": (
-                "### Instruction: ｟newline｠instruction｟newline｠｟newline｠"
-                "### Response : ｟newline｠response"
+                "### Instruction: ｟newline｠instruction｟newline｠｟newline｠" "### Response : ｟newline｠response"
             ),
             "tgt": "",
         }
@@ -504,9 +492,7 @@ class TestSamplingTransform(unittest.TestCase):
         tokendrop_cls = get_transforms_cls(["tokendrop"])["tokendrop"]
         # opt = Namespace(seed=3434, tokendrop_temperature=0.1)
         opt = TrainConfig(
-            data={
-                "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
-            },  # actual file path (tested in validate)
+            data={"dummy": Dataset(path_src="eole/tests/data/src-train.txt")},  # actual file path (tested in validate)
             src_vocab="dummy",
             share_vocab=True,
             seed=3434,
@@ -530,9 +516,7 @@ class TestSamplingTransform(unittest.TestCase):
         tokenmask_cls = get_transforms_cls(["tokenmask"])["tokenmask"]
         # opt = Namespace(seed=3434, tokenmask_temperature=0.1)
         opt = TrainConfig(
-            data={
-                "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
-            },  # actual file path (tested in validate)
+            data={"dummy": Dataset(path_src="eole/tests/data/src-train.txt")},  # actual file path (tested in validate)
             src_vocab="dummy",
             share_vocab=True,
             seed=3434,
@@ -556,9 +540,7 @@ class TestSamplingTransform(unittest.TestCase):
         switchout_cls = get_transforms_cls(["switchout"])["switchout"]
         # opt = Namespace(seed=3434, switchout_temperature=0.1)
         opt = TrainConfig(
-            data={
-                "dummy": Dataset(path_src="eole/tests/data/src-train.txt")
-            },  # actual file path (tested in validate)
+            data={"dummy": Dataset(path_src="eole/tests/data/src-train.txt")},  # actual file path (tested in validate)
             src_vocab="dummy",
             share_vocab=True,
             seed=3434,
@@ -683,9 +665,7 @@ class TestBARTNoising(unittest.TestCase):
         n_masked = math.ceil(n_tokens * bart_noise.mask_ratio)
         # print(f"token mask: {masked} / {tokens}")
         self.assertEqual(len(masked), n_tokens)
-        self.assertEqual(
-            sum([1 if tok == self.MASK_TOK else 0 for tok in masked]), n_masked
-        )
+        self.assertEqual(sum([1 if tok == self.MASK_TOK else 0 for tok in masked]), n_masked)
 
     def test_whole_word_mask(self):
         """Mask will be done on whole word that may across multiply token.
@@ -724,9 +704,7 @@ class TestBARTNoising(unittest.TestCase):
         # len(masked) depend on number of tokens in select word
         n_words = sum(token_starts)
         n_masked = math.ceil(n_words * bart_noise.mask_ratio)
-        self.assertEqual(
-            sum(1 if tok == self.MASK_TOK else 0 for tok in masked), n_masked
-        )
+        self.assertEqual(sum(1 if tok == self.MASK_TOK else 0 for tok in masked), n_masked)
 
         # 3. replace_length -1: all tokens in "words" are replaced with MASK
         bart_noise.replace_length = -1
@@ -737,9 +715,7 @@ class TestBARTNoising(unittest.TestCase):
         n_masked = math.ceil(n_words * bart_noise.mask_ratio)
         # number of mask_tok depend on number of tokens in selected word
         # number of MASK_TOK can be greater than n_masked
-        self.assertTrue(
-            sum(1 if tok == self.MASK_TOK else 0 for tok in masked) > n_masked
-        )
+        self.assertTrue(sum(1 if tok == self.MASK_TOK else 0 for tok in masked) > n_masked)
 
     def test_span_infilling(self):
         bart_noise = BARTNoising(
@@ -787,8 +763,7 @@ class TestInsertMaskBeforePlaceholder(unittest.TestCase):
         #    opt
         # )
         ex_in = {
-            "src": "### Instruction: ｟newline｠instruction｟newline｠｟newline｠"
-            "### Response : ｟newline｠response",
+            "src": "### Instruction: ｟newline｠instruction｟newline｠｟newline｠" "### Response : ｟newline｠response",
             "tgt": "",
         }
         ex_in["src"] = ex_in["src"].split(" ")

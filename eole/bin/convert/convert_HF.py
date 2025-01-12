@@ -978,9 +978,7 @@ class LlamaHFConverter(BaseBin):
                     "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512},
                     "onmt_tokenize": {
                         "src_subword_type": src_subword_type,
-                        "src_subword_model": os.path.join(
-                            "${MODEL_PATH}", tokenizer_basename
-                        ),
+                        "src_subword_model": os.path.join("${MODEL_PATH}", tokenizer_basename),
                         "gpt2_pretok": gpt2_pretok,
                         "mapped_tokens": mapped_tokens,
                     },

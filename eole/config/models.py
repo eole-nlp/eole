@@ -4,7 +4,8 @@ from pydantic import (
     field_validator,
     model_validator,
     computed_field,
-)  # , TypeAdapter
+    TypeAdapter,
+)
 
 import eole
 from eole.constants import PositionEncodingType, ActivationFunction, ModelType
@@ -12,26 +13,15 @@ from eole.config.config import Config
 
 
 class EmbeddingsConfig(Config):
-    src_word_vec_size: int = Field(
-        default=512, description="Word embedding size for src."
-    )
-    tgt_word_vec_size: int = Field(
-        default=512, description="Word embedding size for tgt."
-    )
-    word_vec_size: int = Field(
-        default=-1, description="Word embedding size for src and tgt."
-    )
+    src_word_vec_size: int = Field(default=512, description="Word embedding size for src.")
+    tgt_word_vec_size: int = Field(default=512, description="Word embedding size for tgt.")
+    word_vec_size: int = Field(default=-1, description="Word embedding size for src and tgt.")
     # Freeze word vectors
-    freeze_word_vecs_enc: bool = Field(
-        default=False, description="Freeze word embeddings on the encoder side."
-    )
-    freeze_word_vecs_dec: bool = Field(
-        default=False, description="Freeze word embeddings on the encoder side."
-    )
+    freeze_word_vecs_enc: bool = Field(default=False, description="Freeze word embeddings on the encoder side.")
+    freeze_word_vecs_dec: bool = Field(default=False, description="Freeze word embeddings on the encoder side.")
     position_encoding: bool = Field(
         default=False,
-        description="Absolute position encoding, see position_encoding_type. "
-        "Necessary for non-RNN style models.",
+        description="Absolute position encoding, see position_encoding_type. " "Necessary for non-RNN style models.",
     )
     position_encoding_type: PositionEncodingType | None = Field(
         default=PositionEncodingType.SinusoidalInterleaved,
@@ -47,8 +37,7 @@ class EmbeddingsConfig(Config):
     )
     position_shift: int | None = Field(
         default=0,
-        description="Positions IDS shift before making position embed "
-        "dirty patch to cover for xlm-roberta-xl",
+        description="Positions IDS shift before making position embed " "dirty patch to cover for xlm-roberta-xl",
     )
 
     @model_validator(mode="after")
@@ -67,39 +56,27 @@ class EmbeddingsConfig(Config):
 class EncoderConfig(Config):
     """Abstract class for all encoders"""
 
-    encoder_type: str | None = Field(
-        default="rnn", description="Type of encoder layer(s) to use."
-    )
+    encoder_type: str | None = Field(default="rnn", description="Type of encoder layer(s) to use.")
     layers: int = Field(default=2, description="Number of layers in the encoder.")
     hidden_size: int = Field(default=512, description="Size of encoder hidden states.")
 
     # This field should be set at EmbeddingsConfig level but will be copied here for cases
     # where input size to the rnn is different to the hidden size
-    src_word_vec_size: int = Field(
-        default=512, description="Word embedding size for src."
-    )
+    src_word_vec_size: int = Field(default=512, description="Word embedding size for src.")
 
 
 class DecoderConfig(Config):
     """Abstract class for all decoders"""
 
-    decoder_type: str | None = Field(
-        default="rnn", description="Type of decoder layer(s) to use."
-    )
+    decoder_type: str | None = Field(default="rnn", description="Type of decoder layer(s) to use.")
     layers: int = Field(default=2, description="Number of layers in the decoder.")
     hidden_size: int = Field(default=512, description="Size of decoder hidden states.")
 
     # This field should be set at EmbeddingsConfig level but will be copied here for cases
     # where input size to the rnn is different to the hidden size
-    tgt_word_vec_size: int = Field(
-        default=512, description="Word embedding size for tgt."
-    )
-    coverage_attn: bool = Field(
-        default=False, description="Train a coverage attention layer."
-    )
-    lambda_coverage: float = Field(
-        default=0.0, description="Lambda value for coverage loss of See et al (2017)"
-    )
+    tgt_word_vec_size: int = Field(default=512, description="Word embedding size for tgt.")
+    coverage_attn: bool = Field(default=False, description="Train a coverage attention layer.")
+    lambda_coverage: float = Field(default=0.0, description="Lambda value for coverage loss of See et al (2017)")
     global_attention: Literal["dot", "general", "mlp", None] = Field(
         default="general",
         description="The attention type to use. (Luong=general, Bahdanau=MLP)",
@@ -141,8 +118,7 @@ class RnnDecoderConfig(RnnConfig, DecoderConfig):
 class CnnConfig(Config):
     cnn_kernel_width: int = Field(
         default=3,
-        description="Size of windows in the cnn, the kernel_size is "
-        "(cnn_kernel_width, 1) in convolution layers.",
+        description="Size of windows in the cnn, the kernel_size is " "(cnn_kernel_width, 1) in convolution layers.",
     )
 
 
@@ -167,7 +143,7 @@ class RotaryPositionConfig(Config):
         default=True,
         description="Interleave the head dimensions when rotary embeddings are applied. "
         "Otherwise the head dimensions are sliced in half. "
-        "(True=default Llama from Meta (original), "
+        "(True= Llama from Meta (original), "
         "False= used by all HuggingFace models)",
     )
     rotary_theta: int = Field(
@@ -182,9 +158,7 @@ class RotaryPositionConfig(Config):
         default=None,
         description="Specifies the type of RoPE scaling to be applied, if any.",
     )
-    scaling_factor: float | None = Field(
-        default=8.0, description="Factor by which to scale RoPE embeddings."
-    )
+    scaling_factor: float | None = Field(default=8.0, description="Factor by which to scale RoPE embeddings.")
     low_freq_factor: float | None = Field(
         default=1.0,
         description="Scaling factor applied to the lower frequency components of RoPE.",
@@ -207,15 +181,9 @@ class TransformerConfig(Config):
     encoder/decoder values with model values if relevant.
     """
 
-    sliding_window: int = Field(
-        default=0, description="Sliding window for transformer self-attention."
-    )
-    heads: int = Field(
-        default=8, description="Number of heads for transformer self-attention."
-    )
-    transformer_ff: int = Field(
-        default=2048, description="Size of hidden transformer feed-forward."
-    )
+    sliding_window: int = Field(default=0, description="Sliding window for transformer self-attention.")
+    heads: int = Field(default=8, description="Number of heads for transformer self-attention.")
+    transformer_ff: int = Field(default=2048, description="Size of hidden transformer feed-forward.")
     relative_positions_buckets: int = Field(
         default=0,
         description="Enable relative position bias "
@@ -243,30 +211,22 @@ class TransformerConfig(Config):
         "Note: this will add bias to output projection layer too by default. "
         "Can be disabled with `add_final_linear_bias`.",
     )
-    add_final_linear_bias: bool = Field(
-        default=False, description="Add bias to nn.Linear of final_linear in MHA."
-    )
+    add_final_linear_bias: bool = Field(default=False, description="Add bias to nn.Linear of final_linear in MHA.")
     heads_kv: int | None = Field(
         default=None,
-        description="Number of heads for KV. heads_kv=heads if None, else number of heads for KV"
-        "(e.g. Falcon 40B)",
+        description="Number of heads for KV. heads_kv=heads if None, else number of heads for KV" "(e.g. Falcon 40B)",
     )
     head_dim: int | None = Field(
         default=None,
         description="Head dimension when this needs to be different vs hidden_size // heads",
     )
-    add_ffnbias: bool = Field(
-        default=False, description="Add bias to nn.Linear of MLP FFN."
-    )
+    add_ffnbias: bool = Field(default=False, description="Add bias to nn.Linear of MLP FFN.")
     parallel_residual: bool = Field(
         default=False,
-        description="Use parallel residual in decoder layer. "
-        "Note: this is used by GPT-J / Falcon Architecture.",
+        description="Use parallel residual in decoder layer. " "Note: this is used by GPT-J / Falcon Architecture.",
     )
     num_experts: int = Field(default=0, description="Number of experts for MoE models.")
-    num_experts_per_tok: int = Field(
-        default=2, description="Number of experts per token."
-    )
+    num_experts_per_tok: int = Field(default=2, description="Number of experts per token.")
     # These fields are set at EmbeddingsConfig level but will be copied here to be accessible in MHA
     position_encoding_type: PositionEncodingType | None = Field(
         default=PositionEncodingType.SinusoidalInterleaved,
@@ -280,15 +240,15 @@ class TransformerConfig(Config):
         "Case 2: Max Relative Positions"
         "In the case of position_encoding_type: Relative",
     )
-    rope_config: RotaryPositionConfig | None = Field(
-        default=None, description="Rotary position config, if relevant."
-    )
+    rope_config: RotaryPositionConfig | None = Field(default=None, description="Rotary position config, if relevant.")
 
     @model_validator(mode="after")
     def _validate_transformer_config(self):
+        """
         if self.position_encoding_type == PositionEncodingType.Rotary:
             if self.rope_config is None:
                 self.rope_config = RotaryPositionConfig()
+        """
         if self.add_qkvbias and "add_final_linear_bias" not in self.model_fields_set:
             self.update(add_final_linear_bias=True)
         return self
@@ -312,13 +272,9 @@ class TransformerEncoderConfig(TransformerConfig, EncoderConfig):
 class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
     decoder_type: Literal["transformer"] = Field(default="transformer")
 
-    aan_useffn: bool = Field(
-        default=False, description="Turn on the FFN layer in the AAN decoder."
-    )
+    aan_useffn: bool = Field(default=False, description="Turn on the FFN layer in the AAN decoder.")
     # some guided alignment specific opts were omitted here (put back for backcompat)
-    alignment_layer: int = Field(
-        default=-2, description="Layer number which has to be supervised."
-    )
+    alignment_layer: int = Field(default=-2, description="Layer number which has to be supervised.")
     alignment_heads: int = Field(
         default=0,
         description="Number of cross attention heads per layer to supervise with.",
@@ -329,8 +285,7 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
     )
     lambda_align: float = Field(
         default=0.0,
-        description="Lambda value for alignement loss of Garg et al, 2019 "
-        "(https://arxiv.org/abs/1909.02074)",
+        description="Lambda value for alignement loss of Garg et al, 2019 " "(https://arxiv.org/abs/1909.02074)",
     )
 
     @model_validator(mode="after")
@@ -382,22 +337,28 @@ class BaseModelConfig(Config):
         default_factory=EmbeddingsConfig,
         description="Contains most of the args useful to build the Embeddings module.",
     )
-    encoder: Union[
-        TransformerEncoderConfig,
-        RnnEncoderConfig,
-        CnnEncoderConfig,
-        MeanEncoderConfig,
-    ] | None = Field(
+    encoder: (
+        Union[
+            TransformerEncoderConfig,
+            RnnEncoderConfig,
+            CnnEncoderConfig,
+            MeanEncoderConfig,
+        ]
+        | None
+    ) = Field(
         default=None,
         discriminator="encoder_type",
         description="Major parameters of an encoder.",
     )  # we shall use discriminators here
-    decoder: Union[
-        TransformerDecoderConfig,
-        TransformerLMDecoderConfig,
-        RnnDecoderConfig,
-        CnnDecoderConfig,
-    ] | None = Field(
+    decoder: (
+        Union[
+            TransformerDecoderConfig,
+            TransformerLMDecoderConfig,
+            RnnDecoderConfig,
+            CnnDecoderConfig,
+        ]
+        | None
+    ) = Field(
         default=None,
         discriminator="decoder_type",
         description="Major parameters of a decoder.",
@@ -408,22 +369,16 @@ class BaseModelConfig(Config):
         default=-1,
         description="Size of hidden states. Overwrites [encoder/decoder].hidden_size if set.",
     )
-    word_vec_size: int = Field(
-        default=-1, description="Word embedding size for src and tgt."
-    )
+    word_vec_size: int = Field(default=-1, description="Word embedding size for src and tgt.")
     layers: int = Field(
         default=-1,
-        description="Number of layers in both encoder and decoder "
-        "(will overwrite enc_layers/dec_layers).",
+        description="Number of layers in both encoder and decoder " "(will overwrite enc_layers/dec_layers).",
     )
-    transformer_ff: int = Field(
-        default=-1, description="Size of hidden transformer feed-forward."
-    )
+    transformer_ff: int = Field(default=-1, description="Size of hidden transformer feed-forward.")
 
     share_decoder_embeddings: bool = Field(
         default=False,
-        description="Use a share weight matrix for the input and output "
-        "word embeddings in the decoder.",
+        description="Use a share weight matrix for the input and output " "word embeddings in the decoder.",
     )
     share_embeddings: bool = Field(
         default=False,
@@ -437,8 +392,7 @@ class BaseModelConfig(Config):
     )  # is this useful / working anymore?
     generator_function: Literal["softmax", "sparsemax"] = Field(
         default="softmax",
-        description="Which function to use for generating probabilities "
-        "over the target vocabulary.",
+        description="Which function to use for generating probabilities " "over the target vocabulary.",
     )
     generator_bias: bool = Field(
         default=True,
@@ -446,12 +400,8 @@ class BaseModelConfig(Config):
     )
     add_estimator: bool = Field(default=False, description="Add estimator layer")
 
-    left_pad: bool = Field(
-        default=False, description="Enable left-padding, useful for some LLMs."
-    )
-    huggingface_model: str | None = Field(
-        default=None, description="Original huggingface model."
-    )
+    left_pad: bool = Field(default=False, description="Enable left-padding, useful for some LLMs.")
+    huggingface_model: str | None = Field(default=None, description="Original huggingface model.")
     eole_version: str | None = Field(
         default=eole.__version__,
         description="Eole version used to convert/train/save the model.",
@@ -502,40 +452,59 @@ class BaseModelConfig(Config):
         return data
 
     def update_model_opts(self):
+        update_dict = {}
+        if self.embeddings.position_encoding_type == PositionEncodingType.Rotary:
+            if not self.rope_config:
+                update_dict["rope_config"] = RotaryPositionConfig()
+                rope_config = update_dict["rope_config"]
+            else:
+                rope_config = self.rope_config
+        else:
+            rope_config = None
+
         if self.embeddings is not None and self.embeddings.word_vec_size > 0:
-            self.embeddings.src_word_vec_size = self.embeddings.word_vec_size
-            self.embeddings.tgt_word_vec_size = self.embeddings.word_vec_size
+            update_dict["embeddings"] = {
+                "src_word_vec_size": self.embeddings.word_vec_size,
+                "tgt_word_vec_size": self.embeddings.word_vec_size,
+            }
+        if self.embeddings is not None and "embeddings" in update_dict.keys():
+            self.embeddings.update(**update_dict.pop("embeddings"))
 
-        # Backward compatibility with "fix_word_vecs_*" opts
-        # We can probably drop this now...
-        # if hasattr(self, "fix_word_vecs_enc"):
-        #     self.embeddings.freeze_word_vecs_enc = self.embeddings.fix_word_vecs_enc
-        # if hasattr(self, "fix_word_vecs_dec"):
-        #     self.embeddings.freeze_word_vecs_dec = self.embeddings.fix_word_vecs_dec
-
-        if (
-            getattr(self.encoder, "encoder_type", None) == "brnn"
-            and self.decoder.decoder_type == "rnn"
-        ):
-            self.decoder.bidirectional_encoder = True
+        if getattr(self.encoder, "encoder_type", None) == "brnn" and self.decoder.decoder_type == "rnn":
+            update_dict["decoder"] = {"bidirectional_encoder": True}
 
         if self.encoder is not None:
-            self.encoder.src_word_vec_size = self.embeddings.src_word_vec_size
+            update_dict["encoder"] = {"src_word_vec_size": self.embeddings.src_word_vec_size}
             if getattr(self.encoder, "encoder_type", None) == "transformer":
-                self.encoder.position_encoding_type = (
-                    self.embeddings.position_encoding_type
+                update_dict["encoder"].update(
+                    {
+                        "position_encoding_type": self.embeddings.position_encoding_type,
+                        "n_positions": self.embeddings.n_positions,
+                        "rope_config": rope_config,
+                    }
                 )
-                self.encoder.n_positions = self.embeddings.n_positions
+                update_dict["position_encoding_type"] = self.embeddings.position_encoding_type
+        if self.encoder is not None and "encoder" in update_dict.keys():
+            self.encoder.update(**update_dict.pop("encoder"))
+
         if self.decoder is not None:
-            self.decoder.tgt_word_vec_size = self.embeddings.tgt_word_vec_size
+            update_dict["decoder"] = {"tgt_word_vec_size": self.embeddings.tgt_word_vec_size}
             if getattr(self.decoder, "decoder_type", None) in [
                 "transformer",
                 "transformer_lm",
             ]:
-                self.decoder.position_encoding_type = (
-                    self.embeddings.position_encoding_type
+                update_dict["decoder"].update(
+                    {
+                        "position_encoding_type": self.embeddings.position_encoding_type,
+                        "n_positions": self.embeddings.n_positions,
+                        "rope_config": rope_config,
+                    }
                 )
-                self.decoder.n_positions = self.embeddings.n_positions
+                update_dict["position_encoding_type"] = self.embeddings.position_encoding_type
+        if self.decoder is not None and "decoder" in update_dict.keys():
+            self.decoder.update(**update_dict.pop("decoder"))
+
+        self.update(**update_dict)
 
         # causing some weird recursion issue in unit test, to investigate
         # if self.encoder is not None:
@@ -570,20 +539,16 @@ class BaseModelConfig(Config):
         # encoder and decoder should be same sizes
         if self.encoder is not None and self.decoder is not None:
             same_size = self.encoder.hidden_size == self.decoder.hidden_size
-            assert (
-                same_size
-            ), "The encoder and decoder rnns must be the same size for now"
+            assert same_size, "The encoder and decoder rnns must be the same size for now"
 
         if self.share_embeddings:
             if self.encoder is None or self.decoder is None:
-                raise AssertionError(
-                    "--share_embeddings is for EncoderDecoder models only."
-                )
+                raise AssertionError("--share_embeddings is for EncoderDecoder models only.")
 
         return self
 
 
-class CustomModelConfig(BaseModelConfig):
+class CustomModelConfig(TransformerConfig, BaseModelConfig):
     """
     Wrap anything that does not fit a set common architecture.
     """
@@ -758,10 +723,7 @@ class TransformerEncoderModelConfig(TransformerConfig, BaseModelConfig):
     @model_validator(mode="after")
     def _validate_transformer(self):
         # duplicate with TransformerModelConfig, might merge at some point
-        if (
-            getattr(self.embeddings, "position_encoding", False)
-            and self.max_relative_positions != 0
-        ):
+        if getattr(self.embeddings, "position_encoding", False) and self.max_relative_positions != 0:
             raise ValueError(
                 "Cannot use absolute and relative position encoding at the"
                 "same time. Use either --position_encoding=true for legacy"
@@ -786,5 +748,4 @@ ModelConfig = Annotated[
     Field(discriminator="architecture", default_factory=RnnModelConfig),  # noqa: F821
 ]
 
-# Not used anymore, keeping for reference
-# build_model_config = TypeAdapter(ModelConfig).validate_python
+build_model_config = TypeAdapter(ModelConfig).validate_python

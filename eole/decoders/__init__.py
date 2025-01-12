@@ -1,4 +1,5 @@
 """Module defining decoders."""
+
 from eole.decoders.rnn_decoder import InputFeedRNNDecoder, StdRNNDecoder
 from eole.decoders.transformer_decoder import TransformerDecoder
 from eole.decoders.transformer_lm_decoder import TransformerLMDecoder

@@ -1,4 +1,5 @@
 """Define RNN-based encoders."""
+
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -34,16 +35,14 @@ class RNNEncoder(EncoderBase):
         # Initialize the bridge layer
         self.use_bridge = model_config.bridge
         if self.use_bridge:
-            self._initialize_bridge(
-                model_config.rnn_type, hidden_size, model_config.layers
-            )
+            self._initialize_bridge(model_config.rnn_type, hidden_size, model_config.layers)
 
     @classmethod
     def from_config(cls, model_config, running_config=None):
         """Alternate constructor."""
         return cls(model_config, running_config=running_config)
 
-    def forward(self, emb, mask=None):
+    def forward(self, emb, **kwargs):
         """See :func:`EncoderBase.forward()`"""
 
         enc_out, enc_final_hs = self.rnn(emb)
@@ -61,10 +60,7 @@ class RNNEncoder(EncoderBase):
 
         # Build a linear layer for each
         self.bridge = nn.ModuleList(
-            [
-                nn.Linear(self.total_hidden_dim, self.total_hidden_dim, bias=True)
-                for _ in range(number_of_states)
-            ]
+            [nn.Linear(self.total_hidden_dim, self.total_hidden_dim, bias=True) for _ in range(number_of_states)]
         )
 
     def _bridge(self, hidden):
@@ -83,12 +79,7 @@ class RNNEncoder(EncoderBase):
             return result.permute(1, 0, 2).contiguous()
 
         if isinstance(hidden, tuple):  # LSTM
-            outs = tuple(
-                [
-                    bottle_hidden(layer, hidden[ix])
-                    for ix, layer in enumerate(self.bridge)
-                ]
-            )
+            outs = tuple([bottle_hidden(layer, hidden[ix]) for ix, layer in enumerate(self.bridge)])
         else:
             outs = bottle_hidden(self.bridge[0], hidden)
         return outs

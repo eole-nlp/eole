@@ -18,21 +18,15 @@ DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
 )
 
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, globals())
-_builder.BuildTopDescriptorsAndMessages(
-    DESCRIPTOR, "sentencepiece_model_pb2", globals()
-)
+_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, "sentencepiece_model_pb2", globals())
 if _descriptor._USE_C_DESCRIPTORS == False:
 
     DESCRIPTOR._options = None
     DESCRIPTOR._serialized_options = b"H\003"
     _TRAINERSPEC.fields_by_name["mining_sentence_size"]._options = None
-    _TRAINERSPEC.fields_by_name[
-        "mining_sentence_size"
-    ]._serialized_options = b"\030\001"
+    _TRAINERSPEC.fields_by_name["mining_sentence_size"]._serialized_options = b"\030\001"
     _TRAINERSPEC.fields_by_name["training_sentence_size"]._options = None
-    _TRAINERSPEC.fields_by_name[
-        "training_sentence_size"
-    ]._serialized_options = b"\030\001"
+    _TRAINERSPEC.fields_by_name["training_sentence_size"]._serialized_options = b"\030\001"
     _TRAINERSPEC._serialized_start = 45
     _TRAINERSPEC._serialized_end = 1544
     _TRAINERSPEC_MODELTYPE._serialized_start = 1480

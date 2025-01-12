@@ -36,18 +36,14 @@ class LoraWeights(BaseBin):
             choices=["merge", "concat"],
             help="""Path to the model directory""",
         )
-        parser.add_argument(
-            "--base_model", type=str, required=True, help="""Path to the base model"""
-        )
+        parser.add_argument("--base_model", type=str, required=True, help="""Path to the base model""")
         parser.add_argument(
             "--lora_weights",
             type=str,
             required=True,
             help="""Path to the lora checkpoint""",
         )
-        parser.add_argument(
-            "--output", type=str, required=True, help="""Path to the output model"""
-        )
+        parser.add_argument("--output", type=str, required=True, help="""Path to the output model""")
 
     @classmethod
     def run(cls, args):
@@ -61,14 +57,10 @@ class LoraWeights(BaseBin):
         vocabs = dict_to_vocabs(lora_checkpoint["vocab"])
         config = lora_checkpoint["config"]
         running_config = config.training
-        running_config.quant_layers = (
-            []
-        )  # we need to remove any quantization to merge weights
+        running_config.quant_layers = []  # we need to remove any quantization to merge weights
         running_config.parallel_mode = "data_parallel"
         model_config = config.model
-        model = get_model_class(model_config).build_base_model(
-            model_config, vocabs, running_config=running_config
-        )
+        model = get_model_class(model_config).build_base_model(model_config, vocabs, running_config=running_config)
         logger.info("Load state_dict from base_model")
         model.load_safe_state_dict(
             args.base_model,
@@ -121,9 +113,7 @@ class LoraWeights(BaseBin):
                 for key in model_state_dict.keys():
                     if "estimator" in key:
                         shard_dict[key] = model_state_dict[key]
-            logger.info(
-                "saving shard" + args.output + "/model.{:02d}.safetensors".format(i)
-            )
+            logger.info("saving shard" + args.output + "/model.{:02d}.safetensors".format(i))
             save_file(
                 shard_dict,
                 os.path.join(args.output, "model.{:02d}.safetensors".format(i)),

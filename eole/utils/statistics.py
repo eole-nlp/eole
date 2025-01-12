@@ -159,12 +159,7 @@ class Statistics(object):
                 self.n_words / (t + 1e-5),
                 time.time() - start,
             )
-            + "".join(
-                [
-                    " {}: {}".format(k, round(v, 2))
-                    for k, v in self.computed_metrics.items()
-                ]
-            )
+            + "".join([" {}: {}".format(k, round(v, 2)) for k, v in self.computed_metrics.items()])
         )
         sys.stdout.flush()
 

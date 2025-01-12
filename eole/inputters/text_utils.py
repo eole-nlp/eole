@@ -1,4 +1,7 @@
 import torch
+
+# import torch.nn.functional as F
+# import math
 from eole.constants import DefaultTokens, CorpusTask, ModelType
 from torch.nn.utils.rnn import pad_sequence
 from eole.utils.logging import logger
@@ -33,9 +36,7 @@ def transform_bucket(task, bucket, threshold=0):
     # careful below it will return a bucket sorted by corpora
     # but we sort by length later and shuffle batches
     for (transform, cid), sub_bucket in transform_cid_to_examples.items():
-        transf_bucket = transform.batch_apply(
-            sub_bucket, is_train=(task == CorpusTask.TRAIN), corpus_name=cid
-        )
+        transf_bucket = transform.batch_apply(sub_bucket, is_train=(task == CorpusTask.TRAIN), corpus_name=cid)
         for example, transform, cid in transf_bucket:
             example = clean_example(example)
             if len(example["src"]["src"]) > 0 and example["sco"] > threshold:
@@ -72,9 +73,7 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
             else:
                 tgt_text = example["tgt"]["tgt"].split(" ")
                 numeric["tgt"]["tgt_ids"] = vocabs["tgt"](
-                    [decoder_start_token]
-                    + tgt_text
-                    + [vocabs["specials"].get("eos_token", "")]
+                    [decoder_start_token] + tgt_text + [vocabs["specials"].get("eos_token", "")]
                 )
 
     elif model_type == ModelType.DECODER:
@@ -89,9 +88,7 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
                 numeric["tgt"]["tgt_ids"] = maybe_tgt_ids
             else:
                 tgt_text = example["tgt"]["tgt"].split(" ")
-                numeric["tgt"]["tgt_ids"] = vocabs["tgt"](
-                    tgt_text + [vocabs["specials"].get("eos_token", "")]
-                )
+                numeric["tgt"]["tgt_ids"] = vocabs["tgt"](tgt_text + [vocabs["specials"].get("eos_token", "")])
             if decoder_start_token == "":
                 numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
 
@@ -111,11 +108,7 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
             numeric["src"]["src_ids"] = vocabs["src"](txt)
             numeric["tgt"]["tgt_ids"] = vocabs["src"](txt)
         else:
-            txt = (
-                [vocabs["specials"].get("bos_token", "")]
-                + src_text
-                + [vocabs["specials"].get("eos_token", "")]
-            )
+            txt = [vocabs["specials"].get("bos_token", "")] + src_text + [vocabs["specials"].get("eos_token", "")]
             numeric["src"]["src_ids"] = vocabs["src"](txt)
 
     else:
@@ -168,19 +161,21 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
     tensor_batch = {}
     if left_pad:
         tbatchsrc = [
-            torch.tensor(ex["src"]["src_ids"], dtype=torch.long, device=device).flip(
-                dims=[0]
-            )
+            torch.tensor(ex["src"]["src_ids"], dtype=torch.long, device=device).flip(dims=[0])
             for ex, indice in minibatch
         ]
     else:
-        tbatchsrc = [
-            torch.tensor(ex["src"]["src_ids"], dtype=torch.long, device=device)
-            for ex, indice in minibatch
-        ]
+        tbatchsrc = [torch.tensor(ex["src"]["src_ids"], dtype=torch.long, device=device) for ex, indice in minibatch]
     padidx = vocabs["src"][vocabs["specials"].get("pad_token", DefaultTokens.PAD)]
     tbatchsrc = pad_sequence(tbatchsrc, batch_first=True, padding_value=padidx)
-
+    """
+    This removes some recompiles in torch.dynamo, but slows down and make inference tricky
+    tbatchsrc = F.pad(
+        tbatchsrc,
+        (0, max(0, math.ceil(tbatchsrc.size(1) / 8) * 8 - tbatchsrc.size(1))),
+        value=padidx,
+    )
+    """
     if left_pad:
         tensor_batch["src"] = tbatchsrc.flip(dims=[1])
     else:
@@ -195,15 +190,12 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
     if minibatch[0][0]["tgt"] is not None:
         if left_pad:
             tbatchtgt = [
-                torch.tensor(
-                    ex["tgt"]["tgt_ids"], dtype=torch.long, device=device
-                ).flip(dims=[0])
+                torch.tensor(ex["tgt"]["tgt_ids"], dtype=torch.long, device=device).flip(dims=[0])
                 for ex, indice in minibatch
             ]
         else:
             tbatchtgt = [
-                torch.tensor(ex["tgt"]["tgt_ids"], dtype=torch.long, device=device)
-                for ex, indice in minibatch
+                torch.tensor(ex["tgt"]["tgt_ids"], dtype=torch.long, device=device) for ex, indice in minibatch
             ]
 
         padidx = vocabs["tgt"][vocabs["specials"].get("pad_token", DefaultTokens.PAD)]
@@ -249,21 +241,15 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
             device=device,
         )
         for i, (ex, indice) in enumerate(minibatch):
-            alignment[i, : len(ex["alignment"])] = torch.tensor(
-                ex["alignment"], dtype=torch.long, device=device
-            )
+            alignment[i, : len(ex["alignment"])] = torch.tensor(ex["alignment"], dtype=torch.long, device=device)
         tensor_batch["alignment"] = alignment
 
     tensor_batch["ind_in_bucket"] = [indice for ex, indice in minibatch]
 
     tensor_batch["cid"] = [ex["cid"] for ex, indice in minibatch]
-    tensor_batch["cid_line_number"] = [
-        ex["cid_line_number"] for ex, indice in minibatch
-    ]
+    tensor_batch["cid_line_number"] = [ex["cid_line_number"] for ex, indice in minibatch]
 
     if minibatch[0][0]["cid"] != "infer":
-        tensor_batch["sco"] = torch.tensor(
-            [ex["sco"] for ex, indice in minibatch], device=device
-        )
+        tensor_batch["sco"] = torch.tensor([ex["sco"] for ex, indice in minibatch], device=device)
 
     return tensor_batch

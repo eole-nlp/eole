@@ -9,30 +9,16 @@ from eole.constants import TORCH_DTYPES
 
 
 class DistributedConfig(Config):
-    gpu_ranks: List[int] = Field(
-        default=[], description="List of ranks for each process."
-    )
-    world_size: int = Field(
-        default=1, description="Total number of distributed processes."
-    )
+    gpu_ranks: List[int] = Field(default=[], description="List of ranks for each process.")
+    world_size: int = Field(default=1, description="Total number of distributed processes.")
     parallel_mode: Literal["data_parallel", "tensor_parallel"] = Field(
         default="data_parallel", description="Distributed mode."
     )
-    gpu_backend: str = Field(
-        default="nccl", description="Type of torch distributed backend."
-    )
-    gpu_verbose_level: int = Field(
-        default=0, description="Gives more info on each process per GPU."
-    )
-    master_ip: str = Field(
-        default="localhost", description="IP of master for torch.distributed training."
-    )
-    master_port: int = Field(
-        default=10000, description="Port of master for torch.distributed training."
-    )
-    timeout: int = Field(
-        default=60, description="Timeout for one GPU to wait for the others."
-    )
+    gpu_backend: str = Field(default="nccl", description="Type of torch distributed backend.")
+    gpu_verbose_level: int = Field(default=0, description="Gives more info on each process per GPU.")
+    master_ip: str = Field(default="localhost", description="IP of master for torch.distributed training.")
+    master_port: int = Field(default=10000, description="Port of master for torch.distributed training.")
+    timeout: int = Field(default=60, description="Timeout for one GPU to wait for the others.")
 
     @property
     def parallel_gpu(self) -> int:  # converted to a `property` by `computed_field`
@@ -58,15 +44,9 @@ class LoRaConfig(Config):
         "E.g. ['linear_values', 'linear_query'] "
         "(§4.2 in https://arxiv.org/abs/2106.09685)",
     )  # validate against existing layers?
-    lora_embedding: bool = Field(
-        default=False, description="Replace embeddings with LoRa Embeddings (§5.1)"
-    )
-    lora_rank: int = Field(
-        default=2, description="r=2 successfully tested with NLLB-200 3.3B"
-    )
-    lora_alpha: int = Field(
-        default=1, description="§4.1 https://arxiv.org/abs/2106.09685"
-    )
+    lora_embedding: bool = Field(default=False, description="Replace embeddings with LoRa Embeddings (§5.1)")
+    lora_rank: int = Field(default=2, description="r=2 successfully tested with NLLB-200 3.3B")
+    lora_alpha: int = Field(default=1, description="§4.1 https://arxiv.org/abs/2106.09685")
     lora_dropout: float = Field(
         default=0.0, description="Rule of thumb: same value as in main model."
     )  # should probably be in TrainingConfig in fine to be coherent with dropout/attention_dropout
@@ -77,12 +57,10 @@ class QuantizeConfig(Config):
     quant_layers: List[str] = Field(
         default=[], description="List of layers to be compressed in 4/8bit."
     )  # validate against list of layers names ?
-    quant_type: Literal[
-        "", "bnb_8bit", "bnb_FP4", "bnb_NF4", "awq_gemm", "awq_gemv"
-    ] = Field(default="", description="Type of compression.")
-    w_bit: int = Field(
-        default=4, description="W_bit quantization"
-    )  # single authorized value for now actually
+    quant_type: Literal["", "bnb_8bit", "bnb_FP4", "bnb_NF4", "awq_gemm", "awq_gemv"] = Field(
+        default="", description="Type of compression."
+    )
+    w_bit: int = Field(default=4, description="W_bit quantization")  # single authorized value for now actually
     group_size: int = Field(default=128, description="Group size quantization.")  # same
 
 
@@ -96,25 +74,15 @@ class MiscConfig(Config):
 
 
 class LoggingConfig(Config):
-    log_file: str = Field(
-        default="", description="Output logs to a file under this path."
-    )
+    log_file: str = Field(default="", description="Output logs to a file under this path.")
     # some "observability" stuff
-    report_every: int = Field(
-        default=50, description="Print stats at this interval (in steps)."
-    )
+    report_every: int = Field(default=50, description="Print stats at this interval (in steps).")
     valid_metrics: List[str] = Field(
         default=[], description="List of names of additional validation metrics."
     )  # should probably be validated properly (or in some registry/enum)
-    scoring_debug: bool = Field(
-        default=False, description="Dump src/ref/pred of the current batch."
-    )
-    dump_preds: str | None = Field(
-        default=None, description="Folder to dump predictions to."
-    )
-    tensorboard: bool = Field(
-        default=False, description="Use tensorboard for visualization during training."
-    )
+    scoring_debug: bool = Field(default=False, description="Dump src/ref/pred of the current batch.")
+    dump_preds: str | None = Field(default=None, description="Folder to dump predictions to.")
+    tensorboard: bool = Field(default=False, description="Use tensorboard for visualization during training.")
     tensorboard_log_dir: str = Field(
         default="runs/eole",
         description="Log directory for tensorboard (also the name of the run).",
@@ -149,6 +117,7 @@ class RunningConfig(DistributedConfig):
         "fp32 to force slow fp16 model on gtx1080, "
         "int8 to enable pytorch native 8-bit quantization (cpu only).",
     )
+    torch_compile: bool = Field(default=False, description="Use torch.compile with dynamic=True.")
 
     @field_validator("compute_dtype", mode="before")
     @classmethod

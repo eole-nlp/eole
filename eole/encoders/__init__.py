@@ -1,4 +1,5 @@
 """Module defining encoders."""
+
 from eole.encoders.transformer import TransformerEncoder
 from eole.encoders.rnn_encoder import RNNEncoder
 from eole.encoders.cnn_encoder import CNNEncoder

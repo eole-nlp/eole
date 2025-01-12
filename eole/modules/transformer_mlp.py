@@ -1,7 +1,6 @@
 """MLP network from "Attention is All You Need"."""
 
 import torch.nn as nn
-
 from torch.utils.checkpoint import checkpoint
 from torch.nn.utils import skip_init
 from torch.distributed import all_reduce
@@ -43,10 +42,7 @@ class MLP(nn.Module):
         self.dropout_1 = nn.Dropout(self.dropout_p)
         self.dropout_2 = nn.Dropout(self.dropout_p)
         self.activation = ACTIVATION_FUNCTIONS[model_config.mlp_activation_fn]
-        if (
-            model_config.mlp_activation_fn == "gated-silu"
-            or model_config.mlp_activation_fn == "gated-gelu"
-        ):
+        if model_config.mlp_activation_fn == "gated-silu" or model_config.mlp_activation_fn == "gated-gelu":
             self.up_proj = skip_init(
                 nn.Linear,
                 in_features=model_config.hidden_size,
@@ -55,11 +51,7 @@ class MLP(nn.Module):
             )
         else:
             self.up_proj = None
-        self.maybe_ckpt = (
-            checkpoint
-            if "ffn" in getattr(running_config, "use_ckpting", [])
-            else lambda f, x: f(x)
-        )
+        self.maybe_ckpt = checkpoint if "ffn" in getattr(running_config, "use_ckpting", []) else lambda f, x: f(x)
 
     def forward(self, x):
         """Layer definition.

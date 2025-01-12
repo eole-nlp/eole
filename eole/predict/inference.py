@@ -48,7 +48,6 @@ class Inference(object):
         report_time (bool): Print/log total time/frequency.
         global_scorer (eole.predict.GNMTGlobalScorer): Prediction
             scoring/reranking object.
-        out_file (TextIO or codecs.StreamReaderWriter): Output file.
         report_score (bool) : Whether to report scores
         logger (logging.Logger or NoneType): Logger.
     """
@@ -79,7 +78,6 @@ class Inference(object):
         verbose=False,
         report_time=False,
         global_scorer=None,
-        out_file=None,
         report_align=False,
         gold_align=False,
         report_score=True,
@@ -94,19 +92,14 @@ class Inference(object):
         self.model = model
         self.vocabs = vocabs
         self._tgt_vocab = vocabs["tgt"]
-        self._tgt_eos_idx = [
-            vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("eos_token", ""))
-        ] + [vocabs["tgt"].lookup_token(eos_token) for eos_token in optional_eos]
+        self._tgt_eos_idx = [vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("eos_token", ""))] + [
+            vocabs["tgt"].lookup_token(eos_token) for eos_token in optional_eos
+        ]
         # defaulting to DefaultTokens.PAD might not always work
-        self._tgt_pad_idx = vocabs["tgt"].lookup_token(
-            vocabs.get("specials", {}).get("pad_token", DefaultTokens.PAD)
-        )
-        self._tgt_bos_idx = vocabs["tgt"].lookup_token(
-            vocabs.get("specials", {}).get("bos_token", "")
-        )
-        self._tgt_unk_idx = vocabs["tgt"].lookup_token(
-            vocabs.get("specials", {}).get("unk_token", "")
-        )
+        self._tgt_pad_idx = vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("pad_token", DefaultTokens.PAD))
+        self._src_pad_idx = vocabs["src"].lookup_token(vocabs.get("specials", {}).get("pad_token", DefaultTokens.PAD))
+        self._tgt_bos_idx = vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("bos_token", ""))
+        self._tgt_unk_idx = vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("unk_token", ""))
         self._tgt_sep_idx = vocabs["tgt"].lookup_token(DefaultTokens.SEP)
         self._tgt_start_with = vocabs["tgt"].lookup_token(vocabs["decoder_start_token"])
         self._tgt_vocab_len = len(self._tgt_vocab)
@@ -144,7 +137,6 @@ class Inference(object):
         self.global_scorer = global_scorer
         if self.global_scorer.has_cov_pen and not self.model.decoder.attentional:
             raise ValueError("Coverage penalty requires an attentional decoder.")
-        self.out_file = out_file
         self.report_align = report_align
         self.gold_align = gold_align
         self.report_score = report_score
@@ -180,7 +172,6 @@ class Inference(object):
         model_config,
         device_id=0,
         global_scorer=None,
-        out_file=None,
         report_align=False,
         report_score=True,
         logger=None,
@@ -196,8 +187,6 @@ class Inference(object):
                 the model checkpoint.
             global_scorer (eole.predict.GNMTGlobalScorer): See
                 :func:`__init__()`..
-            out_file (TextIO or codecs.StreamReaderWriter): See
-                :func:`__init__()`.
             report_align (bool) : See :func:`__init__()`.
             report_score (bool) : See :func:`__init__()`.
             logger (logging.Logger or NoneType): See :func:`__init__()`.
@@ -235,7 +224,6 @@ class Inference(object):
             verbose=config.verbose,
             report_time=config.report_time,
             global_scorer=global_scorer,
-            out_file=out_file,
             report_align=report_align,
             gold_align=config.gold_align,
             report_score=report_score,
@@ -256,9 +244,7 @@ class Inference(object):
     def _gold_score(self, batch, enc_out, src_len, enc_final_hs, batch_size, src):
         if "tgt" in batch.keys() and not self.tgt_file_prefix:
             gs, glp = self._score_target(batch, enc_out, src_len)
-            self.model.decoder.init_state(
-                src=src, enc_out=enc_out, enc_final_hs=enc_final_hs
-            )
+            self.model.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
         else:
             gs = [0] * batch_size
             glp = None
@@ -292,11 +278,7 @@ class Inference(object):
             * all_predictions is a list of `batch_size` lists
                 of `n_best` predictions
         """
-        transform_pipe = (
-            TransformPipe.build_from([transform[name] for name in transform])
-            if transform
-            else None
-        )
+        transform_pipe = TransformPipe.build_from([transform[name] for name in transform]) if transform else None
         prediction_builder = PredictionBuilder(
             self.vocabs,
             self.n_best,
@@ -322,9 +304,7 @@ class Inference(object):
             between source and target. We re-translate seg by seg."""
             trans_copy = deepcopy(translations)
             for j, trans in enumerate(translations):
-                if (trans.src == self._tgt_sep_idx).sum().item() != trans.pred_sents[
-                    0
-                ].count(DefaultTokens.SEP):
+                if (trans.src == self._tgt_sep_idx).sum().item() != trans.pred_sents[0].count(DefaultTokens.SEP):
                     self._log("Mismatch in number of ((newline))")
 
                     # we rebuild a small batch made of the sub-segments
@@ -340,9 +320,7 @@ class Inference(object):
                     end_idx = trans.src.ne(self._tgt_pad_idx).sum() - 1
 
                     sub_src.append(trans.src[start_idx:end_idx])
-                    t_sub_src = pad_sequence(
-                        sub_src, batch_first=True, padding_value=self._tgt_pad_idx
-                    )
+                    t_sub_src = pad_sequence(sub_src, batch_first=True, padding_value=self._tgt_pad_idx)
                     t_sub_src_len = t_sub_src.ne(self._tgt_pad_idx).sum(1)
                     t_sub_src_ind = [i for i in range(len(sub_src))]
 
@@ -363,12 +341,7 @@ class Inference(object):
                     for sub_tr in sub_trans:
                         for i in range(nbest):
                             combined[i].extend(
-                                [
-                                    tok
-                                    for tok in sub_tr.pred_sents[i]
-                                    if tok != DefaultTokens.SEP
-                                ]
-                                + [DefaultTokens.SEP]
+                                [tok for tok in sub_tr.pred_sents[i] if tok != DefaultTokens.SEP] + [DefaultTokens.SEP]
                             )
 
                     trans_copy[j].pred_sents = [seq[:-1] for seq in combined]
@@ -385,9 +358,7 @@ class Inference(object):
             bucket_gold_score = 0
             bucket_gold_words = 0
             voc_src = self.vocabs["src"].ids_to_tokens
-            bucket_predictions = sorted(
-                bucket_predictions, key=lambda x: x.ind_in_bucket
-            )
+            bucket_predictions = sorted(bucket_predictions, key=lambda x: x.ind_in_bucket)
             for trans in bucket_predictions:
                 bucket_scores += [trans.pred_scores[: self.n_best]]
                 bucket_score += trans.pred_scores[0]
@@ -401,18 +372,11 @@ class Inference(object):
                 if self.id_tokenization:
                     n_best_preds = trans.pred_sents[: self.n_best]
                 else:
-                    n_best_preds = [
-                        " ".join(pred) for pred in trans.pred_sents[: self.n_best]
-                    ]
+                    n_best_preds = [" ".join(pred) for pred in trans.pred_sents[: self.n_best]]
 
                 if self.report_align:
-                    align_pharaohs = [
-                        build_align_pharaoh(align)
-                        for align in trans.word_aligns[: self.n_best]
-                    ]
-                    n_best_preds_align = [
-                        " ".join(align[0]) for align in align_pharaohs
-                    ]
+                    align_pharaohs = [build_align_pharaoh(align) for align in trans.word_aligns[: self.n_best]]
+                    n_best_preds_align = [" ".join(align[0]) for align in align_pharaohs]
                     n_best_preds = [
                         pred + DefaultTokens.ALIGNMENT_SEPARATOR + align
                         for pred, align in zip(n_best_preds, n_best_preds_align)
@@ -422,22 +386,6 @@ class Inference(object):
                     n_best_preds = transform_pipe.batch_apply_reverse(n_best_preds)
 
                 bucket_preds += [n_best_preds]
-
-                if self.with_score:
-                    n_best_scores = [
-                        score for score in trans.pred_scores[: self.n_best]
-                    ]
-                    n_best_estims = [estim for estim in trans.estim[: self.n_best]]
-                    out_all = [
-                        pred + "\t" + str(score) + "\t" + str(estim)
-                        for (pred, score, estim) in zip(
-                            n_best_preds, n_best_scores, n_best_estims
-                        )
-                    ]
-                    self.out_file.write("\n".join(out_all) + "\n")
-                else:
-                    self.out_file.write("\n".join(n_best_preds) + "\n")
-                self.out_file.flush()
 
                 if self.verbose:
                     srcs = [voc_src[tok] for tok in trans.src[: trans.srclen]]
@@ -450,9 +398,7 @@ class Inference(object):
                     preds.append(DefaultTokens.EOS)
                     attns = trans.attns[0].tolist()
                     if self.data_type == "text":
-                        srcs = [
-                            voc_src[tok] for tok in trans.src[: trans.srclen].tolist()
-                        ]
+                        srcs = [voc_src[tok] for tok in trans.src[: trans.srclen].tolist()]
                     else:
                         srcs = [str(item) for item in range(len(attns[0]))]
                     output = report_matrix(srcs, preds, attns)
@@ -465,9 +411,7 @@ class Inference(object):
                         tgts = trans.pred_sents[0]
                     align = trans.word_aligns[0].tolist()
                     if self.data_type == "text":
-                        srcs = [
-                            voc_src[tok] for tok in trans.src[: trans.srclen].tolist()
-                        ]
+                        srcs = [voc_src[tok] for tok in trans.src[: trans.srclen].tolist()]
                     else:
                         srcs = [str(item) for item in range(len(align[0]))]
                     output = report_matrix(srcs, tgts, align)
@@ -492,9 +436,7 @@ class Inference(object):
             batch_data = self.predict_batch(batch, attn_debug)
 
             predictions = prediction_builder.from_batch(batch_data)
-            is_seq2seq = hasattr(self.model, "encoder") and hasattr(
-                self.model, "decoder"
-            )
+            is_seq2seq = hasattr(self.model, "encoder") and hasattr(self.model, "decoder")
             if (
                 is_seq2seq
                 and self._tgt_sep_idx != self._tgt_unk_idx
@@ -506,10 +448,7 @@ class Inference(object):
 
             bucket_predictions += predictions
 
-            if (
-                not isinstance(infer_iter, list)
-                and len(bucket_predictions) >= infer_iter.bucket_size
-            ):
+            if not isinstance(infer_iter, list) and len(bucket_predictions) >= infer_iter.bucket_size:
                 bucket_idx += 1
 
             if bucket_idx != prev_idx:
@@ -568,10 +507,7 @@ class Inference(object):
         if self.report_time:
             total_time = end_time - start_time
             self._log("Total prediction time (s): %.1f" % total_time)
-            self._log(
-                "Average prediction time (ms): %.1f"
-                % (total_time / len(all_predictions) * 1000)
-            )
+            self._log("Average prediction time (ms): %.1f" % (total_time / len(all_predictions) * 1000))
             self._log("Tokens per second: %.1f" % (pred_words_total / total_time))
             self._log("pred_words_total: %.1f" % (pred_words_total))
 
@@ -600,13 +536,9 @@ class Inference(object):
             batch_tgt_lengths = batch["tgtlen"].cpu().numpy().tolist()
             batch_inds_in_bucket = batch["ind_in_bucket"]
             if self.return_gold_log_probs:
-                batch_gold_log_probs = (
-                    batch_data["gold_log_probs"].cpu().numpy().tolist()
-                )
+                batch_gold_log_probs = batch_data["gold_log_probs"].cpu().numpy().tolist()
             else:
-                batch_gold_log_probs = [
-                    None for i, _ in enumerate(batch_inds_in_bucket)
-                ]
+                batch_gold_log_probs = [None for i, _ in enumerate(batch_inds_in_bucket)]
             for i, ind in enumerate(batch_inds_in_bucket):
                 processed_bucket[ind] = [
                     batch_gold_scores[i],
@@ -640,9 +572,7 @@ class Inference(object):
         ).T
         bos_tensor = torch.full([paded_tgt.size(0), 1], bos, dtype=dtype, device=device)
         full_tgt = torch.cat((bos_tensor, paded_tgt), dim=-1)
-        batched_nbest_predict = full_tgt.view(
-            len(predictions), -1, full_tgt.size(-1)
-        )  # (batch, n_best, tgt_l)
+        batched_nbest_predict = full_tgt.view(len(predictions), -1, full_tgt.size(-1))  # (batch, n_best, tgt_l)
         return batched_nbest_predict
 
     def _report_score(self, name, score_total, nb_sentences):
@@ -673,10 +603,8 @@ class Inference(object):
         self,
         decoder_in,
         enc_out,
-        batch,
         src_len,
         step=None,
-        batch_offset=None,
         return_attn=False,
     ):
 
@@ -684,29 +612,26 @@ class Inference(object):
         # and [batch, src_len, hidden] as enc_out
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
+        # we still rely on src_len here because updated at each beam search step
         if isinstance(enc_out, tuple):
             src_max_len = enc_out[0].size(1)
-            src_pad_mask = sequence_mask(src_len, src_max_len).unsqueeze(
-                1
-            )  # [B, 1, T_src]
+            src_pad_mask = sequence_mask(src_len, src_max_len).unsqueeze(1)  # [B, 1, T_src]
         elif enc_out is not None:
             src_max_len = enc_out.size(1)  # src_len.max() ce bug était sournois
-            src_pad_mask = sequence_mask(src_len, src_max_len).unsqueeze(
-                1
-            )  # [B, 1, T_src]
+            src_pad_mask = sequence_mask(src_len, src_max_len).unsqueeze(1)  # [B, 1, T_src]
         else:
             src_pad_mask = None
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
-
-        emb = self.model.tgt_emb(decoder_in, step=step)
+        position_embeddings = self.model.rope.update(decoder_in.size(1), step=step)
         dec_out, dec_attn = self.model.decoder(
-            emb,
+            self.model.tgt_emb(decoder_in, step=step),
             enc_out=enc_out,
             src_len=src_len,
             step=step,
             return_attn=self.global_scorer.has_cov_pen or return_attn,
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
+            position_embeddings=position_embeddings,
         )
         # Generator forward.
         if "std" in dec_attn:
@@ -746,9 +671,7 @@ class Inference(object):
         }
 
         if self.report_align:
-            results["alignment"] = self._align_forward(
-                batch, decode_strategy.predictions
-            )
+            results["alignment"] = self._align_forward(batch, decode_strategy.predictions)
         else:
             results["alignment"] = [[] for _ in range(batch_size)]
         preds = []

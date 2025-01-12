@@ -4,36 +4,21 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # Define the models table
 models=(
-    "Qwen/Qwen2.5-0.5B"
-    "Qwen/Qwen2.5-0.5B-Instruct"
-    "Qwen/Qwen2.5-1.5B"
-    "Qwen/Qwen2.5-1.5B-Instruct"
-    "Qwen/Qwen2.5-3B"
-    "Qwen/Qwen2.5-3B-Instruct"
-    "meta-llama/Llama-3.2-1B"
-    "meta-llama/Llama-3.2-1B-Instruct"
-    "meta-llama/Llama-3.2-3B"
-    "meta-llama/Llama-3.2-3B-Instruct"
-    "Qwen/Qwen2.5-7B"
-    "Qwen/Qwen2.5-7B-Instruct"
+    # Validated
     "mistralai/Ministral-8B-Instruct-2410"
     "mistralai/Mistral-7B-v0.3"
     "mistralai/Mistral-7B-Instruct-v0.3"
-    "mistralai/Mistral-7B-Instruct-v0.2"
-    "mistralai/Mistral-7B-Instruct-v0.1"
-    "mistralai/Mistral-7B-v0.1"
-    # "mistralai/Mathstral-7B-v0.1"
-    "meta-llama/Llama-3.1-8B"
+    "meta-llama/Llama-3.2-3B-Instruct"
+    "meta-llama/Llama-3.2-1B-Instruct"
     "meta-llama/Llama-3.1-8B-Instruct"
-    "meta-llama/Meta-Llama-3-8B"
     "meta-llama/Meta-Llama-3-8B-Instruct"
     "meta-llama/CodeLlama-7b-hf"
     "microsoft/Phi-3.5-mini-instruct"
-    "microsoft/Phi-3.5-MoE-instruct"
-    "microsoft/Phi-3-mini-4k-instruct"
     "microsoft/Phi-3-mini-128k-instruct"
-    "microsoft/Phi-3-small-8k-instruct"
-    "microsoft/Phi-3-small-128k-instruct"
+    # to work on
+    # "mistralai/Mathstral-7B-v0.1" # fp32 !
+    # "microsoft/Phi-3.5-MoE-instruct" # convert_HF not set for PhiMoEForCausalLM
+    # "microsoft/Phi-3-small-128k-instruct" # tokenizer to be taken from another model
 )
 
 # Log file for errors

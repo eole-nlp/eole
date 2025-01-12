@@ -1,4 +1,5 @@
 """Tokenization transforms that also numericalize, such as HF, or Mistral"""
+
 import os
 from eole.utils.logging import logger
 from eole.transforms import register_transform
@@ -55,16 +56,10 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
 
             self.tokenizers = {}
 
-            self.tokenizers["src"] = AutoTokenizer.from_pretrained(
-                self.huggingface_model, legacy=False
-            )
+            self.tokenizers["src"] = AutoTokenizer.from_pretrained(self.huggingface_model, legacy=False)
             # TODO: this needs to be tested and adapted for various models
-            self.tokenizers["tgt"] = AutoTokenizer.from_pretrained(
-                self.huggingface_model, legacy=False
-            )
-            logger.info(
-                f"Initialized tokenizers from HF model: {self.huggingface_model}"
-            )
+            self.tokenizers["tgt"] = AutoTokenizer.from_pretrained(self.huggingface_model, legacy=False)
+            logger.info(f"Initialized tokenizers from HF model: {self.huggingface_model}")
         elif self.path is not None:
             if os.path.exists(self.path):
                 from tokenizers import Tokenizer
@@ -77,9 +72,7 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
                 raise FileNotFoundError(self.path)
             logger.info(f"Initialized tokenizers from local file: {self.path}")
         else:
-            raise RuntimeError(
-                f"Either model_name or path must be configured for {self.name} transform"
-            )
+            raise RuntimeError(f"Either model_name or path must be configured for {self.name} transform")
         # https://github.com/huggingface/transformers/issues/22794#issuecomment-2092623992
         # bos = self.tokenizers["tgt"].bos_token
         # bos_id = self.tokenizers["tgt"].bos_token_id
@@ -111,7 +104,5 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
         return example
 
     def apply_reverse(self, predicted):
-        detokenized = (
-            self.tokenizers["tgt"].decode(predicted).replace("\n", DefaultTokens.SEP)
-        )
+        detokenized = self.tokenizers["tgt"].decode(predicted).replace("\n", DefaultTokens.SEP)
         return detokenized

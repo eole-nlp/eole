@@ -1,4 +1,5 @@
 """Module defining various utilities."""
+
 from eole.utils.misc import use_gpu, set_random_seed
 from eole.utils.alignment import make_batch_align_matrix
 from eole.utils.report_manager import ReportMgr, build_report_manager

@@ -56,9 +56,7 @@ class TestData(unittest.TestCase):
                 os.remove(pt)
             if self.opt.save_data:
                 # Remove the generated data samples
-                sample_path = os.path.join(
-                    os.path.dirname(self.opt.save_data), CorpusName.SAMPLE
-                )
+                sample_path = os.path.join(os.path.dirname(self.opt.save_data), CorpusName.SAMPLE)
                 if os.path.exists(sample_path):
                     for f in glob.glob(sample_path + "/*"):
                         os.remove(f)

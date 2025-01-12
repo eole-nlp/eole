@@ -35,18 +35,10 @@ def chunks(lgth, n):
 class OracleComet(BaseBin):
     @classmethod
     def add_args(cls, parser):
-        parser.add_argument(
-            "--nbest-src", type=str, help="src repeated n times", required=True
-        )
-        parser.add_argument(
-            "--nbest-hyp", type=str, help="file with nbest to rerank", required=True
-        )
-        parser.add_argument(
-            "--nbest-ref", type=str, help="ref repeated n times", required=False
-        )
-        parser.add_argument(
-            "--nbest-order", type=int, help="nbest order", required=True
-        )
+        parser.add_argument("--nbest-src", type=str, help="src repeated n times", required=True)
+        parser.add_argument("--nbest-hyp", type=str, help="file with nbest to rerank", required=True)
+        parser.add_argument("--nbest-ref", type=str, help="ref repeated n times", required=False)
+        parser.add_argument("--nbest-order", type=int, help="nbest order", required=True)
         parser.add_argument("--output", type=str, help="output file", required=True)
 
     @classmethod
@@ -86,9 +78,7 @@ class OracleComet(BaseBin):
                                 "ref": nref[i],
                             }
                         )
-                        seg_scores, sys_score = model.predict(
-                            data, batch_size=args.nbest_order, gpus=1
-                        )
+                        seg_scores, sys_score = model.predict(data, batch_size=args.nbest_order, gpus=1)
                         max_index = seg_scores.index(max(seg_scores))
                         output_file.write(data[max_index]["mt"] + "\n")
                         best_indices.append(max_index)
@@ -102,9 +92,7 @@ class OracleComet(BaseBin):
                                 "mt": nbest[i],
                             }
                         )
-                        seg_scores, sys_score = model.predict(
-                            data, batch_size=args.nbest_order, gpus=1
-                        )
+                        seg_scores, sys_score = model.predict(data, batch_size=args.nbest_order, gpus=1)
                         max_index = seg_scores.index(max(seg_scores))
                         output_file.write(data[max_index]["mt"] + "\n")
                         best_indices.append(max_index)

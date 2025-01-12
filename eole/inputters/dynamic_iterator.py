@@ -1,4 +1,5 @@
 """Module that contain iterator used for dynamic data."""
+
 import torch
 from itertools import cycle
 from eole.constants import CorpusTask
@@ -194,11 +195,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             running_config = config.training
 
         corpora_info = {}
-        batch_size = (
-            running_config.valid_batch_size
-            if (task == CorpusTask.VALID)
-            else running_config.batch_size
-        )
+        batch_size = running_config.valid_batch_size if (task == CorpusTask.VALID) else running_config.batch_size
         # we might want to define proper infer/train classes instead of these conditions
         if task != CorpusTask.INFER:
             if running_config.batch_size_multiple is not None:
@@ -206,9 +203,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             else:
                 batch_size_multiple = 8 if running_config.compute_dtype == "fp16" else 1
             corpora_info = config.data
-            bucket_size = (
-                running_config.bucket_size
-            )  # this should be in data rather than training?
+            bucket_size = running_config.bucket_size  # this should be in data rather than training?
             bucket_size_init = running_config.bucket_size_init
             bucket_size_increment = running_config.bucket_size_increment
             skip_empty_level = config.skip_empty_level
@@ -239,13 +234,9 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             skip_empty_level=skip_empty_level,
             stride=stride,
             offset=offset,
-            score_threshold=0
-            if isinstance(config, PredictConfig)
-            else running_config.score_threshold,
+            score_threshold=0 if isinstance(config, PredictConfig) else running_config.score_threshold,
             left_pad=getattr(config.model, "left_pad", False),
-            model_type=model_type
-            if model_type is not None
-            else getattr(config.model, "model_type", None),
+            model_type=model_type if model_type is not None else getattr(config.model, "model_type", None),
         )
 
     def _init_datasets(self, worker_id):
@@ -263,10 +254,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             stride=stride,
             offset=offset,
         )
-        datasets_weights = {
-            ds_name: int(self.corpora_info[ds_name].weight)
-            for ds_name in datasets_iterables.keys()
-        }
+        datasets_weights = {ds_name: int(self.corpora_info[ds_name].weight) for ds_name in datasets_iterables.keys()}
         if self.task == CorpusTask.TRAIN:
             self.mixer = WeightedMixer(datasets_iterables, datasets_weights)
         else:
@@ -278,9 +266,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         tuple_bucket = transform_bucket(self.task, tuple_bucket, self.score_threshold)
         for example in tuple_bucket:
             if example is not None:
-                bucket.append(
-                    numericalize(self.vocabs, example, model_type=self.model_type)
-                )
+                bucket.append(numericalize(self.vocabs, example, model_type=self.model_type))
 
         return bucket
 
@@ -356,8 +342,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
                         if overflowed == nbsents:
                             logger.warning(
                                 "The batch will be filled until we reach"
-                                " %d, its size may exceed %d tokens"
-                                % (batch_size_multiple, batch_size)
+                                " %d, its size may exceed %d tokens" % (batch_size_multiple, batch_size)
                             )
                         else:
                             yield minibatch[:-overflowed]
@@ -390,9 +375,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
                 # within the batch
                 if self.task == CorpusTask.TRAIN:
                     minibatch.sort(key=lambda x: self.sort_key(x[0]), reverse=True)
-                tensor_batch = tensorify(
-                    self.vocabs, minibatch, self.device, self.left_pad
-                )
+                tensor_batch = tensorify(self.vocabs, minibatch, self.device, self.left_pad)
                 yield (tensor_batch, bucket_idx)
 
 
@@ -402,7 +385,7 @@ class OnDeviceDatasetIter:
         self.device = device
 
     def __iter__(self):
-        for (tensor_batch, bucket_idx) in self.data_iter:
+        for tensor_batch, bucket_idx in self.data_iter:
             for key in tensor_batch.keys():
                 if key not in [
                     "cid",

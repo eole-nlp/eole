@@ -18,17 +18,13 @@ class MatrixTree(nn.Module):
         laplacian = input.exp() + self.eps
         output = input.clone()
         for b in range(input.size(0)):
-            lap = laplacian[b].masked_fill(
-                torch.eye(input.size(1), device=input.device).ne(0), 0
-            )
+            lap = laplacian[b].masked_fill(torch.eye(input.size(1), device=input.device).ne(0), 0)
             lap = -lap + torch.diag(lap.sum(0))
             # store roots on diagonal
             lap[0] = input[b].diag().exp()
             inv_laplacian = lap.inverse()
 
-            factor = (
-                inv_laplacian.diag().unsqueeze(1).expand_as(input[b]).transpose(0, 1)
-            )
+            factor = inv_laplacian.diag().unsqueeze(1).expand_as(input[b]).transpose(0, 1)
             term1 = input[b].exp().mul(factor).clone()
             term2 = input[b].exp().mul(inv_laplacian.transpose(0, 1)).clone()
             term1[:, 0] = 0

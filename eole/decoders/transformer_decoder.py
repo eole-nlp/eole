@@ -10,8 +10,7 @@ from eole.decoders.transformer_base import (
     TransformerDecoderBase,
 )
 from eole.modules.multi_headed_attn import ContextMHA
-from eole.constants import LayerNorm, PositionEncodingType
-from eole.modules.rope import RotaryPosition
+from eole.constants import LayerNorm
 
 
 class TransformerDecoderLayer(TransformerDecoderLayerBase):
@@ -81,15 +80,15 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
             * attns ``(batch_size, head, T, src_len)``
 
         """
-        dec_mask = None
+        attn_mask = None
         src_pad_mask = src_pad_mask.unsqueeze(1)  # [B,1,1,slen]
 
         if layer_in.size(1) > 1:
             # masking is necessary when sequence length is greater than one
-            dec_mask = self._compute_dec_mask(tgt_pad_mask, future)
-            dec_mask = dec_mask.unsqueeze(1)
-            dec_mask = dec_mask.expand(-1, -1, dec_mask.size(3), -1)
-            src_pad_mask = src_pad_mask.expand(-1, -1, dec_mask.size(3), -1)
+            attn_mask = self._compute_attn_mask(tgt_pad_mask, future)
+            attn_mask = attn_mask.unsqueeze(1)
+            attn_mask = attn_mask.expand(-1, -1, attn_mask.size(3), -1)
+            src_pad_mask = src_pad_mask.expand(-1, -1, attn_mask.size(3), -1)
             # mask now are (batch x 1 x tlen x s or t len)
             # 1 = heads to be expanded in MHA
 
@@ -97,8 +96,7 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
 
         self_attn, _ = self.self_attn(
             norm_layer_in,
-            mask=dec_mask,
-            sliding_window=self.sliding_window,
+            attn_mask=attn_mask,
             step=step,
             return_attn=return_attn,
             position_embeddings=position_embeddings,
@@ -112,7 +110,7 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
                 enc_out,
                 enc_out,
                 norm_layer_in,
-                mask=src_pad_mask,
+                attn_mask=~src_pad_mask,
                 return_attn=return_attn,
             )
             if not self.shared_layer_norm:
@@ -123,7 +121,11 @@ class TransformerDecoderLayer(TransformerDecoderLayerBase):
         else:
             norm_query = self.precontext_layernorm(self_attn + layer_in)
             ctx_attn, attns = self.context_attn(
-                enc_out, enc_out, norm_query, mask=src_pad_mask, return_attn=return_attn
+                enc_out,
+                enc_out,
+                norm_query,
+                attn_mask=~src_pad_mask,
+                return_attn=return_attn,
             )
             if self.dropout_p > 0:
                 ctx_attn = self.dropout(ctx_attn)
@@ -149,12 +151,7 @@ class TransformerDecoder(TransformerDecoderBase):
         model_config,
         running_config=None,
     ):
-        super(TransformerDecoder, self).__init__(
-            model_config, running_config=running_config
-        )
-
-        if model_config.position_encoding_type == PositionEncodingType.Rotary:
-            self.rope = RotaryPosition(model_config)
+        super(TransformerDecoder, self).__init__(model_config, running_config=running_config)
 
         self.transformer_layers = nn.ModuleList(
             [
@@ -166,9 +163,8 @@ class TransformerDecoder(TransformerDecoderBase):
             ]
         )
         # This is the Decoder out layer norm
-        self.layer_norm = LayerNorm[model_config.layer_norm](
-            model_config.hidden_size, eps=model_config.norm_eps
-        )
+        self.layer_norm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
+        self._disable_cache()
 
     def forward(self, emb, **kwargs):
         """Decode, possibly stepwise."""
@@ -180,42 +176,19 @@ class TransformerDecoder(TransformerDecoderBase):
         assert tgt_pad_mask is not None, "TransformerDecoder requires a tgt pad mask"
         src_pad_mask = kwargs.pop("src_pad_mask", None)
         assert src_pad_mask is not None, "TransformerDecoder requires a src pad mask"
-
         step = kwargs.pop("step", None)
-
-        if enc_out is None:
-            enc_out = emb
-        if step == 0:
-            self._init_cache(enc_out.device)
-        elif step is None:
-            for layer in self.transformer_layers:
-                layer.self_attn.layer_cache = (
-                    False,
-                    {"keys": torch.tensor([]), "values": torch.tensor([])},
-                )
-                layer.context_attn.layer_cache = (
-                    False,
-                    {"keys": torch.tensor([]), "values": torch.tensor([])},
-                )
-
-        if hasattr(self, "rope"):
-            position_embeddings = self.rope(
-                emb,
-                step=step,
-                device=emb.device,
-            )
-        else:
-            position_embeddings = None
-
         with_align = kwargs.pop("with_align", False)
         return_attn = with_align or kwargs.pop("return_attn", False)
-
+        position_embeddings = kwargs.pop("position_embeddings", None)
         attn_aligns = []
+
+        if step == 0:
+            self._enable_cache(enc_out.device)
 
         for layer in self.transformer_layers:
             emb, attn, attn_align = layer(
                 emb,
-                enc_out,
+                enc_out if enc_out is not None else emb,
                 src_pad_mask,
                 tgt_pad_mask,
                 step=step,
@@ -236,8 +209,7 @@ class TransformerDecoder(TransformerDecoderBase):
         # TODO change the way attns is returned dict => list or tuple (onnx)
         return emb, attns
 
-    def _init_cache(self, device):
-
+    def _enable_cache(self, device):
         for layer in self.transformer_layers:
             # first value set to True triggered by the beginning of decoding
             # layer_cache becomes active in the MultiHeadedAttention fwd
@@ -255,7 +227,14 @@ class TransformerDecoder(TransformerDecoderBase):
                     "values": torch.tensor([], device=device),
                 },
             )
-            if hasattr(layer.self_attn, "rope"):
-                layer.self_attn.rope = layer.self_attn.rope.to(device)
-                layer.self_attn.cos = layer.self_attn.cos.to(device)
-                layer.self_attn.sin = layer.self_attn.sin.to(device)
+
+    def _disable_cache(self):
+        for layer in self.transformer_layers:
+            layer.self_attn.layer_cache = (
+                False,
+                {"keys": torch.tensor([]), "values": torch.tensor([])},
+            )
+            layer.context_attn.layer_cache = (
+                False,
+                {"keys": torch.tensor([]), "values": torch.tensor([])},
+            )
