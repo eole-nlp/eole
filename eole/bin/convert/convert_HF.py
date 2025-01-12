@@ -707,7 +707,7 @@ def build_shards(model_config, hf, args, params):
                         ]:
                             module_p = f".{module}.{p}"
                             if module_p in KEY_MAPS[hf.arch].keys():
-                                if type(KEY_MAPS[hf.arch][module_p]) == tuple:
+                                if isinstance(KEY_MAPS[hf.arch][module_p], tuple):
                                     w = get_weight(
                                         checkpoint,
                                         hf_prefix + str(i) + KEY_MAPS[hf.arch][module_p][idx],
