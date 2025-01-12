@@ -61,10 +61,7 @@ MODEL_OVERRIDES = {
             for i in range(8)
             for j, attr in enumerate(["gate_up_proj.", "down_proj.", "up_proj."])
         },
-        **{
-            f".mlp.experts.{i}.layer_norm.weight": ".post_attention_layernorm.weight"
-            for i in range(8)
-        },
+        **{f".mlp.experts.{i}.layer_norm.weight": ".post_attention_layernorm.weight" for i in range(8)},
     },
     "PhiForCausalLM": {
         "decoder.layer_norm.weight": "model.final_layernorm.weight",
@@ -124,9 +121,7 @@ MODEL_OVERRIDES = {
 }
 
 # Combine base mappings with overrides
-KEY_MAPS = {
-    model: {**BASE_KEY_MAP, **overrides} for model, overrides in MODEL_OVERRIDES.items()
-}
+KEY_MAPS = {model: {**BASE_KEY_MAP, **overrides} for model, overrides in MODEL_OVERRIDES.items()}
 
 # Layer norm type
 LN_TABLE = defaultdict(
@@ -219,9 +214,7 @@ class HuggingfaceFiles:
             if os.path.exists(path):
                 return path
             if required:
-                raise FileNotFoundError(
-                    f"Required file '{file_name}' is missing locally."
-                )
+                raise FileNotFoundError(f"Required file '{file_name}' is missing locally.")
             return None
 
         def download_file(file_name, required=True):
@@ -235,9 +228,7 @@ class HuggingfaceFiles:
                 )
             except utils.EntryNotFoundError:
                 if required:
-                    raise utils.EntryNotFoundError(
-                        f"Required file '{file_name}' is missing from the repository."
-                    )
+                    raise utils.EntryNotFoundError(f"Required file '{file_name}' is missing from the repository.")
                 return None
 
         get_file_fn = get_path if mode == "local" else download_file
@@ -247,12 +238,8 @@ class HuggingfaceFiles:
         # Fetch required and optional files
         paths = {
             "config_path": get_file_fn("config.json", required=True),
-            "tokenizer_config_json": get_file_fn(
-                "tokenizer_config.json", required=True
-            ),
-            "generation_config_json": get_file_fn(
-                "generation_config.json", required=False
-            ),
+            "tokenizer_config_json": get_file_fn("tokenizer_config.json", required=True),
+            "generation_config_json": get_file_fn("generation_config.json", required=False),
             "tokenizer_model": get_file_fn("tokenizer.model", required=False)
             or get_file_fn("sentencepiece.bpe.model", required=False),
             "tokenizer_json": get_file_fn("tokenizer.json", required=False),
@@ -260,9 +247,7 @@ class HuggingfaceFiles:
             or get_file_fn("pytorch_model.bin.index.json", required=False),
             "model_path": get_file_fn("model.safetensors", required=False)
             or get_file_fn("pytorch_model.bin", required=False),
-            "special_tokens_json": get_file_fn(
-                "special_tokens_map.json", required=False
-            ),
+            "special_tokens_json": get_file_fn("special_tokens_map.json", required=False),
         }
 
         return cls(**paths, model_dir=args.model_dir, token=args.token)
@@ -289,9 +274,7 @@ class HuggingfaceFiles:
             return self._get_file_content(f"{name}_json")
         elif f"{name}_path" in file_fields:
             return self._get_file_content(f"{name}_path")
-        raise AttributeError(
-            f"'{self.__class__.__name__}' object has no attribute '{name}'"
-        )
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
     @property
     def arch(self):
@@ -320,9 +303,7 @@ class HuggingfaceFiles:
                     token=self.token,
                 )
             except huggingface_hub.utils.EntryNotFoundError:
-                raise huggingface_hub.utils.EntryNotFoundError(
-                    "Checkpoint not found on the hub"
-                )
+                raise huggingface_hub.utils.EntryNotFoundError("Checkpoint not found on the hub")
             except PermissionError:
                 ckpt_path = os.path.join(dir_path, file_path)
         if ckpt_path[-4:] == ".bin":
@@ -356,9 +337,7 @@ def get_huggingface_model(args):
     if os.path.exists(args.model_dir):
         huggingface_model = get_git_remote_url(args.model_dir)
         if huggingface_model is None:
-            logging.warning(
-                "huggingface_model could not be retrieved from model_dir git config"
-            )
+            logging.warning("huggingface_model could not be retrieved from model_dir git config")
     else:
         huggingface_model = args.model_dir
     return huggingface_model
@@ -376,9 +355,7 @@ def build_config_dict(hf):
         "layers": config.get("num_hidden_layers", config.get("n_layer")),
         "hidden_size": config.get("hidden_size", config.get("n_embd")),
         "heads": config.get("num_attention_heads", config.get("n_head")),
-        "transformer_ff": config.get(
-            "intermediate_size", config.get("hidden_size", config.get("n_embd")) * 4
-        ),
+        "transformer_ff": config.get("intermediate_size", config.get("hidden_size", config.get("n_embd")) * 4),
         "mlp_activation_fn": ACT_TABLE[arch],
         "layer_norm": LN_TABLE[arch],
         "heads_kv": config.get("multi_query", False)
@@ -386,9 +363,7 @@ def build_config_dict(hf):
             "num_key_value_heads",
             config.get(
                 "num_kv_heads",
-                config.get(
-                    "n_head_kv", config.get("num_attention_heads", config.get("n_head"))
-                ),
+                config.get("n_head_kv", config.get("num_attention_heads", config.get("n_head"))),
             ),
         ),
         "head_dim": config.get("head_dim"),
@@ -467,20 +442,14 @@ def build_config_dict(hf):
                 "llm-awq": "awq_gemv",
                 "autoawq": {"gemm": "awq_gemm", "gemv": "awq_gemv"},
             }
-            quant_type = quant_type_mapping.get(backend, "").get(
-                quant_config.get("version").lower(), ""
-            )
+            quant_type = quant_type_mapping.get(backend, "").get(quant_config.get("version").lower(), "")
             if not quant_type:
                 raise ValueError("Unknown quantization config")
         else:
             raise ValueError("Can convert only awq models for now")
         training_config["quant_type"] = quant_type
-        training_config["w_bit"] = quant_config.get(
-            "bits", quant_config.get("w_bit", 0)
-        )
-        training_config["group_size"] = quant_config.get(
-            "group_size", quant_config.get("q_group_size", 0)
-        )
+        training_config["w_bit"] = quant_config.get("bits", quant_config.get("w_bit", 0))
+        training_config["group_size"] = quant_config.get("group_size", quant_config.get("q_group_size", 0))
         training_config["quant_layers"] = [
             "gate_up_proj",
             "down_proj",
@@ -572,17 +541,12 @@ def get_weight(checkpoint, tensor_name):
 
 def check_tokenizer_config(hf):
     config = hf.config
-    add_bos_token = hf.tokenizer_config.get(
-        "add_bos_token", hf.tokenizer_config.get("bos_token", False) is not None
-    )
+    add_bos_token = hf.tokenizer_config.get("add_bos_token", hf.tokenizer_config.get("bos_token", False) is not None)
     chat_template = {"chat_template": hf.tokenizer_config.get("chat_template", None)}
     eos_token_id = config.get("eos_token_id", None)
     optional_eos = []
     if isinstance(eos_token_id, list) and "added_tokens_decoder" in hf.tokenizer_config:
-        eos_tokens = [
-            hf.tokenizer_config["added_tokens_decoder"][str(index)]["content"]
-            for index in eos_token_id
-        ]
+        eos_tokens = [hf.tokenizer_config["added_tokens_decoder"][str(index)]["content"] for index in eos_token_id]
         optional_eos = eos_tokens[1:]
     # Automatically convert added_tokens into mapped_tokens
     mapped_tokens = [
@@ -616,9 +580,7 @@ def check_generation_config(hf):
     generation_config_dict = {}
     # we probably need a better mapping at some point
     keys = ["top_k", "top_p", "temperature", "max_length"]
-    generation_config_dict = {
-        key: hf.generation_config[key] for key in keys if key in hf.generation_config
-    }
+    generation_config_dict = {key: hf.generation_config[key] for key in keys if key in hf.generation_config}
     return generation_config_dict
 
 
@@ -642,16 +604,14 @@ def build_ckpt_lists(model_config, hf, nshards):
 
     # Check if a layer key belongs to the current shard
     def is_layer_in_range(key, prefix, layer_range):
-        return (
-            prefix and key.startswith(prefix) and int(key.split(".")[2]) in layer_range
-        )
+        return prefix and key.startswith(prefix) and int(key.split(".")[2]) in layer_range
 
     # Loop over the weightmap and distribute checkpoints to the appropriate shards
     for key, ckpt in weightmap.items():
         for shard, layer_range in enumerate(shard_layer_ranges):
-            if is_layer_in_range(
-                key, hf.decoder_layer_prefix, layer_range
-            ) or is_layer_in_range(key, hf.encoder_layer_prefix, layer_range):
+            if is_layer_in_range(key, hf.decoder_layer_prefix, layer_range) or is_layer_in_range(
+                key, hf.encoder_layer_prefix, layer_range
+            ):
                 ckpt_lists[shard].add(ckpt)
 
     return ckpt_lists, shard_layer_ranges
@@ -715,9 +675,7 @@ def build_shards(model_config, hf, args, params):
                         for target, source in KEY_MAPS[hf.arch].items():
                             if target in first_shard_targets:
                                 continue
-                            srckey, srcmap = (
-                                source if isinstance(source, tuple) else (source, None)
-                            )
+                            srckey, srcmap = source if isinstance(source, tuple) else (source, None)
                             w = get_weight(
                                 checkpoint,
                                 hf_prefix + str(i) + srckey + param,
@@ -730,14 +688,10 @@ def build_shards(model_config, hf, args, params):
                                         {
                                             "w": w,
                                             "hidden_size": model_config["hidden_size"],
-                                            "transformer_ff": model_config[
-                                                "transformer_ff"
-                                            ],
+                                            "transformer_ff": model_config["transformer_ff"],
                                         },
                                     ).contiguous()
-                                eole_safetensor[
-                                    eole_prefix + str(i) + target + param
-                                ] = w
+                                eole_safetensor[eole_prefix + str(i) + target + param] = w
 
                     if model_config["shared_layer_norm"]:
                         idx = 0
@@ -756,40 +710,24 @@ def build_shards(model_config, hf, args, params):
                                 if type(KEY_MAPS[hf.arch][module_p]) == tuple:
                                     w = get_weight(
                                         checkpoint,
-                                        hf_prefix
-                                        + str(i)
-                                        + KEY_MAPS[hf.arch][module_p][idx],
+                                        hf_prefix + str(i) + KEY_MAPS[hf.arch][module_p][idx],
                                     )
                                 else:
                                     w = get_weight(
                                         checkpoint,
-                                        hf_prefix
-                                        + str(i)
-                                        + KEY_MAPS[hf.arch][module_p],
+                                        hf_prefix + str(i) + KEY_MAPS[hf.arch][module_p],
                                     )
                                 if w is not None:
                                     eole_safetensor[eole_prefix + str(i) + module_p] = w
 
                         for j in range(model_config["num_experts"]):
-                            if (
-                                f".mlp.experts.{j}.layer_norm." + p
-                                in KEY_MAPS[hf.arch].keys()
-                            ):
+                            if f".mlp.experts.{j}.layer_norm." + p in KEY_MAPS[hf.arch].keys():
                                 w = get_weight(
                                     checkpoint,
-                                    hf_prefix
-                                    + str(i)
-                                    + KEY_MAPS[hf.arch][
-                                        f".mlp.experts.{j}.layer_norm." + p
-                                    ],
+                                    hf_prefix + str(i) + KEY_MAPS[hf.arch][f".mlp.experts.{j}.layer_norm." + p],
                                 )
                                 if w is not None:
-                                    eole_safetensor[
-                                        eole_prefix
-                                        + str(i)
-                                        + f".mlp.experts.{j}.layer_norm."
-                                        + p
-                                    ] = w
+                                    eole_safetensor[eole_prefix + str(i) + f".mlp.experts.{j}.layer_norm." + p] = w
 
         # Convert to another dtype if specified
         if args.dtype is not None:
@@ -808,11 +746,7 @@ def check_sentencepiece_tokenizer(hf):
     vocab = tokenizer.vocab
     if hf.tokenizer_json is not None:
         # We need to add 'added_tokens' that are not in the SP model
-        newtokens = [
-            tok["content"]
-            for tok in hf.tokenizer["added_tokens"]
-            if tok["content"] not in vocab
-        ]
+        newtokens = [tok["content"] for tok in hf.tokenizer["added_tokens"] if tok["content"] not in vocab]
         vocab.extend(newtokens)
         for tok in hf.tokenizer["added_tokens"]:
             vocab[tok["id"]] = tok["content"]
@@ -857,9 +791,7 @@ def check_bpe_tokenizer(hf, vocabs, directory_path):
             # elif isinstance(token, dict):
             #     vocabs["specials"][token_name] = token["content"]
     tokenizer_basename = "bpe.model"
-    with open(
-        os.path.join(directory_path, tokenizer_basename), "w", encoding="utf-8"
-    ) as bpemodel:
+    with open(os.path.join(directory_path, tokenizer_basename), "w", encoding="utf-8") as bpemodel:
         bpemodel.write("v3;false;false;false;Ġ;Ġ\n")
         for merge in hf.tokenizer["model"]["merges"]:
             if isinstance(merge, str):
@@ -867,9 +799,7 @@ def check_bpe_tokenizer(hf, vocabs, directory_path):
             elif isinstance(merge, list):
                 bpemodel.write(" ".join(merge) + "\n")
             else:
-                raise NotImplementedError(
-                    f"Type {type(merge)} is not supported for BPE merges."
-                )
+                raise NotImplementedError(f"Type {type(merge)} is not supported for BPE merges.")
     return src_vocab, tokenizer_basename, vocabs, gpt2_pretok
 
 
@@ -880,9 +810,7 @@ def save_vocab(vocabs, src_vocab, directory_path):
     with open(os.path.join(directory_path, "vocab.json"), "w", encoding="utf-8") as f:
         json.dump(vocab_dict, f, indent=2, ensure_ascii=False)
 
-    with open(
-        os.path.join(directory_path, "vocab.txt"), "w", encoding="utf-8"
-    ) as vocabfile:
+    with open(os.path.join(directory_path, "vocab.txt"), "w", encoding="utf-8") as vocabfile:
         for tok in vocab_dict["src"]:
             vocabfile.write(tok + "\n")
 
@@ -921,8 +849,7 @@ class LlamaHFConverter(BaseBin):
             type=str,
             default=None,
             choices=TORCH_DTYPES.keys(),
-            help="Specify which dtype to save model parameters into, "
-            "default will keep the same as the input.",
+            help="Specify which dtype to save model parameters into, " "default will keep the same as the input.",
         )
         parser.add_argument(
             "--tokenizer",
@@ -954,16 +881,12 @@ class LlamaHFConverter(BaseBin):
             mapped_tokens,
         ) = check_tokenizer_config(hf)
         vocabs = check_special_tokens(hf)
-        if (
-            hf.tokenizer_model is not None
-        ):  # sentencepiece mode (might be good to check it's a SP model)
+        if hf.tokenizer_model is not None:  # sentencepiece mode (might be good to check it's a SP model)
             src_subword_type = "sentencepiece"
             src_vocab, tokenizer_basename = check_sentencepiece_tokenizer(hf)
         else:  # BPE mode - we leverage the HF tokenizer.json info
             src_subword_type = "bpe"
-            src_vocab, tokenizer_basename, vocabs, gpt2_pretok = check_bpe_tokenizer(
-                hf, vocabs, args.output
-            )
+            src_vocab, tokenizer_basename, vocabs, gpt2_pretok = check_bpe_tokenizer(hf, vocabs, args.output)
 
         # Configure transforms
         match TOK_TABLE[hf.arch], args.tokenizer:
