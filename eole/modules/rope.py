@@ -1,6 +1,62 @@
 import torch
 import torch.nn as nn
 import math
+from torch import Tensor
+from typing import Tuple
+
+
+# Help functions for Rotary Embeddings
+def rotate_half(x: Tensor) -> Tensor:
+    """Rotates half the hidden dims of the input."""
+    x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
+
+
+def apply_rotary_emb(
+    query: Tensor, key: Tensor, rope: Tuple[Tensor, Tensor], interleave: bool
+) -> Tuple[Tensor, Tensor]:
+    # now rope is a tuple (cos, sin)
+    cos, sin = rope
+    if interleave:
+        query, key = query.transpose(1, 2), key.transpose(1, 2)
+        query_ = query.float().reshape(*query.shape[:-1], -1, 2)
+        key_ = key.float().reshape(*key.shape[:-1], -1, 2)
+
+        # Reshape cos and sin to match the dimensions of query_ and key_
+        cos = cos[:, : cos.size(1) // 2].view(1, query_.size(1), 1, query_.size(3))
+        sin = sin[:, : sin.size(1) // 2].view(1, key_.size(1), 1, key_.size(3))
+
+        query_rotated = query_[..., 0] * cos - query_[..., 1] * sin
+        query_rotated_imag = query_[..., 0] * sin + query_[..., 1] * cos
+        query_out = torch.stack((query_rotated, query_rotated_imag), dim=-1).flatten(3)
+
+        key_rotated = key_[..., 0] * cos - key_[..., 1] * sin
+        key_rotated_imag = key_[..., 0] * sin + key_[..., 1] * cos
+        key_out = torch.stack((key_rotated, key_rotated_imag), dim=-1).flatten(3)
+
+        return query_out.transpose(1, 2).type_as(query), key_out.transpose(1, 2).type_as(key)
+
+        # Old code with complex instead
+        # rope_complex = torch.complex(cos, sin)
+        # query_ = torch.view_as_complex(query_)
+        # key_ = torch.view_as_complex(key_)
+        # query_out = torch.view_as_real(query_ * rope_complex).flatten(3)
+        # key_out = torch.view_as_real(key_ * rope_complex).flatten(3)
+        # return query_out.transpose(1, 2).type_as(query), key_out.transpose(
+        #     1, 2
+        # ).type_as(key)
+    else:
+        rotary_dim = cos.size(1)
+        head_dim = query.size(3)
+        if rotary_dim < head_dim:
+            q_embed = (query[:, :, :, :rotary_dim] * cos) + (rotate_half(query[:, :, :, :rotary_dim]) * sin)
+            k_embed = (key[:, :, :, :rotary_dim] * cos) + (rotate_half(key[:, :, :, :rotary_dim]) * sin)
+            q_embed = torch.cat([q_embed, query[:, :, :, rotary_dim:]], dim=-1)
+            k_embed = torch.cat([k_embed, key[:, :, :, rotary_dim:]], dim=-1)
+        else:
+            q_embed = (query * cos) + (rotate_half(query) * sin)
+            k_embed = (key * cos) + (rotate_half(key) * sin)
+        return q_embed.type_as(query), k_embed.type_as(key)
 
 
 class RotaryPosition(nn.Module):
@@ -47,14 +103,7 @@ class RotaryPosition(nn.Module):
         # TODO: extend with other scaling types
         if getattr(self.model_config.rope_config, "scaling_type", None) == "llama3":
             self.llama3_scaling()
-        tmax = torch.arange(1024)
-        rope = torch.outer(tmax, inv_freq)
-        cos = torch.cos(rope)
-        sin = torch.sin(rope)
-        cos = torch.cat((cos, cos), dim=-1)  # Double the size by repeating `cos`
-        sin = torch.cat((sin, sin), dim=-1)  # Double the size by repeating `sin`
-        self.register_buffer("cos", cos, persistent=False)
-        self.register_buffer("sin", sin, persistent=False)
+        self.update(1024)
 
     def llama3_scaling(self):
         """
@@ -111,7 +160,7 @@ class RotaryPosition(nn.Module):
             step = 0
         offset = 32  # make sure we have at least 32 positions for flash_attn_with_kvcache
         # This could probably a bit cleaner/homogenized with the offset case
-        if self.cos.size(0) >= max(offset + step, 0) + maxseqlen:
+        if hasattr(self, "cos") and self.cos.size(0) >= max(offset + step, 0) + maxseqlen:
             return self.cos, self.sin
         else:
             maxseqlen = maxseqlen + prefetch

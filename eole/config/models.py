@@ -318,15 +318,6 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
         return self
 
 
-class TransformerLMDecoderConfig(TransformerDecoderConfig):
-    """
-    Right now just wraps TransformerDecoderConfig for simplicity.
-    Might merge in a single class later once TransformerLM path is clarified.
-    """
-
-    decoder_type: Literal["transformer_lm"] = Field(default="transformer_lm")
-
-
 # use Field with default= + description would be more readable
 # was inheriting from VocabConfig, but removed for now to facilitate inference tests
 # could we have different BaseModelConfig classes (inheriting from a base one)
@@ -353,7 +344,6 @@ class BaseModelConfig(Config):
     decoder: (
         Union[
             TransformerDecoderConfig,
-            TransformerLMDecoderConfig,
             RnnDecoderConfig,
             CnnDecoderConfig,
         ]
@@ -489,10 +479,7 @@ class BaseModelConfig(Config):
 
         if self.decoder is not None:
             update_dict["decoder"] = {"tgt_word_vec_size": self.embeddings.tgt_word_vec_size}
-            if getattr(self.decoder, "decoder_type", None) in [
-                "transformer",
-                "transformer_lm",
-            ]:
+            if getattr(self.decoder, "decoder_type", None) == "transformer":
                 update_dict["decoder"].update(
                     {
                         "position_encoding_type": self.embeddings.position_encoding_type,
@@ -669,9 +656,9 @@ class TransformerLMModelConfig(TransformerConfig, BaseModelConfig):
         if not (isinstance(data, dict)):
             return data
         if "decoder" in data.keys():
-            data["decoder"]["decoder_type"] = "transformer_lm"
+            data["decoder"]["decoder_type"] = "transformer"
         else:
-            data["decoder"] = {"decoder_type": "transformer_lm"}
+            data["decoder"] = {"decoder_type": "transformer"}
         return data
 
     @model_validator(mode="before")

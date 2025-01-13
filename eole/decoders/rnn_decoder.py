@@ -22,6 +22,7 @@ class RNNDecoderBase(DecoderBase):
         self,
         model_config,
         running_config=None,
+        with_cross_attn=False,
     ):
         super(RNNDecoderBase, self).__init__(
             attentional=model_config.global_attention != "none" and model_config.global_attention is not None
@@ -66,12 +67,13 @@ class RNNDecoderBase(DecoderBase):
             )
 
     @classmethod
-    def from_config(cls, model_config, running_config=None):
+    def from_config(cls, model_config, running_config=None, with_cross_attn=False):
         """Alternate constructor."""
         # config = opt.model.decoder  # RnnDecoderConfig
         return cls(
             model_config,
             running_config=running_config,
+            with_cross_attn=False,
         )
 
     def init_state(self, **kwargs):
@@ -174,6 +176,7 @@ class StdRNNDecoder(RNNDecoderBase):
         self,
         model_config,
         running_config=None,
+        with_cross_attn=False,
     ):
         self.hidden_size = model_config.hidden_size
         self._input_size = model_config.tgt_word_vec_size
@@ -253,6 +256,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
         self,
         model_config,
         running_config=None,
+        with_cross_attn=False,
     ):
         self.hidden_size = model_config.hidden_size
         self._input_size = model_config.tgt_word_vec_size + self.hidden_size

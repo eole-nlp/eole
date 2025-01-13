@@ -23,6 +23,7 @@ class CNNDecoder(DecoderBase):
         self,
         model_config,
         running_config=None,
+        with_cross_attn=False,
     ):
         super(CNNDecoder, self).__init__()
 
@@ -49,11 +50,12 @@ class CNNDecoder(DecoderBase):
         )
 
     @classmethod
-    def from_config(cls, model_config, running_config=None):
+    def from_config(cls, model_config, running_config=None, with_cross_attn=False):
         """Alternate constructor."""
         return cls(
             model_config,
             running_config,
+            with_cross_attn=False,
         )
 
     def init_state(self, **kwargs):

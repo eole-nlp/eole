@@ -21,6 +21,10 @@ class InferenceEngine(object):
     def __init__(self, config):
         self.config = config  # PredictConfig
         self.model_type = None
+        torch.backends.cuda.enable_mem_efficient_sdp(True)
+        torch.backends.cuda.enable_flash_sdp(False)
+        torch.backends.cuda.enable_math_sdp(False)
+        torch.backends.cuda.enable_cudnn_sdp(False)
 
     def predict_batch(self, batch):
         pass

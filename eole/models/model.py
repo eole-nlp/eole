@@ -51,7 +51,7 @@ def build_encoder(model_config, running_config=None):
     return str2enc[enc_type].from_config(model_config.encoder, running_config=running_config)  # full config for now
 
 
-def build_decoder(model_config, running_config=None):
+def build_decoder(model_config, running_config=None, with_cross_attn=False):
     """
     Various decoder dispatcher function.
     Args:
@@ -62,7 +62,11 @@ def build_decoder(model_config, running_config=None):
         if model_config.decoder.decoder_type == "rnn" and model_config.input_feed
         else model_config.decoder.decoder_type
     )
-    return str2dec[dec_type].from_config(model_config.decoder, running_config=running_config)
+    return str2dec[dec_type].from_config(
+        model_config.decoder,
+        running_config=running_config,
+        with_cross_attn=with_cross_attn,
+    )
 
 
 def build_src_emb(model_config, vocabs, running_config=None):
@@ -348,6 +352,7 @@ class BaseModel(nn.Module):
         model, vocabs, model_config = get_model_class(config.model).from_config(
             config, vocabs, checkpoint, device_id, running_config=config
         )
+
         return vocabs, model, model_config
 
     def init_weights(self, running_config):
@@ -711,7 +716,7 @@ class EncoderDecoderModel(BaseModel):
             share_embeddings=model_config.share_embeddings,
             src_emb=src_emb,
         )
-        decoder = build_decoder(model_config, running_config=running_config)
+        decoder = build_decoder(model_config, running_config=running_config, with_cross_attn=True)
         return cls(
             encoder=encoder,
             decoder=decoder,
@@ -745,7 +750,6 @@ class EncoderDecoderModel(BaseModel):
         dec_out, attns = self.decoder(
             self.tgt_emb(dec_in),
             enc_out=enc_out,
-            src_len=src_len,
             with_align=with_align,
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
@@ -791,7 +795,7 @@ class DecoderModel(BaseModel):
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         tgt_emb = build_tgt_emb(model_config, vocabs, running_config=running_config)
-        decoder = build_decoder(model_config, running_config=running_config)
+        decoder = build_decoder(model_config, running_config=running_config, with_cross_attn=False)
         return cls(
             decoder=decoder,
             tgt_emb=tgt_emb,
@@ -809,9 +813,6 @@ class DecoderModel(BaseModel):
         position_embeddings = self.rope.update(src.size(1), step=0)
         dec_out, attns = self.decoder(
             self.tgt_emb(src),
-            enc_out=None,
-            src_len=src_len,
-            with_align=with_align,
             tgt_pad_mask=src.eq(self.pad_idx).unsqueeze(1),
             position_embeddings=position_embeddings,
         )

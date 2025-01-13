@@ -606,6 +606,7 @@ class Inference(object):
         src_len,
         step=None,
         return_attn=False,
+        left_pad=False,
     ):
 
         # Decoder forward, takes [batch, tgt_len, nfeats] as input
@@ -632,6 +633,7 @@ class Inference(object):
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
             position_embeddings=position_embeddings,
+            left_pad=left_pad,
         )
         # Generator forward.
         if "std" in dec_attn:
