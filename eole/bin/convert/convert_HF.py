@@ -153,20 +153,18 @@ ARCH_TABLE = defaultdict(
 TOK_TABLE = defaultdict(lambda: "huggingface_tokenize")
 
 
-class SentencePieceTokenizer:
-    """
-    Helper class to handle sentencepiece model.
-    """
+def get_sentencepiece_vocab(model_path):
+    """Get the vocabulary from a SentencePiece model.
 
-    def __init__(self, model_path: str):
-        assert os.path.isfile(model_path), model_path
-        self.sp_model = SentencePieceProcessor(model_file=model_path)
-        self.n_words: int = self.sp_model.vocab_size()
-        self.bos_id: int = self.sp_model.bos_id()
-        self.eos_id: int = self.sp_model.eos_id()
-        self.pad_id: int = self.sp_model.pad_id()
-        assert self.sp_model.vocab_size() == self.sp_model.get_piece_size()
-        self.vocab = [self.sp_model.id_to_piece(i) for i in range(self.n_words)]
+    Args:
+        model_path (str): Path to the SentencePiece model file
+
+    Returns:
+        list: The vocabulary as a list of strings
+    """
+    sp_model = SentencePieceProcessor(model_file=model_path)
+    n_words = sp_model.vocab_size()
+    return [sp_model.id_to_piece(i) for i in range(n_words)]
 
 
 @dataclass
@@ -208,7 +206,7 @@ class HuggingfaceFiles:
         else:
             mode = "hub"
 
-        def get_path(file_name, required=False):
+        def get_local_path(file_name, required=False):
             """Helper to check if a file exists in the model directory."""
             path = os.path.join(args.model_dir, file_name)
             if os.path.exists(path):
@@ -217,7 +215,7 @@ class HuggingfaceFiles:
                 raise FileNotFoundError(f"Required file '{file_name}' is missing locally.")
             return None
 
-        def download_file(file_name, required=True):
+        def download_file_from_hub(file_name, required=True):
             """Helper to download a file from the HuggingFace Hub."""
             try:
                 return hf_hub_download(
@@ -231,7 +229,7 @@ class HuggingfaceFiles:
                     raise utils.EntryNotFoundError(f"Required file '{file_name}' is missing from the repository.")
                 return None
 
-        get_file_fn = get_path if mode == "local" else download_file
+        get_file_fn = get_local_path if mode == "local" else download_file_from_hub
 
         os.makedirs(args.output, exist_ok=True)  # Ensure output directory exists
 
@@ -322,6 +320,14 @@ class HuggingfaceFiles:
 
 
 def get_git_remote_url(model_dir):
+    """Gets the git remote URL from a model directory.
+
+    Args:
+        model_dir (str): Path to model directory containing .git folder
+
+    Returns:
+        str: Repository name in format "owner/repo", or None if not found
+    """
     config_path = os.path.join(model_dir, ".git", "config")
     config = configparser.ConfigParser()
     config.read(config_path)
@@ -334,6 +340,14 @@ def get_git_remote_url(model_dir):
 
 
 def get_huggingface_model(args):
+    """Gets HuggingFace model identifier from directory path or direct model name.
+
+    Args:
+        args: Arguments containing model_dir attribute with path to model directory or model identifier
+
+    Returns:
+        str: HuggingFace model identifier
+    """
     if os.path.exists(args.model_dir):
         huggingface_model = get_git_remote_url(args.model_dir)
         if huggingface_model is None:
@@ -344,6 +358,20 @@ def get_huggingface_model(args):
 
 
 def build_config_dict(hf):
+    """Convert Hugging Face model configuration to eole config format.
+
+    This function takes a HuggingfaceFiles dataclass object and extracts configuration parameters
+    to create dictionaries for model architecture, training settings and various hyper-parameters.
+
+    Args:
+        hf: HuggingfaceFiles dataclass object containing config and architecture information
+
+    Returns:
+        tuple: Contains:
+            - model_config (dict): Model architecture configuration
+            - training_config (dict): Training and quantization settings
+            - params (list): List of parameter names to extract
+    """
     config = hf.config
     arch = hf.arch
 
@@ -556,7 +584,7 @@ def check_tokenizer_config(hf):
         )
         for token in hf.tokenizer_config.get("added_tokens_decoder", {}).values()
     ]
-    return add_bos_token, chat_template, eos_token_id, optional_eos, mapped_tokens
+    return (add_bos_token, chat_template, optional_eos, mapped_tokens)
 
 
 def check_special_tokens(hf):
@@ -584,7 +612,21 @@ def check_generation_config(hf):
     return generation_config_dict
 
 
-def build_ckpt_lists(model_config, hf, nshards):
+def get_shards_map(model_config, hf, nshards):
+    """
+    Distributes model checkpoints across shards based on layer ranges.
+
+    Args:
+        model_config (dict): Configuration dictionary containing model parameters,
+            including number of layers.
+        hf (object): HuggingfaceFiles dataclass object containing model path and weight mapping.
+        nshards (int): Number of shards to distribute the model across.
+
+    Returns:
+        tuple: A tuple containing:
+            - list of lists: Checkpoint paths for each shard
+            - list of ranges: Layer ranges assigned to each shard
+    """
     # Compute layer range for each shard
     layers_per_shard = math.ceil(model_config["layers"] / nshards)
     shard_layer_ranges = [
@@ -618,7 +660,20 @@ def build_ckpt_lists(model_config, hf, nshards):
 
 
 def build_shards(model_config, hf, args, params):
-    ckpt_lists, shard_layer_ranges = build_ckpt_lists(model_config, hf, args.nshards)
+    """
+    Build sharded model files from HuggingFace checkpoint.
+
+    Args:
+        model_config (dict): Configuration dictionary containing model architecture settings
+        hf (HuggingfaceFiles): dataclass containing model files and configuration
+        args (Namespace): Command line arguments containing nshards and output path
+        params (list): List of parameter names to convert
+
+    The function splits the model into shards and saves them as safetensor files.
+    Layer parameters are distributed across shards based on the sharding configuration.
+    The first shard contains embeddings and model-level parameters on top of its layer split.
+    """
+    ckpt_lists, shard_layer_ranges = get_shards_map(model_config, hf, args.nshards)
 
     for shard in range(args.nshards):
 
@@ -742,8 +797,7 @@ def build_shards(model_config, hf, args, params):
 
 def check_sentencepiece_tokenizer(hf):
     tokenizer_basename = os.path.basename(hf.tokenizer_model)
-    tokenizer = SentencePieceTokenizer(model_path=hf.tokenizer_model)
-    vocab = tokenizer.vocab
+    vocab = get_sentencepiece_vocab(hf.tokenizer_model)
     if hf.tokenizer_json is not None:
         # We need to add 'added_tokens' that are not in the SP model
         newtokens = [tok["content"] for tok in hf.tokenizer["added_tokens"] if tok["content"] not in vocab]
@@ -781,6 +835,7 @@ def check_bpe_tokenizer(hf, vocabs, directory_path):
     for tok in hf.tokenizer["added_tokens"]:
         vocab[tok["id"]] = tok["content"]
     src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
+    # TODO: not sure for which model(s) this is needed
     for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
         if f"{token_name}_id" in hf.config.keys():
             token = hf.config[f"{token_name}_id"]
@@ -876,12 +931,12 @@ class LlamaHFConverter(BaseBin):
         (
             add_bos_token,
             chat_template,
-            eos_token_id,
             optional_eos,
             mapped_tokens,
         ) = check_tokenizer_config(hf)
         vocabs = check_special_tokens(hf)
-        if hf.tokenizer_model is not None:  # sentencepiece mode (might be good to check it's a SP model)
+        # TODO: could we have a better condition to check for sentencepiece/bpe?
+        if hf.tokenizer_model is not None:  # sentencepiece mode
             src_subword_type = "sentencepiece"
             src_vocab, tokenizer_basename = check_sentencepiece_tokenizer(hf)
         else:  # BPE mode - we leverage the HF tokenizer.json info
@@ -950,15 +1005,16 @@ class LlamaHFConverter(BaseBin):
                 **training_config,
             ),
         )
+        # Grab only explicitly set fields to save in the model's json config
         config_dict = recursive_model_fields_set(config)
 
+        # Add inference related settings for transparent default behaviour
         inference_dict = {
             "optional_eos": optional_eos,
             # TODO: map other settings from HF decoding_config.json
             **generation_config_dict,
             **chat_template,
         }
-
         config_dict["inference"] = inference_dict
 
         with open(os.path.join(args.output, "config.json"), "w", encoding="utf-8") as f:
