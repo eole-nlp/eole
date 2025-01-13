@@ -1,6 +1,7 @@
 """
 Here come the tests for attention types and their compatibility
 """
+
 import unittest
 import torch
 from torch.autograd import Variable

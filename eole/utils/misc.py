@@ -152,17 +152,11 @@ def check_model_config(model_config, root):
     for model in model_config["models"]:
         model_path = os.path.join(root, model)
         if not os.path.exists(model_path):
-            raise FileNotFoundError(
-                "{} from model {} does not exist".format(model_path, model_config["id"])
-            )
+            raise FileNotFoundError("{} from model {} does not exist".format(model_path, model_config["id"]))
     if "tokenizer" in model_config.keys():
         if "params" in model_config["tokenizer"].keys():
             for k, v in model_config["tokenizer"]["params"].items():
                 if k.endswith("path"):
                     tok_path = os.path.join(root, v)
                     if not os.path.exists(tok_path):
-                        raise FileNotFoundError(
-                            "{} from model {} does not exist".format(
-                                tok_path, model_config["id"]
-                            )
-                        )
+                        raise FileNotFoundError("{} from model {} does not exist".format(tok_path, model_config["id"]))

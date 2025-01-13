@@ -23,9 +23,7 @@ def init_logger(
 
     if log_file and log_file != "":
         if rotate:
-            file_handler = RotatingFileHandler(
-                log_file, maxBytes=1000000, backupCount=10
-            )
+            file_handler = RotatingFileHandler(log_file, maxBytes=1000000, backupCount=10)
         else:
             file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(log_file_level)

@@ -21,17 +21,13 @@ class Translator(Inference):
             self._log("Computing alignments with gold target")
             batch_tgt_idxs = batch["tgt"].transpose(1, 2)
         else:
-            batch_tgt_idxs = self._align_pad_prediction(
-                predictions, bos=self._tgt_bos_idx, pad=self._tgt_pad_idx
-            )
+            batch_tgt_idxs = self._align_pad_prediction(predictions, bos=self._tgt_bos_idx, pad=self._tgt_pad_idx)
 
         tgt_mask = (
             batch_tgt_idxs.eq(self._tgt_pad_idx)
             | batch_tgt_idxs.eq(self._tgt_bos_idx)
             | torch.any(
-                torch.stack(
-                    [batch_tgt_idxs.eq(eos_idx) for eos_idx in self._tgt_eos_idx]
-                ),
+                torch.stack([batch_tgt_idxs.eq(eos_idx) for eos_idx in self._tgt_eos_idx]),
                 dim=0,
             )
         )
@@ -83,9 +79,7 @@ class Translator(Inference):
     def predict_batch(self, batch, attn_debug):
         """Translate a batch of sentences."""
         if self.max_length_ratio > 0:
-            max_length = int(
-                min(self.max_length, batch["src"].size(1) * self.max_length_ratio + 5)
-            )
+            max_length = int(min(self.max_length, batch["src"].size(1) * self.max_length_ratio + 5))
         else:
             max_length = self.max_length
         with torch.no_grad():
@@ -143,17 +137,11 @@ class Translator(Inference):
         emb = self.model.src_emb(src)
         pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
         position_embeddings = self.model.rope.update(src.size(1), step=0)
-        enc_out, enc_final_hs = self.model.encoder(
-            emb, pad_mask=pad_mask, position_embeddings=position_embeddings
-        )
+        enc_out, enc_final_hs = self.model.encoder(emb, pad_mask=pad_mask, position_embeddings=position_embeddings)
 
         if src_len is None:
-            assert not isinstance(
-                enc_out, tuple
-            ), "Ensemble decoding only supported for text data"
-            src_len = (
-                torch.Tensor(batch_size).type_as(enc_out).long().fill_(enc_out.size(1))
-            )
+            assert not isinstance(enc_out, tuple), "Ensemble decoding only supported for text data"
+            src_len = torch.Tensor(batch_size).type_as(enc_out).long().fill_(enc_out.size(1))
         return src, enc_final_hs, enc_out, src_len
 
     def _translate_batch_with_strategy(self, batch, decode_strategy):
@@ -174,10 +162,7 @@ class Translator(Inference):
 
         # (1) Run the encoder on the src.
         src, enc_final_hs, enc_out, src_len = self._run_encoder(batch)
-
-        self.model.decoder.init_state(
-            src=src, enc_out=enc_out, enc_final_hs=enc_final_hs
-        )
+        self.model.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
 
         gold_score, gold_log_probs = self._gold_score(
             batch,
@@ -190,9 +175,7 @@ class Translator(Inference):
 
         # (2) prep decode_strategy. Possibly repeat src objects.
         target_prefix = batch["tgt"] if self.tgt_file_prefix else None
-        (fn_map_state, enc_out) = decode_strategy.initialize(
-            enc_out, src_len, target_prefix=target_prefix
-        )
+        (fn_map_state, enc_out) = decode_strategy.initialize(enc_out, src_len, target_prefix=target_prefix)
 
         if fn_map_state is not None:
             self.model.decoder.map_state(fn_map_state)
@@ -220,9 +203,7 @@ class Translator(Inference):
             )
 
             decode_strategy.advance(log_probs, attn)
-            any_finished = any(
-                [any(sublist) for sublist in decode_strategy.is_finished_list]
-            )
+            any_finished = any([any(sublist) for sublist in decode_strategy.is_finished_list])
             if any_finished:
                 decode_strategy.update_finished()
                 if decode_strategy.done:
@@ -241,14 +222,10 @@ class Translator(Inference):
                 self.model.decoder.map_state(lambda state, dim: state[select_indices])
 
         if self.add_estimator:
-            dec_in = [
-                item for sublist in decode_strategy.predictions for item in sublist
-            ]
+            dec_in = [item for sublist in decode_strategy.predictions for item in sublist]
 
             # Prepare estimator input = decoder out of each pred with initial enc_out
-            dec_in = pad_sequence(
-                dec_in, batch_first=True, padding_value=self._tgt_pad_idx
-            )
+            dec_in = pad_sequence(dec_in, batch_first=True, padding_value=self._tgt_pad_idx)
             prepend_value = torch.full(
                 (dec_in.size(0), 1),
                 self._tgt_bos_idx,
@@ -257,9 +234,7 @@ class Translator(Inference):
             )
             dec_in = torch.cat((prepend_value, dec_in), dim=1)
             src_pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
-            tgt_pad_mask = (
-                dec_in[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)
-            )  # [B, 1, T_tgt]
+            tgt_pad_mask = dec_in[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
             emb = self.model.tgt_emb(dec_in[:, :-1])
             self.model.decoder._disable_cache()
             position_embeddings = self.model.rope.update(dec_in[:, :-1].size(1), step=0)
@@ -274,19 +249,16 @@ class Translator(Inference):
                 position_embeddings=position_embeddings,
             )
             pad_mask2 = ~dec_in[:, :-1].eq(self._tgt_pad_idx)
-            in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(
-                dim=1
-            ) / pad_mask2.sum(dim=1, keepdim=True).float()
+            in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(dim=1) / pad_mask2.sum(
+                dim=1, keepdim=True
+            ).float()
             estim = self.model.estimator(in_estim2.to(dec_out.dtype)).squeeze(-1)
         else:
             if torch.is_tensor(enc_out2):
                 estim = torch.ones([enc_out2.size(0)])
             else:
                 estim = torch.ones([enc_out2[0].size(0)])
-        estim = [
-            [estim[i].item() for i in range(j, j + self.beam_size)]
-            for j in range(0, len(estim), self.beam_size)
-        ]
+        estim = [[estim[i].item() for i in range(j, j + self.beam_size)] for j in range(0, len(estim), self.beam_size)]
 
         return self.report_results(
             gold_score,

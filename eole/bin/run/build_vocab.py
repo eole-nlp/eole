@@ -80,9 +80,7 @@ def build_sub_vocab(corpora, transforms, config, n_sample, stride, offset):
 
             if config.dump_samples:
                 src_pretty_line = src_line
-                build_sub_vocab.queues[c_name][offset].put(
-                    (i, src_pretty_line, tgt_line)
-                )
+                build_sub_vocab.queues[c_name][offset].put((i, src_pretty_line, tgt_line))
             if n_sample > 0 and ((i + 1) * stride + offset) >= n_sample:
                 if config.dump_samples:
                     build_sub_vocab.queues[c_name][offset].put("break")
@@ -108,33 +106,22 @@ def build_vocab(config, transforms, n_sample=3):
         raise ValueError(f"n_sample should > 0 or == -1, get {n_sample}.")
 
     if config.dump_samples:
-        logger.info(
-            "The samples on which the vocab is built will be "
-            "dumped to disk. It may slow down the process."
-        )
+        logger.info("The samples on which the vocab is built will be " "dumped to disk. It may slow down the process.")
     corpora = get_corpora(config, task=CorpusTask.TRAIN)
     counter_src = Counter()
     counter_tgt = Counter()
 
     queues = {
-        c_name: [
-            mp.Queue(config.vocab_sample_queue_size) for i in range(config.num_threads)
-        ]
+        c_name: [mp.Queue(config.vocab_sample_queue_size) for i in range(config.num_threads)]
         for c_name in corpora.keys()
     }
     if config.dump_samples:
         sample_path = os.path.join(config.save_data, CorpusName.SAMPLE)
-        write_process = mp.Process(
-            target=write_files_from_queues, args=(sample_path, queues), daemon=True
-        )
+        write_process = mp.Process(target=write_files_from_queues, args=(sample_path, queues), daemon=True)
         write_process.start()
     with mp.Pool(config.num_threads, init_pool, [queues]) as p:
-        func = partial(
-            build_sub_vocab, corpora, transforms, config, n_sample, config.num_threads
-        )
-        for sub_counter_src, sub_counter_tgt in p.imap(
-            func, range(0, config.num_threads)
-        ):
+        func = partial(build_sub_vocab, corpora, transforms, config, n_sample, config.num_threads)
+        for sub_counter_src, sub_counter_tgt in p.imap(func, range(0, config.num_threads)):
             counter_src.update(sub_counter_src)
             counter_tgt.update(sub_counter_tgt)
     if config.dump_samples:
@@ -149,10 +136,7 @@ def ingest_tokens(config, transforms, n_sample, learner, stride, offset):
         with mp.Pool(config.num_threads) as pool:
             buckets = pool.map(
                 func,
-                [
-                    data[i * chunk : (i + 1) * chunk]
-                    for i in range(0, config.num_threads)
-                ],
+                [data[i * chunk : (i + 1) * chunk] for i in range(0, config.num_threads)],
             )
         for bucket in buckets:
             for ex in bucket:
@@ -188,9 +172,7 @@ def make_learner(tokenization_type, symbols):
         learner = pyonmttok.BPELearner(tokenizer=None, symbols=symbols)
     elif tokenization_type == "sentencepiece":
         # SentencePiece training
-        learner = pyonmttok.SentencePieceLearner(
-            vocab_size=symbols, character_coverage=0.98
-        )
+        learner = pyonmttok.SentencePieceLearner(vocab_size=symbols, character_coverage=0.98)
     return learner
 
 
@@ -207,9 +189,7 @@ def build_vocab_main(config):
     """
 
     config._validate_data_config(build_vocab_only=True)
-    assert (
-        config.n_sample == -1 or config.n_sample > 1
-    ), f"Illegal argument n_sample={config.n_sample}."
+    assert config.n_sample == -1 or config.n_sample > 1, f"Illegal argument n_sample={config.n_sample}."
 
     logger = init_logger()
     set_random_seed(config.seed, False)

@@ -21,9 +21,7 @@ import torch
 
 
 # Models below somewhat replicate prior opt behavior to facilitate transition
-class TrainConfig(
-    LoggingConfig, MiscConfig, DataConfig, VocabConfig
-):  # ModelConfig, TrainingConfig
+class TrainConfig(LoggingConfig, MiscConfig, DataConfig, VocabConfig):  # ModelConfig, TrainingConfig
     n_sample: int = Field(
         default=0,
         description="Number of transformed samples per corpus to use to build the vocabulary. "
@@ -31,8 +29,7 @@ class TrainConfig(
     )  # not sure how to handle the legacy build_vocab_only flag here (different default value in both cases) # noqa: E501
     verbose: bool = Field(
         default=False,
-        description="Print data loading and statistics for all process "
-        "(default only logs the first process shard).",
+        description="Print data loading and statistics for all process " "(default only logs the first process shard).",
     )  # not sure this still works
     model: ModelConfig | None = None  # TypeAdapter handling discrimination directly
     training: TrainingConfig | None = Field(default_factory=TrainingConfig)
@@ -95,28 +92,21 @@ class PredictConfig(
     MiscConfig,
 ):
     transforms: List[str] | None = []
-    transforms_configs: NestedAllTransformsConfig | None = Field(
-        default_factory=NestedAllTransformsConfig
-    )
+    transforms_configs: NestedAllTransformsConfig | None = Field(default_factory=NestedAllTransformsConfig)
     # patch to make it work
     share_vocab: bool | None = False
     _all_transform: List[str] | None = None  # might be a cleaner way to do this
-    src_subword_vocab: str | None = (
-        None  # patch for CT2 inference engine (to improve later)
-    )
+    src_subword_vocab: str | None = None  # patch for CT2 inference engine (to improve later)
     model: ModelConfig | None = None
     model_path: str | List[str] = Field(
-        description="Path to model .pt file(s). "
-        "Multiple models can be specified for ensemble decoding."
+        description="Path to model .pt file(s). " "Multiple models can be specified for ensemble decoding."
     )  # some specific (mapping to "models") in legacy code, need to investigate
     src: str = Field(description="Source file to decode (one line per sequence).")
     tgt: str | None = Field(
         default=None,
         description="True target sequences, useful for scoring or prefix decoding.",
     )
-    tgt_file_prefix: bool = Field(
-        default=False, description="Generate predictions using provided tgt as prefix."
-    )
+    tgt_file_prefix: bool = Field(default=False, description="Generate predictions using provided tgt as prefix.")
     output: str = Field(
         default="pred.txt",
         description="Path to output the predictions (each line will be the decoded sequence).",
@@ -150,9 +140,7 @@ class PredictConfig(
         # Filter out Train transforms
         transforms = config_dict.get("transforms", [])
         transforms_cls = get_transforms_cls(transforms)
-        transforms = [
-            t for t in transforms if transforms_cls[t].type != TransformType.Train
-        ]
+        transforms = [t for t in transforms if transforms_cls[t].type != TransformType.Train]
 
         if os.path.exists(config_path):
             # logic from models.BaseModel.inference_logic
@@ -166,9 +154,7 @@ class PredictConfig(
             if "compute_dtype" not in self.model_fields_set:
                 self.compute_dtype = training_config.compute_dtype
             # quant logic, might be better elsewhere
-            if hasattr(
-                training_config, "quant_type"
-            ) and training_config.quant_type in [
+            if hasattr(training_config, "quant_type") and training_config.quant_type in [
                 "awq_gemm",
                 "awq_gemv",
             ]:
@@ -177,9 +163,7 @@ class PredictConfig(
                     and self.quant_type != ""
                     and self.quant_type != training_config.quant_type
                 ):
-                    raise ValueError(
-                        "Model is a awq quantized model, cannot overwrite with another quant method"
-                    )
+                    raise ValueError("Model is a awq quantized model, cannot overwrite with another quant method")
                 self.update(quant_type=training_config.quant_type)
             elif self.quant_type == "" and training_config.quant_type != "":
                 self.update(
@@ -196,22 +180,16 @@ class PredictConfig(
             update_dict["transforms"] = transforms
             update_dict["_all_transform"] = transforms
         if "transforms_configs" not in self.model_fields_set:
-            update_dict["transforms_configs"] = NestedAllTransformsConfig(
-                **config_dict.get("transforms_configs", {})
-            )
+            update_dict["transforms_configs"] = NestedAllTransformsConfig(**config_dict.get("transforms_configs", {}))
         if "compute_dtype" not in self.model_fields_set:
-            self.compute_dtype = config_dict.get("training", {}).get(
-                "compute_dtype", "fp16"
-            )
+            self.compute_dtype = config_dict.get("training", {}).get("compute_dtype", "fp16")
         for key, value in config_dict.get("inference", {}).items():
             if key not in self.model_fields_set:
                 update_dict[key] = value
         self.update(**update_dict)
 
 
-class BuildVocabConfig(
-    DataConfig, MiscConfig, BaseVocabConfig
-):  # , AllTransformsConfig):
+class BuildVocabConfig(DataConfig, MiscConfig, BaseVocabConfig):  # , AllTransformsConfig):
 
     model_config = get_config_dict()
     model_config["extra"] = "ignore"
@@ -219,22 +197,15 @@ class BuildVocabConfig(
     # some specific items related to build_vocab_only flag
     dump_samples: bool = Field(
         default=False,
-        description="Dump samples when building vocabulary. "
-        "Warning: this may slow down the process.",
+        description="Dump samples when building vocabulary. " "Warning: this may slow down the process.",
     )
-    num_threads: int = Field(
-        default=1, description="Number of parallel threads to build the vocabulary."
-    )
+    num_threads: int = Field(default=1, description="Number of parallel threads to build the vocabulary.")
     learn_subwords: bool = Field(
         default=False,
         description="Learn subwords (based on defined transforms) prior to building vocabulary.",
     )
-    learn_subwords_size: int = Field(
-        default=32000, description="Number of subwords operations to learn."
-    )
-    vocab_sample_queue_size: int = Field(
-        default=20, description="Size of queues used for dumping samples."
-    )
+    learn_subwords_size: int = Field(default=32000, description="Number of subwords operations to learn.")
+    vocab_sample_queue_size: int = Field(default=20, description="Size of queues used for dumping samples.")
     n_sample: int = Field(
         default=5000,
         description="Number of transformed samples per corpus to use to build the vocabulary. "
@@ -246,6 +217,5 @@ class BuildVocabConfig(
     def _validate_build_vocab_config(self):
         if self.learn_subwords:
             assert "onmt_tokenize" in self.transforms, (
-                "The onmt_tokenizer transform should be set "
-                "and configured to enable learn_subwords."
+                "The onmt_tokenizer transform should be set " "and configured to enable learn_subwords."
             )

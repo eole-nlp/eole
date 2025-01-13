@@ -21,6 +21,10 @@ class InferenceEngine(object):
     def __init__(self, config):
         self.config = config  # PredictConfig
         self.model_type = None
+        torch.backends.cuda.enable_mem_efficient_sdp(True)
+        torch.backends.cuda.enable_flash_sdp(False)
+        torch.backends.cuda.enable_math_sdp(False)
+        torch.backends.cuda.enable_cudnn_sdp(False)
 
     def predict_batch(self, batch):
         pass
@@ -55,9 +59,7 @@ class InferenceEngine(object):
         if self.config.with_score:
             out_all = [
                 pred + "\t" + str(score) + "\t" + str(estim)
-                for (pred, score, estim) in zip(
-                    flatten_preds, flatten_scores, flatten_estims
-                )
+                for (pred, score, estim) in zip(flatten_preds, flatten_scores, flatten_estims)
             ]
             out_file.write("\n".join(out_all) + "\n")
         else:
@@ -84,15 +86,11 @@ class InferenceEngine(object):
 
     def infer_file_parallel(self):
         """File inference in mulitprocessing with partitioned models."""
-        raise NotImplementedError(
-            "The inference in mulitprocessing with partitioned models is not implemented."
-        )
+        raise NotImplementedError("The inference in mulitprocessing with partitioned models is not implemented.")
 
     def infer_list_parallel(self, src, settings={}):
         """The inference in mulitprocessing with partitioned models."""
-        raise NotImplementedError(
-            "The inference in mulitprocessing with partitioned models is not implemented."
-        )
+        raise NotImplementedError("The inference in mulitprocessing with partitioned models is not implemented.")
 
     def _score(self, infer_iter):
         pass
@@ -183,9 +181,7 @@ class InferenceEnginePY(InferenceEngine):
             else:
                 self.device_id = -1  # cpu
 
-            self.predictor = build_predictor(
-                config, self.device_id, logger=self.logger, report_score=True
-            )
+            self.predictor = build_predictor(config, self.device_id, logger=self.logger, report_score=True)
             self.transforms_cls = get_transforms_cls(config._all_transform)
             self.vocabs = self.predictor.vocabs
             self.transforms = make_transforms(config, self.transforms_cls, self.vocabs)
@@ -269,9 +265,7 @@ class InferenceEngineCT2(InferenceEngine):
         import pyonmttok
 
         super().__init__(config)
-        assert (
-            model_type is not None
-        ), "A model_type kwarg must be passed for CT2 models."
+        assert model_type is not None, "A model_type kwarg must be passed for CT2 models."
         self.logger = init_logger(config.log_file)
         assert self.config.world_size <= 1, "World size must be less than 1."
         if config.world_size == 1:
@@ -284,9 +278,7 @@ class InferenceEngineCT2(InferenceEngine):
             self.device = "cpu"
         self.transforms_cls = get_transforms_cls(self.config._all_transform)
 
-        ct2_config = os.path.join(
-            config.get_model_path() + "/ctranslate2", "config.json"
-        )
+        ct2_config = os.path.join(config.get_model_path() + "/ctranslate2", "config.json")
         ct2_json = json.load(open(ct2_config, "r"))
         vocabs = {}
         vocabs["specials"] = {}
@@ -306,9 +298,7 @@ class InferenceEngineCT2(InferenceEngine):
                 device=self.device,
                 device_index=self.device_index,
             )
-            vocab_path = os.path.join(
-                config.get_model_path() + "/ctranslate2", "vocabulary.json"
-            )
+            vocab_path = os.path.join(config.get_model_path() + "/ctranslate2", "vocabulary.json")
             vocab = json.load(open(vocab_path, "r"))
             src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
             config.share_vocab = True
@@ -322,9 +312,7 @@ class InferenceEngineCT2(InferenceEngine):
                 device_index=self.device_index,
             )
             vocabs["decoder_start_token"] = ct2_json["decoder_start_token"]
-            if os.path.exists(
-                config.get_model_path() + "/ctranslate2", "shared_vocabulary.json"
-            ):
+            if os.path.exists(config.get_model_path() + "/ctranslate2", "shared_vocabulary.json"):
                 vocab = json.load(
                     open(
                         config.get_model_path() + "/ctranslate2",
@@ -370,10 +358,7 @@ class InferenceEngineCT2(InferenceEngine):
             _input_tokens = [
                 self.vocabs["src"].lookup_index(id)
                 for id in start_ids
-                if id
-                != self.vocabs["src"].lookup_token(
-                    self.vocabs["specials"].get("pad_token", DefaultTokens.PAD)
-                )
+                if id != self.vocabs["src"].lookup_token(self.vocabs["specials"].get("pad_token", DefaultTokens.PAD))
             ]
             input_tokens.append(_input_tokens)
 
@@ -393,17 +378,10 @@ class InferenceEngineCT2(InferenceEngine):
             )
             if self.transforms != {}:
                 preds = [
-                    [
-                        self.transforms_pipe.apply_reverse(nbest)
-                        for nbest in ex.sequences
-                    ]
-                    for ex in predicted_batch
+                    [self.transforms_pipe.apply_reverse(nbest) for nbest in ex.sequences] for ex in predicted_batch
                 ]
             else:
-                preds = [
-                    [" ".join(nbest) for nbest in ex.sequences]
-                    for ex in predicted_batch
-                ]
+                preds = [[" ".join(nbest) for nbest in ex.sequences] for ex in predicted_batch]
 
         elif self.model_type == ModelType.ENCODER_DECODER:
             predicted_batch = self.predictor.translate_batch(
@@ -420,17 +398,10 @@ class InferenceEngineCT2(InferenceEngine):
             )
             if self.transforms != {}:
                 preds = [
-                    [
-                        self.transforms_pipe.apply_reverse(nbest)
-                        for nbest in ex.hypothesis
-                    ]
-                    for ex in predicted_batch
+                    [self.transforms_pipe.apply_reverse(nbest) for nbest in ex.hypothesis] for ex in predicted_batch
                 ]
             else:
-                preds = [
-                    [" ".join(nbest) for nbest in ex.sequences]
-                    for ex in predicted_batch
-                ]
+                preds = [[" ".join(nbest) for nbest in ex.sequences] for ex in predicted_batch]
 
         scores = [[nbest for nbest in ex.scores] for ex in predicted_batch]
         return scores, None, preds
@@ -461,6 +432,4 @@ class InferenceEngineCT2(InferenceEngine):
         return sorted_predictions["scores"], None, sorted_predictions["preds"]
 
     def _score(self, infer_iter):
-        raise NotImplementedError(
-            "The scoring with InferenceEngineCT2 is not implemented."
-        )
+        raise NotImplementedError("The scoring with InferenceEngineCT2 is not implemented.")

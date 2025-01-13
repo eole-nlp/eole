@@ -90,9 +90,7 @@ class BlockwiseCorpus(object):
 
     def __str__(self):
         cls_name = type(self).__name__
-        return (
-            f"{cls_name}({self.id}, {self.file_path}, {self.file_path}" f"align={None}"
-        )
+        return f"{cls_name}({self.id}, {self.file_path}, {self.file_path}" f"align={None}"
 
 
 class ParallelCorpus(object):
@@ -154,9 +152,7 @@ class ParallelCorpus(object):
             ft = [] if self.tgt is None else self.tgt
             fsco = [] if self.sco is None else self.sco
             fa = [] if self.align is None else self.align
-            for i, (sline, tline, scoline, align) in enumerate(
-                itertools.zip_longest(fs, ft, fsco, fa)
-            ):
+            for i, (sline, tline, scoline, align) in enumerate(itertools.zip_longest(fs, ft, fsco, fa)):
                 if (i // stride) % stride == offset:
                     if scoline is None:
                         scoline = 1.0
@@ -173,14 +169,10 @@ class ParallelCorpus(object):
                     yield make_ex(sline, tline, scoline, None)
 
         else:
-            with exfile_open(self.src, mode="rb") as fs, exfile_open(
-                self.tgt, mode="rb"
-            ) as ft, exfile_open(self.sco, mode="rb") as fsco, exfile_open(
-                self.align, mode="rb"
-            ) as fa:
-                for i, (sline, tline, scoline, align) in enumerate(
-                    zip(fs, ft, fsco, fa)
-                ):
+            with exfile_open(self.src, mode="rb") as fs, exfile_open(self.tgt, mode="rb") as ft, exfile_open(
+                self.sco, mode="rb"
+            ) as fsco, exfile_open(self.align, mode="rb") as fa:
+                for i, (sline, tline, scoline, align) in enumerate(zip(fs, ft, fsco, fa)):
                     if (i // stride) % stride == offset:
                         if tline is not None:
                             tline = tline.decode("utf-8")
@@ -256,9 +248,7 @@ class ParallelCorpusIterator(object):
         offset (int): iterate corpus with this line offset.
     """
 
-    def __init__(
-        self, corpus, transform, skip_empty_level="warning", stride=1, offset=0
-    ):
+    def __init__(self, corpus, transform, skip_empty_level="warning", stride=1, offset=0):
         self.cid = corpus.id
         self.corpus = corpus
         self.transform = transform
@@ -297,11 +287,7 @@ class ParallelCorpusIterator(object):
             yield (example, self.transform, self.cid)
         report_msg = self.transform.stats()
         if report_msg != "":
-            logger.info(
-                "* Transform statistics for {}({:.2f}%):\n{}\n".format(
-                    self.cid, 100 / self.stride, report_msg
-                )
-            )
+            logger.info("* Transform statistics for {}({:.2f}%):\n{}\n".format(self.cid, 100 / self.stride, report_msg))
 
     def __iter__(self):
         corpus_stream = self.corpus.load(stride=self.stride, offset=self.offset)
@@ -309,16 +295,12 @@ class ParallelCorpusIterator(object):
         yield from corpus
 
 
-def build_corpora_iters(
-    corpora, transforms, corpora_info, skip_empty_level="warning", stride=1, offset=0
-):
+def build_corpora_iters(corpora, transforms, corpora_info, skip_empty_level="warning", stride=1, offset=0):
     """Return `ParallelCorpusIterator` for all corpora defined in opts."""
     corpora_iters = dict()
     for c_id, corpus in corpora.items():
         transform_names = corpora_info[c_id].transforms
-        corpus_transform = [
-            transforms[name] for name in transform_names if name in transforms
-        ]
+        corpus_transform = [transforms[name] for name in transform_names if name in transforms]
         transform_pipe = TransformPipe.build_from(corpus_transform)
         corpus_iter = ParallelCorpusIterator(
             corpus,
@@ -345,9 +327,7 @@ def save_transformed_sample(config, transforms, n_sample=3):
         raise ValueError(f"n_sample should >= -1, get {n_sample}.")
 
     corpora = get_corpora(config, CorpusTask.TRAIN)
-    datasets_iterables = build_corpora_iters(
-        corpora, transforms, config.data, skip_empty_level=config.skip_empty_level
-    )
+    datasets_iterables = build_corpora_iters(corpora, transforms, config.data, skip_empty_level=config.skip_empty_level)
     sample_path = os.path.join(config.save_data, "samples", CorpusName.SAMPLE)
     os.makedirs(sample_path, exist_ok=True)
     for c_name, c_iter in datasets_iterables.items():

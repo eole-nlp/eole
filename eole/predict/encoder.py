@@ -9,17 +9,12 @@ class Encoder(Inference):
     @classmethod
     def validate_task(cls, task):
         if task != ModelType.ENCODER:
-            raise ValueError(
-                f"Encoder does not support task {task}."
-                f" Tasks supported: {ModelType.ENCODER}"
-            )
+            raise ValueError(f"Encoder does not support task {task}." f" Tasks supported: {ModelType.ENCODER}")
 
     def predict_batch(self, batch, attn_debug):
         """Predict a batch of sentences."""
         if self.max_length_ratio > 0:
-            max_length = int(
-                min(self.max_length, batch["src"].size(1) * self.max_length_ratio + 5)
-            )
+            max_length = int(min(self.max_length, batch["src"].size(1) * self.max_length_ratio + 5))
         else:
             max_length = self.max_length
         with torch.no_grad():
@@ -79,12 +74,8 @@ class Encoder(Inference):
         enc_out, enc_final_hs = self.model.encoder(emb, pad_mask=pad_mask)
 
         if src_len is None:
-            assert not isinstance(
-                enc_out, tuple
-            ), "Ensemble decoding only supported for text data"
-            src_len = (
-                torch.Tensor(batch_size).type_as(enc_out).long().fill_(enc_out.size(1))
-            )
+            assert not isinstance(enc_out, tuple), "Ensemble decoding only supported for text data"
+            src_len = torch.Tensor(batch_size).type_as(enc_out).long().fill_(enc_out.size(1))
         return src, enc_final_hs, enc_out, src_len
 
     def _predict_batch_with_strategy(self, batch, decode_strategy):

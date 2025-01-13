@@ -91,9 +91,9 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
         gpu_rank,
         parallel_mode,
         report_manager,
-        with_align=True
-        if getattr(config.model.decoder, "lambda_align", 0.0) > 0
-        else False,  # patch to support non transformer configs
+        with_align=(
+            True if getattr(config.model.decoder, "lambda_align", 0.0) > 0 else False
+        ),  # patch to support non transformer configs
         model_saver=model_saver,
         average_decay=average_decay,
         average_every=average_every,
@@ -241,10 +241,7 @@ class Trainer(object):
         for i in range(len(self.estim_loss_lambda_steps)):
             if step > 1 and step == self.estim_loss_lambda_steps[i] + 1:
                 self.estim_loss_lambda = self.estim_loss_lambda_l[i]
-                logger.info(
-                    "Updated estimator lambda to %f at step %d"
-                    % (self.estim_loss_lambda_l[i], step)
-                )
+                logger.info("Updated estimator lambda to %f at step %d" % (self.estim_loss_lambda_l[i], step))
 
     def _accum_batches(self, iterator):
         batches = []
@@ -268,18 +265,12 @@ class Trainer(object):
 
     def _update_average(self, step):
         if self.moving_average is None:
-            copy_params = [
-                params.detach().float() for params in self.model.parameters()
-            ]
+            copy_params = [params.detach().float() for params in self.model.parameters()]
             self.moving_average = copy_params
         else:
             average_decay = max(self.average_decay, 1 - (step + 1) / (step + 10))
-            for (i, avg), cpt in zip(
-                enumerate(self.moving_average), self.model.parameters()
-            ):
-                self.moving_average[i] = (
-                    1 - average_decay
-                ) * avg + cpt.detach().float() * average_decay
+            for (i, avg), cpt in zip(enumerate(self.moving_average), self.model.parameters()):
+                self.moving_average[i] = (1 - average_decay) * avg + cpt.detach().float() * average_decay
 
     def train(
         self,
@@ -307,9 +298,7 @@ class Trainer(object):
             logger.info("Start training loop without validation...")
             valid_stats = None
         else:
-            logger.info(
-                "Start training loop and validate every %d steps...", valid_steps
-            )
+            logger.info("Start training loop and validate every %d steps...", valid_steps)
         logger.info("Scoring with: {}".format(self.scoring_preparator.transforms))
 
         total_stats = eole.utils.Statistics()
@@ -328,9 +317,7 @@ class Trainer(object):
             if self.n_gpu > 1 and self.parallel_mode == "data_parallel":
                 normalization = sum(all_gather_list(normalization))
 
-            self._gradient_accumulation(
-                batches, normalization, total_stats, report_stats
-            )
+            self._gradient_accumulation(batches, normalization, total_stats, report_stats)
 
             if self.average_decay > 0 and i % self.average_every == 0:
                 self._update_average(step)
@@ -341,9 +328,7 @@ class Trainer(object):
 
             if valid_iter is not None and step % valid_steps == 0:
                 if self.parallel_mode == "tensor_parallel" or self.gpu_rank <= 0:
-                    valid_stats = self.validate(
-                        valid_iter, moving_average=self.moving_average
-                    )
+                    valid_stats = self.validate(valid_iter, moving_average=self.moving_average)
 
             if step % valid_steps == 0 and self.gpu_rank <= 0:
                 self._report_step(
@@ -361,9 +346,7 @@ class Trainer(object):
                         logger.info("earlystopper has_stopped!")
                         break
 
-            if self.model_saver is not None and (
-                save_checkpoint_steps != 0 and step % save_checkpoint_steps == 0
-            ):
+            if self.model_saver is not None and (save_checkpoint_steps != 0 and step % save_checkpoint_steps == 0):
                 self.model_saver.save(step, moving_average=self.moving_average)
 
             if train_steps > 0 and step >= train_steps:
@@ -389,9 +372,7 @@ class Trainer(object):
             model_params_data = []
             for avg, param in zip(self.moving_average, valid_model.parameters()):
                 model_params_data.append(param.data)
-                param.data = (
-                    avg.data.half() if param.dtype == torch.float16 else avg.data
-                )
+                param.data = avg.data.half() if param.dtype == torch.float16 else avg.data
 
         # Set model in validating mode.
         valid_model.eval()
@@ -406,16 +387,12 @@ class Trainer(object):
 
                 with get_autocast(enabled=self.optim.amp):
                     # F-prop through the model.
-                    model_out, attns, estim = valid_model(
-                        src, tgt, src_len, with_align=self.with_align
-                    )
+                    model_out, attns, estim = valid_model(src, tgt, src_len, with_align=self.with_align)
 
                     # Compute loss.
                     if self.zero_out_prompt_loss:
                         batch = self.valid_loss.ignore_prompt(batch)
-                    _, batch_stats, _ = self.valid_loss(
-                        batch, model_out, attns, estim=estim
-                    )
+                    _, batch_stats, _ = self.valid_loss(batch, model_out, attns, estim=estim)
 
                     stats.update(batch_stats)
             logger.info(
@@ -449,15 +426,9 @@ class Trainer(object):
                         texts_ref=texts_ref,
                     )
                     computed_metrics[metric] = self.valid_scorers[metric]["value"]
-                    logger.info(
-                        "validation {}: {}".format(
-                            metric, self.valid_scorers[metric]["value"]
-                        )
-                    )
+                    logger.info("validation {}: {}".format(metric, self.valid_scorers[metric]["value"]))
                     # Compute stats
-                    metric_stats = eole.utils.Statistics(
-                        0, 0, 0, 0, 0, 0, computed_metrics
-                    )
+                    metric_stats = eole.utils.Statistics(0, 0, 0, 0, 0, 0, computed_metrics)
 
                 # Update statistics.
                 stats.update(metric_stats)
@@ -472,9 +443,7 @@ class Trainer(object):
 
         return stats
 
-    def _gradient_accumulation(
-        self, true_batches, normalization, total_stats, report_stats
-    ):
+    def _gradient_accumulation(self, true_batches, normalization, total_stats, report_stats):
         """Function that iterates over big batches = ``true_batches``
 
         Perform a backward on the loss of each sub_batch and
@@ -493,9 +462,7 @@ class Trainer(object):
 
             try:
                 with get_autocast(enabled=self.optim.amp):
-                    model_out, attns, estim = self.model(
-                        src, tgt, src_len, with_align=self.with_align
-                    )
+                    model_out, attns, estim = self.model(src, tgt, src_len, with_align=self.with_align)
                     if self.zero_out_prompt_loss:
                         # The loss of the prompt will be set to zero.
                         batch = self.train_loss.ignore_prompt(batch)
@@ -532,11 +499,7 @@ class Trainer(object):
         # in case of multi step gradient accumulation,
         # update only after accum batches
         if self.n_gpu > 1 and self.parallel_mode == "data_parallel":
-            grads = [
-                p.grad.data
-                for p in self.model.parameters()
-                if p.requires_grad and p.grad is not None
-            ]
+            grads = [p.grad.data for p in self.model.parameters() if p.requires_grad and p.grad is not None]
             all_reduce_and_rescale_tensors(grads, float(self.n_gpu))
 
         self.optim.step()
@@ -559,9 +522,7 @@ class Trainer(object):
                 step,
                 num_steps,
                 learning_rate,
-                None
-                if self.earlystopper is None
-                else self.earlystopper.current_tolerance,
+                None if self.earlystopper is None else self.earlystopper.current_tolerance,
                 report_stats,
                 multigpu=self.n_gpu > 1 and self.parallel_mode == "data_parallel",
             )
@@ -573,9 +534,7 @@ class Trainer(object):
         if self.report_manager is not None:
             return self.report_manager.report_step(
                 learning_rate,
-                None
-                if self.earlystopper is None
-                else self.earlystopper.current_tolerance,
+                None if self.earlystopper is None else self.earlystopper.current_tolerance,
                 step,
                 valid_stats=valid_stats,
                 train_stats=train_stats,

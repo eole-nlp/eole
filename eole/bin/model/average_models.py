@@ -41,13 +41,9 @@ def average_models(model_paths, fp32=False):
 class AverageModels(BaseBin):
     @classmethod
     def add_args(cls, parser):
-        parser.add_argument(
-            "-models", "-m", nargs="+", required=True, help="List of models"
-        )
+        parser.add_argument("-models", "-m", nargs="+", required=True, help="List of models")
         parser.add_argument("-output", "-o", required=True, help="Output file")
-        parser.add_argument(
-            "-fp32", "-f", action="store_true", help="Cast params to float32"
-        )
+        parser.add_argument("-fp32", "-f", action="store_true", help="Cast params to float32")
 
     @classmethod
     def run(cls, args):

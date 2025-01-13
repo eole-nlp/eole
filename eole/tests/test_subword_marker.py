@@ -229,9 +229,7 @@ class TestSubwordGroup(unittest.TestCase):
             "￭.",
         ]  # noqa: E501
         true_out = [0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 7, 8, 9, 9, 9, 9, 10]  # noqa: E501
-        out = subword_map_by_joiner(
-            data_in, marker=SubwordMarker.JOINER, original_subwords=original_data_in
-        )
+        out = subword_map_by_joiner(data_in, marker=SubwordMarker.JOINER, original_subwords=original_data_in)
         self.assertEqual(out, true_out)
 
     def test_subword_group_joiner_prior_tokenization_harder(self):
@@ -292,9 +290,7 @@ class TestSubwordGroup(unittest.TestCase):
             15,
             16,
         ]  # noqa: E501
-        out = subword_map_by_joiner(
-            data_in, marker=SubwordMarker.JOINER, original_subwords=original_data_in
-        )
+        out = subword_map_by_joiner(data_in, marker=SubwordMarker.JOINER, original_subwords=original_data_in)
         self.assertEqual(out, true_out)
 
     def test_subword_group_joiner_with_new_joiner(self):

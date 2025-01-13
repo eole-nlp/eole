@@ -25,12 +25,8 @@ def chunks(lgth, n):
 class MBRBleu(BaseBin):
     @classmethod
     def add_args(cls, parser):
-        parser.add_argument(
-            "--nbest-hyp", type=str, help="file with nbest to rerank", required=True
-        )
-        parser.add_argument(
-            "--nbest-order", type=int, help="nbest order", required=True
-        )
+        parser.add_argument("--nbest-hyp", type=str, help="file with nbest to rerank", required=True)
+        parser.add_argument("--nbest-order", type=int, help="nbest order", required=True)
         parser.add_argument("--output", type=str, help="output file", required=True)
 
     @classmethod
@@ -48,11 +44,7 @@ class MBRBleu(BaseBin):
                 for hyp in nbest:
                     bleu = 0
                     for ref in nbest:
-                        bleu = (
-                            bleu
-                            + sacrebleu.sentence_bleu(hyp, [ref]).score
-                            / args.nbest_order
-                        )
+                        bleu = bleu + sacrebleu.sentence_bleu(hyp, [ref]).score / args.nbest_order
                         texts.append(hyp)
                         scores.append(bleu)
                 max_index = scores.index(max(scores))

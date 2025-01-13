@@ -3,9 +3,7 @@ input_file_path = "newstest2022-src.en"
 output_file_path = "newstest2022-src-prompt.en"
 
 # Open the input file for reading and the output file for writing
-with open(input_file_path, "r") as input_file, open(
-    output_file_path, "w"
-) as output_file:
+with open(input_file_path, "r") as input_file, open(output_file_path, "w") as output_file:
     # Loop through each line in the input file
     for line in input_file:
         # Set up the prompt provided by Lama3 with the current line's content

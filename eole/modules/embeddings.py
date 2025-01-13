@@ -1,4 +1,5 @@
 """ Embeddings module """
+
 import math
 import torch
 import torch.nn as nn
@@ -24,19 +25,11 @@ class PositionalEncoding(nn.Module):
 
     def __init__(self, dim, enc_type, max_len=5000):
         if dim % 2 != 0:
-            raise ValueError(
-                "Cannot use sin/cos positional encoding with "
-                "odd dim (got dim={:d})".format(dim)
-            )
+            raise ValueError("Cannot use sin/cos positional encoding with " "odd dim (got dim={:d})".format(dim))
         if enc_type == PositionEncodingType.SinusoidalInterleaved:
             pe = torch.zeros(max_len, dim)
             position = torch.arange(0, max_len).unsqueeze(1)
-            div_term = torch.exp(
-                (
-                    torch.arange(0, dim, 2, dtype=torch.float)
-                    * -(math.log(10000.0) / dim)
-                )
-            )
+            div_term = torch.exp((torch.arange(0, dim, 2, dtype=torch.float) * -(math.log(10000.0) / dim)))
             pe[:, 0::2] = torch.sin(position.float() * div_term)
             pe[:, 1::2] = torch.cos(position.float() * div_term)
         elif enc_type == PositionEncodingType.SinusoidalConcat:
@@ -46,10 +39,7 @@ class PositionalEncoding(nn.Module):
             pe = torch.arange(max_len, dtype=torch.float).unsqueeze(1) * pe.unsqueeze(0)
             pe = torch.cat([torch.sin(pe), torch.cos(pe)], dim=1).view(max_len, -1)
         else:
-            raise ValueError(
-                "Choice of Position encoding is SinusoidalInterleaved or"
-                " SinusoidalConcat."
-            )
+            raise ValueError("Choice of Position encoding is SinusoidalInterleaved or" " SinusoidalConcat.")
         pe = pe.unsqueeze(1)  # we keep pe (len x batch x dim) for back comp
         super(PositionalEncoding, self).__init__()
         self.register_buffer("pe", pe)
@@ -271,24 +261,14 @@ def prepare_pretrained_embeddings(config, vocabs):
 
     skip_lines = 1 if config.embeddings_type == "word2vec" else 0
     if config.both_embeddings is not None:
-        set_of_src_and_tgt_vocab = set(enc_vocab.ids_to_tokens) | set(
-            dec_vocab.ids_to_tokens
-        )
-        logger.info(
-            "Reading encoder and decoder embeddings from {}".format(
-                config.both_embeddings
-            )
-        )
-        src_vectors, total_vec_count = read_embeddings(
-            config.both_embeddings, skip_lines, set_of_src_and_tgt_vocab
-        )
+        set_of_src_and_tgt_vocab = set(enc_vocab.ids_to_tokens) | set(dec_vocab.ids_to_tokens)
+        logger.info("Reading encoder and decoder embeddings from {}".format(config.both_embeddings))
+        src_vectors, total_vec_count = read_embeddings(config.both_embeddings, skip_lines, set_of_src_and_tgt_vocab)
         tgt_vectors = src_vectors
         logger.info("\tFound {} total vectors in file".format(total_vec_count))
     else:
         if config.src_embeddings is not None:
-            logger.info(
-                "Reading encoder embeddings from {}".format(config.src_embeddings)
-            )
+            logger.info("Reading encoder embeddings from {}".format(config.src_embeddings))
             src_vectors, total_vec_count = read_embeddings(
                 config.src_embeddings,
                 skip_lines,
@@ -298,9 +278,7 @@ def prepare_pretrained_embeddings(config, vocabs):
         else:
             src_vectors = None
         if config.tgt_embeddings is not None:
-            logger.info(
-                "Reading decoder embeddings from {}".format(config.tgt_embeddings)
-            )
+            logger.info("Reading decoder embeddings from {}".format(config.tgt_embeddings))
             tgt_vectors, total_vec_count = read_embeddings(
                 config.tgt_embeddings,
                 skip_lines,
@@ -311,15 +289,9 @@ def prepare_pretrained_embeddings(config, vocabs):
             tgt_vectors = None
     logger.info("After filtering to vectors in vocab:")
     if config.src_embeddings is not None or config.both_embeddings is not None:
-        logger.info(
-            "\t* enc: %d match, %d missing, (%.2f%%)"
-            % calc_vocab_load_stats(enc_vocab, src_vectors)
-        )
+        logger.info("\t* enc: %d match, %d missing, (%.2f%%)" % calc_vocab_load_stats(enc_vocab, src_vectors))
     if config.tgt_embeddings is not None or config.both_embeddings is not None:
-        logger.info(
-            "\t* dec: %d match, %d missing, (%.2f%%)"
-            % calc_vocab_load_stats(dec_vocab, tgt_vectors)
-        )
+        logger.info("\t* dec: %d match, %d missing, (%.2f%%)" % calc_vocab_load_stats(dec_vocab, tgt_vectors))
 
     # Write to file
     enc_output_file = config.save_data + ".enc_embeddings.pt"

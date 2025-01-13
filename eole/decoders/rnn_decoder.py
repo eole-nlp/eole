@@ -22,10 +22,10 @@ class RNNDecoderBase(DecoderBase):
         self,
         model_config,
         running_config=None,
+        with_cross_attn=False,
     ):
         super(RNNDecoderBase, self).__init__(
-            attentional=model_config.global_attention != "none"
-            and model_config.global_attention is not None
+            attentional=model_config.global_attention != "none" and model_config.global_attention is not None
         )
 
         self.bidirectional_encoder = model_config.bidirectional_encoder
@@ -67,12 +67,13 @@ class RNNDecoderBase(DecoderBase):
             )
 
     @classmethod
-    def from_config(cls, model_config, running_config=None):
+    def from_config(cls, model_config, running_config=None, with_cross_attn=False):
         """Alternate constructor."""
         # config = opt.model.decoder  # RnnDecoderConfig
         return cls(
             model_config,
             running_config=running_config,
+            with_cross_attn=False,
         )
 
     def init_state(self, **kwargs):
@@ -83,15 +84,11 @@ class RNNDecoderBase(DecoderBase):
             # The encoder hidden is  (layers*directions) x batch x dim.
             # We need to convert it to layers x batch x (directions*dim).
             if self.bidirectional_encoder:
-                hidden = torch.cat(
-                    [hidden[0 : hidden.size(0) : 2], hidden[1 : hidden.size(0) : 2]], 2
-                )
+                hidden = torch.cat([hidden[0 : hidden.size(0) : 2], hidden[1 : hidden.size(0) : 2]], 2)
             return hidden
 
         if isinstance(enc_final_hs, tuple):  # LSTM
-            self.state["hidden"] = tuple(
-                _fix_enc_hidden(enc_hid) for enc_hid in enc_final_hs
-            )
+            self.state["hidden"] = tuple(_fix_enc_hidden(enc_hid) for enc_hid in enc_final_hs)
         else:  # GRU
             self.state["hidden"] = (_fix_enc_hidden(enc_final_hs),)
 
@@ -99,23 +96,15 @@ class RNNDecoderBase(DecoderBase):
         batch_size = self.state["hidden"][0].size(1)
 
         h_size = (batch_size, self.hidden_size)
-        self.state["input_feed"] = (
-            self.state["hidden"][0].data.new(*h_size).zero_().unsqueeze(0)
-        )
+        self.state["input_feed"] = self.state["hidden"][0].data.new(*h_size).zero_().unsqueeze(0)
 
         self.state["coverage"] = None
 
     def map_state(self, fn):
-        self.state["hidden"] = tuple(
-            fn(h.transpose(0, 1), 0).transpose(0, 1) for h in self.state["hidden"]
-        )
-        self.state["input_feed"] = fn(
-            self.state["input_feed"].transpose(0, 1), 0
-        ).transpose(0, 1)
+        self.state["hidden"] = tuple(fn(h.transpose(0, 1), 0).transpose(0, 1) for h in self.state["hidden"])
+        self.state["input_feed"] = fn(self.state["input_feed"].transpose(0, 1), 0).transpose(0, 1)
         if self._coverage and self.state["coverage"] is not None:
-            self.state["coverage"] = fn(
-                self.state["coverage"].transpose(0, 1), 0
-            ).transpose(0, 1)
+            self.state["coverage"] = fn(self.state["coverage"].transpose(0, 1), 0).transpose(0, 1)
 
     def detach_state(self):
         self.state["hidden"] = tuple(h.detach() for h in self.state["hidden"])
@@ -141,9 +130,7 @@ class RNNDecoderBase(DecoderBase):
             * attns: distribution over src at each tgt
               ``(batch, tgt_len, src_len)``.
         """
-        dec_state, dec_outs, attns = self._run_forward_pass(
-            emb, enc_out, src_len=src_len
-        )
+        dec_state, dec_outs, attns = self._run_forward_pass(emb, enc_out, src_len=src_len)
 
         # Update the state with the result.
         if not isinstance(dec_state, tuple):
@@ -189,6 +176,7 @@ class StdRNNDecoder(RNNDecoderBase):
         self,
         model_config,
         running_config=None,
+        with_cross_attn=False,
     ):
         self.hidden_size = model_config.hidden_size
         self._input_size = model_config.tgt_word_vec_size
@@ -268,6 +256,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
         self,
         model_config,
         running_config=None,
+        with_cross_attn=False,
     ):
         self.hidden_size = model_config.hidden_size
         self._input_size = model_config.tgt_word_vec_size + self.hidden_size
@@ -292,11 +281,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
 
         dec_state = self.state["hidden"]
 
-        coverage = (
-            self.state["coverage"].squeeze(0)
-            if self.state["coverage"] is not None
-            else None
-        )
+        coverage = self.state["coverage"].squeeze(0) if self.state["coverage"] is not None else None
 
         # Input feed concatenates hidden state with
         # input at every time step.

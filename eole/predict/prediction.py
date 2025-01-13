@@ -1,4 +1,5 @@
 """ Prediction main class """
+
 import os
 from eole.constants import DefaultTokens
 from eole.utils.alignment import build_align_pharaoh
@@ -37,9 +38,7 @@ class PredictionBuilder(object):
         if phrase_table != "" and os.path.exists(phrase_table):
             with open(phrase_table) as phrase_table_fd:
                 for line in phrase_table_fd:
-                    phrase_src, phrase_trg = line.rstrip("\n").split(
-                        DefaultTokens.PHRASE_TABLE_SEPARATOR
-                    )
+                    phrase_src, phrase_trg = line.rstrip("\n").split(DefaultTokens.PHRASE_TABLE_SEPARATOR)
                     self.phrase_table_dict[phrase_src] = phrase_trg
 
     def _build_target_tokens(self, src, srclen, pred, attn, voc):
@@ -57,9 +56,7 @@ class PredictionBuilder(object):
                 for i in range(len(tokens)):
                     if tokens[i] == DefaultTokens.UNK:
                         _, max_index = attn[i][:srclen].max(0)
-                        src_tok = self.vocabs["src"].ids_to_tokens[
-                            src[max_index.item()]
-                        ]
+                        src_tok = self.vocabs["src"].ids_to_tokens[src[max_index.item()]]
                         tokens[i] = src_tok
                         if self.phrase_table_dict:
                             if src_tok in self.phrase_table_dict:
@@ -68,9 +65,7 @@ class PredictionBuilder(object):
 
     def from_batch(self, prediction_batch):
         batch = prediction_batch["batch"]
-        assert len(prediction_batch["gold_score"]) == len(
-            prediction_batch["predictions"]
-        )
+        assert len(prediction_batch["gold_score"]) == len(prediction_batch["predictions"])
         batch_size = len(batch["srclen"])
 
         preds, pred_score, estim, attn, align, gold_score, ind = (
@@ -199,9 +194,7 @@ class Prediction(object):
         best_pred = self.pred_sents[0]
         best_score = self.pred_scores[0]
         best_estim = self.estim[0]
-        pred_sent = " ".join(
-            [str(x) for x in best_pred]
-        )  # this will display IDs for id_tokenize case
+        pred_sent = " ".join([str(x) for x in best_pred])  # this will display IDs for id_tokenize case
         msg.append("PRED {}: {}\n".format(sent_number, pred_sent))
         msg.append("PRED SCORE: {:.4f}\n".format(best_score))
         msg.append("ESTIM SCORE: {:.4f}\n".format(best_estim))

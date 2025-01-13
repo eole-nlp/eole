@@ -71,22 +71,14 @@ class LMScoring(BaseBin):
         ppl_file = codecs.open(config.output + ".ppl", "w+", "utf-8")
 
         # no tensor_parallel support
-        device = (
-            torch.device("cuda", config.gpu_ranks[0])
-            if len(config.gpu_ranks) > 0
-            else torch.device("cpu")
-        )
+        device = torch.device("cuda", config.gpu_ranks[0]) if len(config.gpu_ranks) > 0 else torch.device("cpu")
         if len(config.gpu_ranks) > 1:
-            logger.warning(
-                f"gpu_ranks is {str(config.gpu_ranks)} but only the first one will be used."
-            )
+            logger.warning(f"gpu_ranks is {str(config.gpu_ranks)} but only the first one will be used.")
 
         vocabs, model, model_opt = config.model.model_class.load_test_model(config)
         pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
         padding_idx = vocabs["tgt"][pad_token]
-        criterion = torch.nn.CrossEntropyLoss(
-            ignore_index=padding_idx, reduction="none"
-        )
+        criterion = torch.nn.CrossEntropyLoss(ignore_index=padding_idx, reduction="none")
         valid_loss = LossCompute(
             criterion,
             model.generator,
@@ -141,17 +133,8 @@ class LMScoring(BaseBin):
             for j in range(batch_size):
                 ppl_file.write(str(sent_ppl_orig[j].item()) + "\n")
         logger.info(
-            "Loss: %.2f Tokens: %d Corpus PPL: %.2f"
-            % (cumul_loss, cumul_length, np.exp(cumul_loss / cumul_length))
+            "Loss: %.2f Tokens: %d Corpus PPL: %.2f" % (cumul_loss, cumul_length, np.exp(cumul_loss / cumul_length))
         )
         ppl_file.close()
 
-        os.system(
-            'paste "'
-            + config.src
-            + '" "'
-            + config.output
-            + '".ppl > "'
-            + config.output
-            + '"'
-        )
+        os.system('paste "' + config.src + '" "' + config.output + '".ppl > "' + config.output + '"')

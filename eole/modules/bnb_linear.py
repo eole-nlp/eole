@@ -26,9 +26,7 @@ def replace_bnb_linear(
 ):
     for name, module in model.named_children():
         if len(list(module.children())) > 0:
-            replace_bnb_linear(
-                module, module_to_convert, q_type, threshold, compute_dtype
-            )
+            replace_bnb_linear(module, module_to_convert, q_type, threshold, compute_dtype)
 
         if isinstance(module, nn.Linear) and name in module_to_convert:
             if q_type == "bnb_8bit":

@@ -25,14 +25,14 @@ jobs:
         pip install sacrebleu
         pip install flake8
         pip install rich
-        python -m pip install black==22.* flake8==3.8.*
+        python -m pip install black flake8 pyproject-flake8
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     - name: Check code with Black
       run: |
         black --check .
     - name: Lint with flake8
       run: |
-        flake8 .
+        pflake8 .
     - name: Unit tests
       run: |
         python -m unittest discover
@@ -186,7 +186,7 @@ jobs:
             -config eole/tests/data/lm_data.yaml \
             -src_vocab /tmp/eole.vocab.src \
             -tgt_vocab /tmp/eole.vocab.src \
-            -model '{"hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "layers": 2, "heads": 4}}' \
+            -model '{"hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer", "layers": 2, "heads": 4}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10}' \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
@@ -357,7 +357,7 @@ jobs:
           -config eole/tests/data/lm_data.yaml \
           -src_vocab /tmp/eole.vocab.src \
           -tgt_vocab /tmp/eole.vocab.src \
-          -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer_lm", "heads": 4}}' \
+          -model '{"layers": 2, "hidden_size": 16, "transformer_ff": 64, "embeddings": {"word_vec_size": 16}, "encoder": None, "decoder": {"decoder_type": "transformer", "heads": 4}}' \
           -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "model_path": "/tmp/lm.eole.model", "save_checkpoint_steps": 10}' \
           -src_vocab_size 1000 \
           -tgt_vocab_size 1000 \
