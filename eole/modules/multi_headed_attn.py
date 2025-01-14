@@ -329,25 +329,24 @@ class SelfMHA(MultiHeadedAttention):
         if step == 0:
             self.layer_cache[1]["keys"] = key.new_zeros(key.shape)
             self.layer_cache[1]["values"] = key.new_zeros(key.shape)
-        else:
-            b, h, l, dph = self.layer_cache[1]["keys"].shape
-            if step >= l:
-                ktype = self.layer_cache[1]["keys"].dtype
-                kdev = self.layer_cache[1]["keys"].device
-                self.layer_cache[1]["keys"] = torch.cat(
-                    (
-                        self.layer_cache[1]["keys"],
-                        torch.zeros((b, h, add_length, dph), device=kdev, dtype=ktype),
-                    ),
-                    dim=2,
-                )
-                self.layer_cache[1]["values"] = torch.cat(
-                    (
-                        self.layer_cache[1]["values"],
-                        torch.zeros((b, h, add_length, dph), device=kdev, dtype=ktype),
-                    ),
-                    dim=2,
-                )
+        b, h, l, dph = self.layer_cache[1]["keys"].shape
+        if step >= l:
+            ktype = self.layer_cache[1]["keys"].dtype
+            kdev = self.layer_cache[1]["keys"].device
+            self.layer_cache[1]["keys"] = torch.cat(
+                (
+                    self.layer_cache[1]["keys"],
+                    torch.zeros((b, h, add_length, dph), device=kdev, dtype=ktype),
+                ),
+                dim=2,
+            )
+            self.layer_cache[1]["values"] = torch.cat(
+                (
+                    self.layer_cache[1]["values"],
+                    torch.zeros((b, h, add_length, dph), device=kdev, dtype=ktype),
+                ),
+                dim=2,
+            )
         if self.sliding_window > 0 and l > self.sliding_window:
             self.layer_cache[1]["keys"] = self.layer_cache[1]["keys"][:, :, 1:, :]
             self.layer_cache[1]["values"] = self.layer_cache[1]["values"][:, :, 1:, :]
@@ -425,7 +424,11 @@ class SelfMHA(MultiHeadedAttention):
                 else:
                     cos, sin = None, None
                 # restore initial tgt_pad_mask - migth be better to store it instead.
-                cache_leftpad = (~torch.any(attn_mask, dim=-2).squeeze(1)).sum(dim=1).to(torch.int32)
+                cache_leftpad = (
+                    (~torch.any(attn_mask, dim=-2).squeeze(1)).sum(dim=1).to(torch.int32)
+                    if attn_mask is not None
+                    else None
+                )
                 context = self.flash_attn_with_kvcache(
                     query.transpose(1, 2),
                     self.layer_cache[1]["keys"].transpose(1, 2),
