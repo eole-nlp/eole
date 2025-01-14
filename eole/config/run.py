@@ -120,6 +120,7 @@ class PredictConfig(
     def _validate_predict_config(self):
         # Not sure we want to call this at every validation
         self._update_with_model_config()
+        self.check_self_attn_backend()
         # TODO: do we really need this _all_transform?
         if self._all_transform is None:
             self._all_transform = self.transforms

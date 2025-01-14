@@ -1,6 +1,6 @@
 import torch
 from typing import List, Literal, Union
-from pydantic import Field, model_validator, field_validator
+from pydantic import Field, field_validator
 from importlib import import_module
 from eole.config.config import Config, get_config_dict
 from eole.constants import TORCH_DTYPES
@@ -129,8 +129,7 @@ class RunningConfig(DistributedConfig):
                 raise ValueError(f"Invalid compute_dtype value: {v}")
         return v
 
-    @model_validator(mode="after")
-    def _validate_running_config(self):
+    def check_self_attn_backend(self):
         try:
             flash_pack = import_module("flash_attn")
             if (
@@ -144,4 +143,3 @@ class RunningConfig(DistributedConfig):
                 self.__dict__["self_attn_backend"] = "pytorch"
         except ImportError:
             self.__dict__["self_attn_backend"] = "pytorch"
-        return self
