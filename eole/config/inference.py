@@ -123,7 +123,7 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
 
     @model_validator(mode="after")
     def _validate_running_config(self):
-        super()._validate_running_config()
+        # super()._validate_running_config()
         if self.gold_align:
             assert self.report_align, "-report_align should be enabled with -gold_align"
             assert not self.replace_unk, "-replace_unk option can not be used with -gold_align enabled"
