@@ -269,7 +269,7 @@ class TrainingConfig(
 
     @model_validator(mode="after")
     def _validate_running_config(self):
-        super()._validate_running_config()
+        self.check_self_attn_backend()
         # self._validate_language_model_compatibilities_opts()
         if self.world_size < len(self.gpu_ranks):
             raise AssertionError("parameter counts of -gpu_ranks must be less or equal " "than -world_size.")
