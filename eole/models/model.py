@@ -26,6 +26,9 @@ from eole.modules.rope import RotaryPosition
 from eole.models.model_saver import load_checkpoint
 from eole.modules.estimator import FeedForward
 
+# TODO: put in proper str2adapt/str2enc mapping
+from eole.encoders.vision import VisionLanguageAdapter, VisionEncoder
+
 
 class NoOpPosition:
     """A no-op position encoding callable."""
@@ -118,6 +121,7 @@ class BaseModel(nn.Module):
     def __init__(self, **kwargs):
         super(BaseModel, self).__init__()
         self.encoder = kwargs.get("encoder", None)
+        self.adapter = kwargs.get("adapter", None)
         self.decoder = kwargs.get("decoder", None)
         self.src_emb = kwargs.get("src_emb", None)
         self.tgt_emb = kwargs.get("tgt_emb", None)
@@ -126,7 +130,8 @@ class BaseModel(nn.Module):
         self.rope = kwargs.get("rope", None)
         self.share_decoder_embeddings = False
         if self.encoder is not None and self.src_emb is None:
-            raise ValueError("An Encoder needs source Embeddings")
+            if not isinstance(self.encoder, VisionEncoder):
+                raise ValueError("An Encoder needs source Embeddings")
         if self.decoder is not None and self.tgt_emb is None:
             raise ValueError("A Decoder needs target Embeddings")
         if self.encoder is None and self.decoder is None:
@@ -894,11 +899,103 @@ class EncoderModel(BaseModel):
         self.encoder.update_dropout(dropout, attention_dropout)
 
 
+class VisionEncoderDecoderModel(BaseModel):
+    """VisionEncoderDecoderModel Class
+    See :class:`~eole.models.BaseModel` for options."""
+
+    def __init__(self, **kwargs):
+        super(VisionEncoderDecoderModel, self).__init__(**kwargs)
+        self.image_token_id = kwargs.get("image_token_id", None)
+        # we might want to disable this constructor some way
+        if self.encoder is None or self.decoder is None:
+            raise ValueError("A EncoderDecoderModel requires both an Encoder and a Decoder")
+        # TODO: make this compatible?
+        # if self.add_estimator:
+        #     self.estimator = FeedForward(self.hidden_size)
+
+    @classmethod
+    def build_blocks(cls, model_config, vocabs, running_config=None):
+        encoder = build_encoder(model_config, running_config=running_config)
+        adapter = VisionLanguageAdapter(model_config.encoder.hidden_size, model_config.decoder.hidden_size)
+        tgt_emb = build_tgt_emb(
+            model_config,
+            vocabs,
+            running_config=running_config,
+            share_embeddings=model_config.share_embeddings,
+        )
+        decoder = build_decoder(model_config, running_config=running_config)
+        return cls(
+            encoder=encoder,
+            decoder=decoder,
+            adapter=adapter,
+            tgt_emb=tgt_emb,
+            add_estimator=model_config.add_estimator,
+            hidden_size=model_config.decoder.hidden_size,
+            image_token_id=model_config.encoder.image_token_id,
+            rope=build_rope(model_config),
+        )
+        # from there, the base blocks exist, and the rest is done in the from_opt from base class
+
+    def embed_vision_language_features(self, src, images):
+        # TODO: test with batch > 1?
+        batch_size = src.size(0)
+        text_locations = src != self.image_token_id
+        image_locations = src == self.image_token_id
+        text_features = self.tgt_emb(src[text_locations].view(batch_size, -1))
+        encoded_images = self.encoder(images)
+        image_features = self.adapter(encoded_images)
+
+        seq_len = src.shape[1]
+        batch, N_txt, D_txt = text_features.shape
+        _, N_img, D_img = image_features.shape
+        assert D_txt == D_img, f"Text features dim {D_txt} should be equal to image features dim {D_img}"
+        assert seq_len == N_txt + N_img, (
+            f"seq_len {seq_len} should be equal to N_txt + N_img " f"{(N_txt, N_img, image_locations.sum().item())}"
+        )
+
+        combined_features = torch.empty(
+            (batch, seq_len, D_txt),
+            dtype=text_features.dtype,
+            device=text_features.device,
+        )
+        combined_features[text_locations, :] = text_features
+        combined_features[image_locations, :] = image_features
+
+        return combined_features
+
+    def forward(self, src, tgt, src_len, bptt=False, with_align=False, images=[]):
+        """A DecoderModel forward the src side to the decoder along
+        with the source lengths vector. It is a decoder only LM (cf GPT-2)"""
+
+        if not bptt:
+            self.decoder.init_state()
+        emb = self.embed_vision_language_features(src, images)
+        pad_idx = self.tgt_emb.word_padding_idx
+        pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+        dec_out, attns = self.decoder(
+            emb,
+            enc_out=None,
+            src_len=src_len,
+            with_align=with_align,
+            tgt_pad_mask=pad_mask,
+        )
+
+        return dec_out, attns, None
+
+    def update_dropout(self, dropout, attention_dropout):
+        self.encoder.update_dropout(dropout, attention_dropout)
+        self.src_emb.update_dropout(dropout)
+        self.decoder.update_dropout(dropout, attention_dropout)
+        self.tgt_emb.update_dropout(dropout)
+
+
 def get_model_class(model_config):
     # might have more cases later
     if model_config.decoder is None:
         return EncoderModel
     elif model_config.encoder is None:
         return DecoderModel
+    elif model_config.encoder.encoder_type == "vision":
+        return VisionEncoderDecoderModel
     else:
         return EncoderDecoderModel

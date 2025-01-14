@@ -9,14 +9,17 @@ from eole.utils.logging import logger
 
 def text_sort_key(ex):
     """Sort using the number of tokens in the sequence."""
-    if ex["tgt"]:
+    if ex.get("tgt", None) is not None:
         return len(ex["src"]["src_ids"]), len(ex["tgt"]["tgt_ids"])
     return len(ex["src"]["src_ids"])
 
 
 def clean_example(maybe_example):
-    maybe_example["src"] = {"src": " ".join(maybe_example["src"])}
-    if maybe_example["tgt"] is not None:
+    if isinstance(maybe_example["src"], list):
+        maybe_example["src"] = {"src": " ".join(maybe_example["src"])}
+    else:
+        maybe_example["src"] = {"src": maybe_example["src"]}
+    if maybe_example.get("tgt", None) is not None:
         maybe_example["tgt"] = {"tgt": " ".join(maybe_example["tgt"])}
     if "align" in maybe_example:
         maybe_example["align"] = " ".join(maybe_example["align"])
@@ -39,7 +42,7 @@ def transform_bucket(task, bucket, threshold=0):
         transf_bucket = transform.batch_apply(sub_bucket, is_train=(task == CorpusTask.TRAIN), corpus_name=cid)
         for example, transform, cid in transf_bucket:
             example = clean_example(example)
-            if len(example["src"]["src"]) > 0 and example["sco"] > threshold:
+            if len(example["src"]["src"]) > 0 and example.get("sco", 1) > threshold:
                 transformed_bucket.append(example)
 
         # at this point an example looks like:
@@ -67,7 +70,7 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
         src_text = example["src"]["src"].split(" ")
         if numeric["src"]["src_ids"] == []:
             numeric["src"]["src_ids"] = vocabs["src"](src_text)
-        if example["tgt"] is not None:
+        if example.get("tgt", None) is not None:
             if maybe_tgt_ids != []:
                 numeric["tgt"]["tgt_ids"] = maybe_tgt_ids
             else:
@@ -187,7 +190,7 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
         device=device,
     )
 
-    if minibatch[0][0]["tgt"] is not None:
+    if minibatch[0][0].get("tgt", None) is not None:
         if left_pad:
             tbatchtgt = [
                 torch.tensor(ex["tgt"]["tgt_ids"], dtype=torch.long, device=device).flip(dims=[0])
@@ -243,6 +246,19 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
         for i, (ex, indice) in enumerate(minibatch):
             alignment[i, : len(ex["alignment"])] = torch.tensor(ex["alignment"], dtype=torch.long, device=device)
         tensor_batch["alignment"] = alignment
+
+    if "images" in minibatch[0][0].keys():
+        tensor_batch["images"] = [
+            torch.tensor(v, device=device, dtype=torch.float32)
+            for ex, indice in minibatch
+            for k, v in ex["images"].items()
+            # BATCH > 1 not supported yet
+            # [
+            #     torch.tensor(v, device=device, dtype=torch.float32)
+            #     for k, v in ex["images"].items()
+            # ]
+            # for ex, indice in minibatch
+        ]
 
     tensor_batch["ind_in_bucket"] = [indice for ex, indice in minibatch]
 
