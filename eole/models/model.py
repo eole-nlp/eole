@@ -628,7 +628,7 @@ class BaseModel(nn.Module):
                         ckpt_t = updated_params[name + "." + param_name]
                         self._load_param(name, module, param_name, param, buf_list, ckpt_t, offset)
                         keyfound[name + "." + param_name] = True
-                    if name + "." + param_name in keys_shard.keys():
+                    elif name + "." + param_name in keys_shard.keys():
 
                         ckpt_t = f[keys_shard[name + "." + param_name]].get_tensor(name + "." + param_name)
                         self._load_param(name, module, param_name, param, buf_list, ckpt_t, offset)
