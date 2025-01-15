@@ -20,6 +20,18 @@ from eole.config.run import PredictConfig
 """
 This script scores all sentences of a file using dynamic data.
 For this purpose we use the same pipeline as the validation of a file
+Below is an example of settings of a config.yaml file
+
+verbose: false
+n_best: 3
+top_p: 0.9
+beam_size: 10
+world_size: 1
+gpu_ranks: [0]
+# use symlinks to last saved step
+model_path: data/wikitext/wikitext-103-raw-v1/run/model-lm
+src: data/wikitext/wikitext-103-raw-v1/lm_input.txt
+output: data/wikitext/wikitext-103-raw-v1/lm_pred.txt
 
 Output is the data and tab separated score
 use the -output setting for preds + scores
@@ -36,8 +48,7 @@ class LMScoring(BaseBin):
             "--config",
             "-c",
             required=False,
-            help="Path of main YAML config file.",
-        )
+            help="Path of main YAML config file.")
 
     @classmethod
     def run(cls, args):
@@ -49,57 +60,38 @@ class LMScoring(BaseBin):
             config = {}
         _parser = ArgumentParser()
         add_model(_parser, PredictConfig)
-        """
-        defaults = vars(_parser.parse_args([]))
-        stuff_to_update = get_non_default_values(args, defaults)
-        config.update(stuff_to_update)
-        """
         config = PredictConfig(**config)
         init_logger(config.log_file)
         set_random_seed(config.seed, False)
         ppl_file = codecs.open(config.output + ".ppl", "w+", "utf-8")
 
         # no tensor_parallel support
-        device = (
-            torch.device("cuda", config.gpu_ranks[0])
-            if len(config.gpu_ranks) > 0
-            else torch.device("cpu")
-        )
+        device = torch.device("cuda", config.gpu_ranks[0]) if len(config.gpu_ranks) > 0 else torch.device("cpu")
         if len(config.gpu_ranks) > 1:
-            logger.warning(
-                f"gpu_ranks is {str(config.gpu_ranks)} but only the first one will be used."
-            )
+            logger.warning(f"gpu_ranks is {str(config.gpu_ranks)} but only the first one will be used.")
 
         load_test_model = ensemble_load_test_model if len(config.model_path) > 1 else BaseModel.load_test_model
         vocabs, model, model_opt = load_test_model(config, 0)
-
         pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
-        padding_idx = vocabs['tgt'].tokens_to_ids[pad_token]
-
-        criterion = torch.nn.CrossEntropyLoss(
-            ignore_index=padding_idx, reduction="none"
-        )
+        padding_idx = vocabs["tgt"].tokens_to_ids[pad_token]
+        criterion = torch.nn.CrossEntropyLoss(ignore_index=padding_idx, reduction="none")
         valid_loss = LossCompute(
             criterion,
             model.generator,
             tgt_shift_index=0,
             lambda_coverage=model_opt.decoder.lambda_coverage,
             lambda_align=model_opt.decoder.lambda_align,
-            vocabs=vocabs
+            vocabs=vocabs,
         )
         valid_loss.to(device)
         transforms_cls = get_transforms_cls(config._all_transform)
         transforms_cls = make_transforms(config, transforms_cls, vocabs)
 
+        # if tgt is not precised in the inference config file, used from src
         if config.tgt is None:
             config.tgt = config.src
-
         infer_iter = build_dynamic_dataset_iter(
-            config,
-            transforms_cls,
-            vocabs,
-            task=CorpusTask.INFER,
-            device_id=device.index
+            config, transforms_cls, vocabs, task=CorpusTask.INFER, device_id=device.index
         )
 
         model.to(device)
@@ -128,10 +120,7 @@ class LMScoring(BaseBin):
             sent_ppl_orig = ppl.gather(
                 0,
                 torch.tensor(
-                    sorted(
-                        range(len(batch["cid_line_number"])),
-                        key=lambda k: batch["cid_line_number"][k],
-                    ),
+                    sorted(range(len(batch["cid_line_number"])), key=lambda k: batch["cid_line_number"][k]),
                     device=ppl.device,
                 ),
             )
@@ -143,15 +132,7 @@ class LMScoring(BaseBin):
         )
         ppl_file.close()
 
-        os.system(
-            'paste "'
-            + config.src
-            + '" "'
-            + config.output
-            + '".ppl > "'
-            + config.output
-            + '"'
-        )
+        os.system('paste "' + config.src + '" "' + config.output + '".ppl > "' + config.output + '"')
 
 
 if __name__ == "__main__":
