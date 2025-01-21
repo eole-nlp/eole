@@ -53,9 +53,9 @@ data:
 
     synth-greedy-decoded-doclevel:
 # 857937 ex - 1.7GB
-        path_src: "hf://eole-nlp/europarl-v10.de-en/en"
-        path_tgt: "hf://eole-nlp/europarl-v10.de-en/de"
-        path_sco: "hf://eole-nlp/europarl-v10.de-en/sco"
+        path_src: "hf://eole-nlp/synth-greedy-decoded-doclevel/en"
+        path_tgt: "hf://eole-nlp/synth-greedy-decoded-doclevel/de"
+        path_sco: "hf://eole-nlp/synth-greedy-decoded-doclevel/sco"
         transforms: [onmt_tokenize, filtertoolong]
         weight: 2
 
