@@ -23,6 +23,7 @@ setup(
         "fastapi",
         "fasttext-wheel",
         "huggingface_hub",
+        "datasets",
         "numpy<2.0",
         "pandas",
         "protobuf==3.20.1",
