@@ -82,7 +82,6 @@ class LoraWeights(BaseBin):
             # use compute_dtype from lora finetuning
             new_config.training.compute_dtype = config.training.compute_dtype
         elif args.action == "concat":
-            model.half()  # We keep FP16 for all
             optim = lora_checkpoint["optim"]
             model_state_dict = model.state_dict()
             new_config = config
@@ -108,11 +107,11 @@ class LoraWeights(BaseBin):
             shard_dict = {}
             f.append(safe_open(shard, framework="pt", device="cpu"))
             for key in f[i].keys():
-                shard_dict[key] = model_state_dict[key]
+                shard_dict[key] = model_state_dict[key].to(running_config.storage_dtype)
             if i == 0:
                 for key in model_state_dict.keys():
                     if "estimator" in key:
-                        shard_dict[key] = model_state_dict[key]
+                        shard_dict[key] = model_state_dict[key].to(running_config.storage_dtype)
             logger.info("saving shard" + args.output + "/model.{:02d}.safetensors".format(i))
             save_file(
                 shard_dict,
