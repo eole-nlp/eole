@@ -42,11 +42,11 @@ class ScoringPreparator:
             preds (list): Detokenized predictions
             texts_ref (list): Detokenized target sentences
         """
-        # ########## #
-        # Translator #
-        # ########## #
+        # ######### #
+        # Predictor #
+        # ######### #
 
-        # Build translator from options
+        # Build predictor from options
         model_config = self.config.model
         model_config._validate_model_config()
 
@@ -55,7 +55,6 @@ class ScoringPreparator:
         # Set "default" translation options on empty cfgfile
         self.config.training.num_workers = 0
         is_seq2seq = model.encoder is not None and model.decoder is not None
-        print("is_seq2seq", is_seq2seq)
         if not is_seq2seq:
             if "insert_mask_before_placeholder" in self.config.transforms:
                 self.response_patterns = self.config.transforms_configs.insert_mask_before_placeholder.response_patterns
@@ -72,12 +71,14 @@ class ScoringPreparator:
             model=model_config,
             tgt_file_prefix=self.config.transforms_configs.prefix.tgt_prefix != "",
             gpu_ranks=[gpu_rank],
+            batch_type=self.config.training.batch_type,
+            batch_size=self.config.training.batch_size,
         )
 
         scorer = GNMTGlobalScorer.from_config(predict_config)
 
         if is_seq2seq:
-            translator = Translator.from_config(  # we need to review opt/config stuff in translator
+            predictor = Translator.from_config(  # we need to review opt/config stuff in translator
                 model,
                 self.vocabs,
                 predict_config,
@@ -89,7 +90,7 @@ class ScoringPreparator:
                 logger=None,
             )
         else:
-            translator = GeneratorLM.from_config(  # we need to review opt/config stuff in translator
+            predictor = GeneratorLM.from_config(
                 model,
                 self.vocabs,
                 predict_config,
@@ -127,7 +128,7 @@ class ScoringPreparator:
         infer_iter = build_dynamic_dataset_iter(
             predict_config,
             self.transforms,
-            translator.vocabs,
+            predictor.vocabs,
             src=raw_srcs,
             task=CorpusTask.INFER,
             tgt="",  # This force to clear the target side (needed when using tgt_file_prefix)
@@ -138,11 +139,11 @@ class ScoringPreparator:
         # Predictions #
         # ########### #
         if not is_seq2seq:
-            translator.id_tokenization = True
+            predictor.id_tokenization = True
         # In PredictionBuilder, the case "id_tokenization = False" (default) is not properly handled
         # and the apply_verse method of the huggingface_tokenize transform
         # does not handle lists of strings (only list of integers).
-        _, _, preds = translator._predict(
+        _, _, preds = predictor._predict(
             infer_iter,
             transform=infer_iter.transforms,
             attn_debug=predict_config.attn_debug,
