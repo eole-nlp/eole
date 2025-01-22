@@ -254,12 +254,9 @@ class LossCompute(nn.Module):
         Args:
             batch: The current batch.
         """
-        # print("ignore_prompt")
-        # print(f'batch["src"]: {batch["src"].tolist()}')
-        # print(f'batch["tgt]: {batch["tgt"].tolist()}')
         # Create a mask with zeros at prompt positions and ones at answer postions.
         mask = batch["src"].squeeze(dim=-1) == self.padding_idx
-        mask  = mask.cumsum(dim=1)
+        mask = mask.cumsum(dim=1)
         row_max = mask.max(dim=1, keepdim=True).values
         mask = torch.where(mask < row_max, 0, mask)
         mask = torch.where(mask >= row_max, 1, mask)
