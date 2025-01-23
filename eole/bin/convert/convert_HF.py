@@ -416,7 +416,6 @@ def build_config_dict(hf):
         "left_pad": True,
         "generator_bias": False,
         "rope_config": {
-            "rotary_theta": config.get("rope_theta"),
             "rotary_interleave": False,
         },
         "embeddings": {},  # Populated later
@@ -437,6 +436,10 @@ def build_config_dict(hf):
         model_config["rope_config"]["rotary_dim"] = model_config["head_dim"]
     else:
         model_config["rope_config"]["rotary_dim"] = model_config["hidden_size"] // model_config["heads"]
+
+    # patch rotary theta
+    if "rotary_theta" in config.keys():
+        model_config["rope_config"]["rotary_theta"] = config["rotary_theta"]
 
     # Validate required fields
     required_fields = {
