@@ -25,14 +25,16 @@ class RMSNorm(torch.nn.Module):
         self.weight = nn.Parameter(torch.ones(hidden_size))
 
     @torch.compile(dynamic=True)
-    def compute_rms(self, hidden_states, dtype):
+    def compute_rms(self, hidden_states, dtype, residual=False):
         hidden_states = hidden_states.to(torch.float32)
         variance = hidden_states.pow(2).mean(-1, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.eps)
         hidden_states = hidden_states.to(dtype)
-        return hidden_states * self.weight
+        factor = 1.0 if residual else 0.0
+        hidden_states = hidden_states * (factor + self.weight.float())
+        return hidden_states.type_as(self.weight)
 
-    def forward(self, hidden_states):
+    def _forward(self, hidden_states, residual=False):
         inp_dtype = hidden_states.dtype
         if AWQ_EXT and not self.training:
             # cuda kernel support only fp16 - need to cast
@@ -44,4 +46,12 @@ class RMSNorm(torch.nn.Module):
                 output = output.unsqueeze(0)
             return output.to(inp_dtype)
         else:
-            return self.compute_rms(hidden_states, inp_dtype)
+            return self.compute_rms(hidden_states, inp_dtype, residual=residual)
+
+    def forward(self, hidden_states):
+        return self._forward(hidden_states)
+
+
+class GemmaRMSNorm(RMSNorm):
+    def forward(self, hidden_states):
+        return self._forward(hidden_states, residual=True)

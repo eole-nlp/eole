@@ -32,6 +32,7 @@ class TransformerDecoderLayer(nn.Module):
         self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
         self.full_context_alignment = model_config.full_context_alignment
         self.alignment_heads = model_config.alignment_heads
+        self.ffn_layernorm = model_config.ffn_layernorm
 
         # order of layers corresponds to forward flow of tensors
         self.input_layernorm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
@@ -50,6 +51,15 @@ class TransformerDecoderLayer(nn.Module):
             )
         else:
             self.context_attn = None
+
+        if self.ffn_layernorm:
+            self.pre_feedforward_layernorm = LayerNorm[model_config.layer_norm](
+                model_config.hidden_size, eps=model_config.norm_eps
+            )
+            self.post_feedforward_layernorm = LayerNorm[model_config.layer_norm](
+                model_config.hidden_size, eps=model_config.norm_eps
+            )
+
         if model_config.parallel_residual and not model_config.shared_layer_norm:
             self.residual_layernorm = LayerNorm[model_config.layer_norm](
                 model_config.hidden_size, eps=model_config.norm_eps
@@ -64,6 +74,15 @@ class TransformerDecoderLayer(nn.Module):
                 model_config,
                 running_config=running_config,
             )
+
+    def _mlp(self, hidden_states):
+        if self.ffn_layernorm:
+            hidden_states = self.pre_feedforward_layernorm(hidden_states)
+            hidden_states = self.mlp(hidden_states)
+            hidden_states = self.post_feedforward_layernorm(hidden_states)
+        else:
+            hidden_states = self.mlp(hidden_states)
+        return hidden_states
 
     def forward(self, layer_in, **kwargs):
         """
@@ -102,6 +121,12 @@ class TransformerDecoderLayer(nn.Module):
 
         if self.dropout_p > 0:
             self_attn = self.dropout(self_attn)
+
+        if self.ffn_layernorm:
+            # NOTE: this case was added for Gemma2 support and might be extended for further ctx_attn support
+            ff_in = layer_in + self.post_attention_layernorm(self_attn)
+            layer_out = ff_in + self._mlp(ff_in)
+            return layer_out, attns
 
         if self.parallel_residual:
             if self.context_attn:
