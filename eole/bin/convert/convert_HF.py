@@ -54,6 +54,10 @@ MODEL_OVERRIDES = {
     "LlamaForCausalLM": {},  # default
     "MistralForCausalLM": {},
     "Qwen2ForCausalLM": {},
+    "Gemma2ForCausalLM": {
+        ".pre_feedforward_layernorm.weight": ".pre_feedforward_layernorm.weight",
+        ".post_feedforward_layernorm.weight": ".post_feedforward_layernorm.weight",
+    },
     "MixtralForCausalLM": {
         ".mlp.gate.weight": ".block_sparse_moe.gate.weight",
         **{
@@ -130,6 +134,7 @@ LN_TABLE = defaultdict(
         "PhiForCausalLM": "standard",
         "GPT2LMHeadModel": "standard",
         "XLMRobertaXLForMaskedLM": "standard",
+        "Gemma2ForCausalLM": "gemma-rms",
     },
 )
 
@@ -140,6 +145,7 @@ ACT_TABLE = defaultdict(
         "PhiForCausalLM": "gelu",
         "GPT2LMHeadModel": "gelu",
         "XLMRobertaXLForMaskedLM": "gelu",
+        "Gemma2ForCausalLM": "gated-gelu",
     },
 )
 
@@ -411,16 +417,6 @@ def build_config_dict(hf):
         "generator_bias": False,
         "rope_config": {
             "rotary_theta": config.get("rope_theta"),
-            "rotary_dim": config.get(
-                "rotary_dim",
-                int(
-                    config.get("partial_rotary_factor", 1)
-                    * (
-                        config.get("hidden_size", config.get("n_embd"))
-                        // config.get("num_attention_heads", config.get("n_head"))
-                    )
-                ),
-            ),
             "rotary_interleave": False,
         },
         "embeddings": {},  # Populated later
@@ -429,6 +425,18 @@ def build_config_dict(hf):
     # patch sliding window
     if model_config["sliding_window"] is None:
         model_config["sliding_window"] = 4096
+
+    # patch rotary dim
+    if "rotary_dim" in config.keys():
+        model_config["rope_config"]["rotary_dim"] = config["rotary_dim"]
+    elif "partial_rotary_factor" in config.keys():
+        model_config["rope_config"]["rotary_dim"] = int(
+            config["partial_rotary_factor"] * (model_config["hidden_size"] // model_config["heads"])
+        )
+    elif model_config.get("head_dim", None) is not None:
+        model_config["rope_config"]["rotary_dim"] = model_config["head_dim"]
+    else:
+        model_config["rope_config"]["rotary_dim"] = model_config["hidden_size"] // model_config["heads"]
 
     # Validate required fields
     required_fields = {
@@ -540,6 +548,13 @@ def build_config_dict(hf):
         "Qwen2ForCausalLM": {
             "add_qkvbias": True,
             "add_final_linear_bias": False,
+        },
+        "Gemma2ForCausalLM": {
+            "share_decoder_embeddings": True,
+            "ffn_layernorm": True,
+            "embeddings": {
+                "normalize": True,
+            },
         },
     }
 
@@ -758,6 +773,8 @@ def build_shards(model_config, hf, args, params):
                             "input_layernorm",
                             "layer_norm_res",
                             "post_attention_layernorm",
+                            "pre_feedforward_layernorm",
+                            "post_feedforward_layernorm",
                             "mlp.gate",
                         ]:
                             module_p = f".{module}.{p}"
@@ -925,8 +942,6 @@ class LlamaHFConverter(BaseBin):
         # Deduce dtype from args or config, or default to fp16
         compute_dtype = args.dtype or hf.config.get("torch_dtype") or "fp16"
 
-        build_shards(model_config, hf, args, params)
-
         # Check tokenizer and vocab related configuration
         (
             add_bos_token,
@@ -1019,3 +1034,6 @@ class LlamaHFConverter(BaseBin):
 
         with open(os.path.join(args.output, "config.json"), "w", encoding="utf-8") as f:
             json.dump(config_dict, f, indent=2, ensure_ascii=False)
+
+        # Build shards last, as it's the most io intensive
+        build_shards(model_config, hf, args, params)

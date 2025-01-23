@@ -5,6 +5,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 # Define the models table
 models=(
     # Validated
+    "google/gemma-2-2b"
     "mistralai/Ministral-8B-Instruct-2410"
     "mistralai/Mistral-7B-v0.3"
     "mistralai/Mistral-7B-Instruct-v0.3"
