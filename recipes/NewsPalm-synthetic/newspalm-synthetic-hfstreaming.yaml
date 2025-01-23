@@ -1,0 +1,132 @@
+seed: 1234
+share_vocab: true
+src_vocab: "ende.vocab2"
+
+src_words_min_frequency: 1
+vocab_size_multiple: 8
+report_every: 100
+skip_empty_level: silent
+valid_metrics: ["BLEU"]
+scoring_debug: True
+
+# transforms config
+transforms: [onmt_tokenize, filtertoolong]
+transforms_configs:
+  onmt_tokenize:
+    #### Subword
+    src_subword_type: bpe
+    src_subword_model: "subwords.en_de.bpe"
+    src_onmttok_kwargs: {"mode": "aggressive", "joiner_annotate": True, "preserve_placeholders": True, "case_markup": True, "soft_case_regions": True, "preserve_segmented_tokens": True, "segment_case": True, "segment_numbers": True, "segment_alphabet_change": True}
+    tgt_subword_type: bpe
+    tgt_subword_model: "subwords.en_de.bpe"
+    tgt_onmttok_kwargs: {"mode": "aggressive", "joiner_annotate": True, "preserve_placeholders": True, "case_markup": True, "soft_case_regions": True, "preserve_segmented_tokens": True, "segment_case": True, "segment_numbers": True, "segment_alphabet_change": True}
+
+  filtertoolong:
+    src_seq_length: 1024
+    tgt_seq_length: 1024
+
+# Corpus opts:
+data:
+    synth-mbr-decoded-sentlevel:
+# 997834 ex - 315MB
+        path_src: "hf://eole-nlp/synth-mbr-decoded-sentlevel/en"
+        path_tgt: "hf://eole-nlp/synth-mbr-decoded-sentlevel/de"
+        path_sco: "hf://eole-nlp/synth-mbr-decoded-sentlevel/sco"
+        transforms: [onmt_tokenize, filtertoolong]
+        weight: 12
+
+    synth-greedy-decoded-sentlevel:
+# 832709 ex - 250MB
+        path_src: "hf://eole-nlp/synth-greedy-decoded-sentlevel/en"
+        path_tgt: "hf://eole-nlp/synth-greedy-decoded-sentlevel/de"
+        path_sco: "hf://eole-nlp/synth-greedy-decoded-sentlevel/sco"
+        transforms: [onmt_tokenize, filtertoolong]
+        weight: 10
+
+    synth-qe-reranked-doclevel:
+# 417102 ex - 970MB
+        path_src: "hf://eole-nlp/synth-qe-reranked-doclevel/en"
+        path_tgt: "hf://eole-nlp/synth-qe-reranked-doclevel/de"
+        path_sco: "hf://eole-nlp/synth-qe-reranked-doclevel/sco"
+        transforms: [onmt_tokenize, filtertoolong]
+        weight: 1
+
+    synth-greedy-decoded-doclevel:
+# 857937 ex - 1.7GB
+        path_src: "hf://eole-nlp/synth-greedy-decoded-doclevel/en"
+        path_tgt: "hf://eole-nlp/synth-greedy-decoded-doclevel/de"
+        path_sco: "hf://eole-nlp/synth-greedy-decoded-doclevel/sco"
+        transforms: [onmt_tokenize, filtertoolong]
+        weight: 2
+
+    valid:
+        path_src: "newstest2023-src.en"
+        path_tgt: "newstest2023-ref.de"
+        transforms: [onmt_tokenize]
+
+training:
+    # General opts
+    torch_compile: false
+    
+    model_path: "6-6-16-1024-4096-hfstreaming"
+    keep_checkpoint: 50
+    save_checkpoint_steps: 5000
+    average_decay: 0.0005
+    train_steps: 51000
+    valid_steps: 100
+
+    # Batching
+    bucket_size: 10000
+    num_workers: 4
+    prefetch_factor: 400
+    world_size: 1
+    gpu_ranks: [0]
+    batch_type: "tokens"
+    batch_size: 12144
+    valid_batch_size: 8192
+    batch_size_multiple: 1
+    accum_count: [6, 6, 6]
+    accum_steps: [0, 15000, 30000]
+
+    # Optimization
+    compute_dtype: "fp16"
+    apex_opt_level: ""
+    optim: "adamw"
+    reset_optim: "all"
+    learning_rate: 1
+    warmup_steps: 6000
+    decay_method: "noam"
+    adam_beta2: 0.998
+    max_grad_norm: 1
+    label_smoothing: 0.1
+    param_init_method: "xavier_uniform"
+    normalization: "tokens"
+
+    dropout_steps: [0, 15000, 30000]
+    dropout: [0.1, 0.1, 0.1]
+    attention_dropout: [0.0, 0.0, 0.0]
+    score_threshold: 0.65
+
+    freeze_decoder: false
+    freeze_encoder: false
+
+model:
+    architecture: "transformer"
+    layers: 6
+    hidden_size: 1024
+    heads: 16
+    transformer_ff: 4096
+    add_qkvbias: false
+    add_ffnbias: true
+    mlp_activation_fn: gated-silu
+    add_estimator: false
+    share_decoder_embeddings: true
+    share_embeddings: true
+    layer_norm: standard
+    norm_eps: 1e-6
+    rope_config:
+        rotary_interleave: false
+    embeddings:
+        word_vec_size: 1024
+        position_encoding_type: "Rotary"
+        freeze_word_vecs_dec: false

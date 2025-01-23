@@ -39,6 +39,12 @@ class EmbeddingsConfig(Config):
         default=0,
         description="Positions IDS shift before making position embed " "dirty patch to cover for xlm-roberta-xl",
     )
+    normalize: bool | None = Field(
+        default=False,
+        description="Enable embeddings scaling. "
+        "Not always necessary, but useful for some model compatibility, e.g. gemma. "
+        "https://datascience.stackexchange.com/a/87909",
+    )
 
     @model_validator(mode="after")
     def validate_embeddings(self):
@@ -50,6 +56,11 @@ class EmbeddingsConfig(Config):
                 "n_positions must be set if position_encoding_type "
                 f"is {PositionEncodingType.Learned} or {PositionEncodingType.Relative}"
             )
+        elif self.position_encoding_type in [
+            PositionEncodingType.SinusoidalInterleaved,
+            PositionEncodingType.SinusoidalConcat,
+        ]:
+            assert not (self.normalize), "embeddings normalization is already handled in PositionalEncoding"
         return self
 
 
@@ -193,7 +204,7 @@ class TransformerConfig(Config):
         default=ActivationFunction.relu,
         description="The activation function to use in MLP layer.",
     )
-    layer_norm: Literal["standard", "rms"] = Field(
+    layer_norm: Literal["standard", "rms", "gemma-rms"] = Field(
         default="standard",
         description="Type of layer normalization in transformer architecture.",
     )
@@ -204,6 +215,10 @@ class TransformerConfig(Config):
         description="Use a shared layer_norm in parallel residual attention. "
         "Note: must be True for Falcon 7B, False for Falcon 40B, "
         "same for GPT-J and GPT-NeoX models.",
+    )
+    ffn_layernorm: bool = Field(
+        default=False,
+        description="Add pre/post_feedforward_layernorm around MLP forward. " "Note: introduced for gemma2 support.",
     )
     add_qkvbias: bool = Field(
         default=False,

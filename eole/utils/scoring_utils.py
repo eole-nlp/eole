@@ -46,19 +46,27 @@ class ScoringPreparator:
         # Translator #
         # ########## #
 
+        # Build translator from options
+        model_config = self.config.model
+        model_config._validate_model_config()
+
         # This is somewhat broken and we shall remove or improve
         # (take 'inference' field of config if exists?)
         # Set "default" translation options on empty cfgfile
-        predict_config = PredictConfig(model_path=["dummy"], src="dummy")
-        predict_config.compute_dtype = self.config.training.compute_dtype
-        if predict_config.transforms_configs.prefix.tgt_prefix != "":
-            predict_config.tgt_file_prefix = True
-        predict_config.beam_size = 1  # prevent OOM when GPU is almost full at training
-        predict_config._validate_predict_config()
-        # Build translator from options
+        self.config.training.num_workers = 0
+        predict_config = PredictConfig(
+            model_path=["dummy"],
+            src=self.config.data["valid"].path_src,
+            compute_dtype=self.config.training.compute_dtype,
+            beam_size=1,
+            transforms=self.config.transforms,
+            transforms_configs=self.config.transforms_configs,
+            model=model_config,
+            tgt_file_prefix=self.config.transforms_configs.prefix.tgt_prefix != "",
+            gpu_ranks=[gpu_rank],
+        )
+
         scorer = GNMTGlobalScorer.from_config(predict_config)
-        model_config = self.config.model
-        model_config._validate_model_config()
         translator = Translator.from_config(  # we need to review opt/config stuff in translator
             model,
             self.vocabs,
@@ -76,11 +84,6 @@ class ScoringPreparator:
         # ################### #
 
         # Reinstantiate the validation iterator
-        self.config.training.num_workers = 0
-        predict_config.src = self.config.data["valid"].path_src
-        predict_config.transforms = self.config.transforms
-        predict_config.transforms_configs = self.config.transforms_configs
-        predict_config.model = model_config
         # Retrieve raw references and sources
         with codecs.open(self.config.data["valid"].path_tgt, "r", encoding="utf-8") as f:
             raw_refs = [line.strip("\n") for line in f if line.strip("\n")]

@@ -410,6 +410,7 @@ class SelfMHA(MultiHeadedAttention):
                 not self.flash
                 or self.position_encoding_type in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
                 or query.dtype not in [torch.float16, torch.bfloat16]  # to match with flash
+                or query.device == torch.device("cpu")
             ):
                 key, value, query = self._prepare_inputs_w_cache(
                     query,
@@ -424,8 +425,8 @@ class SelfMHA(MultiHeadedAttention):
                 cache_len = self._expand_cache(32, step, key)
                 if position_embeddings is not None:
                     rotdim = self.rotary_dim // 2
-                    cos = position_embeddings[0][:, :rotdim].to(query.dtype)
-                    sin = position_embeddings[1][:, :rotdim].to(query.dtype)
+                    cos = position_embeddings[0][:, :rotdim].to(query.dtype).contiguous()
+                    sin = position_embeddings[1][:, :rotdim].to(query.dtype).contiguous()
                 else:
                     cos, sin = None, None
                 # restore initial tgt_pad_mask - migth be better to store it instead.
@@ -440,8 +441,8 @@ class SelfMHA(MultiHeadedAttention):
                     self.layer_cache[1]["values"].transpose(1, 2),
                     key.transpose(1, 2),
                     value.transpose(1, 2),
-                    rotary_cos=cos.contiguous(),
-                    rotary_sin=sin.contiguous(),
+                    rotary_cos=cos,
+                    rotary_sin=sin,
                     cache_seqlens=cache_len - 1,
                     cache_leftpad=cache_leftpad,
                     causal=step == 0,

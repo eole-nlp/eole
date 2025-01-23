@@ -93,6 +93,7 @@ class Embeddings(nn.Module):
         sparse=False,
         freeze_word_vecs=False,
         n_positions=1024,
+        normalize=False,
     ):
         super(Embeddings, self).__init__()
         self._validate_args()
@@ -114,6 +115,7 @@ class Embeddings(nn.Module):
 
         self.position_encoding_type = position_encoding_type
         self.position_shift = position_shift
+        self.normalize = normalize
 
         if self.position_encoding_type == PositionEncodingType.Learned:
             self.pe = nn.Embedding(n_positions, word_vec_size)
@@ -184,6 +186,10 @@ class Embeddings(nn.Module):
             PositionEncodingType.SinusoidalConcat,
         ]:
             emb = self.pe(emb, step)
+
+        if self.normalize:
+            normalizer = torch.tensor(self.word_vec_size**0.5, dtype=emb.dtype)
+            emb = emb * normalizer
 
         if self.dropout_p > 0:
             return self.dropout(emb)

@@ -210,7 +210,7 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
     @staticmethod
     def _validate_file(file_path, info):
         """Check `file_path` is valid or raise `IOError`."""
-        if file_path == "dummy":
+        if file_path == "dummy" or file_path.startswith("hf://"):
             # hack to allow creating objects with required fields
             pass
         elif not os.path.isfile(file_path):

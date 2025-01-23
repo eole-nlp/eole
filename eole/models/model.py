@@ -85,6 +85,7 @@ def build_src_emb(model_config, vocabs, running_config=None):
         sparse=getattr(running_config, "optim", None) == "sparseadam",
         freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
         n_positions=model_config.embeddings.n_positions,
+        normalize=model_config.embeddings.normalize,
     )
     return src_emb
 
@@ -102,6 +103,7 @@ def build_tgt_emb(model_config, vocabs, running_config=None, share_embeddings=Fa
         sparse=getattr(running_config, "optim", None) == "sparseadam",
         freeze_word_vecs=model_config.embeddings.freeze_word_vecs_dec,
         n_positions=model_config.embeddings.n_positions,
+        normalize=model_config.embeddings.normalize,
     )
 
     if share_embeddings:
@@ -633,7 +635,7 @@ class BaseModel(nn.Module):
                         ckpt_t = updated_params[name + "." + param_name]
                         self._load_param(name, module, param_name, param, buf_list, ckpt_t, offset)
                         keyfound[name + "." + param_name] = True
-                    if name + "." + param_name in keys_shard.keys():
+                    elif name + "." + param_name in keys_shard.keys():
 
                         ckpt_t = f[keys_shard[name + "." + param_name]].get_tensor(name + "." + param_name)
                         self._load_param(name, module, param_name, param, buf_list, ckpt_t, offset)
