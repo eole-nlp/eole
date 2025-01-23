@@ -1,0 +1,15 @@
+# Model info
+model_path: "Path to model.00.safetensors"
+# Inference
+max_length: 1024
+max_length_ratio: 3
+world_size: 1
+gpu_ranks: [0]
+batch_type: tokens
+batch_size: 16384
+compute_dtype: fp16
+beam_size: 4
+n_best: 1
+report_time: true
+self_attn_backend: "pytorch"
+src: none
