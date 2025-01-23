@@ -28,7 +28,7 @@ copy files:
 eole train -c newspalm-synthetic-hfstreaming.yaml
 ```
 
-## Start the gradio based translator
+## Run inference
 
 ```
 eole predict -c inference.yaml --src newstest2023-src.en --output newstest2023-hyp.de
