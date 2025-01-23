@@ -614,6 +614,15 @@ def check_special_tokens(hf):
                 vocabs["specials"][token_name] = token
             elif isinstance(token, dict):
                 vocabs["specials"][token_name] = token["content"]
+    elif hf.tokenizer_config is not None:
+        for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
+            token = hf.tokenizer_config.get(token_name, None)
+            if isinstance(token, list):
+                vocabs["specials"][token_name] = token[0]
+            elif isinstance(token, str):
+                vocabs["specials"][token_name] = token
+            elif isinstance(token, dict):
+                vocabs["specials"][token_name] = token["content"]
     return vocabs
 
 
