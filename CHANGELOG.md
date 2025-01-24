@@ -2,6 +2,26 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.1.0
+
+* reinstate cuda rmsnorm (much faster in fp16/awq) + ct2 enc/dec config by @vince62s in https://github.com/eole-nlp/eole/pull/167
+* [patch] remove dummy_load, move gpu_ranks warning out of TrainingConfig by @francoishernandez in https://github.com/eole-nlp/eole/pull/168
+* fix batch inference by @vince62s in https://github.com/eole-nlp/eole/pull/169
+* Code clean-ups by @vince62s in https://github.com/eole-nlp/eole/pull/171
+* 120 columns makes more sense on modern screens by @vince62s in https://github.com/eole-nlp/eole/pull/176
+* refactor transformer decoder and revamp the left padding attention mask by @vince62s in https://github.com/eole-nlp/eole/pull/178
+* Major refactoring of convert HF by @francoishernandez in https://github.com/eole-nlp/eole/pull/156
+* [patch] handle self_attn_backend edge case by @francoishernandez in https://github.com/eole-nlp/eole/pull/180
+* hotfix post #178 by @vince62s in https://github.com/eole-nlp/eole/pull/181
+* fix update vocab param loading by @vince62s in https://github.com/eole-nlp/eole/pull/184
+* remove verbosity at validation/scoring by @vince62s in https://github.com/eole-nlp/eole/pull/185
+* [patch] Add missing `is_train` kwarg in `tokenize_id` by @francoishernandez in https://github.com/eole-nlp/eole/pull/187
+* Hugging face dataset streaming support by @vince62s in https://github.com/eole-nlp/eole/pull/177
+* misc fixes by @vince62s in https://github.com/eole-nlp/eole/pull/192
+* Gemma2 support by @francoishernandez in https://github.com/eole-nlp/eole/pull/160
+* [convert_HF] handle special tokens defined in tokenizer_config.json by @francoishernandez in https://github.com/eole-nlp/eole/pull/196
+* patch max_length handling in tokenize_id by @francoishernandez in https://github.com/eole-nlp/eole/pull/197
+
 ## 0.0.3
 
 * [patch] minor fixes for 0.0.2 by @francoishernandez in https://github.com/eole-nlp/eole/pull/109
