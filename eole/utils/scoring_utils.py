@@ -138,11 +138,6 @@ class ScoringPreparator:
         # ########### #
         # Predictions #
         # ########### #
-        if not is_seq2seq:
-            predictor.id_tokenization = True
-        # In PredictionBuilder, the case "id_tokenization = False" (default) is not properly handled
-        # and the apply_verse method of the huggingface_tokenize transform
-        # does not handle lists of strings (only list of integers).
         _, _, preds = predictor._predict(
             infer_iter,
             transform=infer_iter.transforms,
