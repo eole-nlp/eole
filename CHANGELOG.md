@@ -20,6 +20,7 @@ This is just a centralised version of the Github automatically generated Release
 * misc fixes by @vince62s in https://github.com/eole-nlp/eole/pull/192
 * Gemma2 support by @francoishernandez in https://github.com/eole-nlp/eole/pull/160
 * [convert_HF] handle special tokens defined in tokenizer_config.json by @francoishernandez in https://github.com/eole-nlp/eole/pull/196
+* patch max_length handling in tokenize_id by @francoishernandez in https://github.com/eole-nlp/eole/pull/197
 
 ## 0.0.3
 
