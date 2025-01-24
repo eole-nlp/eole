@@ -255,9 +255,8 @@ class LossCompute(nn.Module):
             batch: The current batch.
         """
         # Create a mask with zeros at prompt positions and ones at answer postions.
-        mask = batch["src"].squeeze(dim=-1) == self.padding_idx
-        mask = torch.cumsum(mask.int(), 1)
-        # Apply the mask on the target side.
+        mask = (batch["tgt"].squeeze(dim=-1) == self.padding_idx).cumsum(dim=1)
+        mask = mask >= mask.max(dim=1, keepdim=True).values
         batch["tgt"] *= mask.int()
         # Put the padding token index at the prompt positions.
         batch["tgt"] += self.padding_idx * (1 - mask.int())

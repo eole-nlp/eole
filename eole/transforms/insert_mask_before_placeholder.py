@@ -38,7 +38,8 @@ class InsertMaskBeforePlaceholdersTransform(Transform):
         if response is not None:
             _src = "".join([prompt, response])
             example["src"] = _src.split(" ")
-            example["tgt"] = _src.split(" ")
+            if example["tgt"] is not None:
+                example["tgt"] = _src.split(" ")
         else:
             logger.info("The mask_before could not be inserted")
             return example
