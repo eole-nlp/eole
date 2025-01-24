@@ -15,6 +15,8 @@ def get_infer_class(model_config):
         return Encoder
     elif model_config.encoder is None:
         return GeneratorLM
+    elif model_config.encoder.encoder_type == "vision":
+        return GeneratorLM
     else:
         return Translator
 

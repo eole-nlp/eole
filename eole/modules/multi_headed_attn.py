@@ -3,7 +3,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from math import sqrt
 from torch import Tensor
 from typing import Optional, Tuple
 from torch.utils.checkpoint import checkpoint
@@ -21,7 +20,12 @@ def shape(x: Tensor, dim_per_head: int) -> Tensor:
     """[batchsize x length x modeldim]
     -> [batchsize x heads x length x dimperhead]
     """
-    x_0, x_1, _ = x.size()
+    # patch for images
+    if len(x.size()) == 2:
+        x_0 = 1
+        x_1, _ = x.size()
+    else:
+        x_0, x_1, _ = x.size()
     return x.view(x_0, x_1, -1, dim_per_head).transpose(1, 2)
 
 
@@ -77,7 +81,7 @@ class MultiHeadedAttention(torch.nn.Module):
         self.dim_per_head = model_config.dim_per_head
         self.heads = model_config.heads
         self.heads_kv = model_config.heads_kv if model_config.heads_kv is not None else model_config.heads
-        self.parallel_gpu = running_config.parallel_gpu
+        self.parallel_gpu = getattr(running_config, "parallel_gpu", 1)
 
         assert (
             self.dim_per_head * self.heads_kv
@@ -247,9 +251,8 @@ class MultiHeadedAttention(torch.nn.Module):
             )
             attn = None
         else:
-            query /= sqrt(self.dim_per_head)
             # batch x num_heads x query_len x key_len
-            scores = torch.matmul(query, key.transpose(2, 3))
+            scores = torch.matmul(query, key.transpose(2, 3)) * self.dim_per_head**-0.5
 
             if self.relative_attention_bias is not None:
                 q_len = key.size(2) if self.layer_cache[0] else query.size(2)
@@ -287,13 +290,15 @@ class MultiHeadedAttention(torch.nn.Module):
             scores = scores.float()
 
             if attn_mask is not None:
+                if len(attn_mask.size()) == 2:
+                    attn_mask = attn_mask[None, None, :, :]
                 # not 100% necessary but expand to nb of heads
                 attn_mask = attn_mask.expand(-1, self.heads // self.parallel_gpu, -1, -1)
                 # now mask and scores have the same shape
-                scores = scores.masked_fill(~attn_mask, -1e18)
+                scores = scores.masked_fill(~attn_mask, torch.finfo(scores.dtype).min)
 
             # 3) Apply attention dropout and compute context vectors.
-            attn = F.softmax(scores, dim=-1).to(query.dtype)
+            attn = F.softmax(scores, dim=-1, dtype=torch.float32).to(query.dtype)
             drop_attn = self.dropout(attn) if self.dropout_p > 0 else attn
 
             attn_output = torch.matmul(drop_attn, value)
