@@ -98,8 +98,7 @@ class RotaryPosition(nn.Module):
             rotary_dim = model_config.rope_config.rotary_dim
         self.rotary_interleave = model_config.rope_config.rotary_interleave
         self.rotary_theta = model_config.rope_config.rotary_theta
-        inv_freq = 1.0 / (self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
-        self.register_buffer("inv_freq", inv_freq, persistent=False)
+        self.inv_freq = 1.0 / (self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
         # TODO: extend with other scaling types
         if getattr(self.model_config.rope_config, "scaling_type", None) == "llama3":
             self.llama3_scaling()
@@ -133,8 +132,7 @@ class RotaryPosition(nn.Module):
         smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor)
         smoothed_inv_freq = (1 - smooth_factor) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
-        inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
-        self.register_buffer("inv_freq", inv_freq_llama, persistent=False)
+        self.inv_freq = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
 
     def update(self, maxseqlen, step=0, prefetch=1024):
         """
@@ -160,15 +158,20 @@ class RotaryPosition(nn.Module):
             step = 0
         offset = 32  # make sure we have at least 32 positions for flash_attn_with_kvcache
         # This could probably a bit cleaner/homogenized with the offset case
-        if hasattr(self, "cos") and self.cos.size(0) >= max(offset + step, 0) + maxseqlen:
+        if step != 0 and hasattr(self, "cos") and self.cos.size(0) >= max(offset + step, 0) + maxseqlen:
             return self.cos, self.sin
+        elif step == 0:
+            maxseqlen = 1024 + prefetch  # reset as in init() with self.update(1024)
         else:
             maxseqlen = maxseqlen + prefetch
-
-        tmax = torch.arange(max(offset + step, 0) + maxseqlen, device=self.inv_freq.device)
+        if hasattr(self, "cos"):
+            device = self.cos.device
+        else:
+            device = torch.device("cpu")
+        tmax = torch.arange(max(offset + step, 0) + maxseqlen)
         rope = torch.outer(tmax, self.inv_freq)
-        cos = torch.cos(rope)
-        sin = torch.sin(rope)
+        cos = torch.cos(rope).to(device)
+        sin = torch.sin(rope).to(device)
         cos = torch.cat((cos, cos), dim=-1)  # Double the size by repeating `cos`
         sin = torch.cat((sin, sin), dim=-1)  # Double the size by repeating `sin`
 
