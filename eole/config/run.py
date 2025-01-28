@@ -128,8 +128,6 @@ class PredictConfig(
             assert self.batch_size == 1, "Batch inference is not supported yet for vision models."
         if torch.cuda.is_available() and not self.gpu_ranks:
             logger.warn("You have a CUDA device, should run with -gpu_ranks")
-        if getattr(self.model.encoder, "encoder_type", None) == "vision":
-            assert self.batch_size == 1, "Batch inference is not supported yet for vision models."
         return self
 
     def _update_with_model_config(self):

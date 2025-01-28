@@ -738,7 +738,7 @@ class VisionTransformerLMModelConfig(TransformerConfig, BaseModelConfig):
 
     @model_validator(mode="after")
     def _validate_vision_transformer(self):
-        assert not(self.add_estimator), "Estimator layer not supported in Vision Transformer"
+        assert not (self.add_estimator), "Estimator layer not supported in Vision Transformer"
         return self
 
     @property

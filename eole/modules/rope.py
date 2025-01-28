@@ -164,7 +164,7 @@ class RotaryPosition(nn.Module):
             step = 0
         offset = 32  # make sure we have at least 32 positions for flash_attn_with_kvcache
         if step == 0:
-            maxseqlen = 1024  # reset as in init() with self.update(1024)
+            maxseqlen = max(maxseqlen, 1024)  # reset as in init() with self.update(1024)
         elif hasattr(self, "cos") and self.cos.size(0) >= max(offset + (step or 0), 0) + maxseqlen:
             return self.cos, self.sin
 
