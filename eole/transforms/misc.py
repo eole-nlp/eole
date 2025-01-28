@@ -5,6 +5,23 @@ from .transform import Transform, ObservableStats, TransformConfig
 from pydantic import Field
 
 
+class FilterTooShortStats(ObservableStats):
+    """Runing statistics for FilterTooShortTransform."""
+
+    __slots__ = ["filtered"]
+
+    def __init__(self):
+        self.filtered = 1
+
+    def update(self, other: "FilterTooShortStats"):
+        self.filtered += other.filtered
+
+
+class FilterTooShortConfig(TransformConfig):
+    src_seq_length: int | None = Field(default=48, description="Minimum source sequence length.")
+    tgt_seq_length: int | None = Field(default=48, description="Minimum target sequence length.")
+
+
 class FilterTooLongStats(ObservableStats):
     """Runing statistics for FilterTooLongTransform."""
 
@@ -30,6 +47,36 @@ class PrefixConfig(TransformConfig):
 class SuffixConfig(TransformConfig):
     src_suffix: str | None = Field(default="", description="String to append to all source examples.")
     tgt_suffix: str | None = Field(default="", description="String to append to all target examples.")
+
+
+@register_transform(name="filtertooshort")
+class FilterTooShortTransform(Transform):
+    """Filter out sentence that are too short."""
+
+    config_model = FilterTooShortConfig
+    type = TransformType.Train
+
+    def __init__(self, config):
+        super().__init__(config)
+
+    def _parse_config(self):
+        self.src_seq_length = self.config.src_seq_length
+        self.tgt_seq_length = self.config.tgt_seq_length
+
+    def apply(self, example, is_train=False, stats=None, **kwargs):
+        """Return None if too short else return as is."""
+        if len(example["src"]) < self.src_seq_length or (
+            example["tgt"] is not None and len(example["tgt"]) < self.tgt_seq_length - 2
+        ):
+            if stats is not None:
+                stats.update(FilterTooLongStats())
+            return None
+        else:
+            return example
+
+    def _repr_args(self):
+        """Return str represent key arguments for class."""
+        return "{}={}, {}={}".format("src_seq_length", self.src_seq_length, "tgt_seq_length", self.tgt_seq_length)
 
 
 @register_transform(name="filtertoolong")
