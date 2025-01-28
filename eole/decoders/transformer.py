@@ -263,9 +263,7 @@ class TransformerDecoder(DecoderBase):
         if self.sliding_window > 0:
             future_mask = future_mask.triu_(-self.sliding_window)
         attn_mask = ~tgt_pad_mask & future_mask.unsqueeze(0)
-        attn_mask = attn_mask.unsqueeze(1)  # (batch x 1 x 1 x tgt_len)
-        # dim 1 (heads) and 2 (tgt_len) will be broadcasted automatically in MHA
-        return attn_mask
+        return attn_mask.unsqueeze(1)  # (batch x 1 x 1 x tgt_len)
 
     def forward(self, emb, **kwargs):
         """Decode, possibly stepwise.
@@ -353,39 +351,26 @@ class TransformerDecoder(DecoderBase):
 
         return emb, attns
 
+    def _init_empty(self, device):
+        # Helper to create empty cache tensors
+        return {"keys": torch.empty(0, device=device), "values": torch.empty(0, device=device)}
+
     def _enable_cache(self, device, pad_mask):
         self.left_pad_mask = pad_mask
+        empty_cache = self._init_empty(device)
+
         for layer in self.transformer_layers:
             # first value set to True triggered by the beginning of decoding
             # layer_cache becomes active in the MultiHeadedAttention fwd
-            layer.self_attn.layer_cache = (
-                True,
-                {
-                    "keys": torch.tensor([], device=device),
-                    "values": torch.tensor([], device=device),
-                },
-            )
+            layer.self_attn.layer_cache = (True, empty_cache.copy())
             if layer.context_attn:
-                layer.context_attn.layer_cache = (
-                    True,
-                    {
-                        "keys": torch.tensor([], device=device),
-                        "values": torch.tensor([], device=device),
-                    },
-                )
+                layer.context_attn.layer_cache = (True, empty_cache.copy())
 
     def _disable_cache(self):
-        self.left_pad_mask = torch.tensor([])
+        self.left_pad_mask = torch.empty(0)
+        empty_cache = self._init_empty("cpu")
+
         for layer in self.transformer_layers:
-            layer.self_attn.layer_cache = (
-                False,
-                {
-                    "keys": torch.tensor([]),
-                    "values": torch.tensor([]),
-                },
-            )
+            layer.self_attn.layer_cache = (False, empty_cache.copy())
             if layer.context_attn:
-                layer.context_attn.layer_cache = (
-                    False,
-                    {"keys": torch.tensor([]), "values": torch.tensor([])},
-                )
+                layer.context_attn.layer_cache = (False, empty_cache.copy())

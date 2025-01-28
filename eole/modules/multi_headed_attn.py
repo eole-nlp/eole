@@ -114,9 +114,8 @@ class MultiHeadedAttention(torch.nn.Module):
         self.layer_cache = (
             False,
             {
-                "keys": torch.tensor([]),
-                "values": torch.tensor([]),
-                "key_pad_mask": None,
+                "keys": torch.empty(0),
+                "values": torch.empty(0),
             },
         )
         self.sliding_window = model_config.sliding_window
@@ -190,8 +189,7 @@ class MultiHeadedAttention(torch.nn.Module):
 
         if self.position_encoding_type == PositionEncodingType.Rotary:
             seqlen = query.size(2)
-            cos = position_embeddings[0][:seqlen]
-            sin = position_embeddings[1][:seqlen]
+            cos, sin = position_embeddings[0][:seqlen], position_embeddings[1][:seqlen]
             query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
         return key, value, query
 
@@ -365,8 +363,7 @@ class SelfMHA(MultiHeadedAttention):
     ) -> Tuple[Tensor, Tensor, Tensor]:
         if self.position_encoding_type == PositionEncodingType.Rotary:
             seqlen = query.size(2)
-            cos = position_embeddings[0][step : step + seqlen]
-            sin = position_embeddings[1][step : step + seqlen]
+            cos, sin = position_embeddings[0][step : step + seqlen], position_embeddings[1][step : step + seqlen]
             query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
 
         if step == 0:
