@@ -26,35 +26,6 @@ def position_ids_in_meshgrid(patch_embeds_list, max_width):
     return torch.cat(positions)
 
 
-# to be replaced by rope computed within mha?
-def precompute_freqs_cis_2d(
-    dim: int,
-    height: int,
-    width: int,
-    theta: float,
-) -> torch.Tensor:
-    """
-    freqs_cis: 2D complex tensor of shape (height, width, dim // 2) to be indexed by
-        (height, width) position tuples
-    """
-    # (dim / 2) frequency bases
-    freqs = 1.0 / (theta ** (torch.arange(0, dim, 2).float() / dim))
-
-    h = torch.arange(height, device=freqs.device)
-    w = torch.arange(width, device=freqs.device)
-
-    freqs_h = torch.outer(h, freqs[::2]).float()
-    freqs_w = torch.outer(w, freqs[1::2]).float()
-    freqs_2d = torch.cat(
-        [
-            freqs_h[:, None, :].repeat(1, width, 1),
-            freqs_w[None, :, :].repeat(height, 1, 1),
-        ],
-        dim=-1,
-    )
-    return torch.polar(torch.ones_like(freqs_2d), freqs_2d)
-
-
 def create_block_diagonal_mask(lengths, device):
     """
     Create a block diagonal mask based on sequence lengths.

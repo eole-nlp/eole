@@ -553,9 +553,12 @@ class BaseModelConfig(Config):
         self.update_model_opts()
 
         # encoder and decoder should be same sizes
-        # if self.encoder is not None and self.decoder is not None:
-        #     same_size = self.encoder.hidden_size == self.decoder.hidden_size
-        #     assert same_size, "The encoder and decoder rnns must be the same size for now"
+        if self.encoder is not None and self.decoder is not None:
+            if isinstance(self.encoder, VisionEncoderConfig):
+                pass
+            else:
+                same_size = self.encoder.hidden_size == self.decoder.hidden_size
+                assert same_size, "The encoder and decoder must have the same hidden size for seq2seq models."
 
         if self.share_embeddings:
             if self.encoder is None or self.decoder is None:
@@ -732,6 +735,11 @@ class VisionTransformerLMModelConfig(TransformerConfig, BaseModelConfig):
         if "architecture" not in data.keys():
             data["architecture"] = "vision_transformer_lm"
         return data
+
+    @model_validator(mode="after")
+    def _validate_vision_transformer(self):
+        assert not(self.add_estimator), "Estimator layer not supported in Vision Transformer"
+        return self
 
     @property
     def image_size(self):

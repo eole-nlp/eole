@@ -26,7 +26,6 @@ from eole.modules.rope import RotaryPosition
 from eole.models.model_saver import load_checkpoint
 from eole.modules.estimator import FeedForward
 
-# TODO: put in proper str2adapt/str2enc mapping
 from eole.encoders.vision import VisionLanguageAdapter, VisionEncoder
 
 
@@ -908,7 +907,6 @@ class VisionEncoderDecoderModel(BaseModel):
     def __init__(self, **kwargs):
         super(VisionEncoderDecoderModel, self).__init__(**kwargs)
         self.image_token_id = kwargs.get("image_token_id", None)
-        # we might want to disable this constructor some way
         if self.encoder is None or self.decoder is None:
             raise ValueError("A EncoderDecoderModel requires both an Encoder and a Decoder")
         # TODO: make this compatible?

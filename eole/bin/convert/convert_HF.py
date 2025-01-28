@@ -604,7 +604,7 @@ def build_config_dict(hf):
 
     # Vision encoder
     if arch == "LlavaForConditionalGeneration":
-        # this is quite dirty, but harcoded in HF...
+        # TODO: extend to other Llava models (with CLIP vision encoder)
         model_config["encoder"] = {
             "mlp_activation_fn": model_config["mlp_activation_fn"],
             "layer_norm": model_config["layer_norm"],
@@ -831,8 +831,6 @@ def build_shards(model_config, hf, args, params):
                                     continue
                                 if target in first_shard_targets:
                                     continue
-                                # if hf_prefix == hf.encoder_layer_prefix:
-                                #     source = KEY_MAPS[hf.arch]["encoder"][target]
                                 srckey, srcmap = source if isinstance(source, tuple) else (source, None)
                                 w = get_weight(
                                     checkpoint,

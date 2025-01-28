@@ -371,7 +371,7 @@ class ImageTextCorpusIterator(object):
             processed_images = {k: process_image(v) for k, v in example.get("images", {}).items()}
             text = example["text"]
             image_tokens = {
-                # TODO: switch to list instead of joined string here...
+                # using a list here would induce unwanted whitespaces between tokens downstream
                 k: "".join(v["tokens"])
                 for k, v in processed_images.items()
             }
@@ -399,21 +399,16 @@ def build_corpora_iters(corpora, transforms, corpora_info, skip_empty_level="war
         corpus_transform = [transforms[name] for name in transform_names if name in transforms]
         transform_pipe = TransformPipe.build_from(corpus_transform)
         if isinstance(corpus, ParallelCorpus):
-            corpus_iter = ParallelCorpusIterator(
-                corpus,
-                transform_pipe,
-                skip_empty_level=skip_empty_level,
-                stride=stride,
-                offset=offset,
-            )
+            iterator_class = ParallelCorpusIterator
         elif isinstance(corpus, ImageTextCorpus):
-            corpus_iter = ImageTextCorpusIterator(
-                corpus,
-                transform_pipe,
-                skip_empty_level=skip_empty_level,
-                stride=stride,
-                offset=offset,
-            )
+            iterator_class = ImageTextCorpusIterator
+        corpus_iter = iterator_class(
+            corpus,
+            transform_pipe,
+            skip_empty_level=skip_empty_level,
+            stride=stride,
+            offset=offset,
+        )
         corpora_iters[c_id] = corpus_iter
     return corpora_iters
 

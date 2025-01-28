@@ -100,21 +100,8 @@ class RotaryPosition(nn.Module):
         self.rotary_interleave = model_config.rope_config.rotary_interleave
         self.rotary_theta = model_config.rope_config.rotary_theta
         inv_freq = 1.0 / (self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
-        # specific pixtral handling, to refactor properly
         if mode == "2d":
-            max_patches_per_side = model_config.image_size // model_config.patch_size
-            h = torch.arange(max_patches_per_side, device=inv_freq.device)
-            w = torch.arange(max_patches_per_side, device=inv_freq.device)
-            freqs_h = torch.outer(h, inv_freq[::2]).float()
-            freqs_w = torch.outer(w, inv_freq[1::2]).float()
-            inv_freq = torch.cat(
-                [
-                    freqs_h[:, None, :].repeat(1, max_patches_per_side, 1),
-                    freqs_w[None, :, :].repeat(max_patches_per_side, 1, 1),
-                ],
-                dim=-1,
-            ).reshape(-1, self.dim_per_head // 2)
-            inv_freq = torch.cat((inv_freq, inv_freq), dim=-1)
+            inv_freq = self.init_2d_inv_freq(inv_freq)
         self.inv_freq = inv_freq
         # TODO: extend with other scaling types
         if getattr(self.model_config.rope_config, "scaling_type", None) == "llama3":
@@ -122,6 +109,25 @@ class RotaryPosition(nn.Module):
         cos, sin = self.update(1024)
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
+
+    def init_2d_inv_freq(self, inv_freq):
+        """
+        Initialize 2d inverse frequencies for pixtral rotary embeddings.
+        """
+        max_patches_per_side = self.model_config.image_size // self.model_config.patch_size
+        h = torch.arange(max_patches_per_side, device=inv_freq.device)
+        w = torch.arange(max_patches_per_side, device=inv_freq.device)
+        freqs_h = torch.outer(h, inv_freq[::2]).float()
+        freqs_w = torch.outer(w, inv_freq[1::2]).float()
+        inv_freq = torch.cat(
+            [
+                freqs_h[:, None, :].repeat(1, max_patches_per_side, 1),
+                freqs_w[None, :, :].repeat(max_patches_per_side, 1, 1),
+            ],
+            dim=-1,
+        ).reshape(-1, self.dim_per_head // 2)
+        inv_freq = torch.cat((inv_freq, inv_freq), dim=-1)
+        return inv_freq
 
     def llama3_scaling(self):
         """
@@ -199,13 +205,14 @@ class RotaryPosition(nn.Module):
 
     def forward_2d(self, maxseqlen, step=0, prefetch=1024, positions=None):
         # TODO: maybe do scaling here
+        device = self.cos.device if hasattr(self, "cos") else torch.device("cpu")
         if step is None:
             step = 0
         if positions is None:
             tmax = torch.arange(maxseqlen, device=self.inv_freq.device)
         else:
             tmax = positions
-        rope = self.inv_freq[tmax]
+        rope = self.inv_freq[tmax].to(device)
         # rope is now matrix [maxseqlen, dim/2]
         # if device is not None:
         #     rope = rope.to(device)
