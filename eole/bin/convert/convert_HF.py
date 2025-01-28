@@ -457,7 +457,6 @@ def build_config_dict(hf):
         "left_pad": True,
         "generator_bias": False,
         "rope_config": {
-            "rotary_theta": config.get("rope_theta"),
             "rotary_interleave": False,
         },
         "embeddings": {},  # Populated later
@@ -478,6 +477,10 @@ def build_config_dict(hf):
         model_config["rope_config"]["rotary_dim"] = model_config["head_dim"]
     else:
         model_config["rope_config"]["rotary_dim"] = model_config["hidden_size"] // model_config["heads"]
+
+    # patch rotary theta
+    if "rotary_theta" in config.keys():
+        model_config["rope_config"]["rotary_theta"] = config["rotary_theta"]
 
     # Validate required fields
     required_fields = {
@@ -672,6 +675,15 @@ def check_special_tokens(hf):
         special_tokens_map = hf.special_tokens
         for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
             token = special_tokens_map.get(token_name, None)
+            if isinstance(token, list):
+                vocabs["specials"][token_name] = token[0]
+            elif isinstance(token, str):
+                vocabs["specials"][token_name] = token
+            elif isinstance(token, dict):
+                vocabs["specials"][token_name] = token["content"]
+    elif hf.tokenizer_config is not None:
+        for token_name in ["bos_token", "unk_token", "eos_token", "pad_token"]:
+            token = hf.tokenizer_config.get(token_name, None)
             if isinstance(token, list):
                 vocabs["specials"][token_name] = token[0]
             elif isinstance(token, str):

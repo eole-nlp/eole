@@ -744,7 +744,7 @@ class EncoderDecoderModel(BaseModel):
         * enc_out + enc_final_hs in the case of CNNs
         * src in the case of Transformer"""
         src_pad_mask = src.eq(self.src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
-        position_embeddings = self.rope.update(src.size(1), step=0)
+        position_embeddings = self.rope.update(src.size(1), step=None)
         enc_out, enc_final_hs = self.encoder(
             self.src_emb(src),
             pad_mask=src_pad_mask,
@@ -817,7 +817,7 @@ class DecoderModel(BaseModel):
         with the source lengths vector. It is a decoder only LM (cf GPT-2)"""
 
         self.decoder.init_state()
-        position_embeddings = self.rope.update(src.size(1), step=0)
+        position_embeddings = self.rope.update(src.size(1), step=None)
         dec_out, attns = self.decoder(
             self.tgt_emb(src),
             tgt_pad_mask=src.eq(self.pad_idx).unsqueeze(1),
@@ -875,7 +875,7 @@ class EncoderModel(BaseModel):
         """An EncoderModel encodes the source sentence to build hidden states"""
 
         pad_mask = src.eq(self.pad_idx).unsqueeze(1)  # [B, 1, T_src]
-        position_embeddings = self.rope.update(src.size(1), step=0)
+        position_embeddings = self.rope.update(src.size(1), step=None)
         enc_out, enc_final_hs = self.encoder(
             self.src_emb(src),
             pad_mask=pad_mask,

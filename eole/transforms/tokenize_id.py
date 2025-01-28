@@ -89,7 +89,11 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
 
     def tokenize_string(self, string, side="src", is_train=False):
         if self.max_length is not None and is_train:
-            kwargs = {"max_length": self.max_length, "truncation": True}
+            max_length = self.max_length
+            decoder_start_token = self.full_config.decoder_start_token
+            if side == "tgt" and self.full_config.model.encoder is None and decoder_start_token == "":
+                max_length += 1
+            kwargs = {"max_length": max_length, "truncation": True}
         else:
             kwargs = {}
         tokens = self.tokenizers[side].encode(string, **kwargs)

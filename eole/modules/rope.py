@@ -115,7 +115,7 @@ class RotaryPosition(nn.Module):
                 dim=-1,
             ).reshape(-1, self.dim_per_head // 2)
             inv_freq = torch.cat((inv_freq, inv_freq), dim=-1)
-        self.register_buffer("inv_freq", inv_freq, persistent=False)
+        self.inv_freq = inv_freq
         # TODO: extend with other scaling types
         if getattr(self.model_config.rope_config, "scaling_type", None) == "llama3":
             self.llama3_scaling()
@@ -151,21 +151,22 @@ class RotaryPosition(nn.Module):
         smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor)
         smoothed_inv_freq = (1 - smooth_factor) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
-        inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
-        self.register_buffer("inv_freq", inv_freq_llama, persistent=False)
+        self.inv_freq = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
 
     def forward_1d(self, maxseqlen, step=0, prefetch=1024):
         if step is None:
             step = 0
         offset = 32  # make sure we have at least 32 positions for flash_attn_with_kvcache
-        # This could probably a bit cleaner/homogenized with the offset case
-        if hasattr(self, "cos") and self.cos.size(0) >= max(offset + step, 0) + maxseqlen:
+        if step == 0:
+            maxseqlen = 1024  # reset as in init() with self.update(1024)
+        elif hasattr(self, "cos") and self.cos.size(0) >= max(offset + (step or 0), 0) + maxseqlen:
             return self.cos, self.sin
-        else:
-            maxseqlen = maxseqlen + prefetch
 
-        tmax = torch.arange(max(offset + step, 0) + maxseqlen, device=self.inv_freq.device)
-        rope = torch.outer(tmax, self.inv_freq)
+        maxseqlen += prefetch
+        device = self.cos.device if hasattr(self, "cos") else torch.device("cpu")
+
+        tmax = torch.arange(max(offset + step, 0) + maxseqlen, device=device)
+        rope = torch.outer(tmax, self.inv_freq.to(device))
         cos = torch.cos(rope)
         sin = torch.sin(rope)
         cos = torch.cat((cos, cos), dim=-1)  # Double the size by repeating `cos`
