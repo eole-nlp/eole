@@ -58,7 +58,7 @@ class Translator(Inference):
         src_pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)
         tgt_pad_mask = tgt[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)
         dec_in = tgt[:, :-1]
-        position_embeddings = self.model.rope.update(dec_in.size(1), step=0)
+        position_embeddings = self.model.rope.update(dec_in.size(1), step=None)
         _, attns = self.model.decoder(
             self.model.tgt_emb(dec_in),
             enc_out=enc_out,
@@ -136,7 +136,7 @@ class Translator(Inference):
         batch_size = len(batch["srclen"])
         emb = self.model.src_emb(src)
         pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
-        position_embeddings = self.model.rope.update(src.size(1), step=0)
+        position_embeddings = self.model.rope.update(src.size(1), step=None)
         enc_out, enc_final_hs = self.model.encoder(emb, pad_mask=pad_mask, position_embeddings=position_embeddings)
 
         if src_len is None:
@@ -237,7 +237,7 @@ class Translator(Inference):
             tgt_pad_mask = dec_in[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
             emb = self.model.tgt_emb(dec_in[:, :-1])
             self.model.decoder._disable_cache()
-            position_embeddings = self.model.rope.update(dec_in[:, :-1].size(1), step=0)
+            position_embeddings = self.model.rope.update(dec_in[:, :-1].size(1), step=None)
             dec_out, _ = self.model.decoder(
                 emb,
                 enc_out=enc_out2,

@@ -154,24 +154,19 @@ class RotaryPosition(nn.Module):
             - The output tensor's dimensions are `[maxseqlen, dim]`, where `dim` is
               twice the size of the original inverse frequency tensor (`inv_freq`).
         """
-        if step is None:
-            step = 0
         offset = 32  # make sure we have at least 32 positions for flash_attn_with_kvcache
-        # This could probably a bit cleaner/homogenized with the offset case
-        if step != 0 and hasattr(self, "cos") and self.cos.size(0) >= max(offset + step, 0) + maxseqlen:
+        if step == 0:
+            maxseqlen = 1024  # reset as in init() with self.update(1024)
+        elif hasattr(self, "cos") and self.cos.size(0) >= max(offset + (step or 0), 0) + maxseqlen:
             return self.cos, self.sin
-        elif step == 0:
-            maxseqlen = 1024 + prefetch  # reset as in init() with self.update(1024)
-        else:
-            maxseqlen = maxseqlen + prefetch
-        if hasattr(self, "cos"):
-            device = self.cos.device
-        else:
-            device = torch.device("cpu")
-        tmax = torch.arange(max(offset + step, 0) + maxseqlen)
-        rope = torch.outer(tmax, self.inv_freq)
-        cos = torch.cos(rope).to(device)
-        sin = torch.sin(rope).to(device)
+
+        maxseqlen += prefetch
+        device = self.cos.device if hasattr(self, "cos") else torch.device("cpu")
+
+        tmax = torch.arange(max(offset + step, 0) + maxseqlen, device=device)
+        rope = torch.outer(tmax, self.inv_freq.to(device))
+        cos = torch.cos(rope)
+        sin = torch.sin(rope)
         cos = torch.cat((cos, cos), dim=-1)  # Double the size by repeating `cos`
         sin = torch.cat((sin, sin), dim=-1)  # Double the size by repeating `sin`
 
