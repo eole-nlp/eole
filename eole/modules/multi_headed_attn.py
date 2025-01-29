@@ -352,9 +352,9 @@ class SelfMHA(MultiHeadedAttention):
         key: Tensor,
         value: Tensor,
         step: Optional[int] = 0,
-        attn_mask: Optional[Tensor] = None,
         position_embeddings=None,
     ) -> Tuple[Tensor, Tensor, Tensor]:
+
         if self.position_encoding_type == PositionEncodingType.Rotary:
             seqlen = query.size(2)
             cos, sin = position_embeddings[0][step : step + seqlen], position_embeddings[1][step : step + seqlen]
@@ -398,7 +398,6 @@ class SelfMHA(MultiHeadedAttention):
                     key,
                     value,
                     step=step,
-                    attn_mask=attn_mask,
                     position_embeddings=position_embeddings,
                 )
             else:

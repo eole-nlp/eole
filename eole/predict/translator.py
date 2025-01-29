@@ -37,17 +37,17 @@ class Translator(Inference):
         src, enc_states, enc_out, src_len = self._run_encoder(batch)
 
         # (2) Repeat src objects `n_best` times.
-        # We use batch_size x n_best, get ``(batch * n_best, src_len, nfeat)``
-        src = tile(src, n_best, dim=0)
+        # We use batch_size x n_best, get ``(batch * n_best, src_len)``
+        src = tile(src, n_best)
         if enc_states is not None:
             # Quick fix. Transformers return None as enc_states.
             # enc_states are only used later on to init decoder's state
             # but are never used in Transformer decoder, so we can skip
-            enc_states = tile(enc_states, n_best, dim=0)
+            enc_states = tile(enc_states, n_best)
         if isinstance(enc_out, tuple):
-            enc_out = tuple(tile(x, n_best, dim=0) for x in enc_out)
+            enc_out = tuple(tile(x, n_best) for x in enc_out)
         else:
-            enc_out = tile(enc_out, n_best, dim=0)
+            enc_out = tile(enc_out, n_best)
         src_len = tile(src_len, n_best)  # ``(batch * n_best,)``
 
         # (3) Init decoder with n_best src,
@@ -156,9 +156,6 @@ class Translator(Inference):
             results (dict): The translation results.
         """
 
-        def advanced_index_select(tensor, dim, indices):
-            return tensor[(slice(None),) * dim + (indices,) + (slice(None),) * (tensor.dim() - dim - 1)]
-
         # (0) Prep the components of the search.
         parallel_paths = decode_strategy.parallel_paths  # beam_size
 
@@ -179,10 +176,10 @@ class Translator(Inference):
 
         # (2) prep decode_strategy. Possibly repeat src objects.
         target_prefix = batch["tgt"] if self.tgt_file_prefix else None
-        (fn_map_state, enc_out) = decode_strategy.initialize(enc_out, src_len, target_prefix=target_prefix)
+        (fn_tile, enc_out) = decode_strategy.initialize(enc_out, src_len, target_prefix=target_prefix)
 
-        if fn_map_state is not None:
-            self.model.decoder.map_state(fn_map_state)
+        if fn_tile is not None:
+            self.model.decoder.map_state(fn_tile)
 
         # (3) Begin decoding step by step:
         # save the initial encoder out for later estimator
@@ -223,8 +220,7 @@ class Translator(Inference):
                     enc_out = enc_out[select_indices]
 
             if parallel_paths > 1 or any_finished:
-                self.model.decoder.map_state(lambda state, dim: state[select_indices])
-                # self.model.decoder.map_state(lambda state, dim: advanced_index_select(state, dim, select_indices))
+                self.model.decoder.map_state(lambda state: state[select_indices])
 
         if self.add_estimator:
             dec_in = [item for sublist in decode_strategy.predictions for item in sublist]

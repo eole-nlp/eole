@@ -237,15 +237,15 @@ class TransformerDecoder(DecoderBase):
 
     def map_state(self, fn):
         if self.left_pad_mask is not None:
-            self.left_pad_mask = fn(self.left_pad_mask, 0)
+            self.left_pad_mask = fn(self.left_pad_mask)
         for layer in self.transformer_layers:
             if self.with_cross_attn:
                 if layer.context_attn.kcache is not None:
-                    layer.context_attn.kcache = fn(layer.context_attn.kcache, 0)
-                    layer.context_attn.vcache = fn(layer.context_attn.vcache, 0)
+                    layer.context_attn.kcache = fn(layer.context_attn.kcache)
+                    layer.context_attn.vcache = fn(layer.context_attn.vcache)
             if layer.self_attn.kcache is not None:
-                layer.self_attn.kcache = fn(layer.self_attn.kcache, 0)
-                layer.self_attn.vcache = fn(layer.self_attn.vcache, 0)
+                layer.self_attn.kcache = fn(layer.self_attn.kcache)
+                layer.self_attn.vcache = fn(layer.self_attn.vcache)
 
     def update_dropout(self, dropout, attention_dropout):
         for layer in self.transformer_layers:

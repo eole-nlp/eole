@@ -384,14 +384,14 @@ class BeamSearch(BeamSearchBase):
         Repeat src objects `beam_size` times.
         """
 
-        (fn_map_state, enc_out, target_prefix) = self.initialize_tile(enc_out, src_len, target_prefix)
+        (fn_tile, enc_out, target_prefix) = self.initialize_tile(enc_out, src_len, target_prefix)
         if device is None:
             device = self.get_device_from_enc_out(enc_out)
 
         self.eos_t = torch.tensor(self.eos).to(device)
         super(BeamSearch, self).initialize_(enc_out, device, target_prefix)
 
-        return fn_map_state, enc_out
+        return fn_tile, enc_out
 
 
 class BeamSearchLM(BeamSearchBase):
@@ -403,7 +403,7 @@ class BeamSearchLM(BeamSearchBase):
         """Initialize for decoding.
         Repeat src objects `beam_size` times.
         """
-        (fn_map_state, _, target_prefix) = self.initialize_tile(None, src_len, target_prefix)
+        (fn_tile, _, target_prefix) = self.initialize_tile(None, src_len, target_prefix)
         if device is None:
             device = src.device
 
@@ -414,7 +414,7 @@ class BeamSearchLM(BeamSearchBase):
             target_prefix=target_prefix,
         )
 
-        return fn_map_state, src
+        return fn_tile, src
 
     def advance(self, log_probs, attn):
         super(BeamSearchLM, self).advance(log_probs, attn)
