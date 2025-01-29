@@ -318,7 +318,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
 
         def max_src_tgt(ex):
             """return the max tokens btw src and tgt in the sequence."""
-            if ex["tgt"]:
+            if ex.get("tgt", None) is not None:
                 return max(len(ex["src"]["src_ids"]), len(ex["tgt"]["tgt_ids"]))
             return len(ex["src"]["src_ids"])
 
@@ -393,7 +393,10 @@ class OnDeviceDatasetIter:
                     "cid_line_number",
                     "left_pad",
                 ]:
-                    tensor_batch[key] = tensor_batch[key].to(self.device)
+                    if isinstance(tensor_batch[key], list):
+                        tensor_batch[key] = [t.to(self.device) for t in tensor_batch[key]]
+                    else:
+                        tensor_batch[key] = tensor_batch[key].to(self.device)
             yield (tensor_batch, bucket_idx)
 
 
