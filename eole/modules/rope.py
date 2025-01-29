@@ -158,15 +158,7 @@ class RotaryPosition(nn.Module):
         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
         self.inv_freq = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
 
-    def forward_1d(self, maxseqlen, step=0, prefetch=1024):
-        if step is None:
-            step = 0
-        offset = 32  # make sure we have at least 32 positions for flash_attn_with_kvcache
-        if step == 0:
-            maxseqlen = max(maxseqlen, 1024)  # reset as in init() with self.update(1024)
-        elif hasattr(self, "cos") and self.cos.size(0) >= max(offset + (step or 0), 0) + maxseqlen:
-            return self.cos, self.sin
-
+    def forward_1d(self, maxseqlen, step=0, prefetch=1024, offset=32):
         maxseqlen += prefetch
         device = self.cos.device if hasattr(self, "cos") else torch.device("cpu")
         dtype = self.cos.dtype if hasattr(self, "cos") else torch.float32
@@ -178,10 +170,7 @@ class RotaryPosition(nn.Module):
         cos = torch.cat((cos, cos), dim=-1).to(dtype)  # Double the size by repeating `cos`
         sin = torch.cat((sin, sin), dim=-1).to(dtype)  # Double the size by repeating `sin`
 
-        self.register_buffer("cos", cos, persistent=False)
-        self.register_buffer("sin", sin, persistent=False)
-
-        return self.cos, self.sin
+        return cos, sin
 
     # TODO: investigate if this is useful / properly implemented
     # def _dynamic_frequency_update(self, position_ids, device):
@@ -204,11 +193,11 @@ class RotaryPosition(nn.Module):
     #         self.inv_freq = self.original_inv_freq
     #         self.max_seq_len_cached = self.original_max_seq_len
 
-    def forward_2d(self, maxseqlen, step=0, prefetch=1024, positions=None):
+    def forward_2d(self, maxseqlen, step=0, prefetch=1024, offset=32, positions=None):
         # TODO: maybe do scaling here
         device = self.cos.device if hasattr(self, "cos") else torch.device("cpu")
-        if step is None:
-            step = 0
+        dtype = self.cos.dtype if hasattr(self, "cos") else torch.float32
+
         if positions is None:
             tmax = torch.arange(maxseqlen, device=self.inv_freq.device)
         else:
@@ -217,8 +206,9 @@ class RotaryPosition(nn.Module):
         # rope is now matrix [maxseqlen, dim/2]
         # if device is not None:
         #     rope = rope.to(device)
-        cos = rope.cos()
-        sin = rope.sin()
+        cos = rope.cos().to(dtype)
+        sin = rope.sin().to(dtype)
+
         return cos, sin
 
     def update(self, maxseqlen, step=0, prefetch=1024, reset=False, positions=None):
@@ -240,9 +230,17 @@ class RotaryPosition(nn.Module):
         """
         if reset:
             self.rope = None
+        offset = 32  # make sure we have at least 32 positions for flash_attn_with_kvcache
+        if step == 0:
+            maxseqlen = max(maxseqlen, 1024)  # reset as in init() with self.update(1024)
+        elif hasattr(self, "cos") and self.cos.size(0) >= max(offset + (step or 0), 0) + maxseqlen:
+            return self.cos, self.sin
         if self.mode == "1d":
-            return self.forward_1d(maxseqlen, step=step, prefetch=prefetch)
+            cos, sin = self.forward_1d(maxseqlen, step=step, prefetch=prefetch, offset=offset)
         elif self.mode == "2d":
-            return self.forward_2d(maxseqlen, step=step, prefetch=prefetch, positions=positions)
+            cos, sin = self.forward_2d(maxseqlen, step=step, prefetch=prefetch, positions=positions)
         else:
             raise NotImplementedError
+        self.register_buffer("cos", cos, persistent=False)
+        self.register_buffer("sin", sin, persistent=False)
+        return cos, sin
