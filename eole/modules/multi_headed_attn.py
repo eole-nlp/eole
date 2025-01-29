@@ -391,7 +391,6 @@ class SelfMHA(MultiHeadedAttention):
             key = shape(key, self.dim_per_head)
             value = shape(value, self.dim_per_head)
             query = shape(query, self.dim_per_head)
-
             if (
                 not self.flash
                 or self.position_encoding_type in [PositionEncodingType.Relative, PositionEncodingType.Alibi]

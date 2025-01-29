@@ -528,7 +528,7 @@ class BaseModel(nn.Module):
                         ckpt_t[
                             col_slice_start:col_slice_end,
                             row_slice_start:row_slice_end,
-                        ].transpose(0, 1),
+                        ].transpose(0, 1).contiguous(),
                     )
                 else:
                     module.register_buffer(
@@ -536,21 +536,21 @@ class BaseModel(nn.Module):
                         ckpt_t[
                             col_slice_start:col_slice_end,
                             row_slice_start:row_slice_end,
-                        ],
+                        ].contiguous(),
                     )
             else:
                 param.data = ckpt_t[
                     col_slice_start:col_slice_end,
                     row_slice_start:row_slice_end,
-                ]
+                ].contiguous()
         else:
             assert (
                 param.data.size() == ckpt_t[col_slice_start:col_slice_end].size()
             ), "An error in model's partition and checkpoint's slice was detected"
             if name + "." + param_name in buf_list:
-                module.register_buffer(param_name, ckpt_t[col_slice_start:col_slice_end])
+                module.register_buffer(param_name, ckpt_t[col_slice_start:col_slice_end].contiguous())
             else:
-                param.data = ckpt_t[col_slice_start:col_slice_end]
+                param.data = ckpt_t[col_slice_start:col_slice_end].contiguous()
 
     def load_safe_state_dict(
         self,
