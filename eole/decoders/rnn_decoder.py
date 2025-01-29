@@ -101,10 +101,12 @@ class RNNDecoderBase(DecoderBase):
         self.state["coverage"] = None
 
     def map_state(self, fn):
-        self.state["hidden"] = tuple(fn(h.transpose(0, 1), 0).transpose(0, 1) for h in self.state["hidden"])
-        self.state["input_feed"] = fn(self.state["input_feed"].transpose(0, 1), 0).transpose(0, 1)
+        # map_state applies on dim=0 (batch_size)
+        # TODO refactor RNN states so that batch_size is natively on dim=0
+        self.state["hidden"] = tuple(fn(h.transpose(0, 1)).transpose(0, 1) for h in self.state["hidden"])
+        self.state["input_feed"] = fn(self.state["input_feed"].transpose(0, 1)).transpose(0, 1)
         if self._coverage and self.state["coverage"] is not None:
-            self.state["coverage"] = fn(self.state["coverage"].transpose(0, 1), 0).transpose(0, 1)
+            self.state["coverage"] = fn(self.state["coverage"].transpose(0, 1)).transpose(0, 1)
 
     def detach_state(self):
         self.state["hidden"] = tuple(h.detach() for h in self.state["hidden"])

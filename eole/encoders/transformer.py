@@ -59,10 +59,7 @@ class TransformerEncoderLayer(nn.Module):
         context, _ = self.self_attn(norm_layer_in, attn_mask=~pad_mask, position_embeddings=position_embeddings)
         if self.dropout_p > 0:
             context = self.dropout(context)
-        if self.parallel_residual:
-            ff_in = norm_layer_in
-        else:
-            ff_in = self.post_attention_layernorm(context + layer_in)
+        ff_in = self.post_attention_layernorm(context + layer_in) if not self.parallel_residual else norm_layer_in
         # apply post attention norm and add residual after mlp
         layer_out = self.mlp(ff_in) + context + layer_in
 

@@ -169,14 +169,14 @@ class GreedySearch(DecodeStrategy):
 
     def initialize(self, enc_out, src_len, device=None, target_prefix=None):
         """Initialize for decoding."""
-        (fn_map_state, enc_out, target_prefix) = self.initialize_tile(enc_out, src_len, target_prefix)
+        (fn_tile, enc_out, target_prefix) = self.initialize_tile(enc_out, src_len, target_prefix)
         if device is None:
             device = self.get_device_from_enc_out(enc_out)
 
         self.eos_t = torch.tensor(self.eos).to(device)
         super(GreedySearch, self).initialize(device, target_prefix)
         self.select_indices = torch.arange(self.batch_size * self.beam_size, dtype=torch.long, device=device)
-        self.original_batch_idx = fn_map_state(torch.arange(self.batch_size, dtype=torch.long, device=device), dim=0)
+        self.original_batch_idx = fn_tile(torch.arange(self.batch_size, dtype=torch.long, device=device))
         self.beams_scores = torch.zeros((self.batch_size * self.beam_size, 1), dtype=torch.float, device=device)
         # MPS doesn't support torch.isin() in Torch 2.3
         # Avoiding need to CPU fallback by adding alternative implementation
@@ -184,7 +184,7 @@ class GreedySearch(DecodeStrategy):
         self._is_finished_list = (
             self._is_finished_list_mps if (device is not None and device.type == "mps") else self._is_finished_list_isin
         )
-        return fn_map_state, enc_out
+        return fn_tile, enc_out
 
     @property
     def current_predictions(self):
@@ -301,9 +301,9 @@ class GreedySearchLM(GreedySearch):
         if device is None:
             device = src.device
         self.eos_t = torch.tensor(self.eos).to(device)
-        (fn_map_state, _) = super(GreedySearchLM, self).initialize(None, src_len, device, target_prefix)
+        (fn_tile, _) = super(GreedySearchLM, self).initialize(None, src_len, device, target_prefix)
 
-        return fn_map_state, src
+        return fn_tile, src
 
     def advance(self, log_probs, attn):
         super(GreedySearchLM, self).advance(log_probs, attn)

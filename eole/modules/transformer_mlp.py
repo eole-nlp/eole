@@ -42,15 +42,17 @@ class MLP(nn.Module):
         self.dropout_1 = nn.Dropout(self.dropout_p)
         self.dropout_2 = nn.Dropout(self.dropout_p)
         self.activation = ACTIVATION_FUNCTIONS[model_config.mlp_activation_fn]
-        if model_config.mlp_activation_fn == "gated-silu" or model_config.mlp_activation_fn == "gated-gelu":
-            self.up_proj = skip_init(
+        self.up_proj = (
+            skip_init(
                 nn.Linear,
                 in_features=model_config.hidden_size,
                 out_features=model_config.transformer_ff // self.parallel_gpu,
                 bias=model_config.add_ffnbias,
             )
-        else:
-            self.up_proj = None
+            if model_config.mlp_activation_fn in ["gated-silu", "gated-gelu"]
+            else None
+        )
+
         self.maybe_ckpt = checkpoint if "ffn" in getattr(running_config, "use_ckpting", []) else lambda f, x: f(x)
 
     def forward(self, x):
