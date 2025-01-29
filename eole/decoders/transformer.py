@@ -236,18 +236,16 @@ class TransformerDecoder(DecoderBase):
         pass
 
     def map_state(self, fn):
-        z = fn(self.left_pad_mask, 0)
-        self.left_pad_mask = z
+        if self.left_pad_mask is not None:
+            self.left_pad_mask = fn(self.left_pad_mask, 0)
         for layer in self.transformer_layers:
             if self.with_cross_attn:
-                if layer.context_attn.layer_cache[1]["keys"].numel() != 0:
-                    x = fn(layer.context_attn.layer_cache[1]["keys"], 0)
-                    y = fn(layer.context_attn.layer_cache[1]["values"], 0)
-                    layer.context_attn.layer_cache = True, {"keys": x, "values": y}
-            if layer.self_attn.layer_cache[1]["keys"].numel() != 0:
-                x = fn(layer.self_attn.layer_cache[1]["keys"], 0)
-                y = fn(layer.self_attn.layer_cache[1]["values"], 0)
-                layer.self_attn.layer_cache = True, {"keys": x, "values": y}
+                if layer.context_attn.kcache is not None:
+                    layer.context_attn.kcache = fn(layer.context_attn.kcache, 0)
+                    layer.context_attn.vcache = fn(layer.context_attn.vcache, 0)
+            if layer.self_attn.kcache is not None:
+                layer.self_attn.kcache = fn(layer.self_attn.kcache, 0)
+                layer.self_attn.vcache = fn(layer.self_attn.vcache, 0)
 
     def update_dropout(self, dropout, attention_dropout):
         for layer in self.transformer_layers:
@@ -351,26 +349,18 @@ class TransformerDecoder(DecoderBase):
 
         return emb, attns
 
-    def _init_empty(self, device):
-        # Helper to create empty cache tensors
-        return {"keys": torch.empty(0, device=device), "values": torch.empty(0, device=device)}
-
     def _enable_cache(self, device, pad_mask):
         self.left_pad_mask = pad_mask
-        empty_cache = self._init_empty(device)
-
         for layer in self.transformer_layers:
-            # first value set to True triggered by the beginning of decoding
-            # layer_cache becomes active in the MultiHeadedAttention fwd
-            layer.self_attn.layer_cache = (True, empty_cache.copy())
+            layer.self_attn.kcache = torch.empty(0, device=device)
+            layer.self_attn.vcache = torch.empty(0, device=device)
             if layer.context_attn:
-                layer.context_attn.layer_cache = (True, empty_cache.copy())
+                layer.context_attn.kcache = torch.empty(0, device=device)
+                layer.context_attn.vcache = torch.empty(0, device=device)
 
     def _disable_cache(self):
-        self.left_pad_mask = torch.empty(0)
-        empty_cache = self._init_empty("cpu")
-
+        self.left_pad_mask = None
         for layer in self.transformer_layers:
-            layer.self_attn.layer_cache = (False, empty_cache.copy())
+            layer.self_attn.kcache, layer.self_attn.vcache = None, None
             if layer.context_attn:
-                layer.context_attn.layer_cache = (False, empty_cache.copy())
+                layer.context_attn.kcache, layer.self_attn.vcache = None, None

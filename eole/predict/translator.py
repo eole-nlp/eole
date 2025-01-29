@@ -128,7 +128,7 @@ class Translator(Inference):
                     ban_unk_token=self.ban_unk_token,
                     add_estimator=self.add_estimator,
                 )
-            return self._translate_batch_with_strategy(batch, decode_strategy)
+            return self._predict_batch_with_strategy(batch, decode_strategy)
 
     def _run_encoder(self, batch):
         src = batch["src"]
@@ -144,7 +144,7 @@ class Translator(Inference):
             src_len = torch.Tensor(batch_size).type_as(enc_out).long().fill_(enc_out.size(1))
         return src, enc_final_hs, enc_out, src_len
 
-    def _translate_batch_with_strategy(self, batch, decode_strategy):
+    def _predict_batch_with_strategy(self, batch, decode_strategy):
         """Translate a batch of sentences step by step using cache.
 
         Args:
@@ -155,6 +155,10 @@ class Translator(Inference):
         Returns:
             results (dict): The translation results.
         """
+
+        def advanced_index_select(tensor, dim, indices):
+            return tensor[(slice(None),) * dim + (indices,) + (slice(None),) * (tensor.dim() - dim - 1)]
+
         # (0) Prep the components of the search.
         parallel_paths = decode_strategy.parallel_paths  # beam_size
 
@@ -220,6 +224,7 @@ class Translator(Inference):
 
             if parallel_paths > 1 or any_finished:
                 self.model.decoder.map_state(lambda state, dim: state[select_indices])
+                # self.model.decoder.map_state(lambda state, dim: advanced_index_select(state, dim, select_indices))
 
         if self.add_estimator:
             dec_in = [item for sublist in decode_strategy.predictions for item in sublist]

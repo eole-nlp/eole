@@ -101,6 +101,10 @@ class GeneratorLM(Inference):
         Returns:
             results (dict): The prediction results.
         """
+
+        def advanced_index_select(tensor, dim, indices):
+            return tensor[(slice(None),) * dim + (indices,) + (slice(None),) * (tensor.dim() - dim - 1)]
+
         # (0) Prep the components of the search.
         parallel_paths = decode_strategy.parallel_paths  # beam_size
         batch_size = len(batch["srclen"])
@@ -151,6 +155,7 @@ class GeneratorLM(Inference):
             if parallel_paths > 1 or any_finished:
                 # select indexes in model state/cache
                 self.model.decoder.map_state(lambda state, dim: state[select_indices])
+                # self.model.decoder.map_state(lambda state, dim: advanced_index_select(state, dim, select_indices))
             # if step == 0:
             #     print("step0 time: ", time() - beg_time)
 
