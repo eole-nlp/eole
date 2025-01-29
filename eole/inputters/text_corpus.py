@@ -118,10 +118,7 @@ class ImageTextCorpus(object):
 
     def load(self, offset=0, stride=1):
         def make_ex(item):
-            example = {
-                "text": item["text"],
-                "images": item.get("images", {})
-            }
+            example = {"text": item["text"], "images": item.get("images", {})}
             return example
 
         if isinstance(self.data, list):

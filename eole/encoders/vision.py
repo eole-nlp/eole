@@ -63,9 +63,7 @@ class VisionEncoder(nn.Module):
         self.ln_pre = RMSNorm(model_config.hidden_size, eps=1e-5)
         self.transformer_layers = torch.nn.ModuleList()
         for _ in range(model_config.layers):
-            self.transformer_layers.append(
-                TransformerEncoderLayer(model_config, running_config=running_config)
-            )
+            self.transformer_layers.append(TransformerEncoderLayer(model_config, running_config=running_config))
 
         head_dim = model_config.hidden_size // model_config.heads
         assert head_dim % 2 == 0, "ROPE requires even head_dim"
