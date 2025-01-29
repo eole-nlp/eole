@@ -906,6 +906,7 @@ class VisionEncoderDecoderModel(BaseModel):
 
     def __init__(self, **kwargs):
         super(VisionEncoderDecoderModel, self).__init__(**kwargs)
+        self.tgt_shift = 1
         self.image_token_id = kwargs.get("image_token_id", None)
         if self.encoder is None or self.decoder is None:
             raise ValueError("A EncoderDecoderModel requires both an Encoder and a Decoder")
@@ -942,6 +943,8 @@ class VisionEncoderDecoderModel(BaseModel):
         text_locations = src != self.image_token_id
         image_locations = src == self.image_token_id
         text_features = self.tgt_emb(src[text_locations].view(batch_size, -1))
+        if len(images) == 0:
+            return text_features
         encoded_images = self.encoder(images)
         image_features = self.adapter(encoded_images)
 
@@ -959,7 +962,8 @@ class VisionEncoderDecoderModel(BaseModel):
             device=text_features.device,
         )
         combined_features[text_locations, :] = text_features
-        combined_features[image_locations, :] = image_features
+        if len(images) > 0:
+            combined_features[image_locations, :] = image_features
 
         return combined_features
 
@@ -972,12 +976,14 @@ class VisionEncoderDecoderModel(BaseModel):
         emb = self.embed_vision_language_features(src, images)
         pad_idx = self.tgt_emb.word_padding_idx
         pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+        position_embeddings = self.rope.update(emb.size(1), step=None)
         dec_out, attns = self.decoder(
             emb,
             enc_out=None,
             src_len=src_len,
             with_align=with_align,
             tgt_pad_mask=pad_mask,
+            position_embeddings=position_embeddings,
         )
 
         return dec_out, attns, None

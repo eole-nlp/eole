@@ -23,6 +23,8 @@ def clean_example(maybe_example):
         maybe_example["tgt"] = {"tgt": " ".join(maybe_example["tgt"])}
     if "align" in maybe_example:
         maybe_example["align"] = " ".join(maybe_example["align"])
+    if "sco" not in maybe_example:
+        maybe_example["sco"] = 1
     return maybe_example
 
 

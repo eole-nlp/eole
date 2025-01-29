@@ -38,6 +38,10 @@ class TrainConfig(LoggingConfig, MiscConfig, DataConfig, VocabConfig):  # ModelC
     def get_model_path(self):
         return self.training.get_model_path()
 
+    @property
+    def data_type(self):
+        return self.training.data_type
+
     @classmethod
     def get_defaults(cls, architecture):
         return cls(

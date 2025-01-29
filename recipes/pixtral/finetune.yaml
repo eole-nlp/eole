@@ -1,0 +1,89 @@
+# General settings
+seed: 1234
+share_vocab: true
+save_data: "./finetune/pixtral-finetune"
+src_vocab: "./pixtral-12b/vocab.txt"
+src_vocab_size: 132000
+tgt_vocab_size: 132000
+
+overwrite: true
+
+report_every: 10
+
+# datasets
+data:
+    test_data:
+        path_txt: "./train_data.json"
+
+    # valid:
+    #     path_src: "./data/valid.txt"
+
+skip_empty_level: silent
+
+transforms_configs:
+    huggingface_tokenize:
+        max_length: 4096
+
+training:
+    data_type: "image"
+    # GPU dispatching
+    world_size: 1
+    gpu_ranks: [0]
+    # 2 GPU
+    # world_size: 2
+    # gpu_ranks: [0, 1]
+    # parallel_mode: tensor_parallel
+    dropout_steps: [0]
+    dropout: [0.0]
+    attention_dropout: [0.0]
+    # Batching
+    # bucket_size: 32768
+    bucket_size: 10
+    num_workers: 0
+    batch_type: "sents"
+    batch_size: 1
+    valid_batch_size: 1
+    batch_size_multiple: 1
+    
+    # Optimization
+    # compute_dtype: "fp16"
+    # apex_opt_level: ""
+    # optim: "fusedadam"
+    compute_dtype: "bf16"
+    optim: "adam"
+    learning_rate: 0.0001
+    warmup_steps: 100
+    decay_method: "none"
+    #learning_rate_decay: 0.98
+    #start_decay_steps: 100
+    #decay_steps: 10
+    adam_beta2: 0.998
+    accum_count: [8]
+    accum_steps: [0]
+    max_grad_norm: 0
+    label_smoothing: 0.0
+    param_init_method: xavier_uniform
+    normalization: "tokens"  
+    
+    # folders
+    train_from: "./pixtral-12b"
+    model_path: "./finetune/pixtral-finetuned"
+    keep_checkpoint: 10
+    save_checkpoint_steps: 100
+    
+    train_steps: 1000
+    valid_steps: 100
+
+    # 4/8bit
+    quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
+    quant_type: "bnb_NF4"
+
+    # LoRa
+    lora_layers: ['linear_values', 'linear_query', 'linear_keys', 'final_linear']
+    lora_rank: 2
+    lora_dropout: 0.05
+    lora_alpha: 8
+    lora_embedding: false
+
+    # Chekpointing
+    #use_ckpting: ['ffn', 'lora']
