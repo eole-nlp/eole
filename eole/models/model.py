@@ -528,7 +528,9 @@ class BaseModel(nn.Module):
                         ckpt_t[
                             col_slice_start:col_slice_end,
                             row_slice_start:row_slice_end,
-                        ].transpose(0, 1).contiguous(),
+                        ]
+                        .transpose(0, 1)
+                        .contiguous(),
                     )
                 else:
                     module.register_buffer(
