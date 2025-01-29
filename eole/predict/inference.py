@@ -436,7 +436,7 @@ class Inference(object):
             batch_data = self.predict_batch(batch, attn_debug)
 
             predictions = prediction_builder.from_batch(batch_data)
-            is_seq2seq = hasattr(self.model, "encoder") and hasattr(self.model, "decoder")
+            is_seq2seq = self.model.encoder is not None and self.model.decoder is not None
             if (
                 is_seq2seq
                 and self._tgt_sep_idx != self._tgt_unk_idx

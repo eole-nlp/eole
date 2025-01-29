@@ -1,6 +1,6 @@
 import codecs
 import os
-from eole.predict import GNMTGlobalScorer, Translator
+from eole.predict import GNMTGlobalScorer, Translator, GeneratorLM
 from eole.config.run import (
     PredictConfig,
 )  # probably should be done differently, but might work for now
@@ -42,11 +42,11 @@ class ScoringPreparator:
             preds (list): Detokenized predictions
             texts_ref (list): Detokenized target sentences
         """
-        # ########## #
-        # Translator #
-        # ########## #
+        # ######### #
+        # Predictor #
+        # ######### #
 
-        # Build translator from options
+        # Build predictor from options
         model_config = self.config.model
         model_config._validate_model_config()
 
@@ -54,9 +54,16 @@ class ScoringPreparator:
         # (take 'inference' field of config if exists?)
         # Set "default" translation options on empty cfgfile
         self.config.training.num_workers = 0
+        is_seq2seq = model.encoder is not None and model.decoder is not None
+        if not is_seq2seq:
+            if "insert_mask_before_placeholder" in self.config.transforms:
+                self.response_patterns = self.config.transforms_configs.insert_mask_before_placeholder.response_patterns
+        else:
+            self.response_patterns = None
+
         predict_config = PredictConfig(
             model_path=["dummy"],
-            src=self.config.data["valid"].path_src,
+            src="dummy",
             compute_dtype=self.config.training.compute_dtype,
             beam_size=1,
             transforms=self.config.transforms,
@@ -64,20 +71,36 @@ class ScoringPreparator:
             model=model_config,
             tgt_file_prefix=self.config.transforms_configs.prefix.tgt_prefix != "",
             gpu_ranks=[gpu_rank],
+            batch_type=self.config.training.batch_type,
+            batch_size=self.config.training.batch_size,
         )
 
         scorer = GNMTGlobalScorer.from_config(predict_config)
-        translator = Translator.from_config(  # we need to review opt/config stuff in translator
-            model,
-            self.vocabs,
-            predict_config,
-            model_config,
-            device_id=gpu_rank,
-            global_scorer=scorer,
-            report_align=predict_config.report_align,
-            report_score=False,
-            logger=None,
-        )
+
+        if is_seq2seq:
+            predictor = Translator.from_config(  # we need to review opt/config stuff in translator
+                model,
+                self.vocabs,
+                predict_config,
+                model_config,
+                device_id=gpu_rank,
+                global_scorer=scorer,
+                report_align=predict_config.report_align,
+                report_score=False,
+                logger=None,
+            )
+        else:
+            predictor = GeneratorLM.from_config(
+                model,
+                self.vocabs,
+                predict_config,
+                model_config,
+                device_id=gpu_rank,
+                global_scorer=scorer,
+                report_align=predict_config.report_align,
+                report_score=False,
+                logger=None,
+            )
 
         # ################### #
         # Validation iterator #
@@ -85,15 +108,28 @@ class ScoringPreparator:
 
         # Reinstantiate the validation iterator
         # Retrieve raw references and sources
-        with codecs.open(self.config.data["valid"].path_tgt, "r", encoding="utf-8") as f:
-            raw_refs = [line.strip("\n") for line in f if line.strip("\n")]
         with codecs.open(self.config.data["valid"].path_src, "r", encoding="utf-8") as f:
             raw_srcs = [line.strip("\n") for line in f if line.strip("\n")]
+
+        if not is_seq2seq and self.response_patterns is not None:
+            prompts, answers = [], []
+            for i, _raw_src in enumerate(raw_srcs):
+                for _pattern in self.response_patterns:
+                    if len(_raw_src.split(_pattern)) == 2:
+                        prompt, answer = _raw_src.split(_pattern)
+                        prompts.append(prompt + _pattern)
+                        answers.append(answer)
+            raw_srcs = prompts
+            raw_refs = answers
+        else:
+            with codecs.open(self.config.data["valid"].path_tgt, "r", encoding="utf-8") as f:
+                raw_refs = [line.strip("\n") for line in f if line.strip("\n")]
 
         infer_iter = build_dynamic_dataset_iter(
             predict_config,
             self.transforms,
-            translator.vocabs,
+            predictor.vocabs,
+            src=raw_srcs,
             task=CorpusTask.INFER,
             tgt="",  # This force to clear the target side (needed when using tgt_file_prefix)
             device_id=gpu_rank,
@@ -102,7 +138,7 @@ class ScoringPreparator:
         # ########### #
         # Predictions #
         # ########### #
-        _, _, preds = translator._predict(
+        _, _, preds = predictor._predict(
             infer_iter,
             transform=infer_iter.transforms,
             attn_debug=predict_config.attn_debug,
