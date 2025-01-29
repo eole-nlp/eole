@@ -1,0 +1,20 @@
+[
+    {
+        "text": "List the top 5 countries in Europe with the highest GDP\n{image1}\nGermany\nUnited Kingdom\nFrance\nItaly\nSpain",
+        "images": {
+            "image1": "./test_data/gdp.png"
+        }
+    },
+    {
+        "text": "When did things start to go wrong for dark dragon?\n{image1}\nAround step 10k, then worsened around step 20k.",
+        "images": {
+            "image1": "./test_data/loss_curve.jpg"
+        }
+    },
+    {
+        "text": "Is this person really big, or is this building just super small?\n{image1}\nNone, it's a trick of perspective.",
+        "images": {
+            "image1": "./test_data/pisa_2.jpg"
+        }
+    }
+]

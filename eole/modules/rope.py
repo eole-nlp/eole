@@ -66,7 +66,7 @@ class RotaryPosition(nn.Module):
     and to support future enhancements, such as additional scaling types.
     """
 
-    def __init__(self, model_config):
+    def __init__(self, model_config, mode="1d"):
         """
         Initializes the RotaryPosition module.
 
@@ -90,6 +90,7 @@ class RotaryPosition(nn.Module):
         """
         super(RotaryPosition, self).__init__()
         self.model_config = model_config
+        self.mode = mode
         self.dim_per_head = model_config.dim_per_head
         if model_config.rope_config.rotary_dim == 0:
             rotary_dim = self.dim_per_head
@@ -97,11 +98,35 @@ class RotaryPosition(nn.Module):
             rotary_dim = model_config.rope_config.rotary_dim
         self.rotary_interleave = model_config.rope_config.rotary_interleave
         self.rotary_theta = model_config.rope_config.rotary_theta
-        self.inv_freq = 1.0 / (self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
+        inv_freq = 1.0 / (self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
+        if mode == "2d":
+            inv_freq = self.init_2d_inv_freq(inv_freq)
+        self.inv_freq = inv_freq
         # TODO: extend with other scaling types
         if getattr(self.model_config.rope_config, "scaling_type", None) == "llama3":
             self.llama3_scaling()
-        self.update(1024)
+        cos, sin = self.update(1024)
+        self.register_buffer("cos", cos, persistent=False)
+        self.register_buffer("sin", sin, persistent=False)
+
+    def init_2d_inv_freq(self, inv_freq):
+        """
+        Initialize 2d inverse frequencies for pixtral rotary embeddings.
+        """
+        max_patches_per_side = self.model_config.image_size // self.model_config.patch_size
+        h = torch.arange(max_patches_per_side, device=inv_freq.device)
+        w = torch.arange(max_patches_per_side, device=inv_freq.device)
+        freqs_h = torch.outer(h, inv_freq[::2]).float()
+        freqs_w = torch.outer(w, inv_freq[1::2]).float()
+        inv_freq = torch.cat(
+            [
+                freqs_h[:, None, :].repeat(1, max_patches_per_side, 1),
+                freqs_w[None, :, :].repeat(max_patches_per_side, 1, 1),
+            ],
+            dim=-1,
+        ).reshape(-1, self.dim_per_head // 2)
+        inv_freq = torch.cat((inv_freq, inv_freq), dim=-1)
+        return inv_freq
 
     def llama3_scaling(self):
         """
@@ -133,29 +158,12 @@ class RotaryPosition(nn.Module):
         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
         self.inv_freq = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
 
-    def update(self, maxseqlen, step=0, prefetch=1024):
-        """
-        Computes the rotary position embeddings for a given input.
-
-        Args:
-            maxseqlen: max seq length of the input embeddings.
-            step: The current step or position within the sequence. Defaults to 0.
-            offset: An optional offset to apply to the position indices.
-                    This is used for the specific `flash_attn_with_kvcache` path,
-                    which requires processes by chunks of 32 tokens. Defaults to 0.
-
-        Returns:
-            torch.Tensor: A tensor containing the computed rotary embeddings.
-
-        Notes:
-            - The returned tensor contains cosine and sine values representing the
-              rotary embeddings, concatenated along the last dimension.
-            - The output tensor's dimensions are `[maxseqlen, dim]`, where `dim` is
-              twice the size of the original inverse frequency tensor (`inv_freq`).
-        """
+    def forward_1d(self, maxseqlen, step=0, prefetch=1024):
+        if step is None:
+            step = 0
         offset = 32  # make sure we have at least 32 positions for flash_attn_with_kvcache
         if step == 0:
-            maxseqlen = 1024  # reset as in init() with self.update(1024)
+            maxseqlen = max(maxseqlen, 1024)  # reset as in init() with self.update(1024)
         elif hasattr(self, "cos") and self.cos.size(0) >= max(offset + (step or 0), 0) + maxseqlen:
             return self.cos, self.sin
 
@@ -172,4 +180,69 @@ class RotaryPosition(nn.Module):
 
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
+
         return self.cos, self.sin
+
+    # TODO: investigate if this is useful / properly implemented
+    # def _dynamic_frequency_update(self, position_ids, device):
+    #     """
+    #     dynamic RoPE layers should recompute `inv_freq` in the following situations:
+    #     1 - growing beyond the cached sequence length (allow scaling)
+    #     2 - the current sequence length is in the original scale
+    #           (avoid losing precision with small sequences)
+    #     """
+    #     seq_len = torch.max(position_ids) + 1
+    #     if seq_len > self.max_seq_len_cached:  # growth
+    #         inv_freq, self.attention_scaling = self.rope_init_fn(
+    #             self.config, device, seq_len=seq_len, **self.rope_kwargs
+    #         )
+    #         self.inv_freq = inv_freq
+    #         self.max_seq_len_cached = seq_len
+
+    #     if (seq_len < self.original_max_seq_len
+    #     and self.max_seq_len_cached > self.original_max_seq_len):  # reset
+    #         self.inv_freq = self.original_inv_freq
+    #         self.max_seq_len_cached = self.original_max_seq_len
+
+    def forward_2d(self, maxseqlen, step=0, prefetch=1024, positions=None):
+        # TODO: maybe do scaling here
+        device = self.cos.device if hasattr(self, "cos") else torch.device("cpu")
+        if step is None:
+            step = 0
+        if positions is None:
+            tmax = torch.arange(maxseqlen, device=self.inv_freq.device)
+        else:
+            tmax = positions
+        rope = self.inv_freq[tmax].to(device)
+        # rope is now matrix [maxseqlen, dim/2]
+        # if device is not None:
+        #     rope = rope.to(device)
+        cos = rope.cos()
+        sin = rope.sin()
+        return cos, sin
+
+    def update(self, maxseqlen, step=0, prefetch=1024, reset=False, positions=None):
+        """
+        Computes the rotary position embeddings for a given input.
+        Args:
+            maxseqlen: max seq length of the input embeddings.
+            step: The current step or position within the sequence. Defaults to 0.
+            offset: An optional offset to apply to the position indices.
+                    This is used for the specific `flash_attn_with_kvcache` path,
+                    which requires processes by chunks of 32 tokens. Defaults to 0.
+        Returns:
+            torch.Tensor: A tensor containing the computed rotary embeddings.
+        Notes:
+            - The returned tensor contains cosine and sine values representing the
+              rotary embeddings, concatenated along the last dimension.
+            - The output tensor's dimensions are `[maxseqlen, dim]`, where `dim` is
+              twice the size of the original inverse frequency tensor (`inv_freq`).
+        """
+        if reset:
+            self.rope = None
+        if self.mode == "1d":
+            return self.forward_1d(maxseqlen, step=step, prefetch=prefetch)
+        elif self.mode == "2d":
+            return self.forward_2d(maxseqlen, step=step, prefetch=prefetch, positions=positions)
+        else:
+            raise NotImplementedError

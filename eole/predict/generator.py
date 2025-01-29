@@ -136,6 +136,7 @@ class GeneratorLM(Inference):
                 src_len=decode_strategy.src_len,
                 step=step if step == 0 else step + max(src_len.tolist()),
                 left_pad=batch["left_pad"],
+                images=batch.get("images", None),
             )
 
             if step == 0:
@@ -199,7 +200,6 @@ class GeneratorLM(Inference):
         log_probs, attn = self._decode_and_generate(
             src,
             None,
-            batch,
             src_len=src_len,
         )
 
