@@ -314,7 +314,7 @@ class ParallelCorpusIterator(object):
         offset (int): iterate corpus with this line offset.
     """
 
-    def __init__(self, corpus, transform, skip_empty_level="warning", stride=1, offset=0):
+    def __init__(self, corpus, transform, skip_empty_level="warning", stride=1, offset=0, is_train=False):
         self.cid = corpus.id
         self.corpus = corpus
         self.transform = transform
@@ -425,7 +425,7 @@ def build_corpora_iters(corpora, transforms, corpora_info, skip_empty_level="war
             skip_empty_level=skip_empty_level,
             stride=stride,
             offset=offset,
-            is_train=corpus.is_train,
+            is_train=getattr(corpus, "is_train", None),
         )
         corpora_iters[c_id] = corpus_iter
     return corpora_iters
