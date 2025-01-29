@@ -5,8 +5,7 @@ from eole.config.run import *
 from eole.inference_engine import InferenceEnginePY
 
 config = PredictConfig(
-    # model_path="./pixtral-12b",
-    model_path="./test-pixtral",
+    model_path="./pixtral-12b",
     src="dummy",
     max_length=500,
     gpu_ranks=[0],
