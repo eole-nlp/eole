@@ -1,0 +1,17 @@
+model_path: "nllb-1.3b"
+transforms: ["prefix", "huggingface_tokenize"]
+transforms_configs:
+  prefix:
+    src_prefix: "</s> eng_Latn"
+    tgt_prefix: "deu_Latn"
+  huggingface_tokenize:
+    huggingface_model: facebook/nllb-200-1.3B
+
+tgt_file_prefix: true
+
+gpu_ranks: [0]
+world_size: 1
+beam_size: 5
+
+src: test.en
+output: test.de
