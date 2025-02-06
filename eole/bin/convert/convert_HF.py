@@ -479,8 +479,8 @@ def build_config_dict(hf):
         model_config["rope_config"]["rotary_dim"] = model_config["hidden_size"] // model_config["heads"]
 
     # patch rotary theta
-    if "rotary_theta" in config.keys():
-        model_config["rope_config"]["rotary_theta"] = config["rotary_theta"]
+    if "rope_theta" in config.keys():
+        model_config["rope_config"]["rotary_theta"] = config["rope_theta"]
 
     # Validate required fields
     required_fields = {
