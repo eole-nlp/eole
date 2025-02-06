@@ -2,6 +2,14 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.1.1
+
+* fix rope when very long sequence precision is key by @vince62s in https://github.com/eole-nlp/eole/pull/200
+* Better fix for long rope (training was not optimized) by @vince62s in https://github.com/eole-nlp/eole/pull/201
+* add filtertooshort transform by @vince62s in https://github.com/eole-nlp/eole/pull/202
+* Basic pixtral support, paving the way for vision models 🖼️ by @francoishernandez in https://github.com/eole-nlp/eole/pull/153
+* Clean / rename / simplify by @vince62s in https://github.com/eole-nlp/eole/pull/203
+
 ## 0.1.0
 
 * reinstate cuda rmsnorm (much faster in fp16/awq) + ct2 enc/dec config by @vince62s in https://github.com/eole-nlp/eole/pull/167
