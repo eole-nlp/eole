@@ -7,6 +7,7 @@ import torch.nn as nn
 from eole.encoders.encoder import EncoderBase
 from eole.modules.multi_headed_attn import SelfMHA
 from eole.modules.transformer_mlp import MLP
+from eole.modules.rope import build_rope
 from eole.constants import LayerNorm
 
 
@@ -86,6 +87,7 @@ class TransformerEncoder(EncoderBase):
         running_config=None,
     ):
         super(TransformerEncoder, self).__init__()
+        self.rope = build_rope(model_config)
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerEncoderLayer(
@@ -121,7 +123,7 @@ class TransformerEncoder(EncoderBase):
         """
         pad_mask = kwargs.pop("pad_mask", None)
         assert pad_mask is not None, "TransformerEncoder requires a src pad mask"
-        position_embeddings = kwargs.pop("position_embeddings", None)
+        position_embeddings = self.rope.update(emb.size(1), step=None)
         pad_mask = pad_mask.unsqueeze(1)  # batch x 1 x 1 x maxlen
         # dim 1 (heads) and 2 (src_len) will be broadcasted automatically in MHA
 

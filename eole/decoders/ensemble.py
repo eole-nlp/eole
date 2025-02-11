@@ -48,6 +48,8 @@ class EnsembleEncoder(EncoderBase):
     def __init__(self, model_encoders):
         super(EnsembleEncoder, self).__init__()
         self.model_encoders = nn.ModuleList(model_encoders)
+        if hasattr(model_encoders[0], "rope"):
+            self.rope = model_encoders[0].rope
 
     def forward(self, emb, pad_mask=None, **kwargs):
         enc_out, enc_final_hs = zip(
@@ -77,6 +79,8 @@ class EnsembleDecoder(DecoderBase):
         attentional = any([dec.attentional for dec in model_decoders])
         super(EnsembleDecoder, self).__init__(attentional)
         self.model_decoders = model_decoders
+        if hasattr(model_decoders[0], "rope"):
+            self.rope = model_decoders[0].rope
 
     def forward(self, emb, enc_out=None, src_len=None, step=None, **kwargs):
         """See :func:`eole.decoders.decoder.DecoderBase.forward()`."""
@@ -157,9 +161,9 @@ class EnsembleModel(EncoderDecoderModel):
 
     def __init__(self, models, raw_probs=False):
         src_emb = EnsembleSrcEmb([model.src_emb for model in models])
-        encoder = EnsembleEncoder(model.encoder for model in models)
+        encoder = EnsembleEncoder([model.encoder for model in models])
         tgt_emb = EnsembleTgtEmb([model.tgt_emb for model in models])
-        decoder = EnsembleDecoder(model.decoder for model in models)
+        decoder = EnsembleDecoder([model.decoder for model in models])
         hidden_size = models[0].hidden_size
         super(EnsembleModel, self).__init__(
             encoder=encoder,
@@ -170,7 +174,6 @@ class EnsembleModel(EncoderDecoderModel):
         )
         self.generator = EnsembleGenerator([model.generator for model in models], raw_probs)
         self.models = nn.ModuleList(models)
-        self.rope = models[0].rope
 
 
 def load_test_model(config, device_id=0):

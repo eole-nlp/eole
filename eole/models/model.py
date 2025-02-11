@@ -20,27 +20,12 @@ from eole.inputters.inputter import dict_to_vocabs
 # copied from model_builder to facilitate tests, but should not live there in the end
 from eole.encoders import str2enc
 from eole.decoders import str2dec
-from eole.constants import DefaultTokens, PositionEncodingType
+from eole.constants import DefaultTokens
 from eole.modules.embeddings import Embeddings
-from eole.modules.rope import RotaryPosition
 from eole.models.model_saver import load_checkpoint
 from eole.modules.estimator import FeedForward
 
 from eole.encoders.vision import VisionLanguageAdapter, VisionEncoder
-
-
-class NoOpPosition:
-    """A no-op position encoding callable."""
-
-    def update(self, *args, **kwargs):
-        return None
-
-
-def build_rope(model_config):
-    if model_config.embeddings.position_encoding_type == PositionEncodingType.Rotary:
-        return RotaryPosition(model_config)
-    else:
-        return NoOpPosition()
 
 
 def build_encoder(model_config, running_config=None):
@@ -128,7 +113,6 @@ class BaseModel(nn.Module):
         self.tgt_emb = kwargs.get("tgt_emb", None)
         self.add_estimator = kwargs.get("add_estimator", False)
         self.hidden_size = kwargs.get("hidden_size", None)
-        self.rope = kwargs.get("rope", None)
         self.share_decoder_embeddings = False
         if self.encoder is not None and self.src_emb is None:
             if not isinstance(self.encoder, VisionEncoder):
@@ -732,7 +716,6 @@ class EncoderDecoderModel(BaseModel):
             tgt_emb=tgt_emb,
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.decoder.hidden_size,
-            rope=build_rope(model_config),
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
@@ -745,11 +728,9 @@ class EncoderDecoderModel(BaseModel):
         * enc_out + enc_final_hs in the case of CNNs
         * src in the case of Transformer"""
         src_pad_mask = src.eq(self.src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
-        position_embeddings = self.rope.update(src.size(1), step=None)
         enc_out, enc_final_hs = self.encoder(
             self.src_emb(src),
             pad_mask=src_pad_mask,
-            position_embeddings=position_embeddings,
         )
         self.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
         dec_in = tgt[:, :-1]
@@ -761,7 +742,6 @@ class EncoderDecoderModel(BaseModel):
             with_align=with_align,
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
-            position_embeddings=position_embeddings,
         )
 
         if self.add_estimator:  # we take the average of dec_out using the pad mask
@@ -809,7 +789,6 @@ class DecoderModel(BaseModel):
             tgt_emb=tgt_emb,
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.decoder.hidden_size,
-            rope=build_rope(model_config),
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
@@ -818,11 +797,9 @@ class DecoderModel(BaseModel):
         with the source lengths vector. It is a decoder only LM (cf GPT-2)"""
 
         self.decoder.init_state()
-        position_embeddings = self.rope.update(src.size(1), step=None)
         dec_out, attns = self.decoder(
             self.tgt_emb(src),
             tgt_pad_mask=src.eq(self.pad_idx).unsqueeze(1),
-            position_embeddings=position_embeddings,
         )
 
         if self.add_estimator:  # we take the average of dec_out using the pad mask
@@ -868,7 +845,6 @@ class EncoderModel(BaseModel):
             src_emb=src_emb,
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.encoder.hidden_size,
-            rope=build_rope(model_config),
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
@@ -876,11 +852,9 @@ class EncoderModel(BaseModel):
         """An EncoderModel encodes the source sentence to build hidden states"""
 
         pad_mask = src.eq(self.pad_idx).unsqueeze(1)  # [B, 1, T_src]
-        position_embeddings = self.rope.update(src.size(1), step=None)
         enc_out, enc_final_hs = self.encoder(
             self.src_emb(src),
             pad_mask=pad_mask,
-            position_embeddings=position_embeddings,
         )
         if self.add_estimator:
             # Version with average
@@ -935,7 +909,6 @@ class VisionEncoderDecoderModel(BaseModel):
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.decoder.hidden_size,
             image_token_id=model_config.encoder.image_token_id,
-            rope=build_rope(model_config),
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
@@ -978,14 +951,12 @@ class VisionEncoderDecoderModel(BaseModel):
         emb = self.embed_vision_language_features(src, images)
         pad_idx = self.tgt_emb.word_padding_idx
         pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
-        position_embeddings = self.rope.update(emb.size(1), step=None)
         dec_out, attns = self.decoder(
             emb,
             enc_out=None,
             src_len=src_len,
             with_align=with_align,
             tgt_pad_mask=pad_mask,
-            position_embeddings=position_embeddings,
         )
 
         return dec_out, attns, None

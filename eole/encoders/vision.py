@@ -11,8 +11,7 @@ from typing import Optional
 # from eole.modules.multi_headed_attn import SelfMHA
 from eole.modules.rmsnorm import RMSNorm
 from eole.encoders.transformer import TransformerEncoderLayer
-from eole.constants import PositionEncodingType
-from eole.modules.rope import RotaryPosition
+from eole.modules.rope import build_rope
 
 
 def position_ids_in_meshgrid(patch_embeds_list, max_width):
@@ -51,8 +50,7 @@ class VisionEncoder(nn.Module):
     def __init__(self, model_config, running_config=None):
         super(VisionEncoder, self).__init__()
         self.model_config = model_config
-        if model_config.position_encoding_type == PositionEncodingType.Rotary:
-            self.rope = RotaryPosition(model_config, mode="2d")
+        self.rope = build_rope(model_config)
         self.patch_conv = nn.Conv2d(
             in_channels=model_config.num_channels,
             out_channels=model_config.hidden_size,
@@ -111,15 +109,12 @@ class VisionEncoder(nn.Module):
             patch_embeds_list,
             max_width=self.model_config.image_size // self.model_config.patch_size,
         )
-        if hasattr(self, "rope"):
-            position_embeddings = self.rope.update(
-                patch_embeds.size(1),
-                step=0,
-                reset=True,
-                positions=positions,
-            )
-        else:
-            position_embeddings = None
+        position_embeddings = self.rope.update(
+            patch_embeds.size(1),
+            step=0,
+            reset=True,
+            positions=positions,
+        )
 
         # pass through Transformer with a block diagonal mask delimiting images
         mask = create_block_diagonal_mask(

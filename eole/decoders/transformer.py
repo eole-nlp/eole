@@ -8,6 +8,7 @@ from eole.decoders.decoder import DecoderBase
 from eole.modules.multi_headed_attn import SelfMHA, ContextMHA
 from eole.modules.transformer_mlp import MLP
 from eole.modules.moe import MoE
+from eole.modules.rope import build_rope
 from eole.constants import LayerNorm
 
 
@@ -208,7 +209,7 @@ class TransformerDecoder(DecoderBase):
         self.alignment_layer = model_config.alignment_layer
         self.with_cross_attn = with_cross_attn
         self.sliding_window = model_config.sliding_window
-
+        self.rope = build_rope(model_config)
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerDecoderLayer(
@@ -296,7 +297,7 @@ class TransformerDecoder(DecoderBase):
         step = kwargs.pop("step", None)
         with_align = kwargs.pop("with_align", False)
         return_attn = with_align or kwargs.pop("return_attn", False)
-        position_embeddings = kwargs.pop("position_embeddings", None)
+        position_embeddings = self.rope.update(emb.size(1), step=step)
         attn_aligns = []
 
         if step == 0:
