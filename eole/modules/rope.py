@@ -236,9 +236,9 @@ class RotaryPosition(nn.Module):
         elif hasattr(self, "cos") and self.cos.size(0) >= max(offset + (step or 0), 0) + maxseqlen:
             return self.cos, self.sin
         if self.mode == "1d":
-            cos, sin = self.forward_1d(maxseqlen, step=step, prefetch=prefetch, offset=offset)
+            cos, sin = self.forward_1d(maxseqlen, step=(step or 0), prefetch=prefetch, offset=offset)
         elif self.mode == "2d":
-            cos, sin = self.forward_2d(maxseqlen, step=step, prefetch=prefetch, positions=positions)
+            cos, sin = self.forward_2d(maxseqlen, step=(step or 0), prefetch=prefetch, positions=positions)
         else:
             raise NotImplementedError
         self.register_buffer("cos", cos, persistent=False)
