@@ -456,8 +456,8 @@ class Trainer(object):
             src = batch["src"]
             src_len = batch["srclen"]
             if src_len is not None:
-                report_stats.n_src_words += src_len.sum().item()
-                total_stats.n_src_words += src_len.sum().item()
+                report_stats.n_src_tokens += src_len.sum().item()
+                total_stats.n_src_tokens += src_len.sum().item()
             tgt = batch["tgt"]
             kwargs = {}
             if "images" in batch.keys():
