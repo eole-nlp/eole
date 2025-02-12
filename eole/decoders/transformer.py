@@ -36,7 +36,9 @@ class TransformerDecoderLayer(nn.Module):
         self.ffn_layernorm = decoder_config.ffn_layernorm
 
         # order of layers corresponds to forward flow of tensors
-        self.input_layernorm = LayerNorm[decoder_config.layer_norm](decoder_config.hidden_size, eps=decoder_config.norm_eps)
+        self.input_layernorm = LayerNorm[decoder_config.layer_norm](
+            decoder_config.hidden_size, eps=decoder_config.norm_eps
+        )
         self.self_attn = SelfMHA(
             decoder_config,
             running_config=running_config,
