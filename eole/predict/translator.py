@@ -58,14 +58,12 @@ class Translator(Inference):
         src_pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)
         tgt_pad_mask = tgt[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)
         dec_in = tgt[:, :-1]
-        position_embeddings = self.model.rope.update(dec_in.size(1), step=None)
         _, attns = self.model.decoder(
             self.model.tgt_emb(dec_in),
             enc_out=enc_out,
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
             with_align=True,
-            position_embeddings=position_embeddings,
         )
 
         alignment_attn = attns["align"]  # ``(B, tgt_len-1, src_len)``
@@ -136,8 +134,7 @@ class Translator(Inference):
         batch_size = len(batch["srclen"])
         emb = self.model.src_emb(src)
         pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
-        position_embeddings = self.model.rope.update(src.size(1), step=None)
-        enc_out, enc_final_hs = self.model.encoder(emb, pad_mask=pad_mask, position_embeddings=position_embeddings)
+        enc_out, enc_final_hs = self.model.encoder(emb, pad_mask=pad_mask)
 
         if src_len is None:
             assert not isinstance(enc_out, tuple), "Ensemble decoding only supported for text data"
@@ -238,7 +235,6 @@ class Translator(Inference):
             tgt_pad_mask = dec_in[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
             emb = self.model.tgt_emb(dec_in[:, :-1])
             self.model.decoder._disable_cache()
-            position_embeddings = self.model.rope.update(dec_in[:, :-1].size(1), step=None)
             dec_out, _ = self.model.decoder(
                 emb,
                 enc_out=enc_out2,
@@ -247,7 +243,6 @@ class Translator(Inference):
                 return_attn=False,
                 src_pad_mask=src_pad_mask,
                 tgt_pad_mask=tgt_pad_mask,
-                position_embeddings=position_embeddings,
             )
             pad_mask2 = ~dec_in[:, :-1].eq(self._tgt_pad_idx)
             in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(dim=1) / pad_mask2.sum(

@@ -3,6 +3,21 @@ import torch.nn as nn
 import math
 from torch import Tensor
 from typing import Tuple
+from eole.constants import PositionEncodingType
+
+
+class NoOpPosition:
+    """A no-op position encoding callable."""
+
+    def update(self, *args, **kwargs):
+        return None
+
+
+def build_rope(model_config, mode="1d"):
+    if model_config.position_encoding_type == PositionEncodingType.Rotary:
+        return RotaryPosition(model_config, mode=mode)
+    else:
+        return NoOpPosition()
 
 
 # Help functions for Rotary Embeddings

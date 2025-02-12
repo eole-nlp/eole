@@ -10,37 +10,37 @@ class RNNEncoder(EncoderBase):
     """A generic recurrent neural network encoder.
 
     Args:
-        model_config (eole.config.ModelConfig)
+        encoder_config (eole.config.ModelConfig)
         running_config (TrainingConfig / InferenceConfig)
     """
 
-    def __init__(self, model_config, running_config=None):
+    def __init__(self, encoder_config, running_config=None):
         super(RNNEncoder, self).__init__()
 
-        bidirectional = model_config.encoder_type == "brnn"
+        bidirectional = encoder_config.encoder_type == "brnn"
 
         num_directions = 2 if bidirectional else 1
-        assert model_config.hidden_size % num_directions == 0
-        hidden_size = model_config.hidden_size // num_directions
+        assert encoder_config.hidden_size % num_directions == 0
+        hidden_size = encoder_config.hidden_size // num_directions
 
-        self.rnn = getattr(nn, model_config.rnn_type)(
+        self.rnn = getattr(nn, encoder_config.rnn_type)(
             batch_first=True,
-            input_size=model_config.src_word_vec_size,
+            input_size=encoder_config.src_word_vec_size,
             hidden_size=hidden_size,
-            num_layers=model_config.layers,
+            num_layers=encoder_config.layers,
             dropout=getattr(running_config, "dropout", [0.0])[0],
             bidirectional=bidirectional,
         )
 
         # Initialize the bridge layer
-        self.use_bridge = model_config.bridge
+        self.use_bridge = encoder_config.bridge
         if self.use_bridge:
-            self._initialize_bridge(model_config.rnn_type, hidden_size, model_config.layers)
+            self._initialize_bridge(encoder_config.rnn_type, hidden_size, encoder_config.layers)
 
     @classmethod
-    def from_config(cls, model_config, running_config=None):
+    def from_config(cls, encoder_config, running_config=None):
         """Alternate constructor."""
-        return cls(model_config, running_config=running_config)
+        return cls(encoder_config, running_config=running_config)
 
     def forward(self, emb, **kwargs):
         """See :func:`EncoderBase.forward()`"""
