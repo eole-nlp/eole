@@ -15,7 +15,7 @@ class DecoderBase(nn.Module):
         self.state = {}
 
     @classmethod
-    def from_config(cls, model_config, running_config=None, with_cross_attn=False):
+    def from_config(cls, decoder_config, running_config=None, with_cross_attn=False):
         """Alternate constructor.
 
         Subclasses should override this method.

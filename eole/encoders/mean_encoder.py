@@ -8,21 +8,21 @@ class MeanEncoder(EncoderBase):
     """A trivial non-recurrent encoder. Simply applies mean pooling.
 
     Args:
-        model_config (eole.config.ModelConfig)
+        encoder_config (eole.config.ModelConfig)
         embeddings (eole.modules.Embeddings):
           embeddings to use, should have positional encodings
         running_config (TrainingConfig / InferenceConfig)
     """
 
-    def __init__(self, model_config, running_config=None):
+    def __init__(self, encoder_config, running_config=None):
         super(MeanEncoder, self).__init__()
-        self.num_layers = model_config.layers
+        self.num_layers = encoder_config.layers
 
     @classmethod
-    def from_config(cls, model_config, running_config=None):
+    def from_config(cls, encoder_config, running_config=None):
         """Alternate constructor."""
         # config = opt.model.encoder  # MeanEncoderConfig
-        return cls(model_config)
+        return cls(encoder_config)
 
     def forward(self, emb, **kwargs):
         """See :func:`EncoderBase.forward()`"""

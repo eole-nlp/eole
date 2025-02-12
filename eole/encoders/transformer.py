@@ -16,32 +16,32 @@ class TransformerEncoderLayer(nn.Module):
     A single layer of the transformer encoder.
 
     Args:
-        model_config (eole.config.TransformerEncoderConfig): full encoder config
+        encoder_config (eole.config.TransformerEncoderConfig): full encoder config
         running_config
     """
 
     def __init__(
         self,
-        model_config,
+        encoder_config,
         running_config=None,
     ):
         super(TransformerEncoderLayer, self).__init__()
-        self.parallel_residual = model_config.parallel_residual
+        self.parallel_residual = encoder_config.parallel_residual
         self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
 
         # order of layers corresponds to forward flow of tensors
-        self.input_layernorm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
+        self.input_layernorm = LayerNorm[encoder_config.layer_norm](encoder_config.hidden_size, eps=encoder_config.norm_eps)
         self.self_attn = SelfMHA(
-            model_config,
+            encoder_config,
             running_config=running_config,
             is_decoder=False,
         )
         self.dropout = nn.Dropout(self.dropout_p)
-        self.post_attention_layernorm = LayerNorm[model_config.layer_norm](
-            model_config.hidden_size, eps=model_config.norm_eps
+        self.post_attention_layernorm = LayerNorm[encoder_config.layer_norm](
+            encoder_config.hidden_size, eps=encoder_config.norm_eps
         )
         self.mlp = MLP(
-            model_config,
+            encoder_config,
             running_config=running_config,
         )
 
@@ -77,33 +77,33 @@ class TransformerEncoder(EncoderBase):
     :cite:`DBLP:journals/corr/VaswaniSPUJGKP17`
 
     Args:
-        model_config (eole.config.TransformerEncoderConfig): full encoder config
+        encoder_config (eole.config.TransformerEncoderConfig): full encoder config
         running_config (TrainingConfig / InferenceConfig)
     """
 
     def __init__(
         self,
-        model_config,
+        encoder_config,
         running_config=None,
     ):
         super(TransformerEncoder, self).__init__()
-        self.rope = build_rope(model_config)
+        self.rope = build_rope(encoder_config)
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerEncoderLayer(
-                    model_config,
+                    encoder_config,
                     running_config=running_config,
                 )
-                for i in range(model_config.layers)
+                for i in range(encoder_config.layers)
             ]
         )
-        self.layer_norm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
+        self.layer_norm = LayerNorm[encoder_config.layer_norm](encoder_config.hidden_size, eps=encoder_config.norm_eps)
 
     @classmethod
-    def from_config(cls, model_config, running_config=None):
+    def from_config(cls, encoder_config, running_config=None):
         """Alternate constructor."""
         return cls(
-            model_config,
+            encoder_config,
             running_config,
         )
 

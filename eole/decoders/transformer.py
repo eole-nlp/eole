@@ -16,63 +16,63 @@ class TransformerDecoderLayer(nn.Module):
     """Single layer of a transformer decoder
 
     Args:
-        model_config (eole.config.TransformerEncoderConfig): full encoder config
+        decoder_config (eole.config.TransformerEncoderConfig): full encoder config
         running_config (TrainingConfig / InferenceConfig)
         with_cross_attn (True when used with an encoder)
     """
 
     def __init__(
         self,
-        model_config,
+        decoder_config,
         running_config=None,
         with_cross_attn=False,
     ):
         super(TransformerDecoderLayer, self).__init__()
-        self.parallel_residual = model_config.parallel_residual
-        self.shared_layer_norm = model_config.shared_layer_norm
+        self.parallel_residual = decoder_config.parallel_residual
+        self.shared_layer_norm = decoder_config.shared_layer_norm
         self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
-        self.full_context_alignment = model_config.full_context_alignment
-        self.alignment_heads = model_config.alignment_heads
-        self.ffn_layernorm = model_config.ffn_layernorm
+        self.full_context_alignment = decoder_config.full_context_alignment
+        self.alignment_heads = decoder_config.alignment_heads
+        self.ffn_layernorm = decoder_config.ffn_layernorm
 
         # order of layers corresponds to forward flow of tensors
-        self.input_layernorm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
+        self.input_layernorm = LayerNorm[decoder_config.layer_norm](decoder_config.hidden_size, eps=decoder_config.norm_eps)
         self.self_attn = SelfMHA(
-            model_config,
+            decoder_config,
             running_config=running_config,
         )
         self.dropout = nn.Dropout(self.dropout_p)
         if with_cross_attn:
-            self.precontext_layernorm = LayerNorm[model_config.layer_norm](
-                model_config.hidden_size, eps=model_config.norm_eps
+            self.precontext_layernorm = LayerNorm[decoder_config.layer_norm](
+                decoder_config.hidden_size, eps=decoder_config.norm_eps
             )
             self.context_attn = ContextMHA(
-                model_config,
+                decoder_config,
                 running_config=running_config,
             )
         else:
             self.context_attn = None
 
         if self.ffn_layernorm:
-            self.pre_feedforward_layernorm = LayerNorm[model_config.layer_norm](
-                model_config.hidden_size, eps=model_config.norm_eps
+            self.pre_feedforward_layernorm = LayerNorm[decoder_config.layer_norm](
+                decoder_config.hidden_size, eps=decoder_config.norm_eps
             )
-            self.post_feedforward_layernorm = LayerNorm[model_config.layer_norm](
-                model_config.hidden_size, eps=model_config.norm_eps
+            self.post_feedforward_layernorm = LayerNorm[decoder_config.layer_norm](
+                decoder_config.hidden_size, eps=decoder_config.norm_eps
             )
 
-        if model_config.parallel_residual and not model_config.shared_layer_norm:
-            self.residual_layernorm = LayerNorm[model_config.layer_norm](
-                model_config.hidden_size, eps=model_config.norm_eps
+        if decoder_config.parallel_residual and not decoder_config.shared_layer_norm:
+            self.residual_layernorm = LayerNorm[decoder_config.layer_norm](
+                decoder_config.hidden_size, eps=decoder_config.norm_eps
             )
-        self.post_attention_layernorm = LayerNorm[model_config.layer_norm](
-            model_config.hidden_size, eps=model_config.norm_eps
+        self.post_attention_layernorm = LayerNorm[decoder_config.layer_norm](
+            decoder_config.hidden_size, eps=decoder_config.norm_eps
         )
-        if model_config.num_experts > 0:
-            self.mlp = MoE(model_config, running_config)
+        if decoder_config.num_experts > 0:
+            self.mlp = MoE(decoder_config, running_config)
         else:
             self.mlp = MLP(
-                model_config,
+                decoder_config,
                 running_config=running_config,
             )
 
@@ -194,40 +194,40 @@ class TransformerDecoder(DecoderBase):
     :cite:`DBLP:journals/corr/VaswaniSPUJGKP17`
 
     Args:
-        model_config (eole.config.TransformerEncoderConfig): full encoder config
+        decoder_config (eole.config.TransformerEncoderConfig): full encoder config
         running_config (TrainingConfig / InferenceConfig)
         with_cross_attn (True when used with an encoder)
     """
 
     def __init__(
         self,
-        model_config,
+        decoder_config,
         running_config=None,
         with_cross_attn=False,
     ):
         super(TransformerDecoder, self).__init__()
-        self.alignment_layer = model_config.alignment_layer
+        self.alignment_layer = decoder_config.alignment_layer
         self.with_cross_attn = with_cross_attn
-        self.sliding_window = model_config.sliding_window
-        self.rope = build_rope(model_config)
+        self.sliding_window = decoder_config.sliding_window
+        self.rope = build_rope(decoder_config)
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerDecoderLayer(
-                    model_config,
+                    decoder_config,
                     running_config=running_config,
                     with_cross_attn=with_cross_attn,
                 )
-                for i in range(model_config.layers)
+                for i in range(decoder_config.layers)
             ]
         )
-        self.layer_norm = LayerNorm[model_config.layer_norm](model_config.hidden_size, eps=model_config.norm_eps)
+        self.layer_norm = LayerNorm[decoder_config.layer_norm](decoder_config.hidden_size, eps=decoder_config.norm_eps)
         self._disable_cache()
 
     @classmethod
-    def from_config(cls, model_config, running_config=None, with_cross_attn=False):
+    def from_config(cls, decoder_config, running_config=None, with_cross_attn=False):
         """Alternate constructor."""
         return cls(
-            model_config,
+            decoder_config,
             running_config=running_config,
             with_cross_attn=with_cross_attn,
         )

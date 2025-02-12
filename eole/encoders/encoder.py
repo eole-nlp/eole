@@ -13,7 +13,7 @@ class EncoderBase(nn.Module):
     """
 
     @classmethod
-    def from_config(cls, model_config, running_config=None):
+    def from_config(cls, encoder_config, running_config=None):
         raise NotImplementedError
 
     def forward(self, emb, **kwargs):

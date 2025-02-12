@@ -21,39 +21,39 @@ class CNNDecoder(DecoderBase):
 
     def __init__(
         self,
-        model_config,
+        decoder_config,
         running_config=None,
         with_cross_attn=False,
     ):
         super(CNNDecoder, self).__init__()
 
-        self.cnn_kernel_width = model_config.cnn_kernel_width
+        self.cnn_kernel_width = decoder_config.cnn_kernel_width
 
         # Decoder State
         self.state = {}
 
-        input_size = model_config.hidden_size  # we need embeddings.src_vec_size
-        self.linear = nn.Linear(input_size, model_config.hidden_size)
+        input_size = decoder_config.hidden_size  # we need embeddings.src_vec_size
+        self.linear = nn.Linear(input_size, decoder_config.hidden_size)
         self.conv_layers = nn.ModuleList(
             [
                 GatedConv(
-                    model_config.hidden_size,
-                    model_config.cnn_kernel_width,
+                    decoder_config.hidden_size,
+                    decoder_config.cnn_kernel_width,
                     getattr(running_config, "dropout", [0.0])[0],
                     True,
                 )
-                for i in range(model_config.layers)
+                for i in range(decoder_config.layers)
             ]
         )
         self.attn_layers = nn.ModuleList(
-            [ConvMultiStepAttention(model_config.hidden_size) for i in range(model_config.layers)]
+            [ConvMultiStepAttention(decoder_config.hidden_size) for i in range(decoder_config.layers)]
         )
 
     @classmethod
-    def from_config(cls, model_config, running_config=None, with_cross_attn=False):
+    def from_config(cls, decoder_config, running_config=None, with_cross_attn=False):
         """Alternate constructor."""
         return cls(
-            model_config,
+            decoder_config,
             running_config,
             with_cross_attn=False,
         )

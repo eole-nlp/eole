@@ -259,11 +259,11 @@ class TransformerConfig(Config):
 
     @model_validator(mode="after")
     def _validate_transformer_config(self):
-        """
+
         if self.position_encoding_type == PositionEncodingType.Rotary:
             if self.rope_config is None:
                 self.rope_config = RotaryPositionConfig()
-        """
+
         if self.add_qkvbias and "add_final_linear_bias" not in self.model_fields_set:
             self.update(add_final_linear_bias=True)
         return self
@@ -472,6 +472,7 @@ class BaseModelConfig(Config):
 
     def update_model_opts(self):
         update_dict = {}
+        """
         if self.embeddings.position_encoding_type == PositionEncodingType.Rotary:
             if not self.rope_config:
                 update_dict["rope_config"] = RotaryPositionConfig()
@@ -480,7 +481,7 @@ class BaseModelConfig(Config):
                 rope_config = self.rope_config
         else:
             rope_config = None
-
+        """
         if self.embeddings is not None and self.embeddings.word_vec_size > 0:
             update_dict["embeddings"] = {
                 "src_word_vec_size": self.embeddings.word_vec_size,
@@ -499,7 +500,7 @@ class BaseModelConfig(Config):
                     {
                         "position_encoding_type": self.embeddings.position_encoding_type,
                         "n_positions": self.embeddings.n_positions,
-                        "rope_config": rope_config,
+                        # "rope_config": rope_config,
                     }
                 )
                 update_dict["position_encoding_type"] = self.embeddings.position_encoding_type
@@ -513,7 +514,7 @@ class BaseModelConfig(Config):
                     {
                         "position_encoding_type": self.embeddings.position_encoding_type,
                         "n_positions": self.embeddings.n_positions,
-                        "rope_config": rope_config,
+                        # "rope_config": rope_config,
                     }
                 )
                 update_dict["position_encoding_type"] = self.embeddings.position_encoding_type
