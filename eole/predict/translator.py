@@ -232,6 +232,7 @@ class Translator(Inference):
             )
             dec_in = torch.cat((prepend_value, dec_in), dim=1)
             src_pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
+            src_pad_mask = tile(src_pad_mask, parallel_paths)
             tgt_pad_mask = dec_in[:, :-1].eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
             emb = self.model.tgt_emb(dec_in[:, :-1])
             self.model.decoder._disable_cache()
