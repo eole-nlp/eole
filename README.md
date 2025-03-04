@@ -61,12 +61,12 @@ You can customize the workflow and build your own images based on specific needs
 
 To pull the Docker image:
 ```bash
-docker pull ghcr.io/eole-nlp/eole:0.1.1-torch2.5.1-ubuntu22.04-cuda12.4
+docker pull ghcr.io/eole-nlp/eole:0.1.2-torch2.5.1-ubuntu22.04-cuda12.4
 ```
 
 Example one-liner to run a container and open a bash shell within it:
 ```bash
-docker run --rm -it --runtime=nvidia ghcr.io/eole-nlp/eole:0.1.1-torch2.5.1-ubuntu22.04-cuda12.4
+docker run --rm -it --runtime=nvidia ghcr.io/eole-nlp/eole:0.1.2-torch2.5.1-ubuntu22.04-cuda12.4
 ```
 
 > **Note**: Ensure you have the [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (formerly nvidia-docker) installed to take advantage of CUDA/GPU features.

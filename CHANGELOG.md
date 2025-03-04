@@ -2,6 +2,13 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.1.2
+
+* quick fixes by @vince62s in https://github.com/eole-nlp/eole/pull/207
+* push rope back to encoder/decoder by @vince62s in https://github.com/eole-nlp/eole/pull/208
+* Keep track of datasets stats - log at validation by @vince62s in https://github.com/eole-nlp/eole/pull/209
+* bug in estim translator by @vince62s in https://github.com/eole-nlp/eole/pull/210
+
 ## 0.1.1
 
 * fix rope when very long sequence precision is key by @vince62s in https://github.com/eole-nlp/eole/pull/200
