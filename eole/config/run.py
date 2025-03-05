@@ -2,6 +2,7 @@ import os
 import json
 from typing import Dict, List, Any
 
+from eole.config import recursive_model_fields_set
 from eole.config.config import get_config_dict
 from eole.config.training import TrainingConfig
 from eole.config.inference import InferenceConfig
@@ -188,6 +189,12 @@ class PredictConfig(
             update_dict["_all_transform"] = transforms
         if "transforms_configs" not in self.model_fields_set:
             update_dict["transforms_configs"] = NestedAllTransformsConfig(**config_dict.get("transforms_configs", {}))
+        else:
+            # merge model transforms_configs with explicitly set config
+            # useful for cases like prefix/suffix that might not be set in the checkpoint
+            transforms_configs = recursive_model_fields_set(self.transforms_configs)
+            transforms_configs.update(config_dict.get("transforms_configs", {}))
+            update_dict["transforms_configs"] = NestedAllTransformsConfig(**transforms_configs)
         if "compute_dtype" not in self.model_fields_set:
             self.compute_dtype = config_dict.get("training", {}).get("compute_dtype", "fp16")
         for key, value in config_dict.get("inference", {}).items():
