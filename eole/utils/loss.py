@@ -322,11 +322,19 @@ class LossCompute(nn.Module):
             estimloss = torch.tensor([0.0], device=loss.device)
         n_sents = len(batch["srclen"])
 
-        stats = self._stats(n_sents, loss.sum().item(), estimloss.item(), scores, flat_tgt)
+        stats = self._stats(
+            n_sents,
+            loss.sum().item(),
+            estimloss.item(),
+            scores,
+            flat_tgt,
+            batch["cid"],
+            batch["cid_line_number"],
+        )
 
         return loss, stats, estimloss
 
-    def _stats(self, bsz, loss, auxloss, scores, target):
+    def _stats(self, bsz, loss, auxloss, scores, target, cids, cids_idx):
         """
         Args:
             loss (int): the loss computed by the loss criterion.
@@ -346,11 +354,19 @@ class LossCompute(nn.Module):
         n_batchs = 1 if bsz else 0
         # in the case criterion reduction is None then we need
         # to sum the loss of each sentence in the batch
+        data = {}
+        for cid, idx in zip(cids, cids_idx):
+            if cid not in data.keys():
+                data[cid] = {"count": 1, "index": idx}
+            else:
+                data[cid]["count"] += 1
+                data[cid]["index"] = min(idx, data[cid]["index"])
         return eole.utils.Statistics(
             loss=loss,
             auxloss=auxloss,
             n_batchs=n_batchs,
             n_sents=bsz,
-            n_words=num_non_padding,
+            n_tokens=num_non_padding,
             n_correct=num_correct,
+            data_stats=data,
         )

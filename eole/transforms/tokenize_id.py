@@ -96,7 +96,7 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
             kwargs = {"max_length": max_length, "truncation": True}
         else:
             kwargs = {}
-        tokens = self.tokenizers[side].encode(string, **kwargs)
+        tokens = self.tokenizers[side].encode(string.replace(DefaultTokens.SEP, "\n"), **kwargs)
         return tokens
 
     def apply(self, example, is_train=False, stats=None, **kwargs):

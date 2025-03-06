@@ -11,8 +11,7 @@ from typing import Optional
 # from eole.modules.multi_headed_attn import SelfMHA
 from eole.modules.rmsnorm import RMSNorm
 from eole.encoders.transformer import TransformerEncoderLayer
-from eole.constants import PositionEncodingType
-from eole.modules.rope import RotaryPosition
+from eole.modules.rope import build_rope
 
 
 def position_ids_in_meshgrid(patch_embeds_list, max_width):
@@ -48,38 +47,37 @@ def create_block_diagonal_mask(lengths, device):
 
 
 class VisionEncoder(nn.Module):
-    def __init__(self, model_config, running_config=None):
+    def __init__(self, encoder_config, running_config=None):
         super(VisionEncoder, self).__init__()
-        self.model_config = model_config
-        if model_config.position_encoding_type == PositionEncodingType.Rotary:
-            self.rope = RotaryPosition(model_config, mode="2d")
+        self.encoder_config = encoder_config
+        self.rope = build_rope(encoder_config, mode="2d")
         self.patch_conv = nn.Conv2d(
-            in_channels=model_config.num_channels,
-            out_channels=model_config.hidden_size,
-            kernel_size=model_config.patch_size,
-            stride=model_config.patch_size,
+            in_channels=encoder_config.num_channels,
+            out_channels=encoder_config.hidden_size,
+            kernel_size=encoder_config.patch_size,
+            stride=encoder_config.patch_size,
             bias=False,
         )
-        self.ln_pre = RMSNorm(model_config.hidden_size, eps=1e-5)
+        self.ln_pre = RMSNorm(encoder_config.hidden_size, eps=1e-5)
         self.transformer_layers = torch.nn.ModuleList()
-        for _ in range(model_config.layers):
-            self.transformer_layers.append(TransformerEncoderLayer(model_config, running_config=running_config))
+        for _ in range(encoder_config.layers):
+            self.transformer_layers.append(TransformerEncoderLayer(encoder_config, running_config=running_config))
 
-        head_dim = model_config.hidden_size // model_config.heads
+        head_dim = encoder_config.hidden_size // encoder_config.heads
         assert head_dim % 2 == 0, "ROPE requires even head_dim"
         self._freqs_cis: Optional[torch.Tensor] = None
 
     @classmethod
-    def from_config(cls, model_config, running_config=None):
+    def from_config(cls, encoder_config, running_config=None):
         """Alternate constructor."""
         return cls(
-            model_config,
+            encoder_config,
             running_config,
         )
 
     @property
     def max_patches_per_side(self):
-        return self.model_config.image_size // self.model_config.patch_size
+        return self.encoder_config.image_size // self.encoder_config.patch_size
 
     @property
     def device(self):
@@ -109,17 +107,14 @@ class VisionEncoder(nn.Module):
         # positional embeddings
         positions = position_ids_in_meshgrid(
             patch_embeds_list,
-            max_width=self.model_config.image_size // self.model_config.patch_size,
+            max_width=self.encoder_config.image_size // self.encoder_config.patch_size,
         )
-        if hasattr(self, "rope"):
-            position_embeddings = self.rope.update(
-                patch_embeds.size(1),
-                step=0,
-                reset=True,
-                positions=positions,
-            )
-        else:
-            position_embeddings = None
+        position_embeddings = self.rope.update(
+            patch_embeds.size(1),
+            step=0,
+            reset=True,
+            positions=positions,
+        )
 
         # pass through Transformer with a block diagonal mask delimiting images
         mask = create_block_diagonal_mask(

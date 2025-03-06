@@ -218,12 +218,12 @@ ACT_TABLE = defaultdict(
     },
 )
 
-EMBED_TABLE = defaultdict(
-    lambda: PositionEncodingType.Rotary,
-    {
-        "M2M100ForConditionalGeneration": PositionEncodingType.SinusoidalConcat,
-    },
-)
+# EMBED_TABLE = defaultdict(
+#     lambda: PositionEncodingType.Rotary,
+#     {
+#         "M2M100ForConditionalGeneration": PositionEncodingType.SinusoidalConcat,
+#     },
+# )
 
 # Eole config class
 ARCH_TABLE = defaultdict(
@@ -526,32 +526,21 @@ def build_config_dict(hf):
         "tgt_word_vec_size": model_config["hidden_size"],
     }
 
-    # Position encoding configuration
-    model_config["embeddings"].update(
-        {
-            "position_encoding_type": EMBED_TABLE[arch],
-            # "n_positions": 0,
-        }
-    )
-    # if "max_position_embeddings" in config.keys():
-    #     model_config["embeddings"]["n_positions"] = config["max_position_embeddings"]
-
     # patch rotary dim
-    if EMBED_TABLE[arch] == PositionEncodingType.Rotary:
-        if "rotary_dim" in config.keys():
-            model_config["rope_config"]["rotary_dim"] = config["rotary_dim"]
-        elif "partial_rotary_factor" in config.keys():
-            model_config["rope_config"]["rotary_dim"] = int(
-                config["partial_rotary_factor"] * (model_config["hidden_size"] // model_config["heads"])
-            )
-        elif model_config.get("head_dim", None) is not None:
-            model_config["rope_config"]["rotary_dim"] = model_config["head_dim"]
-        else:
-            model_config["rope_config"]["rotary_dim"] = model_config["hidden_size"] // model_config["heads"]
+    if "rotary_dim" in config.keys():
+        model_config["rope_config"]["rotary_dim"] = config["rotary_dim"]
+    elif "partial_rotary_factor" in config.keys():
+        model_config["rope_config"]["rotary_dim"] = int(
+            config["partial_rotary_factor"] * (model_config["hidden_size"] // model_config["heads"])
+        )
+    elif model_config.get("head_dim", None) is not None:
+        model_config["rope_config"]["rotary_dim"] = model_config["head_dim"]
+    else:
+        model_config["rope_config"]["rotary_dim"] = model_config["hidden_size"] // model_config["heads"]
 
-        # patch rotary theta
-        if "rotary_theta" in config.keys():
-            model_config["rope_config"]["rotary_theta"] = config["rotary_theta"]
+    # patch rotary theta
+    if "rope_theta" in config.keys():
+        model_config["rope_config"]["rotary_theta"] = config["rope_theta"]
 
     # Validate required fields
     required_fields = {

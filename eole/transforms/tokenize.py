@@ -520,6 +520,7 @@ class ONMTTokenizerTransform(TokenizerTransform):
         tokenizer = self.load_models[side]
         if self.gpt2_pretok:
             sentence = "".join(tokens)
+            sentence = sentence.replace("｟", "ï½Ł").replace("｠", "ï½ł")
             detokenized = bytearray([self.revtable[c] for c in sentence]).decode("utf-8", errors="replace")
         else:
             detokenized = tokenizer.detokenize(tokens)
