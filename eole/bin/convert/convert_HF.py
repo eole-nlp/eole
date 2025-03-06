@@ -218,13 +218,6 @@ ACT_TABLE = defaultdict(
     },
 )
 
-# EMBED_TABLE = defaultdict(
-#     lambda: PositionEncodingType.Rotary,
-#     {
-#         "M2M100ForConditionalGeneration": PositionEncodingType.SinusoidalConcat,
-#     },
-# )
-
 # Eole config class
 ARCH_TABLE = defaultdict(
     lambda: TransformerLMModelConfig,
