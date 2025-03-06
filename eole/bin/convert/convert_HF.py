@@ -603,6 +603,14 @@ def build_config_dict(hf):
 
     model_config["share_decoder_embeddings"] = config.get("tie_word_embeddings", False)
 
+    # Default position encoding configuration
+    model_config["embeddings"].update(
+        {
+            "position_encoding_type": "Rotary",
+            "n_positions": 0,
+        }
+    )
+
     # Define architecture-specific configurations
     arch_configs = {
         "PhiForCausalLM": {
