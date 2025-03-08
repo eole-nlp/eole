@@ -218,7 +218,7 @@ ${PYTHON} eole/bin/main.py train \
             -tgt_vocab $TMP_OUT_DIR/eole.vocab.tgt \
             -src_vocab_size 1000 \
             -tgt_vocab_size 1000 \
-            -model '{"architecture": "transformer", "layers": 4, "hidden_size": 16, "transformer_ff": 64, "heads": 2, "encoder": {"encoder_type": "transformer"}, "embeddings": {"word_vec_size": 16, "position_encoding_type": "Rotary"}}' \
+            -model '{"architecture": "transformer", "layers": 4, "hidden_size": 16, "transformer_ff": 64, "heads": 2, "embeddings": {"word_vec_size": 16, "position_encoding_type": "Rotary"}}' \
             -training '{"batch_size": 10, "num_workers": 0, "bucket_size": 1024, "train_steps": 10, "valid_steps": 5}' \
             -valid_metrics "BLEU" "TER" \
             -report_every 2 \

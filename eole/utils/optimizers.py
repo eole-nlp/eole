@@ -337,13 +337,18 @@ class Optimizer(object):
                 # Reset options, keep optimizer.
                 optim_state_dict = ckpt_state_dict
 
+        use_amp = running_config.use_amp and running_config.compute_dtype == torch.float16
         optimizer = cls(
             build_torch_optimizer(model, running_config),
             running_config.learning_rate,
             learning_rate_decay_fn=make_learning_rate_decay_fn(config),
             max_grad_norm=running_config.max_grad_norm,
-            use_amp=running_config.use_amp,
+            use_amp=use_amp,
         )
+        if use_amp:
+            from torch.amp import GradScaler
+
+            optimizer._scaler = GradScaler("cuda")
 
         if optim_state_dict:
             optimizer.load_state_dict(optim_state_dict)
