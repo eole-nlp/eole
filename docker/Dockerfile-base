@@ -24,20 +24,5 @@ RUN pip3 install packaging
 # Install torch
 RUN CU=$(echo "${CUDA_VERSION%.*}" | sed 's/\.//g'); pip3 install torch==$TORCH_VERSION --index-url "https://download.pytorch.org/whl/cu$CU"
 
-# Install apex
-RUN mkdir /setup
-WORKDIR /setup
-RUN git clone https://github.com/nvidia/apex
-WORKDIR /setup/apex
-RUN pip3 install ninja
-ENV TORCH_CUDA_ARCH_LIST="6.0;6.1;6.2;7.0;7.5;8.6;8.7;9.0+PTX"
-RUN export MAX_JOBS=$(nproc); pip3 install -v --no-build-isolation \
-    --config-settings --global-option="--cpp_ext" \
-    --config-settings --global-option="--cuda_ext" \
-    --config-settings --global-option="--deprecated_fused_adam" \
-    --global-option="--xentropy" \
-    --global-option="--fast_multihead_attn" \
-    ./
-
 # Install flash-attention
 RUN pip install flash-attn --no-build-isolation

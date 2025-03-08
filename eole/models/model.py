@@ -421,8 +421,7 @@ class BaseModel(nn.Module):
                 model.src_emb.load_pretrained_vectors(running_config.pre_word_vecs_enc)
             if hasattr(model.decoder, "embeddings"):
                 model.tgt_emb.load_pretrained_vectors(running_config.pre_word_vecs_dec)
-        # dtype/amp/apex stuff
-        # ONLY for legacy fusedam with amp pytorch requires NOT to half the model
+
         if training:
             model.training_logic(running_config, vocabs, checkpoint, device_id)
             logger.info(model)

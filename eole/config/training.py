@@ -13,7 +13,7 @@ class OptimizerConfig(Config):
     Everything related to optimizers.
     Might be split into multiple subclasses later.
     Note: not fully sufficient (yet) to replace full opt namespace in build_torch_optimizer.
-    Some other parameters (hidden_size, compute_dtype, apex_opt_level, etc.) are accessed.
+    Some other parameters (hidden_size, compute_dtype, etc.) are accessed.
     """
 
     optim: Literal[
@@ -24,7 +24,6 @@ class OptimizerConfig(Config):
         "adamw",
         "sparseadam",
         "adafactor",
-        "fusedadam",
         "adamw8bit",
         "pagedadamw8bit",
         "pagedadamw32bit",
@@ -56,7 +55,9 @@ class OptimizerConfig(Config):
         "a value of 0.98 for beta2, this parameter may not work well "
         "for normal models / default baselines.",
     )
+    adam_eps: float = Field(default=1e-8, description="Adam epsilon to forward to torch Optimizer.")
     weight_decay: float = Field(default=0.0, description="Weight decay to forward to torch Optimizer.")
+    use_amp: bool = Field(default=True, description="Use torch mixed precision when compute_dtype is 16-bit.")
     learning_rate: float = Field(
         default=1.0,
         description="Starting learning rate. " "Recommended settings: " "sgd=1, adagrad=0.1, adadelta=1, adam=0.001.",
@@ -197,16 +198,6 @@ class TrainingConfig(
         description="Step for moving average. Default is every update if average_decay is set.",
     )
 
-    loss_scale: float = Field(
-        default=0.0,
-        description="For FP16 training, the static loss scale to use. "
-        "If not set, the loss scale is dynamically computed.",
-    )
-    apex_opt_level: Literal["", "O0", "O1", "O2", "O3"] = Field(
-        default="",
-        description="For FP16 training, the opt_level to use. "
-        "See https://nvidia.github.io/apex/amp.html#opt-levels.",
-    )
     zero_out_prompt_loss: bool = Field(
         default=False,
         description="Set the prompt loss to zero. Mostly for LLM finetuning. "
@@ -234,21 +225,14 @@ class TrainingConfig(
         Deduce which dtype to use for main model parameters.
         E.g. with mixed precision a copy is kept in float32.
         """
-        if (
-            self.compute_dtype == torch.float16
-            and self.apex_opt_level not in ["O0", "O1", "O2", "O3"]
-            and self.optim == "fusedadam"
-        ):
-            dtype = torch.float16
-            logger.info("Switching model to half() for FusedAdam legacy")
+        if self.compute_dtype in [torch.float16, torch.bfloat16] and not self.use_amp:
+            dtype = self.compute_dtype
+            logger.info("Model weights remain in lower precision")
             logger.info("Non quantized layer compute is %s", self.compute_dtype)
-        elif self.compute_dtype == torch.bfloat16:
-            logger.info("Switching model to pure bfloat16 training")
-            dtype = torch.bfloat16
         else:
             dtype = torch.float32
-            if self.compute_dtype == torch.float16:
-                logger.info("Switching model to float32 for amp/apex_amp")
+            if self.compute_dtype in [torch.float16, torch.bfloat16]:
+                logger.info("Model weights will be float32 (torch AMP)")
                 logger.info("Non quantized layer compute is %s", self.compute_dtype)
         return dtype
 
@@ -302,8 +286,6 @@ class TrainingConfig(
         ):
             logger.warn(f"xavier_uniform initialization does not require param_init ({self.param_init})")
 
-        if self.optim == "fusedadam":
-            assert self.compute_dtype == torch.float16, "optim: fusedam requires fp16 compute_dtype"
         assert (
             self.compute_dtype != torch.int8
         ), "int8 compute_dtype is currently only used for inference dynamic quantization"

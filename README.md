@@ -107,16 +107,6 @@ pip install -r requirements.opt.txt
 
 ### Manual Installation of Some Dependencies
 
-#### Apex
-
-Apex is recommended for improved performance, especially for the legacy fusedadam optimizer and FusedRMSNorm.
-```bash
-git clone https://github.com/NVIDIA/apex
-cd apex
-pip3 install -v --no-build-isolation --config-settings --build-option="--cpp_ext --cuda_ext --deprecated_fused_adam --xentropy --fast_multihead_attn" ./
-cd ..
-```
-
 #### Flash Attention
 
 To use [Flash Attention](https://github.com/Dao-AILab/flash-attention#installation-and-features), install it manually:

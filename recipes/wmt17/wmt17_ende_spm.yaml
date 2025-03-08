@@ -57,9 +57,9 @@ training:
     accum_steps: [0]
 
     # Optimizer & Compute
-    compute_dtype: "fp16"
-    #apex_opt_level: "O2"
-    optim: "fusedadam"
+    compute_dtype: "fbf6"
+    optim: "adamw"
+    use_amp: False
     learning_rate: 2
     warmup_steps: 4000
     decay_method: "noam"

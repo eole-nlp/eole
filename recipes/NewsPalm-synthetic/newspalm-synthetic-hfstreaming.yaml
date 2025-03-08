@@ -89,9 +89,9 @@ training:
     accum_steps: [0, 15000, 30000]
 
     # Optimization
-    compute_dtype: "fp16"
-    apex_opt_level: ""
+    compute_dtype: "bf16"
     optim: "adamw"
+    use_amp: False
     reset_optim: "all"
     learning_rate: 1
     warmup_steps: 6000

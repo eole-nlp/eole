@@ -72,9 +72,9 @@ training:
     accum_steps: [0]
 
     # Optimization
-    compute_dtype: "fp16"
-    #apex_opt_level: "O2"
-    optim: "fusedadam"
+    compute_dtype: "bf16"
+    optim: "adamw"
+    use_amp: False
     learning_rate: 0.000015
     decay_method: "none"
     start_decay_steps: 1000000
