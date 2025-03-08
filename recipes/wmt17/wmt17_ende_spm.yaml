@@ -57,7 +57,7 @@ training:
     accum_steps: [0]
 
     # Optimizer & Compute
-    compute_dtype: "fbf6"
+    compute_dtype: "bf16"
     optim: "adamw"
     use_amp: False
     learning_rate: 2
