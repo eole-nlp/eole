@@ -241,14 +241,14 @@ class TrainingModelSaver(ModelSaverBase):
     def _save_vocab(self):
         vocab_data = vocabs_to_dict(self.vocabs)
         vocab_path = os.path.join(self.model_path, self.step_dir, "vocab.json")
-        with open(vocab_path, "w") as f:
+        with open(vocab_path, "w", encoding="utf-8") as f:
             json.dump(vocab_data, f, indent=2, ensure_ascii=False)
         self._make_symlink("vocab.json")
 
     def _save_config(self):
         config_data = recursive_model_fields_set(self.config)
         config_path = os.path.join(self.model_path, self.step_dir, "config.json")
-        with open(config_path, "w") as f:
+        with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=2, ensure_ascii=False)
         self._make_symlink("config.json")
 

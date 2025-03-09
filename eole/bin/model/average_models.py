@@ -54,7 +54,7 @@ class AverageModels(BaseBin):
 
         # this maybe better implemented using model_saver classes
         # config
-        with open(os.path.join(args.output, "config.json"), "w") as f:
+        with open(os.path.join(args.output, "config.json"), "w", encoding="utf-8") as f:
             json.dump(
                 recursive_model_fields_set(final["config"]),
                 f,
@@ -62,7 +62,7 @@ class AverageModels(BaseBin):
                 ensure_ascii=False,
             )
         # vocab
-        with open(os.path.join(args.output, "vocab.json"), "w") as f:
+        with open(os.path.join(args.output, "vocab.json"), "w", encoding="utf-8") as f:
             json.dump(final["vocab"], f, indent=2, ensure_ascii=False)
         # optimizer
         torch.save(final["optim"], os.path.join(args.output, "optimizer.pt"))
