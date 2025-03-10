@@ -74,6 +74,11 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
             numeric["src"]["src_ids"] = vocabs["src"](src_text)
         if example.get("tgt", None) is not None:
             if maybe_tgt_ids != []:
+                # TODO: handle this better in HF tokenizer templates
+                if decoder_start_token != "":
+                    decoder_start_token_id = vocabs["tgt"].tokens_to_ids[decoder_start_token]
+                    if maybe_tgt_ids[0] != decoder_start_token_id:
+                        maybe_tgt_ids = [decoder_start_token_id] + maybe_tgt_ids
                 numeric["tgt"]["tgt_ids"] = maybe_tgt_ids
             else:
                 tgt_text = example["tgt"]["tgt"].split(" ")
@@ -89,7 +94,6 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
             numeric["src"]["src_ids"] = vocabs["src"](src_text)
         if example["tgt"] is not None:
             if maybe_tgt_ids != []:
-                # decoder_start_token logic is supposedly handled in the tokenizer
                 numeric["tgt"]["tgt_ids"] = maybe_tgt_ids
             else:
                 tgt_text = example["tgt"]["tgt"].split(" ")

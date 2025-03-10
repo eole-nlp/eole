@@ -24,12 +24,13 @@ from eole.bin import BaseBin, register_bin
 from eole.config import recursive_model_fields_set
 from eole.config.models import (
     TransformerEncoderModelConfig,
+    TransformerModelConfig,
     TransformerLMModelConfig,
     VisionTransformerLMModelConfig,
 )
 from eole.config.run import TrainConfig
 from eole.config.training import TrainingConfig
-from eole.constants import DefaultTokens, TORCH_DTYPES
+from eole.constants import DefaultTokens, TORCH_DTYPES, PositionEncodingType
 from eole.inputters.inputter import vocabs_to_dict
 
 
@@ -150,6 +151,44 @@ MODEL_OVERRIDES = {
         "adapter.w_out.weight": "multi_modal_projector.linear_2.weight",
         "adapter.w_out.bias": "multi_modal_projector.linear_2.bias",
     },
+    "M2M100ForConditionalGeneration": {
+        "encoder_layer_prefix": "model.encoder.layers.",
+        "decoder_layer_prefix": "model.decoder.layers.",
+        "src_emb.embeddings.weight": "model.encoder.embed_tokens.weight",
+        "tgt_emb.embeddings.weight": "model.decoder.embed_tokens.weight",
+        "decoder.layer_norm.weight": "model.decoder.layer_norm.weight",
+        "decoder.layer_norm.bias": "model.decoder.layer_norm.bias",
+        "encoder.layer_norm.weight": "model.encoder.layer_norm.weight",
+        "encoder.layer_norm.bias": "model.encoder.layer_norm.bias",
+        ".self_attn.linear_query.": ".self_attn.q_proj.",
+        ".self_attn.linear_keys.": ".self_attn.k_proj.",
+        ".self_attn.linear_values.": ".self_attn.v_proj.",
+        ".self_attn.final_linear.": ".self_attn.out_proj.",
+        ".precontext_layernorm.weight": ".encoder_attn_layer_norm.weight",
+        ".precontext_layernorm.bias": ".encoder_attn_layer_norm.bias",
+        ".context_attn.linear_query.": ".encoder_attn.q_proj.",
+        ".context_attn.linear_keys.": ".encoder_attn.k_proj.",
+        ".context_attn.linear_values.": ".encoder_attn.v_proj.",
+        ".context_attn.final_linear.": ".encoder_attn.out_proj.",
+        ".mlp.gate_up_proj.": ".fc1.",
+        ".mlp.down_proj.": ".fc2.",
+        ".input_layernorm.weight": ".self_attn_layer_norm.weight",
+        ".input_layernorm.bias": ".self_attn_layer_norm.bias",
+        ".post_attention_layernorm.weight": ".final_layer_norm.weight",
+        ".post_attention_layernorm.bias": ".final_layer_norm.bias",
+        "encoder": {
+            ".self_attn.linear_query.": ".self_attn.q_proj.",
+            ".self_attn.linear_keys.": ".self_attn.k_proj.",
+            ".self_attn.linear_values.": ".self_attn.v_proj.",
+            ".self_attn.final_linear.": ".self_attn.out_proj.",
+            ".mlp.gate_up_proj.": ".fc1.",
+            ".mlp.down_proj.": ".fc2.",
+            ".input_layernorm.weight": ".self_attn_layer_norm.weight",
+            ".input_layernorm.bias": ".self_attn_layer_norm.bias",
+            ".post_attention_layernorm.weight": ".final_layer_norm.weight",
+            ".post_attention_layernorm.bias": ".final_layer_norm.bias",
+        },
+    },
 }
 
 # Combine base mappings with overrides
@@ -163,6 +202,7 @@ LN_TABLE = defaultdict(
         "GPT2LMHeadModel": "standard",
         "XLMRobertaXLForMaskedLM": "standard",
         "Gemma2ForCausalLM": "gemma-rms",
+        "M2M100ForConditionalGeneration": "standard",
     },
 )
 
@@ -174,6 +214,7 @@ ACT_TABLE = defaultdict(
         "GPT2LMHeadModel": "gelu",
         "XLMRobertaXLForMaskedLM": "gelu",
         "Gemma2ForCausalLM": "gated-gelu",
+        "M2M100ForConditionalGeneration": "relu",
     },
 )
 
@@ -183,6 +224,7 @@ ARCH_TABLE = defaultdict(
     {
         "XLMRobertaXLForMaskedLM": TransformerEncoderModelConfig,
         "LlavaForConditionalGeneration": VisionTransformerLMModelConfig,
+        "M2M100ForConditionalGeneration": TransformerModelConfig,
     },
 )
 
@@ -426,11 +468,12 @@ def build_config_dict(hf):
     # Initialize model_config with defaults and fallbacks
     model_config = {
         "layers": config.get("num_hidden_layers", config.get("n_layer", config.get("n_layers"))),
-        "hidden_size": config.get("hidden_size", config.get("n_embd", config.get("hidden_dim"))),
+        "hidden_size": config.get("hidden_size", config.get("n_embd", config.get("hidden_dim", config.get("d_model")))),
         "heads": config.get(
-            "num_attention_heads", config.get("n_head", config.get("n_heads", 32))
+            "num_attention_heads",
+            config.get("n_head", config.get("n_heads", config.get("decoder_attention_heads", 32))),
         ),  # default 32 patch for mistral-community/pixtral-12b
-        "transformer_ff": config.get("intermediate_size", config.get("hidden_size", config.get("n_embd")) * 4),
+        "transformer_ff": config.get("intermediate_size", config.get("decoder_ffn_dim", None)),
         "mlp_activation_fn": ACT_TABLE[arch],
         "layer_norm": LN_TABLE[arch],
         "heads_kv": config.get("multi_query", False)
@@ -462,9 +505,19 @@ def build_config_dict(hf):
         "embeddings": {},  # Populated later
     }
 
+    # patch transformer_ff
+    if model_config["transformer_ff"] is None:
+        model_config["transformer_ff"] = model_config["hidden_size"] * 4
+
     # patch sliding window
     if model_config["sliding_window"] is None:
         model_config["sliding_window"] = 4096
+
+    # Populate embeddings
+    model_config["embeddings"] = {
+        "src_word_vec_size": model_config["hidden_size"],
+        "tgt_word_vec_size": model_config["hidden_size"],
+    }
 
     # patch rotary dim
     if "rotary_dim" in config.keys():
@@ -492,12 +545,6 @@ def build_config_dict(hf):
     for key, error_msg in required_fields.items():
         if model_config[key] is None:
             raise ValueError(error_msg)
-
-    # Populate embeddings
-    model_config["embeddings"] = {
-        "src_word_vec_size": model_config["hidden_size"],
-        "tgt_word_vec_size": model_config["hidden_size"],
-    }
 
     # Update rope scaling related settings
     if config.get("rope_scaling", None) is not None:
@@ -549,10 +596,10 @@ def build_config_dict(hf):
 
     model_config["share_decoder_embeddings"] = config.get("tie_word_embeddings", False)
 
-    # Position encoding configuration
+    # Default position encoding configuration
     model_config["embeddings"].update(
         {
-            "position_encoding_type": "Rotary",
+            "position_encoding_type": PositionEncodingType.Rotary,
             "n_positions": 0,
         }
     )
@@ -599,6 +646,18 @@ def build_config_dict(hf):
             "embeddings": {
                 "normalize": True,
             },
+        },
+        "M2M100ForConditionalGeneration": {
+            "parallel_residual": False,
+            "add_qkvbias": True,
+            "add_final_linear_bias": True,
+            "add_ffnbias": True,
+            "embeddings": {
+                "position_encoding_type": "SinusoidalConcat",
+                "n_positions": 1024,
+            },
+            "left_pad": False,
+            "share_decoder_embeddings": True,
         },
     }
 
@@ -827,7 +886,8 @@ def build_shards(model_config, hf, args, params):
                         # TODO: factorize this better
                         for key_map in [KEY_MAPS[hf.arch], KEY_MAPS[hf.arch].get("encoder", {})]:
                             for target, source in key_map.items():
-                                if not isinstance(source, str):
+                                # TODO: this should be cleaned up when rationalizing encoder/decoder mappings
+                                if not (isinstance(source, str) or isinstance(source, tuple)):
                                     continue
                                 if target in first_shard_targets:
                                     continue
@@ -858,6 +918,7 @@ def build_shards(model_config, hf, args, params):
                         for module in [
                             "input_layernorm",
                             "layer_norm_res",
+                            "precontext_layernorm",
                             "post_attention_layernorm",
                             "pre_feedforward_layernorm",
                             "post_feedforward_layernorm",
@@ -904,13 +965,16 @@ def build_shards(model_config, hf, args, params):
 
 def check_sentencepiece_tokenizer(hf):
     tokenizer_basename = os.path.basename(hf.tokenizer_model)
-    vocab = get_sentencepiece_vocab(hf.tokenizer_model)
     if hf.tokenizer_json is not None:
-        # We need to add 'added_tokens' that are not in the SP model
-        newtokens = [tok["content"] for tok in hf.tokenizer["added_tokens"] if tok["content"] not in vocab]
-        vocab.extend(newtokens)
-        for tok in hf.tokenizer["added_tokens"]:
-            vocab[tok["id"]] = tok["content"]
+        vocab = list(hf.tokenizer["model"]["vocab"].keys())
+    else:
+        vocab = get_sentencepiece_vocab(hf.tokenizer_model)
+        if hf.tokenizer_json is not None:
+            # We need to add 'added_tokens' that are not in the SP model
+            newtokens = [tok["content"] for tok in hf.tokenizer["added_tokens"] if tok["content"] not in vocab]
+            vocab.extend(newtokens)
+            for tok in hf.tokenizer["added_tokens"]:
+                vocab[tok["id"]] = tok["content"]
     src_vocab = pyonmttok.build_vocab_from_tokens(
         vocab,
     )
@@ -1068,7 +1132,9 @@ class LlamaHFConverter(BaseBin):
                     },
                 }
 
-        if add_bos_token:
+        if hf.config.get("decoder_start_token_id", None) is not None:
+            vocabs["decoder_start_token"] = src_vocab.ids_to_tokens[hf.config["decoder_start_token_id"]]
+        elif add_bos_token:
             vocabs["decoder_start_token"] = vocabs["specials"]["bos_token"]
         else:
             vocabs["decoder_start_token"] = ""

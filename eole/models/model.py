@@ -611,7 +611,8 @@ class BaseModel(nn.Module):
                 logger.info("%s: %d new tokens" % (side, len(new_tokens)))
 
         for name, module in self.named_modules():
-            named_buf_and_param = list(module.named_buffers()) + list(module.named_parameters())
+            buffers_list = list(module.named_buffers())
+            named_buf_and_param = buffers_list + list(module.named_parameters())
             for param_name, param in named_buf_and_param:
                 # special handling for update vocab related stuff
                 # if param_name in [enc_emb_name, dec_emb_name, ]
@@ -628,6 +629,8 @@ class BaseModel(nn.Module):
                     elif strict and ("lora" not in param_name and "slopes" not in param_name and "rope" not in name):
                         # Let's warn instead of just passing
                         logger.info("Missing key in safetensors checkpoint: %s" % name + "." + param_name)
+                        if len(buffers_list) > 0 and param_name in list(zip(*module.named_buffers()))[0]:
+                            logger.info("└─> Found in buffers, probably ok")
                         if (
                             f"{name}.{param_name}" in ["generator.weight", "generator.bias"]
                             and self.share_decoder_embeddings
