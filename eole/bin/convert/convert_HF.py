@@ -886,7 +886,8 @@ def build_shards(model_config, hf, args, params):
                         # TODO: factorize this better
                         for key_map in [KEY_MAPS[hf.arch], KEY_MAPS[hf.arch].get("encoder", {})]:
                             for target, source in key_map.items():
-                                if not isinstance(source, str):
+                                # TODO: this should be cleaned up when rationalizing encoder/decoder mappings
+                                if not (isinstance(source, str) or isinstance(source, tuple)):
                                     continue
                                 if target in first_shard_targets:
                                     continue
