@@ -227,8 +227,9 @@ class TrainingConfig(
         """
         if self.compute_dtype in [torch.float16, torch.bfloat16] and not self.use_amp:
             dtype = self.compute_dtype
-            logger.info("Model weights remain in lower precision")
+            logger.info("Pure low precision training")
             logger.info("Non quantized layer compute is %s", self.compute_dtype)
+            logger.info("This config has been tested to work only with bf16 / Adam(w)")
         else:
             dtype = torch.float32
             if self.compute_dtype in [torch.float16, torch.bfloat16]:

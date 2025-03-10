@@ -1,7 +1,6 @@
 """ Optimizers class """
 
 import torch
-import torch.optim as torch_optim
 from torch.nn.utils import clip_grad_norm_
 import operator
 import functools
@@ -10,7 +9,7 @@ from math import sqrt, cos, pi
 import os
 
 try:
-    import optimi as torch_optimi
+    import optimi
 
     optimi_available = True
 except ImportError:
@@ -41,11 +40,13 @@ def build_torch_optimizer(model, config):
     """
     params = [p for p in model.parameters() if p.requires_grad]
     betas = [config.adam_beta1, config.adam_beta2]
-    print(config.use_amp, optimi_available)
+
     if config.use_amp or not optimi_available:
-        optim = torch_optim
+        optim = torch.optim
     else:
-        optim = torch_optimi
+        optim = optimi
+    # optimi supports only sgd / adam / adamw for us
+    # hence we use directly torch.optim for others
     if config.optim == "sgd":
         optimizer = optim.SGD(params, lr=config.learning_rate, weight_decay=config.weight_decay)
     elif config.optim == "adagrad":
@@ -79,6 +80,7 @@ def build_torch_optimizer(model, config):
             betas=betas,
             eps=config.adam_eps,
             weight_decay=config.weight_decay,
+            foreach=False,
         )
     elif config.optim == "sparseadam":
         dense = []
@@ -337,7 +339,7 @@ class Optimizer(object):
                 # Reset options, keep optimizer.
                 optim_state_dict = ckpt_state_dict
 
-        use_amp = running_config.use_amp and running_config.compute_dtype == torch.float16
+        use_amp = running_config.use_amp and running_config.compute_dtype in [torch.float16, torch.bfloat16]
         optimizer = cls(
             build_torch_optimizer(model, running_config),
             running_config.learning_rate,
@@ -395,7 +397,7 @@ class Optimizer(object):
     def backward(self, loss):
         """Wrapper for backward pass. Some optimizer requires ownership of the
         backward pass."""
-        if self.amp:
+        if self._scaler is not None:
             self._scaler.scale(loss).backward()
         else:
             loss.backward()
@@ -408,7 +410,7 @@ class Optimizer(object):
         """
         learning_rate = self.learning_rate()
 
-        if self.amp:
+        if self._scaler is not None:
             self._scaler.unscale_(self._optimizer)
 
         for group in self._optimizer.param_groups:
@@ -416,7 +418,7 @@ class Optimizer(object):
             if self._max_grad_norm > 0:
                 clip_grad_norm_(group["params"], self._max_grad_norm)
 
-        if self.amp:
+        if self._scaler is not None:
             # unscaled optimizer's gradients (already done therefore skip),
             # skips optimizer.step() if gradients contain infs/NaNs.
             self._scaler.step(self._optimizer)
