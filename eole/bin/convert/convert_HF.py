@@ -599,7 +599,7 @@ def build_config_dict(hf):
     # Default position encoding configuration
     model_config["embeddings"].update(
         {
-            "position_encoding_type": "Rotary",
+            "position_encoding_type": PositionEncodingType.Rotary,
             "n_positions": 0,
         }
     )
