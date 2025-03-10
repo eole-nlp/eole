@@ -34,7 +34,7 @@ setup(
         "rich",
         "sacrebleu",
         "safetensors",
-        "sentencepiece",
+        "sentencepiece>=0.1.94,<0.1.98",
         "six",
         "spacy",
         "subword-nmt>=0.3.7",
