@@ -79,7 +79,19 @@ ACTIVATION_FUNCTIONS = {
 }
 
 
+class LayerNormFP32(torch.nn.LayerNorm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def forward(self, input):
+        orig_dtype = input.dtype  # Save original dtype (likely bfloat16)
+        input = input.to(torch.float32)  # Process in float32
+        output = super().forward(input)  # Apply LayerNorm
+        return output.to(orig_dtype)  # Convert back to original dtype
+
+
 LayerNorm = {
+    "standardFP32": LayerNormFP32,
     "standard": torch.nn.LayerNorm,
     "rms": RMSNorm,
     "gemma-rms": GemmaRMSNorm,

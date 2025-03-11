@@ -1,6 +1,7 @@
 """ Optimizers class """
 
 import torch
+from torch.amp import GradScaler
 from torch.nn.utils import clip_grad_norm_
 import operator
 import functools
@@ -347,9 +348,8 @@ class Optimizer(object):
             max_grad_norm=running_config.max_grad_norm,
             use_amp=use_amp,
         )
+        # if running_config.compute_dtype in [torch.float16, torch.bfloat16]:
         if use_amp:
-            from torch.amp import GradScaler
-
             optimizer._scaler = GradScaler("cuda")
 
         if optim_state_dict:

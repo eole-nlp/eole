@@ -204,12 +204,11 @@ class TransformerConfig(Config):
         default=ActivationFunction.relu,
         description="The activation function to use in MLP layer.",
     )
-    layer_norm: Literal["standard", "rms", "gemma-rms"] = Field(
+    layer_norm: Literal["standard", "standardFP32", "rms", "gemma-rms"] = Field(
         default="standard",
         description="Type of layer normalization in transformer architecture.",
     )
-    norm_eps: float = Field(default=1e-6, description="Layer norm epsilon.")
-
+    norm_eps: float = Field(default=1e-5, description="Layer norm epsilon.")
     shared_layer_norm: bool = Field(
         default=False,
         description="Use a shared layer_norm in parallel residual attention. "

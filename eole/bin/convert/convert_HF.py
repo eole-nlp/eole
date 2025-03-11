@@ -445,7 +445,7 @@ def build_config_dict(hf):
         "parallel_residual": config.get("parallel_attn", False),
         "norm_eps": config.get(
             "rms_norm_eps",
-            config.get("layer_norm_epsilon", config.get("layer_norm_eps", 1e-6)),
+            config.get("layer_norm_epsilon", config.get("layer_norm_eps", 1e-5)),
         ),
         "sliding_window": config.get("sliding_window", 0) or 4096,
         "num_experts": config.get("num_local_experts", 0),

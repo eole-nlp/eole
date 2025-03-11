@@ -19,7 +19,7 @@ class RMSNorm(torch.nn.Module):
         eps: variance epsilon.
     """
 
-    def __init__(self, hidden_size: int, eps: float = 1e-6):
+    def __init__(self, hidden_size: int, eps: float = 1e-5):
         super().__init__()
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(hidden_size))
