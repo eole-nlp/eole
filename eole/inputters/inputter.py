@@ -3,7 +3,6 @@ import os
 from math import ceil
 import codecs
 import pyonmttok
-import regex as re
 from eole.constants import DefaultTokens
 
 
@@ -91,11 +90,11 @@ def _read_vocab_file(vocab_path, min_count):
         raise RuntimeError("Vocabulary not found at {}".format(vocab_path))
     else:
         with codecs.open(vocab_path, "rb") as f:
-            lines = [line.decode("utf-8") for line in re.split(br"\r?\n", f.read())]
+            lines = [line.decode("utf-8") for line in f.read().split(b"\n")]
             lines = lines[:-1]
 
             first_line = lines[0].split(None, 1)
-            has_count = len(first_line) == 2 and first_line[-1].isdigit()
+            has_count = len(first_line) == 2 and first_line[-1].strip().isdigit()
             if has_count:
                 vocab = []
                 for line in lines:
