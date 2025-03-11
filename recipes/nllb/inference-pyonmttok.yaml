@@ -1,0 +1,20 @@
+model_path: "nllb-1.3b"
+transforms: ["onmt_tokenize", "prefix"]
+transforms_configs:
+  prefix:
+    src_prefix: "</s> eng_Latn"
+    tgt_prefix: "deu_Latn"
+  # onmt_tokenize config will be retrieved from the model config
+  # onmt_tokenize:
+  #   src_subword_type: "sentencepiece"
+  #   gpt2_pretok: false
+  #   src_subword_model: ./nllb-1.3b/sentencepiece.bpe.model
+
+tgt_file_prefix: true
+
+gpu_ranks: [0]
+world_size: 1
+beam_size: 5
+
+src: test.en
+output: test.de
