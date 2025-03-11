@@ -13,7 +13,7 @@ from eole.bin import BaseBin, register_bin
 def get_vocabs(model_path):
     # model = torch.load(dict_path, map_location=torch.device("cpu"))
     vocabs_path = os.path.join(model_path, "vocab.json")
-    with open(vocabs_path) as f:
+    with open(vocabs_path, encoding="utf-8") as f:
         vocabs_dict = json.load(f)
     vocabs = dict_to_vocabs(vocabs_dict)
 

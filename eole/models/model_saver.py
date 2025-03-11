@@ -58,7 +58,7 @@ def load_checkpoint(model_path):
             raise FileNotFoundError(f"{model_path} does not contain config.json")
         vocab_path = os.path.join(model_path, "vocab.json")
         if os.path.exists(vocab_path):
-            with open(vocab_path) as f:
+            with open(vocab_path, encoding="utf-8") as f:
                 checkpoint["vocab"] = json.load(f)
             # use default specials if not specified
             if "specials" not in checkpoint["vocab"].keys():
