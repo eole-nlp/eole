@@ -94,7 +94,7 @@ def _read_vocab_file(vocab_path, min_count):
             lines = lines[:-1]
 
             first_line = lines[0].split(None, 1)
-            has_count = len(first_line) == 2 and first_line[-1].isdigit()
+            has_count = len(first_line) == 2 and first_line[-1].strip().isdigit()
             if has_count:
                 vocab = []
                 for line in lines:
