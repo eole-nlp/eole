@@ -353,7 +353,7 @@ class BaseModel(nn.Module):
     def init_weights(self, running_config):
         match running_config.param_init_method:
             case "normal":
-                for module in self.modules():
+                for name, module in self.named_modules():
                     for param_name, param in module.named_parameters():
                         if param_name == "weight" and param.dim() > 1:
                             normal_(module.weight, mean=0.0, std=running_config.param_init)
