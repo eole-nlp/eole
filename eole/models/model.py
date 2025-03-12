@@ -20,7 +20,7 @@ from eole.inputters.inputter import dict_to_vocabs
 # copied from model_builder to facilitate tests, but should not live there in the end
 from eole.encoders import str2enc
 from eole.decoders import str2dec
-from eole.constants import DefaultTokens
+from eole.constants import DefaultTokens, LayerNormFP32
 from eole.modules.embeddings import Embeddings
 from eole.models.model_saver import load_checkpoint
 from eole.modules.estimator import FeedForward
@@ -267,6 +267,11 @@ class BaseModel(nn.Module):
             self.to(running_config.storage_dtype)
             self.to(device)
 
+        for name, module in self.named_modules():
+            if isinstance(module, LayerNormFP32):
+                print(name)
+                module.to(torch.float32)
+
         # currently in TrainingConfig which makes more sense
         if running_config.freeze_encoder:
             self.encoder.requires_grad_(False)
@@ -348,7 +353,7 @@ class BaseModel(nn.Module):
     def init_weights(self, running_config):
         match running_config.param_init_method:
             case "normal":
-                for module in self.modules():
+                for name, module in self.named_modules():
                     for param_name, param in module.named_parameters():
                         if param_name == "weight" and param.dim() > 1:
                             normal_(module.weight, mean=0.0, std=running_config.param_init)
@@ -421,8 +426,7 @@ class BaseModel(nn.Module):
                 model.src_emb.load_pretrained_vectors(running_config.pre_word_vecs_enc)
             if hasattr(model.decoder, "embeddings"):
                 model.tgt_emb.load_pretrained_vectors(running_config.pre_word_vecs_dec)
-        # dtype/amp/apex stuff
-        # ONLY for legacy fusedam with amp pytorch requires NOT to half the model
+
         if training:
             model.training_logic(running_config, vocabs, checkpoint, device_id)
             logger.info(model)

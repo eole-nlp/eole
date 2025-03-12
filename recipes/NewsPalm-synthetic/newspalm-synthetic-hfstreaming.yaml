@@ -89,9 +89,9 @@ training:
     accum_steps: [0, 15000, 30000]
 
     # Optimization
-    compute_dtype: "fp16"
-    apex_opt_level: ""
+    compute_dtype: "bf16"
     optim: "adamw"
+    use_amp: False
     reset_optim: "all"
     learning_rate: 1
     warmup_steps: 6000
@@ -123,7 +123,7 @@ model:
     share_decoder_embeddings: true
     share_embeddings: true
     layer_norm: standard
-    norm_eps: 1e-6
+    norm_eps: 1e-5
     rope_config:
         rotary_interleave: false
     embeddings:
