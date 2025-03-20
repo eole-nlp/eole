@@ -49,7 +49,7 @@ class MLP(nn.Module):
                 out_features=model_config.transformer_ff // self.parallel_gpu,
                 bias=model_config.add_ffnbias,
             )
-            if model_config.mlp_activation_fn in ["gated-silu", "gated-gelu"]
+            if model_config.mlp_activation_fn in ["gated-silu", "gated-gelu", "gated-gelu-tanh"]
             else None
         )
 

@@ -639,6 +639,7 @@ class Inference(object):
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
             left_pad=left_pad,
+            decoder_in=decoder_in,
         )
         # Generator forward.
         if "std" in dec_attn:

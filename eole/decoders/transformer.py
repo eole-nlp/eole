@@ -26,6 +26,7 @@ class TransformerDecoderLayer(nn.Module):
         decoder_config,
         running_config=None,
         with_cross_attn=False,
+        layer_index=None
     ):
         super(TransformerDecoderLayer, self).__init__()
         self.parallel_residual = decoder_config.parallel_residual
@@ -212,6 +213,10 @@ class TransformerDecoder(DecoderBase):
         self.with_cross_attn = with_cross_attn
         self.sliding_window = decoder_config.sliding_window
         self.rope = build_rope(decoder_config)
+        # introduced for gemma3, hack to improve
+        decoder_config.rope_config.scaling_type = "none"
+        decoder_config.rope_config.rotary_theta = 10000
+        self.rope_local = build_rope(decoder_config)
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerDecoderLayer(
@@ -266,6 +271,16 @@ class TransformerDecoder(DecoderBase):
         attn_mask = ~tgt_pad_mask & future_mask.unsqueeze(0)
         return attn_mask.unsqueeze(1)  # (batch x 1 x 1 x tgt_len)
 
+    def _update_causal_mask(self, attn_mask, decoder_in):
+        image_locations = decoder_in == 262144 # TODO: grab from config/kwargs
+        # replicating HF code, can probably be simplified
+        token_type_ids = torch.where(image_locations, torch.tensor(1), torch.tensor(0))
+        token_type_mask = token_type_ids.unsqueeze(1) == token_type_ids.unsqueeze(2)
+        token_type_mask[token_type_ids == 0] = False
+        token_type_mask = token_type_mask.unsqueeze(1).to(attn_mask.device, dtype=torch.bool)
+        attn_mask = attn_mask.masked_fill(token_type_mask, True)
+        return attn_mask
+
     def forward(self, emb, **kwargs):
         """Decode, possibly stepwise.
 
@@ -300,6 +315,8 @@ class TransformerDecoder(DecoderBase):
         with_align = kwargs.pop("with_align", False)
         return_attn = with_align or kwargs.pop("return_attn", False)
         position_embeddings = self.rope.update(emb.size(1), step=step)
+        position_embeddings_local = self.rope_local.update(emb.size(1), step=step)
+        decoder_in = kwargs.pop("decoder_in", None)
         attn_aligns = []
 
         if step == 0:
@@ -318,7 +335,11 @@ class TransformerDecoder(DecoderBase):
             else:
                 attn_mask = None
 
-        for layer in self.transformer_layers:
+        # we need to adapt the mask for gemma3, TODO: find another condition?
+        if decoder_in is not None:
+            attn_mask = self._update_causal_mask(attn_mask, decoder_in)
+
+        for i, layer in enumerate(self.transformer_layers):
             emb, attn = layer(
                 emb,
                 enc_out=enc_out if enc_out is not None else emb,
@@ -326,7 +347,7 @@ class TransformerDecoder(DecoderBase):
                 attn_mask=attn_mask,
                 step=step,
                 return_attn=return_attn,
-                position_embeddings=position_embeddings,
+                position_embeddings=position_embeddings_local if i+1 % 6 else position_embeddings, # do this only for gemma3
             )
             if with_align:
                 attn_align = layer.get_attn_align(
@@ -336,7 +357,7 @@ class TransformerDecoder(DecoderBase):
                     attn_mask=~tgt_pad_mask,
                     step=step,
                     return_attn=return_attn,
-                    position_embeddings=position_embeddings,
+                    position_embeddings=position_embeddings_local if i+1 % 6 else position_embeddings,
                     attns=attn,
                 )
                 if attn_align is not None:

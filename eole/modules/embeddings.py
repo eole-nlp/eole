@@ -94,6 +94,7 @@ class Embeddings(nn.Module):
         freeze_word_vecs=False,
         n_positions=1024,
         normalize=False,
+        embed_scale=1.0,
     ):
         super(Embeddings, self).__init__()
         self._validate_args()
@@ -131,6 +132,8 @@ class Embeddings(nn.Module):
 
         if freeze_word_vecs:
             self.embeddings.weight.requires_grad = False
+
+        self.embed_scale = embed_scale
 
     def _validate_args(
         self,
@@ -190,6 +193,8 @@ class Embeddings(nn.Module):
         if self.normalize:
             normalizer = torch.tensor(self.word_vec_size**0.5, dtype=emb.dtype)
             emb = emb * normalizer
+
+        emb = emb * self.embed_scale
 
         if self.dropout_p > 0:
             return self.dropout(emb)
