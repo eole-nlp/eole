@@ -25,6 +25,7 @@ from eole.modules.embeddings import Embeddings
 from eole.models.model_saver import load_checkpoint
 from eole.modules.estimator import FeedForward
 
+from eole.encoders.vision import str2adapter
 from eole.encoders.vision import VisionLanguageAdapter, VisionEncoder
 
 
@@ -37,6 +38,14 @@ def build_encoder(model_config, running_config=None):
     enc_type = model_config.encoder.encoder_type
     return str2enc[enc_type].from_config(model_config.encoder, running_config=running_config)  # full config for now
 
+
+def build_adapter(model_config, running_config=None):
+    """
+    Various adapter dispatcher function.
+    """
+    adapter_type = model_config.adapter
+    # print("ADAPTER_TYPE:", adapter_type)
+    return str2adapter[adapter_type].from_config(model_config, running_config=running_config)
 
 def build_decoder(model_config, running_config=None, with_cross_attn=False):
     """
@@ -83,11 +92,13 @@ def build_tgt_emb(model_config, vocabs, running_config=None, share_embeddings=Fa
         position_shift=model_config.embeddings.position_shift,
         dropout=getattr(running_config, "dropout", [0.0])[0],
         word_padding_idx=vocabs["tgt"][pad_token],
-        word_vocab_size=len(vocabs["tgt"]),
+        # word_vocab_size=len(vocabs["tgt"]),
+        word_vocab_size=262208, # hardcoded for gemma3 test
         sparse=getattr(running_config, "optim", None) == "sparseadam",
         freeze_word_vecs=model_config.embeddings.freeze_word_vecs_dec,
         n_positions=model_config.embeddings.n_positions,
         normalize=model_config.embeddings.normalize,
+        embed_scale=model_config.hidden_size ** 0.5, # hardcoded for gemma3, to add in config
     )
 
     if share_embeddings:
@@ -532,7 +543,10 @@ class BaseModel(nn.Module):
         else:
             assert (
                 param.data.size() == ckpt_t[col_slice_start:col_slice_end].size()
-            ), "An error in model's partition and checkpoint's slice was detected"
+            ), (
+                "An error in model's partition and checkpoint's slice was detected, "
+                f"[{name}, {module}, {param_name}, {param.data.size()}, {ckpt_t.size()}]"
+            )
             if name + "." + param_name in buf_list:
                 module.register_buffer(param_name, ckpt_t[col_slice_start:col_slice_end].contiguous())
             else:
@@ -896,7 +910,7 @@ class VisionEncoderDecoderModel(BaseModel):
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         encoder = build_encoder(model_config, running_config=running_config)
-        adapter = VisionLanguageAdapter(model_config.encoder.hidden_size, model_config.decoder.hidden_size)
+        adapter = build_adapter(model_config, running_config=running_config)
         tgt_emb = build_tgt_emb(
             model_config,
             vocabs,
