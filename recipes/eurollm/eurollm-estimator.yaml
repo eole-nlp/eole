@@ -1,0 +1,106 @@
+seed: 1234
+share_vocab: true
+save_data: "${EOLE_MODEL_DIR}/EuroLLM-9B-Instruct"
+src_vocab: "${EOLE_MODEL_DIR}/EuroLLM-9B-Instruct/vocab.txt" # size
+overwrite: true
+report_every: 100
+n_sample: 0
+tensorboard: true
+tensorboard_log_dir: "${EOLE_MODEL_DIR}/EuroLLM-9B-Instruct/logs/"
+
+transforms: [huggingface_tokenize]
+transforms_configs:
+  huggingface_tokenize:
+    max_length: 2048
+
+data:
+    # 768909 rows: 2017: 2018: 2019: 2020: 206MB
+    1720-da:
+         path_src: "hf://eole-nlp/estimator_chatml/1720_da/prompt"
+         path_sco: "hf://eole-nlp/estimator_chatml/1720_da/sco"
+         transforms: [huggingface_tokenize]
+         weight: 21
+    # 175617 rows 45MB
+    wmt23-esa:
+         path_src: "hf://eole-nlp/estimator_chatml/wmt23_esa/prompt"
+         path_sco: "hf://eole-nlp/estimator_chatml/wmt23_esa/sco"
+         transforms: [huggingface_tokenize]
+         weight: 6
+    # 106857 rows 41MB
+    wmt24-esa:
+         path_src: "hf://eole-nlp/estimator_chatml/wmt24_esa/prompt"
+         path_sco: "hf://eole-nlp/estimator_chatml/wmt24_esa/sco"
+         transforms: [huggingface_tokenize]
+         weight: 4
+    # 42583 rows 14MB
+    wmt24-mqm:
+         path_src: "hf://eole-nlp/estimator_chatml/wmt24_mqm/prompt"
+         path_sco: "hf://eole-nlp/estimator_chatml/wmt24_mqm/sco"
+         transforms: [huggingface_tokenize]
+         weight: 2
+    # 45000 rows 8MB
+    mlqe-qe:
+         path_src: "hf://eole-nlp/estimator_chatml/mlqe/prompt"
+         path_sco: "hf://eole-nlp/estimator_chatml/mlqe/sco"
+         transforms: [huggingface_tokenize]
+         weight: 1
+    valid:
+        path_src: "hf://eole-nlp/estimator_chatml/nt2022/prompt"
+        transforms: [huggingface_tokenize]
+
+skip_empty_level: silent # silently ignore empty lines in the data
+
+training:
+    world_size: 1
+    gpu_ranks: [0]
+    parallel_mode: "tensor_parallel"
+    timeout: 30
+    #zero_out_prompt_loss: true
+
+    train_steps: 10000
+    valid_steps: 1000
+
+    dropout_steps: [0]
+    dropout: [0.0]
+    attention_dropout: [0.0]
+    bucket_size: 10000
+    num_workers: 1
+    batch_type: "sents"
+    batch_size: 4
+    valid_batch_size: 4
+    batch_size_multiple: 1
+
+    compute_dtype: bf16
+    torch_compile: false
+    self_attn_backend: "flash"
+    use_amp: false # pure bf16 training !!
+    optim: "adamw"
+    learning_rate: 1e-4
+    warmup_steps: 600
+    decay_method: "cosine"
+    adam_beta2: 0.999
+    accum_count: [32]
+    accum_steps: [0]
+    max_grad_norm: 5
+    label_smoothing: 0.0
+    param_init: 0.02
+    param_init_method: "normal"
+    normalization: "tokens"
+
+    train_from: "${EOLE_MODEL_DIR}/EuroLLM-9B-Instruct"
+    model_path: "${EOLE_MODEL_DIR}/EuroLLM-9B-Instruct/estim"
+    keep_checkpoint: 30
+
+    save_checkpoint_steps: 1000
+    
+    #quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear'] 
+    #quant_type: "bnb_NF4"
+    freeze_decoder: true
+    estim_loss_lambda_steps: [0]
+    estim_loss_lambda: [1.0]
+    score_threshold: 0.0
+
+model:
+    add_estimator: true
+    embeddings:
+        freeze_word_vecs_dec: true
