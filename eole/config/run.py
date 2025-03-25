@@ -129,10 +129,10 @@ class PredictConfig(
         # TODO: do we really need this _all_transform?
         if self._all_transform is None:
             self._all_transform = self.transforms
-        if getattr(getattr(self.model, "encoder", None), "encoder_type", None) == "vision":
-            assert self.batch_size == 1, "Batch inference is not supported yet for vision models."
+        # if getattr(getattr(self.model, "encoder", None), "encoder_type", None) == "vision":
+        #    assert self.batch_size == 1, "Batch inference is not supported yet for vision models."
         if torch.cuda.is_available() and not self.gpu_ranks:
-            logger.warn("You have a CUDA device, should run with -gpu_ranks")
+            logger.warn("You ha#ve a CUDA device, should run with -gpu_ranks")
         return self
 
     def _update_with_model_config(self):

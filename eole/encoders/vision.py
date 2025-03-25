@@ -133,11 +133,11 @@ class VisionEncoder(nn.Module):
 
 # Multi-Modal Projector
 class VisionLanguageAdapter(nn.Module):
-    def __init__(self, in_dim, out_dim):
+    def __init__(self, in_dim, out_dim, bias=False):
         super(VisionLanguageAdapter, self).__init__()
-        self.w_in = nn.Linear(in_dim, out_dim, bias=True)
+        self.w_in = nn.Linear(in_dim, out_dim, bias=bias)
         self.gelu = nn.GELU()
-        self.w_out = nn.Linear(out_dim, out_dim, bias=True)
+        self.w_out = nn.Linear(out_dim, out_dim, bias=bias)
 
     def forward(self, x):
         return self.w_out(self.gelu(self.w_in(x)))

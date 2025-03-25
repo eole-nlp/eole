@@ -269,7 +269,6 @@ class BaseModel(nn.Module):
 
         for name, module in self.named_modules():
             if isinstance(module, LayerNormFP32):
-                print(name)
                 module.to(torch.float32)
 
         # currently in TrainingConfig which makes more sense
@@ -534,9 +533,10 @@ class BaseModel(nn.Module):
                     row_slice_start:row_slice_end,
                 ].contiguous()
         else:
-            assert (
-                param.data.size() == ckpt_t[col_slice_start:col_slice_end].size()
-            ), "An error in model's partition and checkpoint's slice was detected"
+            assert param.data.size() == ckpt_t[col_slice_start:col_slice_end].size(), (
+                "An error in model's partition and checkpoint's slice was detected, "
+                f"[{name}, {module}, {param_name}, {param.data.size()}, {ckpt_t.size()}]"
+            )
             if name + "." + param_name in buf_list:
                 module.register_buffer(param_name, ckpt_t[col_slice_start:col_slice_end].contiguous())
             else:
@@ -900,7 +900,9 @@ class VisionEncoderDecoderModel(BaseModel):
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         encoder = build_encoder(model_config, running_config=running_config)
-        adapter = VisionLanguageAdapter(model_config.encoder.hidden_size, model_config.decoder.hidden_size)
+        adapter = VisionLanguageAdapter(
+            model_config.encoder.hidden_size, model_config.decoder.hidden_size, bias=model_config.adapter_bias
+        )
         tgt_emb = build_tgt_emb(
             model_config,
             vocabs,

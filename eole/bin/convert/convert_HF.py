@@ -151,6 +151,31 @@ MODEL_OVERRIDES = {
         "adapter.w_out.weight": "multi_modal_projector.linear_2.weight",
         "adapter.w_out.bias": "multi_modal_projector.linear_2.bias",
     },
+    "Mistral3ForConditionalGeneration": {
+        "decoder_layer_prefix": "language_model.model.layers.",
+        "tgt_emb.embeddings.weight": "language_model.model.embed_tokens.weight",
+        "decoder.layer_norm.weight": "language_model.model.norm.weight",
+        "generator.weight": "language_model.lm_head.weight",
+        "encoder.patch_conv.weight": "vision_tower.patch_conv.weight",
+        "encoder.ln_pre.weight": "vision_tower.ln_pre.weight",
+        # vision_tower
+        "encoder_layer_prefix": "vision_tower.transformer.layers.",
+        "encoder": {
+            "layers": 24,
+            ".self_attn.linear_query.": ".attention.q_proj.",
+            ".self_attn.linear_keys.": ".attention.k_proj.",
+            ".self_attn.linear_values.": ".attention.v_proj.",
+            ".self_attn.final_linear.": ".attention.o_proj.",
+            ".mlp.gate_up_proj.": ".feed_forward.gate_proj.",
+            ".mlp.down_proj.": ".feed_forward.down_proj.",
+            ".mlp.up_proj.": ".feed_forward.up_proj.",
+            ".input_layernorm.weight": ".attention_norm.weight",  # not sure about this one
+            ".post_attention_layernorm.weight": ".ffn_norm.weight",
+        },
+        # vision_adapter
+        "adapter.w_in.weight": "multi_modal_projector.linear_1.weight",
+        "adapter.w_out.weight": "multi_modal_projector.linear_2.weight",
+    },
     "M2M100ForConditionalGeneration": {
         "encoder_layer_prefix": "model.encoder.layers.",
         "decoder_layer_prefix": "model.decoder.layers.",
@@ -224,6 +249,7 @@ ARCH_TABLE = defaultdict(
     {
         "XLMRobertaXLForMaskedLM": TransformerEncoderModelConfig,
         "LlavaForConditionalGeneration": VisionTransformerLMModelConfig,
+        "Mistral3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "M2M100ForConditionalGeneration": TransformerModelConfig,
     },
 )
@@ -474,7 +500,7 @@ def build_config_dict(hf):
             config.get("n_head", config.get("n_heads", config.get("decoder_attention_heads", 32))),
         ),  # default 32 patch for mistral-community/pixtral-12b
         "transformer_ff": config.get("intermediate_size", config.get("decoder_ffn_dim", None)),
-        "mlp_activation_fn": ACT_TABLE[arch],
+        "mlp_activation_fn": config.get("hidden_act", ACT_TABLE[arch]),
         "layer_norm": LN_TABLE[arch],
         "heads_kv": config.get("multi_query", False)
         or config.get(
@@ -499,6 +525,7 @@ def build_config_dict(hf):
         "shared_layer_norm": False,
         "left_pad": True,
         "generator_bias": False,
+        "adapter_bias": False,
         "rope_config": {
             "rotary_interleave": False,
         },
@@ -662,14 +689,16 @@ def build_config_dict(hf):
     }
 
     # Vision encoder
-    if arch == "LlavaForConditionalGeneration":
+    if vision_config is not None:
         # TODO: extend to other Llava models (with CLIP vision encoder)
         model_config["encoder"] = {
-            "mlp_activation_fn": model_config["mlp_activation_fn"],
+            "mlp_activation_fn": vision_config.get("hidden_act", model_config["mlp_activation_fn"]),
             "layer_norm": model_config["layer_norm"],
             "norm_eps": model_config["norm_eps"],
-            "hidden_size": vision_config["image_size"],
-            "transformer_ff": vision_config["image_size"] * 4,  # hard-coded for mistral-community/pixtral-12b
+            "hidden_size": vision_config.get("hidden_size", vision_config["image_size"]),
+            "transformer_ff": vision_config.get(
+                "intermediate_size", vision_config["image_size"] * 4
+            ),  # hard-coded for mistral-community/pixtral-12b
             "num_channels": 3,
             "image_size": vision_config["image_size"],
             "patch_size": vision_config["patch_size"],
@@ -677,9 +706,11 @@ def build_config_dict(hf):
                 "rotary_theta": vision_config["rope_theta"],
                 "rotary_interleave": False,
             },
-            "layers": 24,  # hard-coded for mistral-community/pixtral-12b
-            "heads": vision_config["image_size"] / vision_config["head_dim"],
-            "heads_kv": vision_config["image_size"] / vision_config["head_dim"],
+            "layers": vision_config.get("num_hidden_layers", 24),  # hard-coded for mistral-community/pixtral-12b
+            "heads": vision_config.get("num_attention_heads", vision_config["image_size"] / vision_config["head_dim"]),
+            "heads_kv": vision_config.get(
+                "num_attention_heads", vision_config["image_size"] / vision_config["head_dim"]
+            ),
             "head_dim": vision_config["head_dim"],
             "image_token_id": 10,
         }
@@ -866,6 +897,8 @@ def build_shards(model_config, hf, args, params):
 
                     if target == "generator.bias":
                         model_config["generator_bias"] = True
+                    if target == "adapter.w_in.bias":
+                        model_config["adapter_bias"] = True
             return eole_safetensor
 
         if shard == 0:

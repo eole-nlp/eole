@@ -416,6 +416,10 @@ class BaseModelConfig(Config):
         default=True,
         description="Control whether or not the generator Linear module has bias weights.",
     )
+    adapter_bias: bool = Field(
+        default=False,
+        description="Control whether or not the adapter module has bias weights.",
+    )
     add_estimator: bool = Field(default=False, description="Add estimator layer")
 
     left_pad: bool = Field(default=False, description="Enable left-padding, useful for some LLMs.")
