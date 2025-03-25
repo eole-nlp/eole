@@ -228,9 +228,9 @@ def build_vocab_main(config):
 
     def save_counter(counter, save_path):
         check_path(save_path, exist_ok=config.overwrite, log=logger.warning)
-        with open(save_path, "w", encoding="utf8") as fo:
+        with open(save_path, "wb") as fo:
             for tok, count in counter.most_common():
-                fo.write(tok + "\t" + str(count) + "\n")
+                fo.write(f"{tok}\t{str(count)}\n".encode("utf-8"))
 
     if config.share_vocab:
         src_counter += tgt_counter

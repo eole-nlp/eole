@@ -184,7 +184,7 @@ def evaluate(args, data_dir):
 
     run_results = compute_metric(run_results)
 
-    with open(output_filename, "w") as f:
+    with open(output_filename, "w", encoding="utf-8") as f:
         json.dump(run_results, f, ensure_ascii=False, indent=2)
 
     end_time = time.time()

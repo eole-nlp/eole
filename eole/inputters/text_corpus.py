@@ -1,7 +1,6 @@
 """Module that contain shard utils for dynamic data."""
 
 import os
-import re
 from eole.utils.logging import logger
 from eole.constants import CorpusName, CorpusTask
 from eole.transforms import TransformPipe
@@ -148,27 +147,21 @@ class ParallelCorpus(object):
         self.sco = sco
         self.align = align
 
-    def _is_hf_dataset(self, path):
-        """
-        Check if a given path refers to a Hugging Face dataset.
-        Matchs the 'hf://' prefix and assumes the dataset is in streaming mode.
-        Match the last '/field' to get the language / score field
-        """
-        pattern = r"hf://([^/]+/[^/]+)/([^/]+)"
-        if isinstance(path, str):
-            return re.match(pattern, path)
-        else:
-            return None
-
-    def _load_hf_dataset(self, path):
+    def _load_hf_dataset(self, hf_string):
         """
         Load a Hugging Face dataset from the given identifier.
         Matchs the 'hf://' prefix and assumes the dataset is in streaming mode.
         Match the last '/field' to get the language / score field
+        Potentially a config_name field between dataset_name and last field
         """
-        pattern = r"hf://([^/]+/[^/]+)/([^/]+)"
-        dataset_name = re.match(pattern, self.src).group(1)
-        return load_dataset(dataset_name, split="train", streaming=True)
+        parts = hf_string.replace("hf://", "").split("/")
+        dataset_name = "/".join(parts[:2])
+        remaining_parts = parts[2:]
+
+        if len(remaining_parts) == 1:
+            return load_dataset(dataset_name, split="train", streaming=True)
+        elif len(remaining_parts) == 2:
+            return load_dataset(dataset_name, remaining_parts[0], split="train", streaming=True)
 
     def load(self, offset=0, stride=1):
         """
@@ -207,13 +200,16 @@ class ParallelCorpus(object):
                         scoline = 1.0
                     yield make_ex(sline, tline, scoline, align)
 
-        elif self._is_hf_dataset(self.src):
+        elif self.src.startswith("hf://"):
             # If `src` is a Hugging Face dataset identifier
             dataset = self._load_hf_dataset(self.src)
             for i, example in enumerate(dataset):
                 sline = example.get(self.src.split("/")[-1])
                 tline = example.get(self.tgt.split("/")[-1])
-                scoline = example.get(self.sco.split("/")[-1], 1.0)
+                if self.sco is not None:
+                    scoline = example.get(self.sco.split("/")[-1], 1.0)
+                else:
+                    scoline = 1.0
                 yield make_ex(sline, tline, scoline, None)
 
         else:
