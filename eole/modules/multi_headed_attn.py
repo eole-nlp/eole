@@ -14,6 +14,8 @@ from .relative_position_bias import relative_matmul, gen_relative_positions, com
 from .alibi_position_bias import AlibiPositionalBias
 from .rope import apply_rotary_emb
 
+from eole.modules.rmsnorm import GemmaRMSNorm
+
 
 # Help functions to split model dim per head
 def shape(x: Tensor, dim_per_head: int) -> Tensor:
@@ -106,6 +108,12 @@ class MultiHeadedAttention(torch.nn.Module):
         )
         self.dropout_p = getattr(running_config, "attention_dropout", [0.0])[0]
         self.dropout = nn.Dropout(self.dropout_p)
+
+        # introduced for gemma3
+        if model_config.query_norm:
+            self.q_norm = GemmaRMSNorm(model_config.head_dim, eps=model_config.norm_eps)
+        if model_config.key_norm:
+            self.k_norm = GemmaRMSNorm(model_config.head_dim, eps=model_config.norm_eps)
 
         self.final_linear = skip_init(
             nn.Linear,
@@ -233,13 +241,17 @@ class MultiHeadedAttention(torch.nn.Module):
             and not return_attn
             and query.device.type != "cpu"
         ):
+            # TODO: make this configurable (gemma3)
+            kwargs = {"scale": 256**-0.5} if self.is_decoder else {}
+
             # Apply pytorch scaled_dot_product_attention.
             attn_output = F.scaled_dot_product_attention(
                 query,
                 key,
                 value,
-                attn_mask,
-                self.dropout_p,
+                attn_mask=attn_mask,
+                dropout_p=self.dropout_p,
+                **kwargs,
             )
             attn = None
         else:
@@ -391,6 +403,12 @@ class SelfMHA(MultiHeadedAttention):
             key = shape(key, self.dim_per_head)
             value = shape(value, self.dim_per_head)
             query = shape(query, self.dim_per_head)
+
+            if hasattr(self, "q_norm"):
+                query = self.q_norm(query)
+            if hasattr(self, "k_norm"):
+                key = self.k_norm(key)
+
             if (
                 not self.flash
                 or self.position_encoding_type in [PositionEncodingType.Relative, PositionEncodingType.Alibi]

@@ -55,3 +55,6 @@ class RMSNorm(torch.nn.Module):
 class GemmaRMSNorm(RMSNorm):
     def forward(self, hidden_states):
         return self._forward(hidden_states, residual=True)
+
+    def extra_repr(self):
+        return f"{tuple(self.weight.shape)}, eps={self.eps}"
