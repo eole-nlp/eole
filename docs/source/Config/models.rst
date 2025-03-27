@@ -17,7 +17,6 @@ Transformer
 .. autopydantic_model:: eole.config.models.TransformerConfig
 .. autopydantic_model:: eole.config.models.TransformerEncoderConfig
 .. autopydantic_model:: eole.config.models.TransformerDecoderConfig
-.. autopydantic_model:: eole.config.models.TransformerLMDecoderConfig
 .. autopydantic_model:: eole.config.models.TransformerModelConfig
 .. autopydantic_model:: eole.config.models.TransformerLMModelConfig
 
