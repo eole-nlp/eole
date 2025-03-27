@@ -175,6 +175,8 @@ MODEL_OVERRIDES = {
         # vision_adapter
         "adapter.w_in.weight": "multi_modal_projector.linear_1.weight",
         "adapter.w_out.weight": "multi_modal_projector.linear_2.weight",
+        "adapter.layernorm.weight": "multi_modal_projector.norm.weight",
+        "adapter.patch_merger.merging_layer.weight": "multi_modal_projector.patch_merger.merging_layer.weight",
     },
     "M2M100ForConditionalGeneration": {
         "encoder_layer_prefix": "model.encoder.layers.",
@@ -240,6 +242,12 @@ ACT_TABLE = defaultdict(
         "XLMRobertaXLForMaskedLM": "gelu",
         "Gemma2ForCausalLM": "gated-gelu",
         "M2M100ForConditionalGeneration": "relu",
+    },
+)
+VISION_ACT_TABLE = defaultdict(
+    lambda: "gated-silu",
+    {
+        "Mistral3ForConditionalGeneration": "gated-gelu",
     },
 )
 
@@ -486,6 +494,7 @@ def build_config_dict(hf):
     arch = hf.arch
 
     vision_config = config.get("vision_config", None)
+    other_config = config  # save what is not text/vision for later use
     config = config.get("text_config", config)
 
     model_config = {}
@@ -500,7 +509,7 @@ def build_config_dict(hf):
             config.get("n_head", config.get("n_heads", config.get("decoder_attention_heads", 32))),
         ),  # default 32 patch for mistral-community/pixtral-12b
         "transformer_ff": config.get("intermediate_size", config.get("decoder_ffn_dim", None)),
-        "mlp_activation_fn": config.get("hidden_act", ACT_TABLE[arch]),
+        "mlp_activation_fn": ACT_TABLE[arch],
         "layer_norm": LN_TABLE[arch],
         "heads_kv": config.get("multi_query", False)
         or config.get(
@@ -692,7 +701,7 @@ def build_config_dict(hf):
     if vision_config is not None:
         # TODO: extend to other Llava models (with CLIP vision encoder)
         model_config["encoder"] = {
-            "mlp_activation_fn": vision_config.get("hidden_act", model_config["mlp_activation_fn"]),
+            "mlp_activation_fn": VISION_ACT_TABLE[arch],
             "layer_norm": model_config["layer_norm"],
             "norm_eps": model_config["norm_eps"],
             "hidden_size": vision_config.get("hidden_size", vision_config["image_size"]),
@@ -714,6 +723,9 @@ def build_config_dict(hf):
             "head_dim": vision_config["head_dim"],
             "image_token_id": 10,
         }
+        model_config["multimodal_projector_bias"] = other_config.get("multimodal_projector_bias", False)
+        model_config["projector_activation_fn"] = other_config.get("projector_hidden_act", "gelu")
+        model_config["spatial_merge_size"] = other_config.get("spatial_merge_size", None)
 
     # Update model_config based on architecture
     if arch in arch_configs:
@@ -870,12 +882,15 @@ def build_shards(model_config, hf, args, params):
             "encoder.layer_norm.weight",
             "encoder.layer_norm.bias",
             "generator.weight",
+            "generator.bias",
             "encoder.patch_conv.weight",
             "encoder.ln_pre.weight",
             "adapter.w_in.weight",
             "adapter.w_in.bias",
             "adapter.w_out.weight",
             "adapter.w_out.bias",
+            "adapter.layernorm.weight",
+            "adapter.patch_merger.merging_layer.weight",
         ]
 
         def build_first_shard(hf, eole_safetensor):
@@ -1178,6 +1193,9 @@ class LlamaHFConverter(BaseBin):
         # Save vocab files to output model directory
         save_vocab(vocabs, src_vocab, args.output)
 
+        # Build shards
+        build_shards(model_config, hf, args, params)
+
         # Build eole config and save to output model directory
         config = TrainConfig(
             data=None,
@@ -1224,6 +1242,3 @@ class LlamaHFConverter(BaseBin):
 
         with open(os.path.join(args.output, "config.json"), "w", encoding="utf-8") as f:
             json.dump(config_dict, f, indent=2, ensure_ascii=False)
-
-        # Build shards last, as it's the most io intensive
-        build_shards(model_config, hf, args, params)

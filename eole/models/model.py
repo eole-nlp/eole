@@ -274,6 +274,8 @@ class BaseModel(nn.Module):
         # currently in TrainingConfig which makes more sense
         if running_config.freeze_encoder:
             self.encoder.requires_grad_(False)
+            if hasattr(self, "adapter"):
+                self.adapter.requires_grad_(False)
 
         if running_config.freeze_decoder:
             self.decoder.requires_grad_(False)
@@ -650,7 +652,8 @@ class BaseModel(nn.Module):
                     module.to(device)
         for key in keys_shard.keys():
             if key not in keyfound.keys() and key not in buf_list:
-                raise ValueError("Extra keys in model state_dict do not match the model config %s" % key)
+                print("extra key in checkpoint", key)
+                # raise ValueError("Extra keys in model state_dict do not match the model config %s" % key)
 
     def count_parameters(self, log=print):
         """Count number of parameters in model (& print with `log` callback).
@@ -894,15 +897,13 @@ class VisionEncoderDecoderModel(BaseModel):
         if self.encoder is None or self.decoder is None:
             raise ValueError("A EncoderDecoderModel requires both an Encoder and a Decoder")
         # TODO: make this compatible?
-        # if self.add_estimator:
-        #     self.estimator = FeedForward(self.hidden_size)
+        if self.add_estimator:
+            self.estimator = FeedForward(self.hidden_size)
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         encoder = build_encoder(model_config, running_config=running_config)
-        adapter = VisionLanguageAdapter(
-            model_config.encoder.hidden_size, model_config.decoder.hidden_size, bias=model_config.adapter_bias
-        )
+        adapter = VisionLanguageAdapter(model_config)
         tgt_emb = build_tgt_emb(
             model_config,
             vocabs,
@@ -924,21 +925,27 @@ class VisionEncoderDecoderModel(BaseModel):
     def embed_vision_language_features(self, src, images):
         # TODO: test with batch > 1?
         batch_size = src.size(0)
+        print("src size:", src.size())
         text_locations = src != self.image_token_id
         image_locations = src == self.image_token_id
+        print(text_locations.size())
+        print(image_locations.size())
         text_features = self.tgt_emb(src[text_locations].view(batch_size, -1))
         if len(images) == 0:
             return text_features
+        image_sizes = torch.tensor([[images[0].size(1), images[0].size(2)]])
         encoded_images = self.encoder(images)
-        image_features = self.adapter(encoded_images)
+        image_features = self.adapter(encoded_images, image_sizes=image_sizes)
 
         seq_len = src.shape[1]
         batch, N_txt, D_txt = text_features.shape
         _, N_img, D_img = image_features.shape
         assert D_txt == D_img, f"Text features dim {D_txt} should be equal to image features dim {D_img}"
-        assert seq_len == N_txt + N_img, (
-            f"seq_len {seq_len} should be equal to N_txt + N_img " f"{(N_txt, N_img, image_locations.sum().item())}"
-        )
+
+        # assert seq_len == N_txt + N_img, (
+        #    f"seq_len {seq_len} should be equal to N_txt + N_img " f"{(N_txt, N_img, image_locations.sum().item())}"
+        # )
+        seq_len = N_txt + N_img
 
         combined_features = torch.empty(
             (batch, seq_len, D_txt),

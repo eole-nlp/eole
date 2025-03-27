@@ -420,6 +420,18 @@ class BaseModelConfig(Config):
         default=False,
         description="Control whether or not the adapter module has bias weights.",
     )
+    multimodal_projector_bias: bool = Field(
+        default=True,
+        description="Control whether or not the adater projector module has bias weights.",
+    )
+    projector_activation_fn: ActivationFunction = Field(
+        default=ActivationFunction.relu,
+        description="The activation function to use in adapter projector layer.",
+    )
+    spatial_merge_size: int | None = Field(
+        default=None,
+        description="Control the presence and size of patch merger (Mistral3)",
+    )
     add_estimator: bool = Field(default=False, description="Add estimator layer")
 
     left_pad: bool = Field(default=False, description="Enable left-padding, useful for some LLMs.")
@@ -742,7 +754,7 @@ class VisionTransformerLMModelConfig(TransformerConfig, BaseModelConfig):
 
     @model_validator(mode="after")
     def _validate_vision_transformer(self):
-        assert not (self.add_estimator), "Estimator layer not supported in Vision Transformer"
+        # assert not (self.add_estimator), "Estimator layer not supported in Vision Transformer"
         return self
 
     @property
