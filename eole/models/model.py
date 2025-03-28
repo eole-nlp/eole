@@ -929,7 +929,7 @@ class VisionEncoderDecoderModel(BaseModel):
         text_features = self.tgt_emb(src[text_locations].view(batch_size, -1))
         if len(images) == 0:
             return text_features
-        image_sizes = torch.tensor([[images[0].size(1), images[0].size(2)]])
+        image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
         encoded_images = self.encoder(images)
         image_features = self.adapter(encoded_images, image_sizes=image_sizes)
 
@@ -937,7 +937,6 @@ class VisionEncoderDecoderModel(BaseModel):
         batch, N_txt, D_txt = text_features.shape
         _, N_img, D_img = image_features.shape
         assert D_txt == D_img, f"Text features dim {D_txt} should be equal to image features dim {D_img}"
-
         assert seq_len == N_txt + N_img, (
             f"seq_len {seq_len} should be equal to N_txt + N_img " f"{(N_txt, N_img, image_locations.sum().item())}"
         )

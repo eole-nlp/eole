@@ -34,10 +34,10 @@ class PatchMerger(nn.Module):
         tokens_per_image = [h * w for h, w in image_sizes]
         d = image_features.shape[-1]
 
-        image_features = image_features.squeeze(0)
+        flattened_features = image_features.view(-1, d)
         permuted_tensor = []
 
-        for image_index, image_tokens in enumerate(image_features.split(tokens_per_image)):
+        for image_index, image_tokens in enumerate(flattened_features.split(tokens_per_image)):
             # Reshape image_tokens into a 2D grid
             h, w = image_sizes[image_index]
             image_grid = image_tokens.view(h, w, d).permute(2, 0, 1).unsqueeze(0)
@@ -45,12 +45,12 @@ class PatchMerger(nn.Module):
                 image_grid, kernel_size=self.spatial_merge_size, stride=self.spatial_merge_size
             )
             grid = grid.view(d * self.spatial_merge_size**2, -1).t()
-            permuted_tensor.append(grid)
+            permuted_tensor.append(grid.unsqueeze(0))
 
         image_features = torch.cat(permuted_tensor, dim=0)
         image_features = self.merging_layer(image_features)
-        # !!!!!!!!! image_features does ont have the same size as in input
-        return image_features.unsqueeze(0)
+
+        return image_features
 
 
 def position_ids_in_meshgrid(patch_embeds_list, max_width):
