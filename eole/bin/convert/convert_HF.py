@@ -151,6 +151,33 @@ MODEL_OVERRIDES = {
         "adapter.w_out.weight": "multi_modal_projector.linear_2.weight",
         "adapter.w_out.bias": "multi_modal_projector.linear_2.bias",
     },
+    "Mistral3ForConditionalGeneration": {
+        "decoder_layer_prefix": "language_model.model.layers.",
+        "tgt_emb.embeddings.weight": "language_model.model.embed_tokens.weight",
+        "decoder.layer_norm.weight": "language_model.model.norm.weight",
+        "generator.weight": "language_model.lm_head.weight",
+        "encoder.patch_conv.weight": "vision_tower.patch_conv.weight",
+        "encoder.ln_pre.weight": "vision_tower.ln_pre.weight",
+        # vision_tower
+        "encoder_layer_prefix": "vision_tower.transformer.layers.",
+        "encoder": {
+            "layers": 24,
+            ".self_attn.linear_query.": ".attention.q_proj.",
+            ".self_attn.linear_keys.": ".attention.k_proj.",
+            ".self_attn.linear_values.": ".attention.v_proj.",
+            ".self_attn.final_linear.": ".attention.o_proj.",
+            ".mlp.gate_up_proj.": ".feed_forward.gate_proj.",
+            ".mlp.down_proj.": ".feed_forward.down_proj.",
+            ".mlp.up_proj.": ".feed_forward.up_proj.",
+            ".input_layernorm.weight": ".attention_norm.weight",  # not sure about this one
+            ".post_attention_layernorm.weight": ".ffn_norm.weight",
+        },
+        # vision_adapter
+        "adapter.w_in.weight": "multi_modal_projector.linear_1.weight",
+        "adapter.w_out.weight": "multi_modal_projector.linear_2.weight",
+        "adapter.layernorm.weight": "multi_modal_projector.norm.weight",
+        "adapter.patch_merger.merging_layer.weight": "multi_modal_projector.patch_merger.merging_layer.weight",
+    },
     "M2M100ForConditionalGeneration": {
         "encoder_layer_prefix": "model.encoder.layers.",
         "decoder_layer_prefix": "model.decoder.layers.",
@@ -217,6 +244,12 @@ ACT_TABLE = defaultdict(
         "M2M100ForConditionalGeneration": "relu",
     },
 )
+VISION_ACT_TABLE = defaultdict(
+    lambda: "gated-silu",
+    {
+        "Mistral3ForConditionalGeneration": "gated-gelu",
+    },
+)
 
 # Eole config class
 ARCH_TABLE = defaultdict(
@@ -224,6 +257,7 @@ ARCH_TABLE = defaultdict(
     {
         "XLMRobertaXLForMaskedLM": TransformerEncoderModelConfig,
         "LlavaForConditionalGeneration": VisionTransformerLMModelConfig,
+        "Mistral3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "M2M100ForConditionalGeneration": TransformerModelConfig,
     },
 )
@@ -460,6 +494,7 @@ def build_config_dict(hf):
     arch = hf.arch
 
     vision_config = config.get("vision_config", None)
+    other_config = config  # save what is not text/vision for later use
     config = config.get("text_config", config)
 
     model_config = {}
@@ -499,6 +534,7 @@ def build_config_dict(hf):
         "shared_layer_norm": False,
         "left_pad": True,
         "generator_bias": False,
+        "adapter_bias": False,
         "rope_config": {
             "rotary_interleave": False,
         },
@@ -662,14 +698,16 @@ def build_config_dict(hf):
     }
 
     # Vision encoder
-    if arch == "LlavaForConditionalGeneration":
+    if vision_config is not None:
         # TODO: extend to other Llava models (with CLIP vision encoder)
         model_config["encoder"] = {
-            "mlp_activation_fn": model_config["mlp_activation_fn"],
+            "mlp_activation_fn": VISION_ACT_TABLE[arch],
             "layer_norm": model_config["layer_norm"],
             "norm_eps": model_config["norm_eps"],
-            "hidden_size": vision_config["image_size"],
-            "transformer_ff": vision_config["image_size"] * 4,  # hard-coded for mistral-community/pixtral-12b
+            "hidden_size": vision_config.get("hidden_size", vision_config["image_size"]),
+            "transformer_ff": vision_config.get(
+                "intermediate_size", vision_config["image_size"] * 4
+            ),  # hard-coded for mistral-community/pixtral-12b
             "num_channels": 3,
             "image_size": vision_config["image_size"],
             "patch_size": vision_config["patch_size"],
@@ -677,12 +715,17 @@ def build_config_dict(hf):
                 "rotary_theta": vision_config["rope_theta"],
                 "rotary_interleave": False,
             },
-            "layers": 24,  # hard-coded for mistral-community/pixtral-12b
-            "heads": vision_config["image_size"] / vision_config["head_dim"],
-            "heads_kv": vision_config["image_size"] / vision_config["head_dim"],
+            "layers": vision_config.get("num_hidden_layers", 24),  # hard-coded for mistral-community/pixtral-12b
+            "heads": vision_config.get("num_attention_heads", vision_config["image_size"] / vision_config["head_dim"]),
+            "heads_kv": vision_config.get(
+                "num_attention_heads", vision_config["image_size"] / vision_config["head_dim"]
+            ),
             "head_dim": vision_config["head_dim"],
             "image_token_id": 10,
         }
+        model_config["multimodal_projector_bias"] = other_config.get("multimodal_projector_bias", False)
+        model_config["projector_activation_fn"] = other_config.get("projector_hidden_act", "gelu")
+        model_config["spatial_merge_size"] = other_config.get("spatial_merge_size", None)
 
     # Update model_config based on architecture
     if arch in arch_configs:
@@ -839,12 +882,15 @@ def build_shards(model_config, hf, args, params):
             "encoder.layer_norm.weight",
             "encoder.layer_norm.bias",
             "generator.weight",
+            "generator.bias",
             "encoder.patch_conv.weight",
             "encoder.ln_pre.weight",
             "adapter.w_in.weight",
             "adapter.w_in.bias",
             "adapter.w_out.weight",
             "adapter.w_out.bias",
+            "adapter.layernorm.weight",
+            "adapter.patch_merger.merging_layer.weight",
         ]
 
         def build_first_shard(hf, eole_safetensor):
@@ -866,6 +912,8 @@ def build_shards(model_config, hf, args, params):
 
                     if target == "generator.bias":
                         model_config["generator_bias"] = True
+                    if target == "adapter.w_in.bias":
+                        model_config["adapter_bias"] = True
             return eole_safetensor
 
         if shard == 0:
@@ -1145,6 +1193,9 @@ class LlamaHFConverter(BaseBin):
         # Save vocab files to output model directory
         save_vocab(vocabs, src_vocab, args.output)
 
+        # Build shards
+        build_shards(model_config, hf, args, params)
+
         # Build eole config and save to output model directory
         config = TrainConfig(
             data=None,
@@ -1191,6 +1242,3 @@ class LlamaHFConverter(BaseBin):
 
         with open(os.path.join(args.output, "config.json"), "w", encoding="utf-8") as f:
             json.dump(config_dict, f, indent=2, ensure_ascii=False)
-
-        # Build shards last, as it's the most io intensive
-        build_shards(model_config, hf, args, params)

@@ -139,6 +139,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         score_threshold=0,
         left_pad=False,
         model_type=None,
+        image_patch_size=16,
     ):
         super(DynamicDatasetIter).__init__()
         self.corpora = corpora
@@ -171,6 +172,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         else:
             self.left_pad = False
         self.model_type = model_type
+        self.image_patch_size = image_patch_size
 
     @classmethod
     def from_config(
@@ -217,6 +219,10 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             bucket_size_init = -1
             bucket_size_increment = 0
             skip_empty_level = "warning"
+        try:
+            image_patch_size = config.model.encoder.patch_size * config.model.spatial_merge_size
+        except AttributeError:
+            image_patch_size = 16
         return cls(
             corpora,
             corpora_info,
@@ -237,6 +243,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             score_threshold=0 if isinstance(config, PredictConfig) else running_config.score_threshold,
             left_pad=getattr(config.model, "left_pad", False),
             model_type=model_type if model_type is not None else getattr(config.model, "model_type", None),
+            image_patch_size=image_patch_size,
         )
 
     def _init_datasets(self, worker_id):
@@ -253,6 +260,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             skip_empty_level=self.skip_empty_level,
             stride=stride,
             offset=offset,
+            image_patch_size=self.image_patch_size,
         )
         datasets_weights = {ds_name: int(self.corpora_info[ds_name].weight) for ds_name in datasets_iterables.keys()}
         if self.task == CorpusTask.TRAIN:
