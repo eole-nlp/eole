@@ -108,7 +108,7 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     chat_template: str | None = None
     optional_eos: List[str] | None = Field(
         default=[],
-        description="Optional EOS tokens that would stop generation",
+        description="Optional EOS tokens that would stop generation, e.g. <|eot_id|> for Llama3",
     )
 
     def get_model_path(self):

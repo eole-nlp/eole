@@ -22,8 +22,6 @@ class PatchMerger(nn.Module):
     def __init__(self, model_config):
         super().__init__()
         self.config = model_config
-
-        print(model_config)
         hidden_size = model_config.encoder.hidden_size
         self.spatial_merge_size = model_config.spatial_merge_size
         self.patch_size = model_config.encoder.patch_size
@@ -180,7 +178,7 @@ class VisionLanguageAdapter(nn.Module):
         out_dim = model_config.decoder.hidden_size
         bias = getattr(model_config, "adapter_bias", False)
         self.has_patch = False
-        if model_config.spatial_merge_size is not None:
+        if model_config.spatial_merge_size > 1:
             self.has_patch = True
             self.layernorm = RMSNorm(in_dim, eps=1e-5)
             self.patch_merger = PatchMerger(model_config)

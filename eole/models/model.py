@@ -652,8 +652,7 @@ class BaseModel(nn.Module):
                     module.to(device)
         for key in keys_shard.keys():
             if key not in keyfound.keys() and key not in buf_list:
-                print("extra key in checkpoint", key)
-                # raise ValueError("Extra keys in model state_dict do not match the model config %s" % key)
+                logger.info("extra key in checkpoint %s" % key)
 
     def count_parameters(self, log=print):
         """Count number of parameters in model (& print with `log` callback).
@@ -925,11 +924,8 @@ class VisionEncoderDecoderModel(BaseModel):
     def embed_vision_language_features(self, src, images):
         # TODO: test with batch > 1?
         batch_size = src.size(0)
-        print("src size:", src.size())
         text_locations = src != self.image_token_id
         image_locations = src == self.image_token_id
-        print(text_locations.size())
-        print(image_locations.size())
         text_features = self.tgt_emb(src[text_locations].view(batch_size, -1))
         if len(images) == 0:
             return text_features
@@ -942,10 +938,9 @@ class VisionEncoderDecoderModel(BaseModel):
         _, N_img, D_img = image_features.shape
         assert D_txt == D_img, f"Text features dim {D_txt} should be equal to image features dim {D_img}"
 
-        # assert seq_len == N_txt + N_img, (
-        #    f"seq_len {seq_len} should be equal to N_txt + N_img " f"{(N_txt, N_img, image_locations.sum().item())}"
-        # )
-        seq_len = N_txt + N_img
+        assert seq_len == N_txt + N_img, (
+            f"seq_len {seq_len} should be equal to N_txt + N_img " f"{(N_txt, N_img, image_locations.sum().item())}"
+        )
 
         combined_features = torch.empty(
             (batch, seq_len, D_txt),

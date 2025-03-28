@@ -428,8 +428,8 @@ class BaseModelConfig(Config):
         default=ActivationFunction.relu,
         description="The activation function to use in adapter projector layer.",
     )
-    spatial_merge_size: int | None = Field(
-        default=None,
+    spatial_merge_size: int = Field(
+        default=1,
         description="Control the presence and size of patch merger (Mistral3)",
     )
     add_estimator: bool = Field(default=False, description="Add estimator layer")
