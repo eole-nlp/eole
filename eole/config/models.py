@@ -428,10 +428,11 @@ class BaseModelConfig(Config):
         default=ActivationFunction.relu,
         description="The activation function to use in adapter projector layer.",
     )
-    spatial_merge_size: int = Field(
+    spatial_merge_size: int | None = Field(
         default=1,
         description="Control the presence and size of patch merger (Mistral3)",
     )
+
     add_estimator: bool = Field(default=False, description="Add estimator layer")
 
     left_pad: bool = Field(default=False, description="Enable left-padding, useful for some LLMs.")
@@ -446,6 +447,11 @@ class BaseModelConfig(Config):
     # def brnn(self) -> bool:
     #     if self.encoder is not None:
     #         return self.encoder.encoder_type == "brnn"
+
+    @field_validator("spatial_merge_size")
+    @classmethod
+    def validate_merge_size(cls, v: int | None) -> int:
+        return 1 if v is None else v
 
     @property
     def model_type(self) -> ModelType:
