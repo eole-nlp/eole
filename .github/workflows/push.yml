@@ -20,7 +20,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install --upgrade setuptools
-        pip install -e .
+        pip install .
         pip install -r requirements.opt.txt
         pip install sacrebleu
         pip install flake8
@@ -384,7 +384,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install --upgrade setuptools
-        pip install -e .
+        pip install .
         pip install -r docs/requirements.txt
         pip install -r requirements.opt.txt
         pip install rich
