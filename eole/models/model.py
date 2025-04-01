@@ -269,12 +269,13 @@ class BaseModel(nn.Module):
 
         for name, module in self.named_modules():
             if isinstance(module, LayerNormFP32):
-                print(name)
                 module.to(torch.float32)
 
         # currently in TrainingConfig which makes more sense
         if running_config.freeze_encoder:
             self.encoder.requires_grad_(False)
+            if hasattr(self, "adapter"):
+                self.adapter.requires_grad_(False)
 
         if running_config.freeze_decoder:
             self.decoder.requires_grad_(False)
@@ -534,9 +535,10 @@ class BaseModel(nn.Module):
                     row_slice_start:row_slice_end,
                 ].contiguous()
         else:
-            assert (
-                param.data.size() == ckpt_t[col_slice_start:col_slice_end].size()
-            ), "An error in model's partition and checkpoint's slice was detected"
+            assert param.data.size() == ckpt_t[col_slice_start:col_slice_end].size(), (
+                "An error in model's partition and checkpoint's slice was detected, "
+                f"[{name}, {module}, {param_name}, {param.data.size()}, {ckpt_t.size()}]"
+            )
             if name + "." + param_name in buf_list:
                 module.register_buffer(param_name, ckpt_t[col_slice_start:col_slice_end].contiguous())
             else:
@@ -650,7 +652,14 @@ class BaseModel(nn.Module):
                     module.to(device)
         for key in keys_shard.keys():
             if key not in keyfound.keys() and key not in buf_list:
-                raise ValueError("Extra keys in model state_dict do not match the model config %s" % key)
+                logger.warning("extra key in checkpoint %s" % key)
+        # We need to reset lora param to FP32 since the module.to() above converted everything
+        for name, param in self.named_parameters():
+            if "lora" in name:
+                # Split module name and parameter name
+                module_name, param_name = name.rsplit(".", 1)
+                module = self.get_submodule(module_name)  # Get the actual module
+                setattr(module, param_name, nn.Parameter(param.to(torch.float32)))  # Replace parameter
 
     def count_parameters(self, log=print):
         """Count number of parameters in model (& print with `log` callback).
@@ -894,13 +903,13 @@ class VisionEncoderDecoderModel(BaseModel):
         if self.encoder is None or self.decoder is None:
             raise ValueError("A EncoderDecoderModel requires both an Encoder and a Decoder")
         # TODO: make this compatible?
-        # if self.add_estimator:
-        #     self.estimator = FeedForward(self.hidden_size)
+        if self.add_estimator:
+            self.estimator = FeedForward(self.hidden_size)
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         encoder = build_encoder(model_config, running_config=running_config)
-        adapter = VisionLanguageAdapter(model_config.encoder.hidden_size, model_config.decoder.hidden_size)
+        adapter = VisionLanguageAdapter(model_config)
         tgt_emb = build_tgt_emb(
             model_config,
             vocabs,
@@ -927,8 +936,9 @@ class VisionEncoderDecoderModel(BaseModel):
         text_features = self.tgt_emb(src[text_locations].view(batch_size, -1))
         if len(images) == 0:
             return text_features
+        image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
         encoded_images = self.encoder(images)
-        image_features = self.adapter(encoded_images)
+        image_features = self.adapter(encoded_images, image_sizes=image_sizes)
 
         seq_len = src.shape[1]
         batch, N_txt, D_txt = text_features.shape
@@ -956,6 +966,7 @@ class VisionEncoderDecoderModel(BaseModel):
         if not bptt:
             self.decoder.init_state()
         emb = self.embed_vision_language_features(src, images)
+        dec_in = tgt[:, :-1]
         pad_idx = self.tgt_emb.word_padding_idx
         pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
         dec_out, attns = self.decoder(
@@ -966,7 +977,16 @@ class VisionEncoderDecoderModel(BaseModel):
             tgt_pad_mask=pad_mask,
         )
 
-        return dec_out, attns, None
+        if self.add_estimator:  # we take the average of dec_out using the pad mask
+            pad_mask2 = ~dec_in.eq(pad_idx)
+            in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(dim=1) / pad_mask2.sum(
+                dim=1, keepdim=True
+            ).float()
+            estim = self.estimator(in_estim2.to(dec_out.dtype)).squeeze(-1)
+        else:
+            estim = None
+
+        return dec_out, attns, estim
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)

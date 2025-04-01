@@ -366,6 +366,7 @@ class ImageTextCorpusIterator(object):
         stride=1,
         offset=0,
         is_train=False,
+        image_patch_size=16,
     ):
         self.cid = corpus.id
         self.corpus = corpus
@@ -376,11 +377,15 @@ class ImageTextCorpusIterator(object):
         self.stride = stride
         self.offset = offset
         self.is_train = is_train
+        self.image_patch_size = image_patch_size
 
     def _process(self, stream):
         for i, example in enumerate(stream):
             # process images
-            processed_images = {k: process_image(v) for k, v in example.get("images", {}).items()}
+            processed_images = {
+                k: process_image(v, image_patch_size=self.image_patch_size)
+                for k, v in example.get("images", {}).items()
+            }
             text = example["text"]
             image_tokens = {
                 # using a list here would induce unwanted whitespaces between tokens downstream
@@ -404,7 +409,9 @@ class ImageTextCorpusIterator(object):
         yield from corpus
 
 
-def build_corpora_iters(corpora, transforms, corpora_info, skip_empty_level="warning", stride=1, offset=0):
+def build_corpora_iters(
+    corpora, transforms, corpora_info, skip_empty_level="warning", stride=1, offset=0, image_patch_size=16
+):
     """Return `ParallelCorpusIterator` for all corpora defined in opts."""
     corpora_iters = dict()
     for c_id, corpus in corpora.items():
@@ -412,17 +419,24 @@ def build_corpora_iters(corpora, transforms, corpora_info, skip_empty_level="war
         corpus_transform = [transforms[name] for name in transform_names if name in transforms]
         transform_pipe = TransformPipe.build_from(corpus_transform)
         if isinstance(corpus, ParallelCorpus):
-            iterator_class = ParallelCorpusIterator
+            corpus_iter = ParallelCorpusIterator(
+                corpus,
+                transform_pipe,
+                skip_empty_level=skip_empty_level,
+                stride=stride,
+                offset=offset,
+                is_train=getattr(corpus, "is_train", None),
+            )
         elif isinstance(corpus, ImageTextCorpus):
-            iterator_class = ImageTextCorpusIterator
-        corpus_iter = iterator_class(
-            corpus,
-            transform_pipe,
-            skip_empty_level=skip_empty_level,
-            stride=stride,
-            offset=offset,
-            is_train=getattr(corpus, "is_train", None),
-        )
+            corpus_iter = ImageTextCorpusIterator(
+                corpus,
+                transform_pipe,
+                skip_empty_level=skip_empty_level,
+                stride=stride,
+                offset=offset,
+                is_train=getattr(corpus, "is_train", None),
+                image_patch_size=image_patch_size,
+            )
         corpora_iters[c_id] = corpus_iter
     return corpora_iters
 

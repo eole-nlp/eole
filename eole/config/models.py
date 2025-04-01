@@ -416,6 +416,23 @@ class BaseModelConfig(Config):
         default=True,
         description="Control whether or not the generator Linear module has bias weights.",
     )
+    adapter_bias: bool = Field(
+        default=False,
+        description="Control whether or not the adapter module has bias weights.",
+    )
+    multimodal_projector_bias: bool = Field(
+        default=True,
+        description="Control whether or not the adater projector module has bias weights.",
+    )
+    projector_activation_fn: ActivationFunction = Field(
+        default=ActivationFunction.relu,
+        description="The activation function to use in adapter projector layer.",
+    )
+    spatial_merge_size: int | None = Field(
+        default=1,
+        description="Control the presence and size of patch merger (Mistral3)",
+    )
+
     add_estimator: bool = Field(default=False, description="Add estimator layer")
 
     left_pad: bool = Field(default=False, description="Enable left-padding, useful for some LLMs.")
@@ -430,6 +447,11 @@ class BaseModelConfig(Config):
     # def brnn(self) -> bool:
     #     if self.encoder is not None:
     #         return self.encoder.encoder_type == "brnn"
+
+    @field_validator("spatial_merge_size")
+    @classmethod
+    def validate_merge_size(cls, v: int | None) -> int:
+        return 1 if v is None else v
 
     @property
     def model_type(self) -> ModelType:
@@ -738,7 +760,7 @@ class VisionTransformerLMModelConfig(TransformerConfig, BaseModelConfig):
 
     @model_validator(mode="after")
     def _validate_vision_transformer(self):
-        assert not (self.add_estimator), "Estimator layer not supported in Vision Transformer"
+        # assert not (self.add_estimator), "Estimator layer not supported in Vision Transformer"
         return self
 
     @property
