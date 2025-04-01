@@ -36,7 +36,6 @@ class PatchMerger(nn.Module):
 
         flattened_features = image_features.view(-1, d)
         permuted_tensor = []
-
         for image_index, image_tokens in enumerate(flattened_features.split(tokens_per_image)):
             # Reshape image_tokens into a 2D grid
             h, w = image_sizes[image_index]
@@ -45,10 +44,10 @@ class PatchMerger(nn.Module):
                 image_grid, kernel_size=self.spatial_merge_size, stride=self.spatial_merge_size
             )
             grid = grid.view(d * self.spatial_merge_size**2, -1).t()
-            permuted_tensor.append(grid.unsqueeze(0))
+            permuted_tensor.append(grid)
 
         image_features = torch.cat(permuted_tensor, dim=0)
-        image_features = self.merging_layer(image_features)
+        image_features = self.merging_layer(image_features.unsqueeze(0))
 
         return image_features
 

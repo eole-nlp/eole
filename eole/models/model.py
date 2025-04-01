@@ -652,7 +652,14 @@ class BaseModel(nn.Module):
                     module.to(device)
         for key in keys_shard.keys():
             if key not in keyfound.keys() and key not in buf_list:
-                logger.info("extra key in checkpoint %s" % key)
+                logger.warning("extra key in checkpoint %s" % key)
+        # We need to reset lora param to FP32 since the module.to() above converted everything
+        for name, param in self.named_parameters():
+            if "lora" in name:
+                # Split module name and parameter name
+                module_name, param_name = name.rsplit(".", 1)
+                module = self.get_submodule(module_name)  # Get the actual module
+                setattr(module, param_name, nn.Parameter(param.to(torch.float32)))  # Replace parameter
 
     def count_parameters(self, log=print):
         """Count number of parameters in model (& print with `log` callback).
@@ -959,6 +966,7 @@ class VisionEncoderDecoderModel(BaseModel):
         if not bptt:
             self.decoder.init_state()
         emb = self.embed_vision_language_features(src, images)
+        dec_in = tgt[:, :-1]
         pad_idx = self.tgt_emb.word_padding_idx
         pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
         dec_out, attns = self.decoder(
@@ -969,7 +977,16 @@ class VisionEncoderDecoderModel(BaseModel):
             tgt_pad_mask=pad_mask,
         )
 
-        return dec_out, attns, None
+        if self.add_estimator:  # we take the average of dec_out using the pad mask
+            pad_mask2 = ~dec_in.eq(pad_idx)
+            in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(dim=1) / pad_mask2.sum(
+                dim=1, keepdim=True
+            ).float()
+            estim = self.estimator(in_estim2.to(dec_out.dtype)).squeeze(-1)
+        else:
+            estim = None
+
+        return dec_out, attns, estim
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
