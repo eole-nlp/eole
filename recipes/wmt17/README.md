@@ -10,9 +10,9 @@ To make your life easier, run these commands from the recipe directory (here `re
 The following configurations as provided as example:
 - `wmt17_ende_yaml`: "legacy" configuration, using already tokenized data;
 - `wmt17_ende_bpe.yaml`: on-the-fly bpe tokenization, using the "official" `subword-nmt` based `bpe` transform;
-- `wmt17_ende_bpe_onmt°tokenize.yaml`: on-the-fly bpe tokenization, using the `pyonmttok` based `onmt_tokenize` transform;
+- `wmt17_ende_bpe_onmt_tokenize.yaml`: on-the-fly bpe tokenization, using the `pyonmttok` based `onmt_tokenize` transform;
 - `wmt17_ende_spm.yaml`: on-the-fly sentencepiece tokenization, using the official `sentencepiece` based `sentencepiece` transform;
-- `wmt17_ende_bpe.yaml`: on-the-fly sentencepiece tokenization, using the `pyonmttok` based `onmt_tokenize` transform;
+- `wmt17_ende_spm_onmt_tokenize.yaml`: on-the-fly sentencepiece tokenization, using the `pyonmttok` based `onmt_tokenize` transform;
 
 ### Get Data and prepare
 
