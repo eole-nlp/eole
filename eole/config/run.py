@@ -201,6 +201,9 @@ class PredictConfig(
         self.update(**update_dict)
 
 
+PredictConfig.model_rebuild()
+
+
 class BuildVocabConfig(DataConfig, MiscConfig, BaseVocabConfig):  # , AllTransformsConfig):
 
     model_config = get_config_dict()

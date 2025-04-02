@@ -43,7 +43,7 @@ setup(
         "torch-optimi",
         "uvicorn",
         "waitress",
-        "pydantic<=2.10",
+        "pydantic",
     ],
     entry_points={
         "console_scripts": [
