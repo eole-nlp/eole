@@ -23,7 +23,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install --upgrade build twine
+        python -m pip install "setuptools<69" wheel build twine
     - name: Build a binary wheel and a source tarball
       run: |
         python -m build
