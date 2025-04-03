@@ -1,6 +1,16 @@
 # Changelog
 
 This is just a centralised version of the Github automatically generated Release changelogs.
+## 0.2.0
+
+* Fix docs build/deploy by @francoishernandez in https://github.com/eole-nlp/eole/pull/216
+* Enable HF nllb conversion by @francoishernandez in https://github.com/eole-nlp/eole/pull/204
+* Introduce pure BF16 training with Kaha summation - (torch-optimi package) by @vince62s in https://github.com/eole-nlp/eole/pull/213
+* Ensure unicode support, strip carriage returns from vocab by @ArtanisTheOne in https://github.com/eole-nlp/eole/pull/215
+* Recipe to train estimator for Eurollm by @vince62s in https://github.com/eole-nlp/eole/pull/219
+* Support Mistral-3.1-24B by @vince62s in https://github.com/eole-nlp/eole/pull/220
+* Fix typo in wmt17 readme configuration names by @francoishernandez in https://github.com/eole-nlp/eole/pull/224
+* better lora merging + fixes by @vince62s in https://github.com/eole-nlp/eole/pull/226
 
 ## 0.1.2
 
