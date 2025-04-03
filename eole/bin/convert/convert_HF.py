@@ -1041,13 +1041,16 @@ def check_bpe_tokenizer(hf, vocabs, directory_path):
     for pretokenizer in pretokenizers:
         if pretokenizer.get("type", None) == "ByteLevel":
             gpt2_pretok = True
-    vocab = [
-        tok if tok != "Ā" else DefaultTokens.PAD
-        # "Ā" is '\x00' in unicode (cf tokenize.py gpt2 mapping)
-        for tok in hf.tokenizer["model"]["vocab"]
-    ]
-    if DefaultTokens.PAD in vocab:
-        vocabs["specials"]["pad_token"] = DefaultTokens.PAD
+    if "pad_token" in vocabs["specials"]:
+        vocab = [tok for tok in hf.tokenizer["model"]["vocab"]]
+    else:
+        vocab = [
+            tok if tok != "Ā" else DefaultTokens.PAD
+            # "Ā" is '\x00' in unicode (cf tokenize.py gpt2 mapping)
+            for tok in hf.tokenizer["model"]["vocab"]
+        ]
+        if DefaultTokens.PAD in vocab:
+            vocabs["specials"]["pad_token"] = DefaultTokens.PAD
     voc_size = len(vocab)
     if vocab_size > voc_size:
         for i in range(vocab_size - voc_size):
