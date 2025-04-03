@@ -2,9 +2,9 @@
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[project]
-name = "eole"
-version = "0.2.0"
+[tool.setuptools]
+# If your package follows the src/ layout, uncomment the next line:
+# packages = { find = { where = ["src"] } }
 
 [tool.flake8]
 max-line-length = 120
