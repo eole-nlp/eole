@@ -583,14 +583,20 @@ def build_config_dict(hf):
             "query_norm": True,
             "key_norm": True,
             "rope_config": {
-                "rotary_theta": 1000000,
-                "scaling_type": "gemma3",
+                "rotary_theta": 1000000.0,
+                "scaling_type": "linear",
+                "scaling_factor": 8.0,
                 "rotary_interleave": False,
-                # "scaling_factor": 8.0, # TODO: handle via config
             },
+            "rope_config_local": {
+                "rotary_theta": 10000.0,
+                "scaling_type": "linear",
+                "scaling_factor": 8.0,
+            },
+            "sliding_window_pattern": 6,  # Add from raw_config
         }
         model_config["encoder"] = {
-            "mlp_activation_fn": "gelu-tanh", # no up_proj it seems
+            "mlp_activation_fn": "gelu-tanh", # From vision_config - using "gelu_pytorch_tanh"
             "layers": vision_config["num_hidden_layers"],
             "image_size": vision_config["image_size"],
             "patch_size": vision_config["patch_size"],
@@ -599,10 +605,9 @@ def build_config_dict(hf):
             "position_encoding_type": "Learned",
             "n_positions": (vision_config["image_size"] // vision_config["patch_size"]) ** 2,
             # head related stuff patched to match 1152 dim of siglip
-            # https://github.com/huggingface/transformers/blob/071a161d3e38f56dbda2743b979f0afeed2cd4f1/src/transformers/models/siglip/modeling_siglip.py#L381-L383
             "heads": vision_config["num_attention_heads"],
             "heads_kv": vision_config["num_attention_heads"],
-            "head_dim": 72,
+            "head_dim": 72,  # 1152/16
             "layer_norm": "standard",
             "add_ffnbias": True,
             "add_final_linear_bias": True,
