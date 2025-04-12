@@ -13,9 +13,15 @@ class NoOpPosition:
         return None
 
 
-def build_rope(model_config, mode="1d"):
+def build_rope(model_config, mode="1d", variant="main"):
     if model_config.position_encoding_type == PositionEncodingType.Rotary:
-        return RotaryPosition(model_config, mode=mode)
+        if variant == "local" and hasattr(model_config, "rope_config_local"):
+            # Create local RoPE with different theta
+            local_config = deepcopy(model_config)
+            local_config.rope_config.rotary_theta = model_config.rope_config_local.rotary_theta
+            return RotaryPosition(local_config, mode=mode)
+        else:
+            return RotaryPosition(model_config, mode=mode)
     else:
         return NoOpPosition()
 
@@ -176,8 +182,16 @@ class RotaryPosition(nn.Module):
         self.inv_freq = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
 
     def gemma3_scaling(self):
-        # TODO: make this configurable
-        self.inv_freq /= 8.0
+        """Apply Gemma3-specific scaling to RoPE embeddings."""
+        rope_config = getattr(self.model_config.rope_config, "scaling", {})
+        factor = rope_config.get("factor", 8.0)
+        rope_type = rope_config.get("rope_type", "linear")
+        
+        if rope_type == "linear":
+            self.inv_freq /= factor
+        else:
+            # Implement other scaling methods if needed
+            self.inv_freq /= factor
 
     def forward_1d(self, maxseqlen, step=0, prefetch=1024, offset=32):
         maxseqlen += prefetch
