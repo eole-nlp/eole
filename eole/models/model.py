@@ -92,13 +92,12 @@ def build_tgt_emb(model_config, vocabs, running_config=None, share_embeddings=Fa
         position_shift=model_config.embeddings.position_shift,
         dropout=getattr(running_config, "dropout", [0.0])[0],
         word_padding_idx=vocabs["tgt"][pad_token],
-        # word_vocab_size=len(vocabs["tgt"]),
-        word_vocab_size=262208, # hardcoded for gemma3 test
+        word_vocab_size=len(vocabs["tgt"]),  # Use actual vocabulary size
         sparse=getattr(running_config, "optim", None) == "sparseadam",
         freeze_word_vecs=model_config.embeddings.freeze_word_vecs_dec,
         n_positions=model_config.embeddings.n_positions,
         normalize=model_config.embeddings.normalize,
-        embed_scale=model_config.hidden_size ** 0.5, # hardcoded for gemma3, to add in config
+        embed_scale=model_config.hidden_size ** 0.5 if model_config.arch == "vision_transformer_lm" else 1.0,
     )
 
     if share_embeddings:
