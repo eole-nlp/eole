@@ -292,7 +292,6 @@ class TransformerEncoderConfig(TransformerConfig, EncoderConfig):
 
 class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
     decoder_type: Literal["transformer"] = Field(default="transformer")
-
     aan_useffn: bool = Field(default=False, description="Turn on the FFN layer in the AAN decoder.")
     # some guided alignment specific opts were omitted here (put back for backcompat)
     alignment_layer: int = Field(default=-2, description="Layer number which has to be supervised.")
@@ -308,6 +307,23 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
         default=0.0,
         description="Lambda value for alignement loss of Garg et al, 2019 " "(https://arxiv.org/abs/1909.02074)",
     )
+    sliding_window_pattern: int = Field(
+        default=0,
+        description="Pattern for alternating RoPE settings (e.g. 6 for Gemma3)",
+    )
+    rope_config_local: RotaryPositionConfig | None = Field(
+        default=None, 
+        description="Local rotary position config for alternating layers",
+    )
+
+    @model_validator(mode="after")
+    def _validate_transformer_decoder_config(self):
+        assert (
+            self.hidden_size % self.heads == 0
+        ), "Transformer Model dimension {} must be divisible by the number of heads {}".format(
+            self.hidden_size, self.heads
+        )
+        return self
 
     @model_validator(mode="after")
     def _validate_transformer_decoder_config(self):
@@ -349,7 +365,7 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     num_channels: int | None = 3
     image_size: int | None = 1024
     patch_size: int | None = 16
-    image_token_id: int | None = 10 # pixtral uses 10, gemma3 uses 262144
+    image_token_id: int | None = 262144  # Correct token ID for Gemma3
     mm_tokens_per_image: int | None = 256 # added for gemma3
 
 
@@ -357,6 +373,17 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
 # was inheriting from VocabConfig, but removed for now to facilitate inference tests
 # could we have different BaseModelConfig classes (inheriting from a base one)
 # for different architectures / model types?
+
+class RotaryPositionConfigLocal(RotaryPositionConfig):
+    """
+    Configuration for local rotary position embeddings used in transformer models.
+    Used specifically for Gemma3's dual RoPE system.
+    """
+    rotary_theta: int = Field(
+        default=10000,
+        description="Rotary theta base length for local attention patterns (every 6th layer)",
+    )
+
 class BaseModelConfig(Config):
     # some experiments around nested config
     embeddings: EmbeddingsConfig = Field(
