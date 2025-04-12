@@ -272,8 +272,8 @@ class TransformerDecoder(DecoderBase):
         return attn_mask.unsqueeze(1)  # (batch x 1 x 1 x tgt_len)
 
     def _update_causal_mask(self, attn_mask, decoder_in):
-        image_locations = decoder_in == 262144 # TODO: grab from config/kwargs
-        # replicating HF code, can probably be simplified
+        image_token_id = getattr(self.config, "image_token", 262144)
+        image_locations = decoder_in == image_token_id
         token_type_ids = torch.where(image_locations, torch.tensor(1), torch.tensor(0))
         token_type_mask = token_type_ids.unsqueeze(1) == token_type_ids.unsqueeze(2)
         token_type_mask[token_type_ids == 0] = False
@@ -318,6 +318,9 @@ class TransformerDecoder(DecoderBase):
         position_embeddings_local = self.rope_local.update(emb.size(1), step=step)
         decoder_in = kwargs.pop("decoder_in", None)
         attn_aligns = []
+        
+        # Pattern for selecting local vs. main position embeddings
+        sliding_window_pattern = 6  # For Gemma3
 
         if step == 0:
             self._enable_cache(emb.device, tgt_pad_mask)
@@ -335,11 +338,15 @@ class TransformerDecoder(DecoderBase):
             else:
                 attn_mask = None
 
-        # we need to adapt the mask for gemma3, TODO: find another condition?
+        # we need to adapt the mask for gemma3
         if decoder_in is not None:
             attn_mask = self._update_causal_mask(attn_mask, decoder_in)
 
         for i, layer in enumerate(self.transformer_layers):
+            # Determine which position embeddings to use based on layer index
+            use_local_embeddings = (i+1) % sliding_window_pattern == 0
+            current_position_embeddings = position_embeddings_local if use_local_embeddings else position_embeddings
+            
             emb, attn = layer(
                 emb,
                 enc_out=enc_out if enc_out is not None else emb,
@@ -347,7 +354,7 @@ class TransformerDecoder(DecoderBase):
                 attn_mask=attn_mask,
                 step=step,
                 return_attn=return_attn,
-                position_embeddings=position_embeddings_local if i+1 % 6 else position_embeddings, # do this only for gemma3
+                position_embeddings=current_position_embeddings,
             )
             if with_align:
                 attn_align = layer.get_attn_align(
@@ -357,7 +364,7 @@ class TransformerDecoder(DecoderBase):
                     attn_mask=~tgt_pad_mask,
                     step=step,
                     return_attn=return_attn,
-                    position_embeddings=position_embeddings_local if i+1 % 6 else position_embeddings,
+                    position_embeddings=position_embeddings_local if use_local_embeddings else position_embeddings,
                     attns=attn,
                 )
                 if attn_align is not None:
