@@ -241,8 +241,14 @@ class MultiHeadedAttention(torch.nn.Module):
             and not return_attn
             and query.device.type != "cpu"
         ):
-            # TODO: make this configurable (gemma3)
-            kwargs = {"scale": 256**-0.5} if self.is_decoder else {}
+            # Get query_pre_attn_scalar from config or use default for Gemma3
+            query_pre_attn_scalar = getattr(self.model_config, "query_pre_attn_scalar", 256 if self.is_decoder else None)
+            
+            # Configure scaling factor if specified
+            if query_pre_attn_scalar is not None:
+                kwargs = {"scale": query_pre_attn_scalar**-0.5}
+            else:
+                kwargs = {}
 
             # Apply pytorch scaled_dot_product_attention.
             attn_output = F.scaled_dot_product_attention(
