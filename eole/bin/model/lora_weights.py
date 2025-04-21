@@ -86,7 +86,7 @@ class LoraWeights(BaseBin):
                     if args.action == "merge":
                         lora_A = lora_dict.get_tensor(module_name + ".lora_A").transpose(0, 1)
                         lora_B = lora_dict.get_tensor(module_name + ".lora_B").transpose(0, 1)
-                        if 'embeddings' in key:
+                        if "embeddings" in key:
                             shard_dict[key] += (lora_A @ lora_B) * scaling
                         else:
                             shard_dict[key] += (lora_A @ lora_B).transpose(0, 1) * scaling
