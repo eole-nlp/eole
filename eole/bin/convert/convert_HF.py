@@ -608,9 +608,7 @@ def build_config_dict(hf):
 
     if arch == "Gemma3ForConditionalGeneration":
         if model_config.get("head_dim", None) is None:
-            model_config["head_dim"] = (
-                256  # https://github.com/huggingface/transformers/blob/7652804d237fb8768f0f0b8129a05e4f0576114b/src/transformers/models/gemma3/configuration_gemma3.py#L61
-            )
+            model_config["head_dim"] = 256  # src/transformers/models/gemma3/configuration_gemma3.py#L61
         if model_config.get("heads_kv", None) is None:
             model_config["heads_kv"] = 4
         if model_config.get("heads", None) is None:
@@ -637,7 +635,7 @@ def build_config_dict(hf):
             "position_encoding_type": "Learned",
             "n_positions": (vision_config["image_size"] // vision_config["patch_size"]) ** 2,
             # head related stuff patched to match 1152 dim of siglip
-            # https://github.com/huggingface/transformers/blob/071a161d3e38f56dbda2743b979f0afeed2cd4f1/src/transformers/models/siglip/modeling_siglip.py#L381-L383
+            # https://github.com/huggingface/transformers/blob/main/src/transformers/models/siglip/modeling_siglip.py#L399-L402
             "heads": vision_config["num_attention_heads"],
             "heads_kv": vision_config["num_attention_heads"],
             "head_dim": 72,

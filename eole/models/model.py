@@ -26,7 +26,7 @@ from eole.models.model_saver import load_checkpoint
 from eole.modules.estimator import FeedForward
 
 from eole.encoders.vision import str2adapter
-from eole.encoders.vision import VisionLanguageAdapter, VisionEncoder
+from eole.encoders.vision import VisionEncoder
 
 
 def build_encoder(model_config, running_config=None):
