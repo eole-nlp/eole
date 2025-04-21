@@ -66,17 +66,17 @@ training:
     bucket_size: 10000
     num_workers: 1
     batch_type: "sents"
-    batch_size: 4
+    batch_size: 8
     valid_batch_size: 4
     batch_size_multiple: 1
 
     compute_dtype: bf16
     torch_compile: false
-    self_attn_backend: "flash"
+    self_attn_backend: "pytorch"
     use_amp: false # pure bf16 training !!
     optim: "adamw"
-    learning_rate: 1e-4
-    warmup_steps: 600
+    learning_rate: 2e-4
+    warmup_steps: 1000
     decay_method: "cosine"
     adam_beta2: 0.999
     accum_count: [32]
