@@ -4,6 +4,7 @@ from enum import Enum
 import torch
 from eole.modules.rmsnorm import RMSNorm, GemmaRMSNorm
 import torch.nn.functional as F
+from functools import partial
 
 
 class DefaultTokens(object):
@@ -62,6 +63,8 @@ class ActivationFunction(str, Enum):
     silu = "silu"
     gated_gelu = "gated-gelu"
     gated_silu = "gated-silu"
+    gelu_tanh = "gelu-tanh"
+    gated_gelu_tanh = "gated-gelu-tanh"
 
 
 class TransformType(str, Enum):
@@ -76,6 +79,9 @@ ACTIVATION_FUNCTIONS = {
     ActivationFunction.silu: F.silu,
     ActivationFunction.gated_gelu: F.gelu,
     ActivationFunction.gated_silu: F.silu,
+    ActivationFunction.gelu_tanh: partial(F.gelu, approximate="tanh"),
+    ActivationFunction.gated_gelu_tanh: partial(F.gelu, approximate="tanh"),
+
 }
 
 

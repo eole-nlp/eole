@@ -178,6 +178,38 @@ MODEL_OVERRIDES = {
         "adapter.layernorm.weight": "multi_modal_projector.norm.weight",
         "adapter.patch_merger.merging_layer.weight": "multi_modal_projector.patch_merger.merging_layer.weight",
     },
+    "Gemma3ForConditionalGeneration": {
+        "decoder_layer_prefix": "language_model.model.layers.",
+        "tgt_emb.embeddings.weight": "language_model.model.embed_tokens.weight",
+        "decoder.layer_norm.weight": "language_model.model.norm.weight",
+        # "generator.weight": "language_model.lm_head.weight", # probably shared with embeddings
+        "encoder.patch_conv.weight": "vision_tower.vision_model.embeddings.patch_embedding.weight",
+        "encoder.patch_conv.bias": "vision_tower.vision_model.embeddings.patch_embedding.bias",
+        "encoder.post_layernorm.weight": "vision_tower.vision_model.post_layernorm.weight",
+        "encoder.post_layernorm.bias": "vision_tower.vision_model.post_layernorm.bias",
+        "encoder.position_embeddings.weight": "vision_tower.vision_model.embeddings.position_embedding.weight",
+        # "encoder.ln_pre.weight": "vision_tower.ln_pre.weight", # no ln_pre in Gemma3
+        "encoder_layer_prefix": "vision_tower.vision_model.encoder.layers.",
+        ".self_attn.q_norm.": ".self_attn.q_norm.",
+        ".self_attn.k_norm.": ".self_attn.k_norm.",
+        ".pre_feedforward_layernorm.weight": ".pre_feedforward_layernorm.weight",
+        ".post_feedforward_layernorm.weight": ".post_feedforward_layernorm.weight",
+        "encoder": {
+            ".self_attn.linear_query.": ".self_attn.q_proj.",
+            ".self_attn.linear_keys.": ".self_attn.k_proj.",
+            ".self_attn.linear_values.": ".self_attn.v_proj.",
+            ".self_attn.final_linear.": ".self_attn.out_proj.",
+            ".mlp.gate_up_proj.": ".mlp.fc1.",
+            ".mlp.down_proj.": ".mlp.fc2.",
+            ".input_layernorm.weight": ".layer_norm1.weight",
+            ".input_layernorm.bias": ".layer_norm1.bias",
+            ".post_attention_layernorm.weight": ".layer_norm2.weight",
+            ".post_attention_layernorm.bias": ".layer_norm2.bias",
+        },
+        # TODO: not the same adapter as llava
+        "adapter.w_in.weight": ("multi_modal_projector.mm_input_projection_weight", ".t()"),
+        "adapter.norm.weight": "multi_modal_projector.mm_soft_emb_norm.weight",
+    },
     "M2M100ForConditionalGeneration": {
         "encoder_layer_prefix": "model.encoder.layers.",
         "decoder_layer_prefix": "model.decoder.layers.",
@@ -230,6 +262,7 @@ LN_TABLE = defaultdict(
         "XLMRobertaXLForMaskedLM": "standard",
         "Gemma2ForCausalLM": "gemma-rms",
         "M2M100ForConditionalGeneration": "standard",
+        "Gemma3ForConditionalGeneration": "gemma-rms",
     },
 )
 
@@ -241,6 +274,7 @@ ACT_TABLE = defaultdict(
         "GPT2LMHeadModel": "gelu",
         "XLMRobertaXLForMaskedLM": "gelu",
         "Gemma2ForCausalLM": "gated-gelu",
+        "Gemma3ForConditionalGeneration": "gated-gelu-tanh",
         "M2M100ForConditionalGeneration": "relu",
     },
 )
@@ -258,6 +292,7 @@ ARCH_TABLE = defaultdict(
         "XLMRobertaXLForMaskedLM": TransformerEncoderModelConfig,
         "LlavaForConditionalGeneration": VisionTransformerLMModelConfig,
         "Mistral3ForConditionalGeneration": VisionTransformerLMModelConfig,
+        "Gemma3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "M2M100ForConditionalGeneration": TransformerModelConfig,
     },
 )
@@ -394,7 +429,14 @@ class HuggingfaceFiles:
     @property
     def vocab_size(self):
         config = self.config.get("text_config", self.config)
-        return config["vocab_size"]
+        if "vocab_size" in config:
+            return config["vocab_size"]
+        tokenizer = self.tokenizer
+        if tokenizer:
+            max_added_tokens = max([token["id"] for token in tokenizer["added_tokens"]])
+            max_tokens = max([token_id for token_id in tokenizer["model"]["vocab"].values()])
+            return max(max_added_tokens, max_tokens)
+        raise NotImplementedError("Vocabulary size could not be determined.")
 
     @property
     def encoder_layer_prefix(self):
@@ -506,7 +548,7 @@ def build_config_dict(hf):
         "hidden_size": config.get("hidden_size", config.get("n_embd", config.get("hidden_dim", config.get("d_model")))),
         "heads": config.get(
             "num_attention_heads",
-            config.get("n_head", config.get("n_heads", config.get("decoder_attention_heads", 32))),
+            config.get("n_head", config.get("n_heads", config.get("decoder_attention_heads", None))),
         ),  # default 32 patch for mistral-community/pixtral-12b
         "transformer_ff": config.get("intermediate_size", config.get("decoder_ffn_dim", None)),
         "mlp_activation_fn": ACT_TABLE[arch],
@@ -540,6 +582,74 @@ def build_config_dict(hf):
         },
         "embeddings": {},  # Populated later
     }
+
+    # Vision encoder
+    if arch == "LlavaForConditionalGeneration":
+        # TODO: extend to other Llava models (with CLIP vision encoder)
+        model_config["encoder"] = {
+            "mlp_activation_fn": model_config["mlp_activation_fn"],
+            "layer_norm": model_config["layer_norm"],
+            "norm_eps": model_config["norm_eps"],
+            "hidden_size": vision_config["image_size"],
+            "transformer_ff": vision_config["image_size"] * 4,  # hard-coded for mistral-community/pixtral-12b
+            "num_channels": 3,
+            "image_size": vision_config["image_size"],
+            "patch_size": vision_config["patch_size"],
+            "rope_config": {
+                "rotary_theta": vision_config["rope_theta"],
+                "rotary_interleave": False,
+            },
+            "layers": 24,  # hard-coded for mistral-community/pixtral-12b
+            "heads": vision_config["image_size"] / vision_config["head_dim"],
+            "heads_kv": vision_config["image_size"] / vision_config["head_dim"],
+            "head_dim": vision_config["head_dim"],
+            "image_token_id": 10,
+        }
+
+    if arch == "Gemma3ForConditionalGeneration":
+        if model_config.get("head_dim", None) is None:
+            model_config["head_dim"] = 256 # https://github.com/huggingface/transformers/blob/7652804d237fb8768f0f0b8129a05e4f0576114b/src/transformers/models/gemma3/configuration_gemma3.py#L61
+        if model_config.get("heads_kv", None) is None:
+            model_config["heads_kv"] = 4
+        if model_config.get("heads", None) is None:
+            model_config["heads"] = 8
+        model_config["adapter"] = "gemma3"
+        # for decoder
+        model_config["decoder"] = {
+            "query_norm": True,
+            "key_norm": True,
+            "rope_config": {
+                "rotary_theta": 1000000,
+                "scaling_type": "gemma3",
+                "rotary_interleave": False,
+                # "scaling_factor": 8.0, # TODO: handle via config
+            },
+        }
+        model_config["encoder"] = {
+            "mlp_activation_fn": "gelu-tanh", # no up_proj it seems
+            "layers": vision_config["num_hidden_layers"],
+            "image_size": vision_config["image_size"],
+            "patch_size": vision_config["patch_size"],
+            "hidden_size": vision_config["hidden_size"],
+            "transformer_ff": vision_config["intermediate_size"],
+            "position_encoding_type": "Learned",
+            "n_positions": (vision_config["image_size"] // vision_config["patch_size"]) ** 2,
+            # head related stuff patched to match 1152 dim of siglip
+            # https://github.com/huggingface/transformers/blob/071a161d3e38f56dbda2743b979f0afeed2cd4f1/src/transformers/models/siglip/modeling_siglip.py#L381-L383
+            "heads": vision_config["num_attention_heads"],
+            "heads_kv": vision_config["num_attention_heads"],
+            "head_dim": 72,
+            "layer_norm": "standard",
+            "add_ffnbias": True,
+            "add_final_linear_bias": True,
+            "add_qkvbias": True,
+            "mm_tokens_per_image": hf.config["mm_tokens_per_image"],
+            "image_token_id": 262144,
+        }
+
+    # TODO: patch this for various models
+    if model_config.get("heads", None) is None:
+        model_config["heads"] = 32
 
     # patch transformer_ff
     if model_config["transformer_ff"] is None:
@@ -682,6 +792,10 @@ def build_config_dict(hf):
             "embeddings": {
                 "normalize": True,
             },
+        },
+        "Gemma3ForConditionalGeneration": {
+            "ffn_layernorm": True,
+            "share_decoder_embeddings": True,
         },
         "M2M100ForConditionalGeneration": {
             "parallel_residual": False,
@@ -884,6 +998,7 @@ def build_shards(model_config, hf, args, params):
             "generator.weight",
             "generator.bias",
             "encoder.patch_conv.weight",
+            "encoder.patch_conv.bias",
             "encoder.ln_pre.weight",
             "adapter.w_in.weight",
             "adapter.w_in.bias",
@@ -891,6 +1006,10 @@ def build_shards(model_config, hf, args, params):
             "adapter.w_out.bias",
             "adapter.layernorm.weight",
             "adapter.patch_merger.merging_layer.weight",
+            "adapter.norm.weight",
+            "encoder.position_embeddings.weight",
+            "encoder.post_layernorm.weight",
+            "encoder.post_layernorm.bias"
         ]
 
         def build_first_shard(hf, eole_safetensor):
@@ -899,15 +1018,25 @@ def build_shards(model_config, hf, args, params):
             for target in first_shard_targets:
                 if target in KEY_MAPS[hf.arch].keys():
                     source = KEY_MAPS[hf.arch][target]
+                    srckey, srcmap = source if isinstance(source, tuple) else (source, None)
                     if hf.wmap_path:
                         checkpoint = hf.get_load_ckpt(
                             hf.base_dir,
-                            hf.wmap["weight_map"][source],
+                            hf.wmap["weight_map"][srckey],
                         )
                     else:
                         checkpoint = hf.get_load_ckpt(*os.path.split(hf.model_path))
-                    w = get_weight(checkpoint, source)
+                    w = get_weight(checkpoint, srckey)
                     if w is not None:
+                        if srcmap is not None:
+                            w = eval(
+                                "w" + srcmap,
+                                {
+                                    "w": w,
+                                    "hidden_size": model_config["hidden_size"],
+                                    "transformer_ff": model_config["transformer_ff"],
+                                },
+                            ).contiguous()
                         eole_safetensor[target] = w
 
                     if target == "generator.bias":
