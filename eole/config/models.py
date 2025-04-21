@@ -348,8 +348,8 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     num_channels: int | None = 3
     image_size: int | None = 1024
     patch_size: int | None = 16
-    image_token_id: int | None = 10 # pixtral uses 10, gemma3 uses 262144
-    mm_tokens_per_image: int | None = 256 # added for gemma3
+    image_token_id: int | None = 10  # pixtral uses 10, gemma3 uses 262144
+    mm_tokens_per_image: int | None = 256  # added for gemma3
 
 
 # use Field with default= + description would be more readable
@@ -740,9 +740,7 @@ class TransformerLMModelConfig(TransformerConfig, BaseModelConfig):
 class VisionTransformerLMModelConfig(TransformerConfig, BaseModelConfig):
     architecture: Literal["vision_transformer_lm"] = Field(default="vision_transformer_lm")
 
-    adapter: str | None = Field(
-        default="llava",
-        description="Adapter type to use in the model.")
+    adapter: str | None = Field(default="llava", description="Adapter type to use in the model.")
 
     @model_validator(mode="before")
     @classmethod

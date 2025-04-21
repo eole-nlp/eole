@@ -608,7 +608,9 @@ def build_config_dict(hf):
 
     if arch == "Gemma3ForConditionalGeneration":
         if model_config.get("head_dim", None) is None:
-            model_config["head_dim"] = 256 # https://github.com/huggingface/transformers/blob/7652804d237fb8768f0f0b8129a05e4f0576114b/src/transformers/models/gemma3/configuration_gemma3.py#L61
+            model_config["head_dim"] = (
+                256  # https://github.com/huggingface/transformers/blob/7652804d237fb8768f0f0b8129a05e4f0576114b/src/transformers/models/gemma3/configuration_gemma3.py#L61
+            )
         if model_config.get("heads_kv", None) is None:
             model_config["heads_kv"] = 4
         if model_config.get("heads", None) is None:
@@ -626,7 +628,7 @@ def build_config_dict(hf):
             },
         }
         model_config["encoder"] = {
-            "mlp_activation_fn": "gelu-tanh", # no up_proj it seems
+            "mlp_activation_fn": "gelu-tanh",  # no up_proj it seems
             "layers": vision_config["num_hidden_layers"],
             "image_size": vision_config["image_size"],
             "patch_size": vision_config["patch_size"],
@@ -1009,7 +1011,7 @@ def build_shards(model_config, hf, args, params):
             "adapter.norm.weight",
             "encoder.position_embeddings.weight",
             "encoder.post_layernorm.weight",
-            "encoder.post_layernorm.bias"
+            "encoder.post_layernorm.bias",
         ]
 
         def build_first_shard(hf, eole_safetensor):

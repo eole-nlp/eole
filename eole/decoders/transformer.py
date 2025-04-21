@@ -21,13 +21,7 @@ class TransformerDecoderLayer(nn.Module):
         with_cross_attn (True when used with an encoder)
     """
 
-    def __init__(
-        self,
-        decoder_config,
-        running_config=None,
-        with_cross_attn=False,
-        layer_index=None
-    ):
+    def __init__(self, decoder_config, running_config=None, with_cross_attn=False, layer_index=None):
         super(TransformerDecoderLayer, self).__init__()
         self.parallel_residual = decoder_config.parallel_residual
         self.shared_layer_norm = decoder_config.shared_layer_norm
@@ -272,7 +266,7 @@ class TransformerDecoder(DecoderBase):
         return attn_mask.unsqueeze(1)  # (batch x 1 x 1 x tgt_len)
 
     def _update_causal_mask(self, attn_mask, decoder_in):
-        image_locations = decoder_in == 262144 # TODO: grab from config/kwargs
+        image_locations = decoder_in == 262144  # TODO: grab from config/kwargs
         # replicating HF code, can probably be simplified
         token_type_ids = torch.where(image_locations, torch.tensor(1), torch.tensor(0))
         token_type_mask = token_type_ids.unsqueeze(1) == token_type_ids.unsqueeze(2)
@@ -347,7 +341,9 @@ class TransformerDecoder(DecoderBase):
                 attn_mask=attn_mask,
                 step=step,
                 return_attn=return_attn,
-                position_embeddings=position_embeddings_local if i+1 % 6 else position_embeddings, # do this only for gemma3
+                position_embeddings=(
+                    position_embeddings_local if i + 1 % 6 else position_embeddings
+                ),  # do this only for gemma3
             )
             if with_align:
                 attn_align = layer.get_attn_align(
@@ -357,7 +353,7 @@ class TransformerDecoder(DecoderBase):
                     attn_mask=~tgt_pad_mask,
                     step=step,
                     return_attn=return_attn,
-                    position_embeddings=position_embeddings_local if i+1 % 6 else position_embeddings,
+                    position_embeddings=position_embeddings_local if i + 1 % 6 else position_embeddings,
                     attns=attn,
                 )
                 if attn_align is not None:

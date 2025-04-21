@@ -162,7 +162,7 @@ class VisionEncoder(nn.Module):
             patch_embeds_list,
             max_width=self.encoder_config.image_size // self.encoder_config.patch_size,
         ).to(self.device)
-        #TODO: make this cleaner
+        # TODO: make this cleaner
         if hasattr(self, "position_embeddings"):
             # this is only used for rope
             position_embeddings = None
@@ -230,13 +230,17 @@ class Gemma3MultiModalProjector(nn.Module):
         self.w_in = nn.Linear(in_dim, out_dim, bias=False)
         self.norm = GemmaRMSNorm(in_dim)
         self.patches_per_image = int(image_size / patch_size)
-        self.tokens_per_side = int(mm_tokens_per_image ** 0.5)
+        self.tokens_per_side = int(mm_tokens_per_image**0.5)
         self.kernel_size = self.patches_per_image // self.tokens_per_side
         self.avg_pool = nn.AvgPool2d(kernel_size=self.kernel_size, stride=self.kernel_size)
 
     def forward(self, x):
         batch_size, _, seq_length = x.size()
-        reshaped = x.transpose(1, 2).reshape(batch_size, seq_length, self.patches_per_image, self.patches_per_image).contiguous()
+        reshaped = (
+            x.transpose(1, 2)
+            .reshape(batch_size, seq_length, self.patches_per_image, self.patches_per_image)
+            .contiguous()
+        )
         pooled = self.avg_pool(reshaped).flatten(2).transpose(1, 2)
         normed = self.norm(pooled)
         projected = self.w_in(normed)
@@ -249,8 +253,9 @@ class Gemma3MultiModalProjector(nn.Module):
             out_dim=model_config.decoder.hidden_size,
             image_size=model_config.encoder.image_size,
             patch_size=model_config.encoder.patch_size,
-            mm_tokens_per_image=model_config.encoder.mm_tokens_per_image
+            mm_tokens_per_image=model_config.encoder.mm_tokens_per_image,
         )
+
 
 str2adapter = {
     "llava": VisionLanguageAdapter,

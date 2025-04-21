@@ -81,7 +81,6 @@ ACTIVATION_FUNCTIONS = {
     ActivationFunction.gated_silu: F.silu,
     ActivationFunction.gelu_tanh: partial(F.gelu, approximate="tanh"),
     ActivationFunction.gated_gelu_tanh: partial(F.gelu, approximate="tanh"),
-
 }
 
 

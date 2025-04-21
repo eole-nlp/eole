@@ -19,6 +19,7 @@ class ChannelDimension(Enum):
     FIRST = "channels_first"
     LAST = "channels_last"
 
+
 def _convert_to_rgb(image: Image.Image) -> Image.Image:
     """
     Convert a PIL image to RGB.
@@ -75,6 +76,7 @@ def image_to_num_tokens(img, image_size=1024, image_patch_size=16):
 
 
 # GEMMA 3 stuff, to simplify/factorize with previous pixtral code
+
 
 def resize(
     image: np.ndarray,
@@ -138,13 +140,12 @@ def resize(
         # so we need to add it back if necessary.
         resized_image = np.expand_dims(resized_image, axis=-1) if resized_image.ndim == 2 else resized_image
         # The image is always in channels last format after converting from a PIL image
-        resized_image = to_channel_dimension_format(
-            resized_image, data_format, input_channel_dim=ChannelDimension.LAST
-        )
+        resized_image = to_channel_dimension_format(resized_image, data_format, input_channel_dim=ChannelDimension.LAST)
         # If an image was rescaled to be in the range [0, 255] before converting to a PIL image, then we need to
         # rescale it back to the original range.
         resized_image = rescale(resized_image, 1 / 255) if do_rescale else resized_image
     return resized_image
+
 
 def rescale(
     image: np.ndarray,
@@ -183,6 +184,7 @@ def rescale(
 
     return rescaled_image
 
+
 def get_channel_dimension_axis(
     image: np.ndarray, input_data_format: Optional[Union[ChannelDimension, str]] = None
 ) -> int:
@@ -205,6 +207,7 @@ def get_channel_dimension_axis(
     elif input_data_format == ChannelDimension.LAST:
         return image.ndim - 1
     raise ValueError(f"Unsupported data format: {input_data_format}")
+
 
 def normalize(
     image: np.ndarray,
@@ -266,6 +269,7 @@ def normalize(
     image = to_channel_dimension_format(image, data_format, input_data_format) if data_format is not None else image
     return image
 
+
 def to_channel_dimension_format(
     image: np.ndarray,
     channel_dim: Union[ChannelDimension, str],
@@ -304,11 +308,12 @@ def to_channel_dimension_format(
 
     return image
 
+
 def process_image(image_path):
     # hard coded for gemma 3
     image = Image.open(image_path)
     image = resize(image=image, size=(896, 896), resample=2, input_data_format=ChannelDimension.LAST)
-    image = rescale(image=image, scale=0.00392156862745098, input_data_format=ChannelDimension.LAST) # 1/256
+    image = rescale(image=image, scale=0.00392156862745098, input_data_format=ChannelDimension.LAST)  # 1/256
     image = normalize(image=image, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], input_data_format=ChannelDimension.LAST)
     image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
     # return image
