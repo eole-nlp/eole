@@ -534,6 +534,7 @@ def build_config_dict(hf):
     """
     config = hf.config
     arch = hf.arch
+    print("Architecture: ", arch)
 
     vision_config = config.get("vision_config", None)
     other_config = config  # save what is not text/vision for later use
@@ -584,14 +585,16 @@ def build_config_dict(hf):
     }
 
     # Vision encoder
-    if arch == "LlavaForConditionalGeneration":
+    if arch in ["LlavaForConditionalGeneration", "Mistral3ForConditionalGeneration"]:
         # TODO: extend to other Llava models (with CLIP vision encoder)
         model_config["encoder"] = {
             "mlp_activation_fn": model_config["mlp_activation_fn"],
             "layer_norm": model_config["layer_norm"],
             "norm_eps": model_config["norm_eps"],
-            "hidden_size": vision_config["image_size"],
-            "transformer_ff": vision_config["image_size"] * 4,  # hard-coded for mistral-community/pixtral-12b
+            "hidden_size": vision_config.get("hidden_size", vision_config["image_size"]),
+            "transformer_ff": vision_config.get(
+                "intermediate_size", vision_config["image_size"] * 4
+            ),  # hard-coded for mistral-community/pixtral-12b
             "num_channels": 3,
             "image_size": vision_config["image_size"],
             "patch_size": vision_config["patch_size"],
@@ -599,12 +602,19 @@ def build_config_dict(hf):
                 "rotary_theta": vision_config["rope_theta"],
                 "rotary_interleave": False,
             },
-            "layers": 24,  # hard-coded for mistral-community/pixtral-12b
-            "heads": vision_config["image_size"] / vision_config["head_dim"],
-            "heads_kv": vision_config["image_size"] / vision_config["head_dim"],
+            "layers": vision_config.get("num_hidden_layers", 24),  # hard-coded for mistral-community/pixtral-12b
+            "heads": vision_config.get("num_attention_heads", vision_config["image_size"] / vision_config["head_dim"]),
+            "heads_kv": vision_config.get(
+                "num_attention_heads", vision_config["image_size"] / vision_config["head_dim"]
+            ),
             "head_dim": vision_config["head_dim"],
             "image_token_id": 10,
+            "layernorm_pre": True,
+            "patch_conv_bias": False,
         }
+        model_config["multimodal_projector_bias"] = other_config.get("multimodal_projector_bias", False)
+        model_config["projector_activation_fn"] = other_config.get("projector_hidden_act", "gelu")
+        model_config["spatial_merge_size"] = other_config.get("spatial_merge_size", None)
 
     if arch == "Gemma3ForConditionalGeneration":
         if model_config.get("head_dim", None) is None:
@@ -622,7 +632,10 @@ def build_config_dict(hf):
                 "rotary_theta": 1000000,
                 "scaling_type": "gemma3",
                 "rotary_interleave": False,
-                # "scaling_factor": 8.0, # TODO: handle via config
+                "rotary_theta_local": 10000,
+                "interleave_local": 6,
+                "scaling_factor": config["rope_scaling"]["factor"],
+                "tmax_index": 1,
             },
         }
         model_config["encoder"] = {
@@ -632,7 +645,7 @@ def build_config_dict(hf):
             "patch_size": vision_config["patch_size"],
             "hidden_size": vision_config["hidden_size"],
             "transformer_ff": vision_config["intermediate_size"],
-            "position_encoding_type": "Learned",
+            "position_encoding_type": PositionEncodingType.Learned,
             "n_positions": (vision_config["image_size"] // vision_config["patch_size"]) ** 2,
             # head related stuff patched to match 1152 dim of siglip
             # https://github.com/huggingface/transformers/blob/main/src/transformers/models/siglip/modeling_siglip.py#L399-L402
@@ -645,6 +658,8 @@ def build_config_dict(hf):
             "add_qkvbias": True,
             "mm_tokens_per_image": hf.config["mm_tokens_per_image"],
             "image_token_id": 262144,
+            "layernorm_pre": False,
+            "patch_conv_bias": True,
         }
 
     # TODO: patch this for various models
@@ -810,36 +825,6 @@ def build_config_dict(hf):
             "share_decoder_embeddings": True,
         },
     }
-
-    # Vision encoder
-    if vision_config is not None:
-        # TODO: extend to other Llava models (with CLIP vision encoder)
-        model_config["encoder"] = {
-            "mlp_activation_fn": VISION_ACT_TABLE[arch],
-            "layer_norm": model_config["layer_norm"],
-            "norm_eps": model_config["norm_eps"],
-            "hidden_size": vision_config.get("hidden_size", vision_config["image_size"]),
-            "transformer_ff": vision_config.get(
-                "intermediate_size", vision_config["image_size"] * 4
-            ),  # hard-coded for mistral-community/pixtral-12b
-            "num_channels": 3,
-            "image_size": vision_config["image_size"],
-            "patch_size": vision_config["patch_size"],
-            "rope_config": {
-                "rotary_theta": vision_config["rope_theta"],
-                "rotary_interleave": False,
-            },
-            "layers": vision_config.get("num_hidden_layers", 24),  # hard-coded for mistral-community/pixtral-12b
-            "heads": vision_config.get("num_attention_heads", vision_config["image_size"] / vision_config["head_dim"]),
-            "heads_kv": vision_config.get(
-                "num_attention_heads", vision_config["image_size"] / vision_config["head_dim"]
-            ),
-            "head_dim": vision_config["head_dim"],
-            "image_token_id": 10,
-        }
-        model_config["multimodal_projector_bias"] = other_config.get("multimodal_projector_bias", False)
-        model_config["projector_activation_fn"] = other_config.get("projector_hidden_act", "gelu")
-        model_config["spatial_merge_size"] = other_config.get("spatial_merge_size", None)
 
     # Update model_config based on architecture
     if arch in arch_configs:

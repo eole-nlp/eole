@@ -24,7 +24,7 @@ class RMSNorm(torch.nn.Module):
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(hidden_size))
 
-    @torch.compile(dynamic=True)
+    # @torch.compile(dynamic=True)
     def compute_rms(self, hidden_states, dtype, residual=False):
         hidden_states = hidden_states.to(torch.float32)
         variance = hidden_states.pow(2).mean(-1, keepdim=True)

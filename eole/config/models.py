@@ -182,6 +182,18 @@ class RotaryPositionConfig(Config):
         default=8192,
         description="Original maximum position embeddings for RoPE scaling.",
     )
+    rotary_theta_local: int = Field(
+        default=10000,
+        description="Rotary theta base length for local rotary layers",
+    )
+    interleave_local: int = Field(
+        default=0,
+        description="Local rotary layers each 1/N layers",
+    )
+    tmax_index: int = Field(
+        default=0,
+        description="tmax indexing, 0 for all cases except gemma 3 = 1",
+    )
 
 
 class TransformerConfig(Config):
@@ -350,6 +362,8 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     patch_size: int | None = 16
     image_token_id: int | None = 10  # pixtral uses 10, gemma3 uses 262144
     mm_tokens_per_image: int | None = 256  # added for gemma3
+    layernorm_pre: bool = True  # True for pixtral/mistral False for gemma3
+    patch_conv_bias: bool = False  # False for pixtral/mistral True for gemma3
 
 
 # use Field with default= + description would be more readable
@@ -677,11 +691,11 @@ class TransformerModelConfig(TransformerConfig, BaseModelConfig):
         if not (isinstance(data, dict)):
             return data
         if "encoder" in data.keys():
-            data["encoder"]["encoder_type"] = "transformer"
+            data["encoder"].encoder_type = "transformer"
         else:
             data["encoder"] = {"encoder_type": "transformer"}
         if "decoder" in data.keys():
-            data["decoder"]["decoder_type"] = "transformer"
+            data["decoder"].decoder_type = "transformer"
         else:
             data["decoder"] = {"decoder_type": "transformer"}
         return data

@@ -1,12 +1,11 @@
 import torch
 import numpy as np
 from PIL import Image
-from PIL.Image import PILImageResampling
 import PIL
 from typing import Tuple, Optional, Union
 from enum import Enum
 from collections.abc import Collection
-import logger
+from eole.utils.logging import logger
 
 """
 Most of this code is borrowed from:
@@ -201,7 +200,7 @@ def infer_channel_dimension_format(
 def resize(
     image: np.ndarray,
     size: Tuple[int, int],
-    resample: "PILImageResampling" = None,
+    resample: "Image.Resampling" = None,
     reducing_gap: Optional[int] = None,
     data_format: Optional[ChannelDimension] = None,
     return_numpy: bool = True,
@@ -215,7 +214,7 @@ def resize(
             The image to resize.
         size (`Tuple[int, int]`):
             The size to use for resizing the image.
-        resample (`int`, *optional*, defaults to `PILImageResampling.BILINEAR`):
+        resample (`int`, *optional*, defaults to `Image.Resampling.BILINEAR`):
             The filter to user for resampling.
         reducing_gap (`int`, *optional*):
             Apply optimization by resizing the image in two steps. The bigger `reducing_gap`, the closer the result to
@@ -233,7 +232,7 @@ def resize(
     """
     # requires_backends(resize, ["vision"])
 
-    resample = resample if resample is not None else PILImageResampling.BILINEAR
+    resample = resample if resample is not None else Image.Resampling.BILINEAR
 
     if not len(size) == 2:
         raise ValueError("size must have 2 elements")
@@ -429,7 +428,7 @@ def to_channel_dimension_format(
     return image
 
 
-def process_image(image_path):
+def process_image(image_path, image_patch_size=16):
     # hard coded for gemma 3
     image = Image.open(image_path)
     image = resize(image=image, size=(896, 896), resample=2, input_data_format=ChannelDimension.LAST)

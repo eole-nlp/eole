@@ -5,24 +5,24 @@ from eole.config.run import *
 from eole.inference_engine import InferenceEnginePY
 
 config = PredictConfig(
-    model_path="./gemma-3-4b-pt",
+    model_path="/mnt/InternalCrucial4/LLM_work/gemma3-27b-it",
     src="dummy",
     # max_length=500,
-    max_length=20,
+    max_length=128,
     gpu_ranks=[0],
-    # quant_type="bnb_NF4",
+    quant_type="bnb_NF4",
     # quant_type="bnb_FP4",  # HF default, using it for initial reproducibility checks
-    # quant_layers=[
-    #     "gate_up_proj",
-    #     "down_proj",
-    #     "up_proj",
-    #     "linear_values",
-    #     "linear_query",
-    #     "linear_keys",
-    #     "final_linear",
-    #     "w_in",
-    #     "w_out",
-    # ],
+    quant_layers=[
+        "gate_up_proj",
+        "down_proj",
+        "up_proj",
+        "linear_values",
+        "linear_query",
+        "linear_keys",
+        "final_linear",
+        "w_in",
+        "w_out",
+    ],
     compute_dtype="bf16",
     # top_p=0.8,
     # temperature=0.35,
@@ -42,13 +42,13 @@ engine.predictor.model.count_parameters()
 
 test_input = [
     {
-        "text": "{image1} in this image, there is",
-        "images": {"image1": "./bee.jpg"},
-    }
-    # {
-    #     "text": "<s>[INST]List the top 5 countries in Europe with the highest GDP\n{image1}[/INST]",
-    #     "images": {"image1": "./test_data/gdp.png"},
-    # },
+        #    "text": "{image1} in this image, there is",
+        #    "images": {"image1": "./bee.jpg"},
+        # }
+        # {
+        "text": "List the top 5 countries in Europe with the highest GDP\n{image1}",
+        "images": {"image1": "gdp.png"},
+    },
     # {
     #     "text": "[INST]When did things start to go wrong for dark dragon?\n{image1}[/INST]",
     #     "images": {

@@ -89,7 +89,6 @@ class VisionEncoder(nn.Module):
     def __init__(self, encoder_config, running_config=None):
         super(VisionEncoder, self).__init__()
         self.encoder_config = encoder_config
-        # make this configurable (e.g. gemma3 learned PE)
         if encoder_config.position_encoding_type == PositionEncodingType.Learned:
             self.position_embeddings = nn.Embedding(
                 encoder_config.n_positions,
@@ -102,16 +101,21 @@ class VisionEncoder(nn.Module):
             out_channels=encoder_config.hidden_size,
             kernel_size=encoder_config.patch_size,
             stride=encoder_config.patch_size,
-            # bias=False,
+            bias=encoder_config.patch_conv_bias,
             padding="valid",
         )
-        # self.ln_pre = RMSNorm(encoder_config.hidden_size, eps=1e-5)
+        if encoder_config.layernorm_pre:
+            self.ln_pre = RMSNorm(encoder_config.hidden_size, eps=1e-5)
+        else:
+            self.ln_pre = None
         self.transformer_layers = torch.nn.ModuleList()
         for _ in range(encoder_config.layers):
             self.transformer_layers.append(TransformerEncoderLayer(encoder_config, running_config=running_config))
 
-        # only for gemma3
-        self.post_layernorm = nn.LayerNorm(encoder_config.hidden_size, eps=encoder_config.norm_eps)
+        if self.ln_pre is None:  # then post layer norm (gemma3)
+            self.post_layernorm = nn.LayerNorm(encoder_config.hidden_size, eps=encoder_config.norm_eps)
+        else:
+            self.post_layernorm = None
 
         head_dim = encoder_config.hidden_size // encoder_config.heads
         assert head_dim % 2 == 0, "ROPE requires even head_dim"
@@ -149,9 +153,11 @@ class VisionEncoder(nn.Module):
         patch_embeds_list = [self.patch_conv(img.unsqueeze(0).to(dtype)).squeeze(0) for img in images]
 
         # flatten to a single sequence
-        # patch_embeds = torch.cat([p.flatten(1).permute(1, 0) for p in patch_embeds_list], dim=0)
-        patch_embeds = torch.cat([p for p in patch_embeds_list], dim=1)
-        # patch_embeds = self.ln_pre(patch_embeds)
+        if self.ln_pre is not None:  # pixtral / mistral
+            patch_embeds = torch.cat([p.flatten(1).permute(1, 0) for p in patch_embeds_list], dim=0)
+            patch_embeds = self.ln_pre(patch_embeds)
+        else:  # gemma3
+            patch_embeds = torch.cat([p for p in patch_embeds_list], dim=1)
         # should probably be handled upstream to have proper batch dim
         patch_embeds = patch_embeds.unsqueeze(0)
 
@@ -187,8 +193,8 @@ class VisionEncoder(nn.Module):
             mask = None
             out = layer(out, pad_mask=mask, position_embeddings=position_embeddings)
 
-        # only for gemma3
-        out = self.post_layernorm(out)
+        if self.post_layernorm is not None:
+            out = self.post_layernorm(out)
 
         return out
 
@@ -234,7 +240,7 @@ class Gemma3MultiModalProjector(nn.Module):
         self.kernel_size = self.patches_per_image // self.tokens_per_side
         self.avg_pool = nn.AvgPool2d(kernel_size=self.kernel_size, stride=self.kernel_size)
 
-    def forward(self, x):
+    def forward(self, x, image_sizes):
         batch_size, _, seq_length = x.size()
         reshaped = (
             x.transpose(1, 2)

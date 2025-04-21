@@ -117,6 +117,7 @@ class Embeddings(nn.Module):
         self.position_encoding_type = position_encoding_type
         self.position_shift = position_shift
         self.normalize = normalize
+        self.embed_scale = embed_scale
 
         if self.position_encoding_type == PositionEncodingType.Learned:
             self.pe = nn.Embedding(n_positions, word_vec_size)
@@ -132,8 +133,6 @@ class Embeddings(nn.Module):
 
         if freeze_word_vecs:
             self.embeddings.weight.requires_grad = False
-
-        self.embed_scale = embed_scale
 
     def _validate_args(
         self,
