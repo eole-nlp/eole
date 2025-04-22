@@ -37,13 +37,13 @@ def _convert_to_rgb(image: Image.Image) -> Image.Image:
 
 
 def normalize_llava(np_image, mean, std):
-     # np_image = np_image / 255.0
-     assert len(np_image.shape) == 3, f"{np_image.shape=}"
-     assert np_image.shape[2] == len(mean) == len(std), f"{np_image.shape=}, {mean=}, {std=}"
-     mean = np.array(mean, dtype=np_image.dtype)
-     std = np.array(std, dtype=np_image.dtype)
-     image = (np_image - mean) / std
-     return image.transpose(2, 0, 1)
+    # np_image = np_image / 255.0
+    assert len(np_image.shape) == 3, f"{np_image.shape=}"
+    assert np_image.shape[2] == len(mean) == len(std), f"{np_image.shape=}, {mean=}, {std=}"
+    mean = np.array(mean, dtype=np_image.dtype)
+    std = np.array(std, dtype=np_image.dtype)
+    image = (np_image - mean) / std
+    return image.transpose(2, 0, 1)
 
 
 def transform_image(image: Image.Image, new_size: Tuple[int, int]) -> np.ndarray:
@@ -423,12 +423,14 @@ def process_image(image_path, adapter="llava", image_size=1024, image_patch_size
         image_tokens = (["[IMG]"] * w + ["[IMG_BREAK]"]) * h
         image_tokens[-1] = "[IMG_END]"
         processed_image = transform_image(image, new_image_size)
-        return {"image": processed_image, "tokens": image_tokens}    
+        return {"image": processed_image, "tokens": image_tokens}
     elif adapter == "gemma3":
         image = Image.open(image_path)
         image = resize(image=image, size=(896, 896), resample=2, input_data_format=ChannelDimension.LAST)
         image = rescale(image=image, scale=0.00392156862745098, input_data_format=ChannelDimension.LAST)  # 1/256
-        image = normalize_gemma(image=image, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], input_data_format=ChannelDimension.LAST)
+        image = normalize_gemma(
+            image=image, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], input_data_format=ChannelDimension.LAST
+        )
         image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
         # return image
         # TODO: make this configurable?

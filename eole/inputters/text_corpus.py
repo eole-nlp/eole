@@ -367,7 +367,7 @@ class ImageTextCorpusIterator(object):
         offset=0,
         is_train=False,
         image_patch_size=16,
-        adapter="llava"
+        adapter="llava",
     ):
         self.cid = corpus.id
         self.corpus = corpus
@@ -412,8 +412,7 @@ class ImageTextCorpusIterator(object):
 
 
 def build_corpora_iters(
-    corpora, transforms, corpora_info, skip_empty_level="warning",
-    stride=1, offset=0, image_patch_size=16, adapter=None
+    corpora, transforms, corpora_info, skip_empty_level="warning", stride=1, offset=0, image_patch_size=16, adapter=None
 ):
     """Return `ParallelCorpusIterator` for all corpora defined in opts."""
     corpora_iters = dict()

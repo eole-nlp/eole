@@ -246,7 +246,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             left_pad=getattr(config.model, "left_pad", False),
             model_type=model_type if model_type is not None else getattr(config.model, "model_type", None),
             image_patch_size=image_patch_size,
-            adapter=getattr(config.model, "adapter", None)
+            adapter=getattr(config.model, "adapter", None),
         )
 
     def _init_datasets(self, worker_id):
