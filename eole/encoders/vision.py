@@ -151,7 +151,7 @@ class VisionEncoder(nn.Module):
         # pass images through initial convolution independently
         patch_embeds_list = [self.patch_conv(img.unsqueeze(0).to(dtype)).squeeze(0) for img in images]
 
-        # flatten to a single sequence
+        # flatten to a single sequence - NEED TO IMPROVE THIS CODE
         if self.ln_pre is not None:  # pixtral / mistral
             patch_embeds = torch.cat([p.flatten(1).permute(1, 0) for p in patch_embeds_list], dim=0)
             patch_embeds = self.ln_pre(patch_embeds)

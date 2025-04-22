@@ -586,7 +586,6 @@ def build_config_dict(hf):
 
     # Vision encoder
     if arch in ["LlavaForConditionalGeneration", "Mistral3ForConditionalGeneration"]:
-        # TODO: extend to other Llava models (with CLIP vision encoder)
         model_config["encoder"] = {
             "mlp_activation_fn": model_config["mlp_activation_fn"],
             "layer_norm": model_config["layer_norm"],
@@ -651,14 +650,14 @@ def build_config_dict(hf):
             # https://github.com/huggingface/transformers/blob/main/src/transformers/models/siglip/modeling_siglip.py#L399-L402
             "heads": vision_config["num_attention_heads"],
             "heads_kv": vision_config["num_attention_heads"],
-            "head_dim": 72,
+            "head_dim": vision_config["hidden_size"] // vision_config["num_attention_heads"],
             "layer_norm": "standard",
             "add_ffnbias": True,
             "add_final_linear_bias": True,
             "add_qkvbias": True,
             "mm_tokens_per_image": hf.config["mm_tokens_per_image"],
-            "image_token_id": 262144,
-            "layernorm_pre": False,
+            "image_token_id": hf.config["image_token_index"],
+            "layernorm_pre": False,  # implies post layernorm
             "patch_conv_bias": True,
         }
 

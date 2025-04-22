@@ -21,7 +21,7 @@ class TransformerDecoderLayer(nn.Module):
         with_cross_attn (True when used with an encoder)
     """
 
-    def __init__(self, decoder_config, running_config=None, with_cross_attn=False, layer_index=None):
+    def __init__(self, decoder_config, running_config=None, with_cross_attn=False):
         super(TransformerDecoderLayer, self).__init__()
         self.parallel_residual = decoder_config.parallel_residual
         self.shared_layer_norm = decoder_config.shared_layer_norm
@@ -348,7 +348,7 @@ class TransformerDecoder(DecoderBase):
                 return_attn=return_attn,
                 position_embeddings=(
                     position_embeddings_local if (i + 1) % self.interleave_local else position_embeddings
-                ),  # do this only for gemma3
+                ),
             )
             if with_align:
                 attn_align = layer.get_attn_align(
