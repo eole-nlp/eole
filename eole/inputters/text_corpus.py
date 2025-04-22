@@ -367,6 +367,7 @@ class ImageTextCorpusIterator(object):
         offset=0,
         is_train=False,
         image_patch_size=16,
+        adapter="llava"
     ):
         self.cid = corpus.id
         self.corpus = corpus
@@ -378,12 +379,13 @@ class ImageTextCorpusIterator(object):
         self.offset = offset
         self.is_train = is_train
         self.image_patch_size = image_patch_size
+        self.adapter = adapter
 
     def _process(self, stream):
         for i, example in enumerate(stream):
             # process images
             processed_images = {
-                k: process_image(v, image_patch_size=self.image_patch_size)
+                k: process_image(v, adapter=self.adapter, image_patch_size=self.image_patch_size)
                 for k, v in example.get("images", {}).items()
             }
             text = example["text"]
@@ -410,7 +412,8 @@ class ImageTextCorpusIterator(object):
 
 
 def build_corpora_iters(
-    corpora, transforms, corpora_info, skip_empty_level="warning", stride=1, offset=0, image_patch_size=16
+    corpora, transforms, corpora_info, skip_empty_level="warning",
+    stride=1, offset=0, image_patch_size=16, adapter=None
 ):
     """Return `ParallelCorpusIterator` for all corpora defined in opts."""
     corpora_iters = dict()
@@ -436,6 +439,7 @@ def build_corpora_iters(
                 offset=offset,
                 is_train=getattr(corpus, "is_train", None),
                 image_patch_size=image_patch_size,
+                adapter=adapter,
             )
         corpora_iters[c_id] = corpus_iter
     return corpora_iters

@@ -6,6 +6,8 @@ from eole.inference_engine import InferenceEnginePY
 
 config = PredictConfig(
     model_path="/mnt/InternalCrucial4/LLM_work/gemma3-27b-it",
+    #model_path="/mnt/InternalCrucial4/LLM_work/mistralai/mistral-3.1-24B-instruct",
+    #model_path="/mnt/InternalCrucial4/LLM_work/mistralai/pixtral-12b",
     src="dummy",
     # max_length=500,
     max_length=128,
@@ -24,9 +26,9 @@ config = PredictConfig(
         "w_out",
     ],
     compute_dtype="bf16",
-    # top_p=0.8,
-    # temperature=0.35,
-    # beam_size=1,
+    top_p=0.8,
+    temperature=0.35,
+    beam_size=1,
     seed=42,
     batch_size=1,
     batch_type="sents",
@@ -47,6 +49,7 @@ test_input = [
         # }
         # {
         "text": "List the top 5 countries in Europe with the highest GDP\n{image1}",
+        #"text": "<s>[INST]List the top 5 countries in Europe with the highest GDP\n{image1}[/INST]",
         "images": {"image1": "gdp.png"},
     },
     # {

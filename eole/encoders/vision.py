@@ -156,12 +156,11 @@ class VisionEncoder(nn.Module):
         if self.ln_pre is not None:  # pixtral / mistral
             patch_embeds = torch.cat([p.flatten(1).permute(1, 0) for p in patch_embeds_list], dim=0)
             patch_embeds = self.ln_pre(patch_embeds)
+            patch_embeds = patch_embeds.unsqueeze(0)
         else:  # gemma3
             patch_embeds = torch.cat([p for p in patch_embeds_list], dim=1)
-        # should probably be handled upstream to have proper batch dim
-        patch_embeds = patch_embeds.unsqueeze(0)
-
-        patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
+            patch_embeds = patch_embeds.unsqueeze(0)
+            patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
 
         # positional embeddings
         positions = position_ids_in_meshgrid(
@@ -190,7 +189,7 @@ class VisionEncoder(nn.Module):
         mask = ~mask
         out = patch_embeds
         for i, layer in enumerate(self.transformer_layers):
-            mask = None
+            # mask = None
             out = layer(out, pad_mask=mask, position_embeddings=position_embeddings)
 
         if self.post_layernorm is not None:
@@ -224,8 +223,7 @@ class VisionLanguageAdapter(nn.Module):
     @classmethod
     def from_config(cls, model_config, running_config=None):
         return cls(
-            in_dim=model_config.encoder.hidden_size,
-            out_dim=model_config.decoder.hidden_size,
+            model_config,
         )
 
 

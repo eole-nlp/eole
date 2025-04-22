@@ -227,7 +227,7 @@ class RotaryPosition(nn.Module):
         if positions is None:
             tmax = torch.arange(maxseqlen, device=self.inv_freq.device)
         else:
-            tmax = positions
+            tmax = positions.to(self.inv_freq.device)
         rope = self.inv_freq[tmax].to(device)
         # rope is now matrix [maxseqlen, dim/2]
         # if device is not None:

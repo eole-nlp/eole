@@ -36,14 +36,14 @@ def _convert_to_rgb(image: Image.Image) -> Image.Image:
     return white_bg.convert("RGB")
 
 
-# def normalize(np_image, mean, std):
-#     # np_image = np_image / 255.0
-#     assert len(np_image.shape) == 3, f"{np_image.shape=}"
-#     assert np_image.shape[2] == len(mean) == len(std), f"{np_image.shape=}, {mean=}, {std=}"
-#     mean = np.array(mean, dtype=np_image.dtype)
-#     std = np.array(std, dtype=np_image.dtype)
-#     image = (np_image - mean) / std
-#     return image.transpose(2, 0, 1)
+def normalize_llava(np_image, mean, std):
+     # np_image = np_image / 255.0
+     assert len(np_image.shape) == 3, f"{np_image.shape=}"
+     assert np_image.shape[2] == len(mean) == len(std), f"{np_image.shape=}, {mean=}, {std=}"
+     mean = np.array(mean, dtype=np_image.dtype)
+     std = np.array(std, dtype=np_image.dtype)
+     image = (np_image - mean) / std
+     return image.transpose(2, 0, 1)
 
 
 def transform_image(image: Image.Image, new_size: Tuple[int, int]) -> np.ndarray:
@@ -52,7 +52,7 @@ def transform_image(image: Image.Image, new_size: Tuple[int, int]) -> np.ndarray
     np_image = np.array(_convert_to_rgb(resized_image), dtype=np.uint8)
     # rescale (dtype shennanigans to match HF processing)
     np_image = (np_image.astype(np.float64) * 1 / 255).astype(np.float32)
-    return normalize(np_image, DATASET_MEAN, DATASET_STD)
+    return normalize_llava(np_image, DATASET_MEAN, DATASET_STD)
 
 
 def image_to_num_tokens(img, image_size=1024, image_patch_size=16):
@@ -64,20 +64,6 @@ def image_to_num_tokens(img, image_size=1024, image_patch_size=16):
     width_tokens = (w - 1) // image_patch_size + 1
     height_tokens = (h - 1) // image_patch_size + 1
     return width_tokens, height_tokens
-
-
-# def process_image(image_path, image_size=1024, image_patch_size=16):
-#     image = Image.open(image_path)
-#     w, h = image_to_num_tokens(image, image_size=image_size, image_patch_size=image_patch_size)
-#     new_image_size = (w * image_patch_size, h * image_patch_size)
-#     # TODO retrieve from model config / vocab / tokenizer
-#     image_tokens = (["[IMG]"] * w + ["[IMG_BREAK]"]) * h
-#     image_tokens[-1] = "[IMG_END]"
-#     processed_image = transform_image(image, new_image_size)
-#     return {"image": processed_image, "tokens": image_tokens}
-
-
-# GEMMA 3 stuff, to simplify/factorize with previous pixtral code
 
 
 def _rescale_for_pil_conversion(image):
@@ -328,7 +314,7 @@ def get_channel_dimension_axis(
     raise ValueError(f"Unsupported data format: {input_data_format}")
 
 
-def normalize(
+def normalize_gemma(
     image: np.ndarray,
     mean: Union[float, Collection[float]],
     std: Union[float, Collection[float]],
@@ -428,14 +414,25 @@ def to_channel_dimension_format(
     return image
 
 
-def process_image(image_path, image_patch_size=16):
-    # hard coded for gemma 3
-    image = Image.open(image_path)
-    image = resize(image=image, size=(896, 896), resample=2, input_data_format=ChannelDimension.LAST)
-    image = rescale(image=image, scale=0.00392156862745098, input_data_format=ChannelDimension.LAST)  # 1/256
-    image = normalize(image=image, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], input_data_format=ChannelDimension.LAST)
-    image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
-    # return image
-    # TODO: make this configurable?
-    image_tokens = "\n\n<start_of_image>" + "<image_soft_token>" * 256 + "<end_of_image>\n\n"
-    return {"image": image, "tokens": image_tokens}
+def process_image(image_path, adapter="llava", image_size=1024, image_patch_size=16):
+    if adapter == "llava":
+        image = Image.open(image_path)
+        w, h = image_to_num_tokens(image, image_size=image_size, image_patch_size=image_patch_size)
+        new_image_size = (w * image_patch_size, h * image_patch_size)
+        # TODO retrieve from model config / vocab / tokenizer
+        image_tokens = (["[IMG]"] * w + ["[IMG_BREAK]"]) * h
+        image_tokens[-1] = "[IMG_END]"
+        processed_image = transform_image(image, new_image_size)
+        return {"image": processed_image, "tokens": image_tokens}    
+    elif adapter == "gemma3":
+        image = Image.open(image_path)
+        image = resize(image=image, size=(896, 896), resample=2, input_data_format=ChannelDimension.LAST)
+        image = rescale(image=image, scale=0.00392156862745098, input_data_format=ChannelDimension.LAST)  # 1/256
+        image = normalize_gemma(image=image, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], input_data_format=ChannelDimension.LAST)
+        image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
+        # return image
+        # TODO: make this configurable?
+        image_tokens = "\n\n<start_of_image>" + "<image_soft_token>" * 256 + "<end_of_image>\n\n"
+        return {"image": image, "tokens": image_tokens}
+    else:
+        raise ValueError("Unsupported Adapter type: {}".format(adapter))
