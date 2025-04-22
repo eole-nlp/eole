@@ -334,6 +334,7 @@ class TransformerDecoder(DecoderBase):
                 attn_mask = None
 
         # we need to adapt the mask for gemma3, TODO: find another condition?
+        # SEEMS OK TO MASK IMAGES FOR LLAVA TOO ?
         if decoder_in is not None and attn_mask is not None:
             attn_mask = self._update_causal_mask(attn_mask, decoder_in == image_token_id)
 

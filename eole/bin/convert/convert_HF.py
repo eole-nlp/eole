@@ -809,8 +809,11 @@ def build_config_dict(hf):
             },
         },
         "Gemma3ForConditionalGeneration": {
-            "ffn_layernorm": True,
             "share_decoder_embeddings": True,
+            "ffn_layernorm": True,
+            "embeddings": {
+                "normalize": True,
+            },
         },
         "M2M100ForConditionalGeneration": {
             "parallel_residual": False,

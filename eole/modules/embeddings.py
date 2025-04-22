@@ -193,8 +193,6 @@ class Embeddings(nn.Module):
             normalizer = torch.tensor(self.word_vec_size**0.5, dtype=emb.dtype)
             emb = emb * normalizer
 
-        emb = emb * self.embed_scale
-
         if self.dropout_p > 0:
             return self.dropout(emb)
         else:

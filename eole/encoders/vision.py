@@ -102,7 +102,6 @@ class VisionEncoder(nn.Module):
             kernel_size=encoder_config.patch_size,
             stride=encoder_config.patch_size,
             bias=encoder_config.patch_conv_bias,
-            padding="valid",
         )
         if encoder_config.layernorm_pre:
             self.ln_pre = RMSNorm(encoder_config.hidden_size, eps=1e-5)
@@ -162,6 +161,7 @@ class VisionEncoder(nn.Module):
             patch_embeds = patch_embeds.unsqueeze(0)
             patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
 
+        # At this point patch_embeds is [batch x hiddensize x seq] but batch is fake = 1
         # positional embeddings
         positions = position_ids_in_meshgrid(
             patch_embeds_list,
@@ -189,7 +189,7 @@ class VisionEncoder(nn.Module):
         mask = ~mask
         out = patch_embeds
         for i, layer in enumerate(self.transformer_layers):
-            # mask = None
+            # mask = None # NEEDS CLARIFICATION
             out = layer(out, pad_mask=mask, position_embeddings=position_embeddings)
 
         if self.post_layernorm is not None:

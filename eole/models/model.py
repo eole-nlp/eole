@@ -86,10 +86,6 @@ def build_src_emb(model_config, vocabs, running_config=None):
 def build_tgt_emb(model_config, vocabs, running_config=None, share_embeddings=False, src_emb=None):
     # Build embeddings.
     pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
-    if model_config.hidden_size == -1:
-        embed_scale = 1
-    else:
-        embed_scale = model_config.hidden_size**0.5
     tgt_emb = Embeddings(
         word_vec_size=model_config.embeddings.tgt_word_vec_size,
         position_encoding_type=model_config.embeddings.position_encoding_type,
@@ -97,12 +93,10 @@ def build_tgt_emb(model_config, vocabs, running_config=None, share_embeddings=Fa
         dropout=getattr(running_config, "dropout", [0.0])[0],
         word_padding_idx=vocabs["tgt"][pad_token],
         word_vocab_size=len(vocabs["tgt"]),
-        # word_vocab_size=262208,  # hardcoded for gemma3 test
         sparse=getattr(running_config, "optim", None) == "sparseadam",
         freeze_word_vecs=model_config.embeddings.freeze_word_vecs_dec,
         n_positions=model_config.embeddings.n_positions,
         normalize=model_config.embeddings.normalize,
-        embed_scale=embed_scale,
     )
 
     if share_embeddings:

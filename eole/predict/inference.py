@@ -646,7 +646,7 @@ class Inference(object):
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
             left_pad=left_pad,
-            # decoder_in=decoder_in,
+            decoder_in=decoder_in,
             image_token_id=self.image_token_id,
         )
         # Generator forward.
