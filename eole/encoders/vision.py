@@ -151,7 +151,7 @@ class VisionEncoder(nn.Module):
         # TODO add as @property somewhere
         dtype = next(self.parameters()).dtype
 
-        # pass images through initial convolution independently but in fact we could batch all of them in one pass
+        # pass images through initial convolution independently (because they may have different sizes)
         patch_embeds_list = [self.patch_conv(img.to(dtype)) for img in images]
 
         if self.ln_pre is not None:  # pixtral / mistral
@@ -168,7 +168,6 @@ class VisionEncoder(nn.Module):
             mask = ~mask
         else:  # gemma3
             patch_embeds = torch.cat([p.unsqueeze(0) for p in patch_embeds_list], dim=0)
-            # now [N_img, C, H, W]
             patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
             mask = None
 
@@ -178,7 +177,6 @@ class VisionEncoder(nn.Module):
             max_width=self.encoder_config.image_size // self.encoder_config.patch_size,
             flatten=self.ln_pre is not None,  # dirty flag need to improve
         ).to(self.device)
-
         # TODO: make this cleaner
         if hasattr(self, "position_embeddings"):
             # this is only used for rope
@@ -193,7 +191,6 @@ class VisionEncoder(nn.Module):
             )
 
         out = patch_embeds
-
         for i, layer in enumerate(self.transformer_layers):
             out = layer(out, pad_mask=mask, position_embeddings=position_embeddings)
 
