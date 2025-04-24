@@ -59,7 +59,10 @@ test_input = [
     # },
     {
         "text": "<start_of_turn>user\nCombine information in both the tables into a single markdown table\n{image1}\n{image2}<end_of_turn><start_of_turn>model\n",
-        "images": {"image1": "../../eole/tests/data/images/table1.png", "image2": "../../eole/tests/data/images/table2.png"},
+        "images": {
+            "image1": "../../eole/tests/data/images/table1.png",
+            "image2": "../../eole/tests/data/images/table2.png",
+        },
     },
     # {
     #     "text": "<start_of_turn>user\nCombine information in both the tables into a single markdown table\n{image1}<end_of_turn><start_of_turn>model\n",
