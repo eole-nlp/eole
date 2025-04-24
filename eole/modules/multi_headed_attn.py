@@ -83,6 +83,7 @@ class MultiHeadedAttention(torch.nn.Module):
         self.dim_per_head = model_config.dim_per_head
         self.heads = model_config.heads
         self.heads_kv = model_config.heads_kv if model_config.heads_kv is not None else model_config.heads
+        self.attn_scaling = model_config.attn_scaling
         self.parallel_gpu = getattr(running_config, "parallel_gpu", 1)
 
         assert (
@@ -122,6 +123,7 @@ class MultiHeadedAttention(torch.nn.Module):
             bias=model_config.add_final_linear_bias,
         )
         self.is_decoder = is_decoder
+        self.scale = self.attn_scaling**-0.5 if self.is_decoder and self.attn_scaling is not None else None
         self.relative_positions_buckets = model_config.relative_positions_buckets
         self.kcache, self.kcache = None, None
         self.sliding_window = model_config.sliding_window
@@ -241,9 +243,9 @@ class MultiHeadedAttention(torch.nn.Module):
             and not return_attn
             and query.device.type != "cpu"
         ):
-            # TODO: make this configurable (gemma3)
-            kwargs = {"scale": 256**-0.5} if self.is_decoder else {}
 
+            if attn_mask is not None:
+                attn_mask = attn_mask[:, :, :, -key.size(2) :]
             # Apply pytorch scaled_dot_product_attention.
             attn_output = F.scaled_dot_product_attention(
                 query,
@@ -251,12 +253,13 @@ class MultiHeadedAttention(torch.nn.Module):
                 value,
                 attn_mask=attn_mask,
                 dropout_p=self.dropout_p,
-                **kwargs,
+                scale=self.scale,
             )
             attn = None
         else:
             # batch x num_heads x query_len x key_len
-            scores = torch.matmul(query, key.transpose(2, 3)) * self.dim_per_head**-0.5
+            scale = self.dim_per_head**-0.5 if self.scale is None else self.scale
+            scores = torch.matmul(query, key.transpose(2, 3)) * scale
 
             if self.relative_attention_bias is not None:
                 q_len = key.size(2) if self.kcache is not None else query.size(2)
@@ -338,6 +341,7 @@ class SelfMHA(MultiHeadedAttention):
         if step == 0:
             self.kcache, self.vcache = key.new_zeros(key.shape), key.new_zeros(key.shape)
         b, h, l, dph = self.kcache.shape
+
         if step >= l:
             ktype = self.kcache.dtype
             kdev = self.kcache.device
@@ -355,8 +359,7 @@ class SelfMHA(MultiHeadedAttention):
                 ),
                 dim=2,
             )
-
-        if self.sliding_window > 0 and l > self.sliding_window:
+        if self.sliding_window > 0 and step > self.sliding_window - 1:
             self.kcache = self.kcache[:, :, 1:, :]
             self.vcache = self.vcache[:, :, 1:, :]
             return self.sliding_window
@@ -447,6 +450,7 @@ class SelfMHA(MultiHeadedAttention):
                     rotary_sin=sin,
                     cache_seqlens=cache_len - 1,
                     cache_leftpad=cache_leftpad,
+                    softmax_scale=self.scale,
                     causal=step == 0,
                     rotary_interleaved=self.rotary_interleave,
                 ).transpose(1, 2)

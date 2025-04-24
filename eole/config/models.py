@@ -252,6 +252,10 @@ class TransformerConfig(Config):
         default=None,
         description="Head dimension when this needs to be different vs hidden_size // heads",
     )
+    attn_scaling: float | None = Field(
+        default=None,
+        description="Attention scaling factor, when None uses 1/sqrt(head_dim) by default",
+    )
     add_ffnbias: bool = Field(default=False, description="Add bias to nn.Linear of MLP FFN.")
     parallel_residual: bool = Field(
         default=False,

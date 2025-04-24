@@ -29,6 +29,7 @@ config = PredictConfig(
     seed=42,
     batch_size=1,
     batch_type="sents",
+    self_attn_backend="pytorch",
 )
 
 print(config)
@@ -42,44 +43,44 @@ engine.predictor.model.count_parameters()
 test_input = [
     # {
     #    "text": "<start_of_turn>user\nList the top 5 countries in Europe with the highest GDP from this image\n{image1}<end_of_turn><start_of_turn>model\n",
-    #    "images": {"image1": "../../tests/data/gdp.png"},
+    #    "images": {"image1": "../../eole/tests/data/images/gdp.png"},
     # },
     # {
     #     "text": "<start_of_turn>user\nWhen did things start to go wrong for dark dragon?\n{image1}<end_of_turn><start_of_turn>model\n",
     #     "images": {
-    #         "image1": "../../tests/data/loss_curve.jpg"
+    #         "image1": "../../eole/tests/data/images/loss_curve.jpg"
     #     }
     # },
     # {
     #     "text": "<start_of_turn>user\nIs this person really big, or is this building just super small?\n{image1}<end_of_turn><start_of_turn>model\n",
     #     "images": {
-    #         "image1": "../../tests/data/pisa_2.jpg"
+    #         "image1": "../../eole/tests/data/images/pisa_2.jpg"
     #     }
     # },
     {
         "text": "<start_of_turn>user\nCombine information in both the tables into a single markdown table\n{image1}\n{image2}<end_of_turn><start_of_turn>model\n",
-        "images": {"image1": "../../tests/data/table1.png", "image2": "../../tests/data/table2.png"},
+        "images": {"image1": "../../eole/tests/data/images/table1.png", "image2": "../../eole/tests/data/images/table2.png"},
     },
     # {
     #     "text": "<start_of_turn>user\nCombine information in both the tables into a single markdown table\n{image1}<end_of_turn><start_of_turn>model\n",
     #     "images": {
-    #         "image1": "../../tests/data/multi-images.png"
+    #         "image1": "../../eole/tests/data/images/multi-images.png"
     #     }
     # },
     # {
     #     "text": "<start_of_turn>user\nDescribe the images.\n{image1}\n{image2}\n{image3}\n{image4}<end_of_turn><start_of_turn>model\n",
     #     "images": {
-    #         "image1": "../../tests/data/image1.png",
-    #         "image2": "../../tests/data/image2.png",
-    #         "image3": "../../tests/data/image3.png",
-    #         "image4": "../../tests/data/image4.png",
+    #         "image1": "../../eole/tests/data/images/image1.png",
+    #         "image2": "../../eole/tests/data/images/image2.png",
+    #         "image3": "../../eole/tests/data/images/image3.png",
+    #         "image4": "../../eole/tests/data/images/image4.png",
     #     }
     # },
     # {
     #     "text": "<start_of_turn>user\nCombine information in both the tables into a single markdown table\n{image1}{image2}<end_of_turn><start_of_turn>model\n",
     #     "images": {
-    #         "image1": "../../tests/data/table1.png",
-    #         "image2": "../../tests/data/table2.png"
+    #         "image1": "../../eole/tests/data/images/table1.png",
+    #         "image2": "../../eole/tests/data/images/table2.png"
     #     }
     # },
 ]

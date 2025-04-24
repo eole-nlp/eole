@@ -563,6 +563,7 @@ def build_config_dict(hf):
             ),
         ),
         "head_dim": config.get("head_dim"),
+        "attn_scaling": config.get("query_pre_attn_scalar", None),
         "parallel_residual": config.get("parallel_attn", False),
         "norm_eps": config.get(
             "rms_norm_eps",
