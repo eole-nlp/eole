@@ -5,14 +5,13 @@ from eole.config.run import *
 from eole.inference_engine import InferenceEnginePY
 
 config = PredictConfig(
-    model_path="/mnt/InternalCrucial4/LLM_work/gemma3-27b-it",
+    # model_path="/mnt/InternalCrucial4/LLM_work/gemma3-12b-it",
     # model_path="/mnt/InternalCrucial4/LLM_work/mistralai/mistral-3.1-24B-instruct",
-    # model_path="/mnt/InternalCrucial4/LLM_work/mistralai/pixtral-12b",
+    model_path="/mnt/InternalCrucial4/LLM_work/mistralai/pixtral-12b",
     src="dummy",
-    # max_length=500,
-    max_length=128,
+    max_length=600,
     gpu_ranks=[0],
-    quant_type="bnb_NF4",
+    # quant_type="bnb_NF4",
     # quant_type="bnb_FP4",  # HF default, using it for initial reproducibility checks
     quant_layers=[
         "gate_up_proj",
@@ -43,15 +42,15 @@ print(engine.predictor.model)
 engine.predictor.model.count_parameters()
 
 test_input = [
-    {
-        #    "text": "{image1} in this image, there is",
-        #    "images": {"image1": "./bee.jpg"},
-        # }
-        # {
-        "text": "List the top 5 countries in Europe with the highest GDP\n{image1}",
-        # "text": "<s>[INST]List the top 5 countries in Europe with the highest GDP\n{image1}[/INST]",
-        "images": {"image1": "gdp.png"},
-    },
+    # {
+    #    "text": "{image1} in this image, there is",
+    #    "images": {"image1": "./bee.jpg"},
+    # }
+    # {
+    #    "text": "List the top 5 countries in Europe with the highest GDP from this image\n{image1}",
+    #    # "text": "<s>[INST]List the top 5 countries in Europe with the highest GDP\n{image1}[/INST]",
+    #    "images": {"image1": "gdp.png"},
+    # },
     # {
     #     "text": "[INST]When did things start to go wrong for dark dragon?\n{image1}[/INST]",
     #     "images": {
@@ -64,13 +63,11 @@ test_input = [
     #         "image1": "./test_data/pisa_2.jpg"
     #     }
     # },
-    # {
-    #     "text": "<s>[INST]Combine information in both the tables into a single markdown table\n{image1}\n{image2}[/INST]",
-    #     "images": {
-    #         "image1": "./test_data/table1.png",
-    #         "image2": "./test_data/table2.png"
-    #     }
-    # },
+    {
+        "text": "<s>[INST]Combine information in both the tables into a single markdown table\n{image1}\n{image2}[/INST]",
+        # "text": "Combine information in both the tables into a single markdown table\n{image1}\n{image2}",
+        "images": {"image1": "table1.png", "image2": "table2.png"},
+    },
     # {
     #     "text": "<s>[INST]Combine information in both the tables into a single markdown table\n{image1}[/INST]",
     #     "images": {

@@ -426,6 +426,7 @@ def process_image(image_path, adapter="llava", image_size=1024, image_patch_size
         return {"image": processed_image, "tokens": image_tokens}
     elif adapter == "gemma3":
         image = Image.open(image_path)
+        image = _convert_to_rgb(image)
         image = resize(image=image, size=(896, 896), resample=2, input_data_format=ChannelDimension.LAST)
         image = rescale(image=image, scale=0.00392156862745098, input_data_format=ChannelDimension.LAST)  # 1/256
         image = normalize_gemma(
@@ -434,7 +435,7 @@ def process_image(image_path, adapter="llava", image_size=1024, image_patch_size
         image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
         # return image
         # TODO: make this configurable?
-        image_tokens = "\n\n<start_of_image>" + "<image_soft_token>" * 256 + "<end_of_image>\n\n"
+        image_tokens = "<start_of_image>" + "<image_soft_token>" * 256 + "<end_of_image>"
         return {"image": image, "tokens": image_tokens}
     else:
         raise ValueError("Unsupported Adapter type: {}".format(adapter))

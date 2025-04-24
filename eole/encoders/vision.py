@@ -53,7 +53,7 @@ class PatchMerger(nn.Module):
         return image_features
 
 
-def position_ids_in_meshgrid(patch_embeds_list, max_width):
+def position_ids_in_meshgrid(patch_embeds_list, max_width, flatten=True):
     positions = []
     for patch in patch_embeds_list:
         height, width = patch.shape[-2:]
@@ -61,7 +61,10 @@ def position_ids_in_meshgrid(patch_embeds_list, max_width):
         h_grid, v_grid = torch.stack(mesh, dim=-1).reshape(-1, 2).chunk(2, -1)
         ids = h_grid * max_width + v_grid
         positions.append(ids[:, 0])
-    return torch.cat(positions)
+    if flatten:
+        return torch.cat(positions)
+    else:
+        return torch.stack(positions)
 
 
 def create_block_diagonal_mask(lengths, device):
@@ -142,31 +145,40 @@ class VisionEncoder(nn.Module):
             images: list of N_img images of variable sizes, each of shape (C, H, W)
         Returns:
             image_features: tensor of token features for all tokens of all images of
-                shape (N_toks, D)
+                shape (N_img, Seqlen, D)
         """
 
         # TODO add as @property somewhere
         dtype = next(self.parameters()).dtype
 
-        # pass images through initial convolution independently
-        patch_embeds_list = [self.patch_conv(img.unsqueeze(0).to(dtype)).squeeze(0) for img in images]
+        # pass images through initial convolution independently but in fact we could batch all of them in one pass
+        patch_embeds_list = [self.patch_conv(img.to(dtype)) for img in images]
 
-        # flatten to a single sequence - NEED TO IMPROVE THIS CODE
         if self.ln_pre is not None:  # pixtral / mistral
+            # flatten H+W then change to (H+W, C) and stack all images of ex
             patch_embeds = torch.cat([p.flatten(1).permute(1, 0) for p in patch_embeds_list], dim=0)
             patch_embeds = self.ln_pre(patch_embeds)
+            # create a fake batch dim
             patch_embeds = patch_embeds.unsqueeze(0)
+            mask = create_block_diagonal_mask(
+                [p.shape[-2] * p.shape[-1] for p in patch_embeds_list],
+                device=self.device,
+            )  # block diagonal mask delimiting images
+            # revert for proper downstream compatibility
+            mask = ~mask
         else:  # gemma3
-            patch_embeds = torch.cat([p for p in patch_embeds_list], dim=1)
-            patch_embeds = patch_embeds.unsqueeze(0)
+            patch_embeds = torch.cat([p.unsqueeze(0) for p in patch_embeds_list], dim=0)
+            # now [N_img, C, H, W]
             patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
+            mask = None
 
-        # At this point patch_embeds is [batch x hiddensize x seq] but batch is fake = 1
         # positional embeddings
         positions = position_ids_in_meshgrid(
             patch_embeds_list,
             max_width=self.encoder_config.image_size // self.encoder_config.patch_size,
+            flatten=self.ln_pre is not None,  # dirty flag need to improve
         ).to(self.device)
+
         # TODO: make this cleaner
         if hasattr(self, "position_embeddings"):
             # this is only used for rope
@@ -180,16 +192,9 @@ class VisionEncoder(nn.Module):
                 positions=positions,
             )
 
-        # pass through Transformer with a block diagonal mask delimiting images
-        mask = create_block_diagonal_mask(
-            [p.shape[-2] * p.shape[-1] for p in patch_embeds_list],
-            device=self.device,
-        )
-        # revert for proper downstream compatibility
-        mask = ~mask
         out = patch_embeds
+
         for i, layer in enumerate(self.transformer_layers):
-            # mask = None # NEEDS CLARIFICATION
             out = layer(out, pad_mask=mask, position_embeddings=position_embeddings)
 
         if self.post_layernorm is not None:
@@ -239,10 +244,10 @@ class Gemma3MultiModalProjector(nn.Module):
         self.avg_pool = nn.AvgPool2d(kernel_size=self.kernel_size, stride=self.kernel_size)
 
     def forward(self, x, image_sizes):
-        batch_size, _, seq_length = x.size()
+        batch_size, _, hidden_size = x.size()
         reshaped = (
             x.transpose(1, 2)
-            .reshape(batch_size, seq_length, self.patches_per_image, self.patches_per_image)
+            .reshape(batch_size, hidden_size, self.patches_per_image, self.patches_per_image)
             .contiguous()
         )
         pooled = self.avg_pool(reshaped).flatten(2).transpose(1, 2)
