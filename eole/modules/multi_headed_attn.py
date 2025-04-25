@@ -244,8 +244,6 @@ class MultiHeadedAttention(torch.nn.Module):
             and query.device.type != "cpu"
         ):
 
-            if attn_mask is not None:
-                attn_mask = attn_mask[:, :, :, -key.size(2) :]
             # Apply pytorch scaled_dot_product_attention.
             attn_output = F.scaled_dot_product_attention(
                 query,
