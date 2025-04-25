@@ -338,7 +338,7 @@ class TransformerDecoder(DecoderBase):
         if decoder_in is not None and attn_mask is not None:
             attn_mask = self._update_causal_mask(attn_mask, decoder_in == image_token_id)
         if self.sliding_window > 0 and step >= self.sliding_window and attn_mask is not None:
-            attn_mask = attn_mask[:, :, :, -self.sliding_window:]
+            attn_mask = attn_mask[:, :, :, -self.sliding_window :]
 
         for i, layer in enumerate(self.transformer_layers):
             emb, attn = layer(
