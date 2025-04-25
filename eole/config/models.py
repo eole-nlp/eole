@@ -182,6 +182,18 @@ class RotaryPositionConfig(Config):
         default=8192,
         description="Original maximum position embeddings for RoPE scaling.",
     )
+    rotary_theta_local: int = Field(
+        default=10000,
+        description="Rotary theta base length for local rotary layers",
+    )
+    interleave_local: int = Field(
+        default=0,
+        description="Local rotary layers each 1/N layers",
+    )
+    tmax_index: int = Field(
+        default=0,
+        description="tmax indexing, 0 for all cases except gemma 3 = 1",
+    )
 
 
 class TransformerConfig(Config):
@@ -225,6 +237,12 @@ class TransformerConfig(Config):
         "Note: this will add bias to output projection layer too by default. "
         "Can be disabled with `add_final_linear_bias`.",
     )
+    query_norm: bool = Field(
+        default=False,
+    )
+    key_norm: bool = Field(
+        default=False,
+    )
     add_final_linear_bias: bool = Field(default=False, description="Add bias to nn.Linear of final_linear in MHA.")
     heads_kv: int | None = Field(
         default=None,
@@ -233,6 +251,10 @@ class TransformerConfig(Config):
     head_dim: int | None = Field(
         default=None,
         description="Head dimension when this needs to be different vs hidden_size // heads",
+    )
+    attn_scaling: float | None = Field(
+        default=None,
+        description="Attention scaling factor, when None uses 1/sqrt(head_dim) by default",
     )
     add_ffnbias: bool = Field(default=False, description="Add bias to nn.Linear of MLP FFN.")
     parallel_residual: bool = Field(
@@ -342,7 +364,10 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     num_channels: int | None = 3
     image_size: int | None = 1024
     patch_size: int | None = 16
-    image_token_id: int | None = 10
+    image_token_id: int | None = 10  # pixtral uses 10, gemma3 uses 262144
+    mm_tokens_per_image: int | None = 256  # added for gemma3
+    layernorm_pre: bool = True  # True for pixtral/mistral False for gemma3
+    patch_conv_bias: bool = False  # False for pixtral/mistral True for gemma3
 
 
 # use Field with default= + description would be more readable
@@ -670,11 +695,11 @@ class TransformerModelConfig(TransformerConfig, BaseModelConfig):
         if not (isinstance(data, dict)):
             return data
         if "encoder" in data.keys():
-            data["encoder"]["encoder_type"] = "transformer"
+            data["encoder"].encoder_type = "transformer"
         else:
             data["encoder"] = {"encoder_type": "transformer"}
         if "decoder" in data.keys():
-            data["decoder"]["decoder_type"] = "transformer"
+            data["decoder"].decoder_type = "transformer"
         else:
             data["decoder"] = {"decoder_type": "transformer"}
         return data
@@ -732,6 +757,8 @@ class TransformerLMModelConfig(TransformerConfig, BaseModelConfig):
 
 class VisionTransformerLMModelConfig(TransformerConfig, BaseModelConfig):
     architecture: Literal["vision_transformer_lm"] = Field(default="vision_transformer_lm")
+
+    adapter: str | None = Field(default="llava", description="Adapter type to use in the model.")
 
     @model_validator(mode="before")
     @classmethod

@@ -140,6 +140,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         left_pad=False,
         model_type=None,
         image_patch_size=16,
+        adapter=None,
     ):
         super(DynamicDatasetIter).__init__()
         self.corpora = corpora
@@ -173,6 +174,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             self.left_pad = False
         self.model_type = model_type
         self.image_patch_size = image_patch_size
+        self.adapter = adapter
 
     @classmethod
     def from_config(
@@ -244,6 +246,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             left_pad=getattr(config.model, "left_pad", False),
             model_type=model_type if model_type is not None else getattr(config.model, "model_type", None),
             image_patch_size=image_patch_size,
+            adapter=getattr(config.model, "adapter", None),
         )
 
     def _init_datasets(self, worker_id):
@@ -261,6 +264,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             stride=stride,
             offset=offset,
             image_patch_size=self.image_patch_size,
+            adapter=self.adapter,
         )
         datasets_weights = {ds_name: int(self.corpora_info[ds_name].weight) for ds_name in datasets_iterables.keys()}
         if self.task == CorpusTask.TRAIN:

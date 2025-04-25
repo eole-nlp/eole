@@ -21,12 +21,7 @@ class TransformerDecoderLayer(nn.Module):
         with_cross_attn (True when used with an encoder)
     """
 
-    def __init__(
-        self,
-        decoder_config,
-        running_config=None,
-        with_cross_attn=False,
-    ):
+    def __init__(self, decoder_config, running_config=None, with_cross_attn=False):
         super(TransformerDecoderLayer, self).__init__()
         self.parallel_residual = decoder_config.parallel_residual
         self.shared_layer_norm = decoder_config.shared_layer_norm
@@ -212,6 +207,11 @@ class TransformerDecoder(DecoderBase):
         self.with_cross_attn = with_cross_attn
         self.sliding_window = decoder_config.sliding_window
         self.rope = build_rope(decoder_config)
+        if hasattr(decoder_config, "rope_config") and getattr(decoder_config.rope_config, "interleave_local", 0) > 0:
+            self.rope_local = build_rope(decoder_config, variant="local")
+        else:
+            self.rope_local = None
+        self.interleave_local = getattr(decoder_config.rope_config, "interleave_local", 0) or 1
         self.transformer_layers = nn.ModuleList(
             [
                 TransformerDecoderLayer(
@@ -266,6 +266,15 @@ class TransformerDecoder(DecoderBase):
         attn_mask = ~tgt_pad_mask & future_mask.unsqueeze(0)
         return attn_mask.unsqueeze(1)  # (batch x 1 x 1 x tgt_len)
 
+    def _update_causal_mask(self, attn_mask, image_locations):
+        # replicating HF code, can probably be simplified
+        token_type_ids = torch.where(image_locations, torch.tensor(1), torch.tensor(0))
+        token_type_mask = token_type_ids.unsqueeze(1) == token_type_ids.unsqueeze(2)
+        token_type_mask[token_type_ids == 0] = False
+        token_type_mask = token_type_mask.unsqueeze(1).to(attn_mask.device, dtype=torch.bool)
+        attn_mask = attn_mask.masked_fill(token_type_mask, True)
+        return attn_mask
+
     def forward(self, emb, **kwargs):
         """Decode, possibly stepwise.
 
@@ -300,6 +309,12 @@ class TransformerDecoder(DecoderBase):
         with_align = kwargs.pop("with_align", False)
         return_attn = with_align or kwargs.pop("return_attn", False)
         position_embeddings = self.rope.update(emb.size(1), step=step)
+        if self.rope_local is not None:
+            position_embeddings_local = self.rope_local.update(emb.size(1), step=step)
+        else:
+            position_embeddings_local = position_embeddings
+        decoder_in = kwargs.pop("decoder_in", None)
+        image_token_id = kwargs.pop("image_token_id", None)
         attn_aligns = []
 
         if step == 0:
@@ -318,7 +333,14 @@ class TransformerDecoder(DecoderBase):
             else:
                 attn_mask = None
 
-        for layer in self.transformer_layers:
+        # we need to adapt the mask for gemma3, TODO: find another condition?
+        # SEEMS OK TO MASK IMAGES FOR LLAVA TOO ?
+        if decoder_in is not None and attn_mask is not None:
+            attn_mask = self._update_causal_mask(attn_mask, decoder_in == image_token_id)
+        if self.sliding_window > 0 and step >= self.sliding_window and attn_mask is not None:
+            attn_mask = attn_mask[:, :, :, -self.sliding_window :]
+
+        for i, layer in enumerate(self.transformer_layers):
             emb, attn = layer(
                 emb,
                 enc_out=enc_out if enc_out is not None else emb,
@@ -326,7 +348,9 @@ class TransformerDecoder(DecoderBase):
                 attn_mask=attn_mask,
                 step=step,
                 return_attn=return_attn,
-                position_embeddings=position_embeddings,
+                position_embeddings=(
+                    position_embeddings_local if (i + 1) % self.interleave_local else position_embeddings
+                ),
             )
             if with_align:
                 attn_align = layer.get_attn_align(
@@ -336,7 +360,9 @@ class TransformerDecoder(DecoderBase):
                     attn_mask=~tgt_pad_mask,
                     step=step,
                     return_attn=return_attn,
-                    position_embeddings=position_embeddings,
+                    position_embeddings=(
+                        position_embeddings_local if (i + 1) % self.interleave_local else position_embeddings
+                    ),
                     attns=attn,
                 )
                 if attn_align is not None:

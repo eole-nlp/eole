@@ -88,6 +88,7 @@ class Inference(object):
         add_estimator=False,
         optional_eos=[],
         id_tokenization=False,
+        image_token_id=10,
     ):
         self.model = model
         self.vocabs = vocabs
@@ -162,6 +163,7 @@ class Inference(object):
         self.return_gold_log_probs = return_gold_log_probs
         self.add_estimator = add_estimator
         self.id_tokenization = id_tokenization
+        self.image_token_id = image_token_id
 
     @classmethod
     def from_config(
@@ -194,6 +196,10 @@ class Inference(object):
         # TODO: maybe add dynamic part
 
         id_tokenization = False
+        if hasattr(model_config, "encoder") and model_config.encoder is not None:
+            image_token_id = getattr(model_config.encoder, "image_token_id", 10)
+        else:
+            image_token_id = 10
         if len(config.transforms) > 0:
             tail_transform_cls = AVAILABLE_TRANSFORMS.get(config.transforms[-1], None)
             if getattr(tail_transform_cls, "output_type", None) == "ids":
@@ -233,6 +239,7 @@ class Inference(object):
             add_estimator=model_config.add_estimator,
             optional_eos=config.optional_eos,
             id_tokenization=id_tokenization,
+            image_token_id=image_token_id,
         )
 
     def _log(self, msg):
@@ -639,6 +646,8 @@ class Inference(object):
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
             left_pad=left_pad,
+            decoder_in=decoder_in,
+            image_token_id=self.image_token_id,
         )
         # Generator forward.
         if "std" in dec_attn:

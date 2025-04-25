@@ -14,6 +14,8 @@ from .relative_position_bias import relative_matmul, gen_relative_positions, com
 from .alibi_position_bias import AlibiPositionalBias
 from .rope import apply_rotary_emb
 
+from eole.modules.rmsnorm import GemmaRMSNorm
+
 
 # Help functions to split model dim per head
 def shape(x: Tensor, dim_per_head: int) -> Tensor:
@@ -81,6 +83,7 @@ class MultiHeadedAttention(torch.nn.Module):
         self.dim_per_head = model_config.dim_per_head
         self.heads = model_config.heads
         self.heads_kv = model_config.heads_kv if model_config.heads_kv is not None else model_config.heads
+        self.attn_scaling = model_config.attn_scaling
         self.parallel_gpu = getattr(running_config, "parallel_gpu", 1)
 
         assert (
@@ -107,6 +110,12 @@ class MultiHeadedAttention(torch.nn.Module):
         self.dropout_p = getattr(running_config, "attention_dropout", [0.0])[0]
         self.dropout = nn.Dropout(self.dropout_p)
 
+        # introduced for gemma3
+        if model_config.query_norm:
+            self.q_norm = GemmaRMSNorm(model_config.head_dim, eps=model_config.norm_eps)
+        if model_config.key_norm:
+            self.k_norm = GemmaRMSNorm(model_config.head_dim, eps=model_config.norm_eps)
+
         self.final_linear = skip_init(
             nn.Linear,
             in_features=self.dim_per_head * self.heads // self.parallel_gpu,
@@ -114,6 +123,7 @@ class MultiHeadedAttention(torch.nn.Module):
             bias=model_config.add_final_linear_bias,
         )
         self.is_decoder = is_decoder
+        self.scale = self.attn_scaling**-0.5 if self.is_decoder and self.attn_scaling is not None else None
         self.relative_positions_buckets = model_config.relative_positions_buckets
         self.kcache, self.kcache = None, None
         self.sliding_window = model_config.sliding_window
@@ -233,18 +243,21 @@ class MultiHeadedAttention(torch.nn.Module):
             and not return_attn
             and query.device.type != "cpu"
         ):
+
             # Apply pytorch scaled_dot_product_attention.
             attn_output = F.scaled_dot_product_attention(
                 query,
                 key,
                 value,
-                attn_mask,
-                self.dropout_p,
+                attn_mask=attn_mask,
+                dropout_p=self.dropout_p,
+                scale=self.scale,
             )
             attn = None
         else:
             # batch x num_heads x query_len x key_len
-            scores = torch.matmul(query, key.transpose(2, 3)) * self.dim_per_head**-0.5
+            scale = self.dim_per_head**-0.5 if self.scale is None else self.scale
+            scores = torch.matmul(query, key.transpose(2, 3)) * scale
 
             if self.relative_attention_bias is not None:
                 q_len = key.size(2) if self.kcache is not None else query.size(2)
@@ -326,6 +339,7 @@ class SelfMHA(MultiHeadedAttention):
         if step == 0:
             self.kcache, self.vcache = key.new_zeros(key.shape), key.new_zeros(key.shape)
         b, h, l, dph = self.kcache.shape
+
         if step >= l:
             ktype = self.kcache.dtype
             kdev = self.kcache.device
@@ -343,8 +357,7 @@ class SelfMHA(MultiHeadedAttention):
                 ),
                 dim=2,
             )
-
-        if self.sliding_window > 0 and l > self.sliding_window:
+        if self.sliding_window > 0 and step > self.sliding_window - 1:
             self.kcache = self.kcache[:, :, 1:, :]
             self.vcache = self.vcache[:, :, 1:, :]
             return self.sliding_window
@@ -391,6 +404,12 @@ class SelfMHA(MultiHeadedAttention):
             key = shape(key, self.dim_per_head)
             value = shape(value, self.dim_per_head)
             query = shape(query, self.dim_per_head)
+
+            if hasattr(self, "q_norm"):
+                query = self.q_norm(query)
+            if hasattr(self, "k_norm"):
+                key = self.k_norm(key)
+
             if (
                 not self.flash
                 or self.position_encoding_type in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
@@ -429,6 +448,7 @@ class SelfMHA(MultiHeadedAttention):
                     rotary_sin=sin,
                     cache_seqlens=cache_len - 1,
                     cache_leftpad=cache_leftpad,
+                    softmax_scale=self.scale,
                     causal=step == 0,
                     rotary_interleaved=self.rotary_interleave,
                 ).transpose(1, 2)

@@ -13,9 +13,9 @@ class NoOpPosition:
         return None
 
 
-def build_rope(model_config, mode="1d"):
+def build_rope(model_config, mode="1d", variant="global"):
     if model_config.position_encoding_type == PositionEncodingType.Rotary:
-        return RotaryPosition(model_config, mode=mode)
+        return RotaryPosition(model_config, mode=mode, variant=variant)
     else:
         return NoOpPosition()
 
@@ -81,7 +81,7 @@ class RotaryPosition(nn.Module):
     and to support future enhancements, such as additional scaling types.
     """
 
-    def __init__(self, model_config, mode="1d"):
+    def __init__(self, model_config, mode="1d", variant="global"):
         """
         Initializes the RotaryPosition module.
 
@@ -112,7 +112,10 @@ class RotaryPosition(nn.Module):
         else:
             rotary_dim = model_config.rope_config.rotary_dim
         self.rotary_interleave = model_config.rope_config.rotary_interleave
-        self.rotary_theta = model_config.rope_config.rotary_theta
+        if variant == "global":
+            self.rotary_theta = model_config.rope_config.rotary_theta
+        else:
+            self.rotary_theta = model_config.rope_config.rotary_theta_local
         inv_freq = 1.0 / (self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
         if mode == "2d":
             inv_freq = self.init_2d_inv_freq(inv_freq)
@@ -120,6 +123,8 @@ class RotaryPosition(nn.Module):
         # TODO: extend with other scaling types
         if getattr(self.model_config.rope_config, "scaling_type", None) == "llama3":
             self.llama3_scaling()
+        if getattr(self.model_config.rope_config, "scaling_type", None) == "gemma3" and variant == "global":
+            self.gemma3_scaling()
         cos, sin = self.update(1024)
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
@@ -173,12 +178,18 @@ class RotaryPosition(nn.Module):
         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
         self.inv_freq = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
 
+    def gemma3_scaling(self):
+        rope_config = self.model_config.rope_config
+        factor = rope_config.scaling_factor  # `8` in the original implementation
+        self.inv_freq /= factor
+
     def forward_1d(self, maxseqlen, step=0, prefetch=1024, offset=32):
         maxseqlen += prefetch
         device = self.cos.device if hasattr(self, "cos") else torch.device("cpu")
         dtype = self.cos.dtype if hasattr(self, "cos") else torch.float32
 
         tmax = torch.arange(max(offset + step, 0) + maxseqlen, device=device)
+        tmax += self.model_config.rope_config.tmax_index
         rope = torch.outer(tmax, self.inv_freq.to(device))
         cos = torch.cos(rope)
         sin = torch.sin(rope)
@@ -216,7 +227,7 @@ class RotaryPosition(nn.Module):
         if positions is None:
             tmax = torch.arange(maxseqlen, device=self.inv_freq.device)
         else:
-            tmax = positions
+            tmax = positions.to(self.inv_freq.device)
         rope = self.inv_freq[tmax].to(device)
         # rope is now matrix [maxseqlen, dim/2]
         # if device is not None:

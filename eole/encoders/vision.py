@@ -9,9 +9,10 @@ import torch.nn as nn
 from typing import Optional
 
 # from eole.modules.multi_headed_attn import SelfMHA
-from eole.modules.rmsnorm import RMSNorm
+from eole.modules.rmsnorm import RMSNorm, GemmaRMSNorm
 from eole.encoders.transformer import TransformerEncoderLayer
 from eole.modules.rope import build_rope
+from eole.constants import PositionEncodingType
 
 
 class PatchMerger(nn.Module):
@@ -52,7 +53,7 @@ class PatchMerger(nn.Module):
         return image_features
 
 
-def position_ids_in_meshgrid(patch_embeds_list, max_width):
+def position_ids_in_meshgrid(patch_embeds_list, max_width, flatten=True):
     positions = []
     for patch in patch_embeds_list:
         height, width = patch.shape[-2:]
@@ -60,7 +61,10 @@ def position_ids_in_meshgrid(patch_embeds_list, max_width):
         h_grid, v_grid = torch.stack(mesh, dim=-1).reshape(-1, 2).chunk(2, -1)
         ids = h_grid * max_width + v_grid
         positions.append(ids[:, 0])
-    return torch.cat(positions)
+    if flatten:
+        return torch.cat(positions)
+    else:
+        return torch.stack(positions)
 
 
 def create_block_diagonal_mask(lengths, device):
@@ -88,18 +92,32 @@ class VisionEncoder(nn.Module):
     def __init__(self, encoder_config, running_config=None):
         super(VisionEncoder, self).__init__()
         self.encoder_config = encoder_config
-        self.rope = build_rope(encoder_config, mode="2d")
+        if encoder_config.position_encoding_type == PositionEncodingType.Learned:
+            self.position_embeddings = nn.Embedding(
+                encoder_config.n_positions,
+                encoder_config.hidden_size,
+            )
+        else:
+            self.rope = build_rope(encoder_config, mode="2d")
         self.patch_conv = nn.Conv2d(
             in_channels=encoder_config.num_channels,
             out_channels=encoder_config.hidden_size,
             kernel_size=encoder_config.patch_size,
             stride=encoder_config.patch_size,
-            bias=False,
+            bias=encoder_config.patch_conv_bias,
         )
-        self.ln_pre = RMSNorm(encoder_config.hidden_size, eps=1e-5)
+        if encoder_config.layernorm_pre:
+            self.ln_pre = RMSNorm(encoder_config.hidden_size, eps=1e-5)
+        else:
+            self.ln_pre = None
         self.transformer_layers = torch.nn.ModuleList()
         for _ in range(encoder_config.layers):
             self.transformer_layers.append(TransformerEncoderLayer(encoder_config, running_config=running_config))
+
+        if self.ln_pre is None:  # then post layer norm (gemma3)
+            self.post_layernorm = nn.LayerNorm(encoder_config.hidden_size, eps=encoder_config.norm_eps)
+        else:
+            self.post_layernorm = None
 
         head_dim = encoder_config.hidden_size // encoder_config.heads
         assert head_dim % 2 == 0, "ROPE requires even head_dim"
@@ -127,45 +145,58 @@ class VisionEncoder(nn.Module):
             images: list of N_img images of variable sizes, each of shape (C, H, W)
         Returns:
             image_features: tensor of token features for all tokens of all images of
-                shape (N_toks, D)
+                shape (N_img, Seqlen, D)
         """
 
         # TODO add as @property somewhere
         dtype = next(self.parameters()).dtype
 
-        # pass images through initial convolution independently
-        patch_embeds_list = [self.patch_conv(img.unsqueeze(0).to(dtype)).squeeze(0) for img in images]
+        # pass images through initial convolution independently (because they may have different sizes)
+        patch_embeds_list = [self.patch_conv(img.to(dtype)) for img in images]
 
-        # flatten to a single sequence
-        patch_embeds = torch.cat([p.flatten(1).permute(1, 0) for p in patch_embeds_list], dim=0)
-        patch_embeds = self.ln_pre(patch_embeds)
-        # should probably be handled upstream to have proper batch dim
-        patch_embeds = patch_embeds.unsqueeze(0)
+        if self.ln_pre is not None:  # pixtral / mistral
+            # flatten H+W then change to (H+W, C) and stack all images of ex
+            patch_embeds = torch.cat([p.flatten(1).permute(1, 0) for p in patch_embeds_list], dim=0)
+            patch_embeds = self.ln_pre(patch_embeds)
+            # create a fake batch dim
+            patch_embeds = patch_embeds.unsqueeze(0)
+            mask = create_block_diagonal_mask(
+                [p.shape[-2] * p.shape[-1] for p in patch_embeds_list],
+                device=self.device,
+            )  # block diagonal mask delimiting images
+            # revert for proper downstream compatibility
+            mask = ~mask
+        else:  # gemma3
+            patch_embeds = torch.cat([p.unsqueeze(0) for p in patch_embeds_list], dim=0)
+            patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
+            mask = None
 
         # positional embeddings
         positions = position_ids_in_meshgrid(
             patch_embeds_list,
             max_width=self.encoder_config.image_size // self.encoder_config.patch_size,
-        )
-        position_embeddings = self.rope.update(
-            patch_embeds.size(1),
-            step=0,
-            reset=True,
-            positions=positions,
-        )
+            flatten=self.ln_pre is not None,  # dirty flag need to improve
+        ).to(self.device)
+        # TODO: make this cleaner
+        if hasattr(self, "position_embeddings"):
+            # this is only used for rope
+            position_embeddings = None
+            patch_embeds += self.position_embeddings(positions)
+        else:
+            position_embeddings = self.rope.update(
+                patch_embeds.size(1),
+                step=0,
+                reset=True,
+                positions=positions,
+            )
 
-        # pass through Transformer with a block diagonal mask delimiting images
-        mask = create_block_diagonal_mask(
-            [p.shape[-2] * p.shape[-1] for p in patch_embeds_list],
-            device=self.device,
-        )
-        # revert for proper downstream compatibility
-        mask = ~mask
         out = patch_embeds
         for i, layer in enumerate(self.transformer_layers):
             out = layer(out, pad_mask=mask, position_embeddings=position_embeddings)
 
-        # remove batch dimension of the single sequence
+        if self.post_layernorm is not None:
+            out = self.post_layernorm(out)
+
         return out
 
 
@@ -190,3 +221,49 @@ class VisionLanguageAdapter(nn.Module):
             x = self.layernorm(x)
             x = self.patch_merger(x, image_sizes)
         return self.w_out(self.gelu(self.w_in(x)))
+
+    @classmethod
+    def from_config(cls, model_config, running_config=None):
+        return cls(
+            model_config,
+        )
+
+
+class Gemma3MultiModalProjector(nn.Module):
+    # https://github.com/huggingface/transformers/blob/071a161d3e38f56dbda2743b979f0afeed2cd4f1/src/transformers/models/gemma3/modular_gemma3.py#L717
+    def __init__(self, in_dim, out_dim, image_size, patch_size, mm_tokens_per_image):
+        super(Gemma3MultiModalProjector, self).__init__()
+        self.w_in = nn.Linear(in_dim, out_dim, bias=False)
+        self.norm = GemmaRMSNorm(in_dim)
+        self.patches_per_image = int(image_size / patch_size)
+        self.tokens_per_side = int(mm_tokens_per_image**0.5)
+        self.kernel_size = self.patches_per_image // self.tokens_per_side
+        self.avg_pool = nn.AvgPool2d(kernel_size=self.kernel_size, stride=self.kernel_size)
+
+    def forward(self, x, image_sizes):
+        batch_size, _, hidden_size = x.size()
+        reshaped = (
+            x.transpose(1, 2)
+            .reshape(batch_size, hidden_size, self.patches_per_image, self.patches_per_image)
+            .contiguous()
+        )
+        pooled = self.avg_pool(reshaped).flatten(2).transpose(1, 2)
+        normed = self.norm(pooled)
+        projected = self.w_in(normed)
+        return projected.type_as(x)
+
+    @classmethod
+    def from_config(cls, model_config, running_config=None):
+        return cls(
+            in_dim=model_config.encoder.hidden_size,
+            out_dim=model_config.decoder.hidden_size,
+            image_size=model_config.encoder.image_size,
+            patch_size=model_config.encoder.patch_size,
+            mm_tokens_per_image=model_config.encoder.mm_tokens_per_image,
+        )
+
+
+str2adapter = {
+    "llava": VisionLanguageAdapter,
+    "gemma3": Gemma3MultiModalProjector,
+}

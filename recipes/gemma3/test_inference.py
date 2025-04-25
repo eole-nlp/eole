@@ -5,9 +5,9 @@ from eole.config.run import *
 from eole.inference_engine import InferenceEnginePY
 
 config = PredictConfig(
-    model_path="./pixtral-12b",
+    model_path="./gemma3-27b-it",
     src="dummy",
-    max_length=500,
+    max_length=600,
     gpu_ranks=[0],
     # quant_type="bnb_NF4",
     quant_type="bnb_FP4",  # HF default, using it for initial reproducibility checks
@@ -22,13 +22,14 @@ config = PredictConfig(
         "w_in",
         "w_out",
     ],
-    compute_dtype="fp16",
+    compute_dtype="bf16",
     top_p=0.8,
     temperature=0.35,
     beam_size=1,
     seed=42,
     batch_size=1,
     batch_type="sents",
+    self_attn_backend="pytorch",
 )
 
 print(config)
@@ -40,37 +41,37 @@ print(engine.predictor.model)
 engine.predictor.model.count_parameters()
 
 test_input = [
-    {
-        "text": "<s>[INST]List the top 5 countries in Europe with the highest GDP\n{image1}[/INST]",
-        "images": {"image1": "../../eole/tests/data/images/gdp.png"},
-    },
     # {
-    #     "text": "[INST]When did things start to go wrong for dark dragon?\n{image1}[/INST]",
+    #    "text": "<start_of_turn>user\nList the top 5 countries in Europe with the highest GDP from this image\n{image1}<end_of_turn><start_of_turn>model\n",
+    #    "images": {"image1": "../../eole/tests/data/images/gdp.png"},
+    # },
+    # {
+    #     "text": "<start_of_turn>user\nWhen did things start to go wrong for dark dragon?\n{image1}<end_of_turn><start_of_turn>model\n",
     #     "images": {
     #         "image1": "../../eole/tests/data/images/loss_curve.jpg"
     #     }
     # },
     # {
-    #     "text": "<s>[INST]Is this person really big, or is this building just super small?\n{image1}[/INST]",
+    #     "text": "<start_of_turn>user\nIs this person really big, or is this building just super small?\n{image1}<end_of_turn><start_of_turn>model\n",
     #     "images": {
     #         "image1": "../../eole/tests/data/images/pisa_2.jpg"
     #     }
     # },
+    {
+        "text": "<start_of_turn>user\nCombine information in both the tables into a single markdown table\n{image1}\n{image2}<end_of_turn><start_of_turn>model\n",
+        "images": {
+            "image1": "../../eole/tests/data/images/table1.png",
+            "image2": "../../eole/tests/data/images/table2.png",
+        },
+    },
     # {
-    #     "text": "<s>[INST]Combine information in both the tables into a single markdown table\n{image1}\n{image2}[/INST]",
-    #     "images": {
-    #         "image1": "../../eole/tests/data/images/table1.png",
-    #         "image2": "../../eole/tests/data/images/table2.png"
-    #     }
-    # },
-    # {
-    #     "text": "<s>[INST]Combine information in both the tables into a single markdown table\n{image1}[/INST]",
+    #     "text": "<start_of_turn>user\nCombine information in both the tables into a single markdown table\n{image1}<end_of_turn><start_of_turn>model\n",
     #     "images": {
     #         "image1": "../../eole/tests/data/images/multi-images.png"
     #     }
     # },
     # {
-    #     "text": "<s>[INST]Describe the images.\n{image1}\n{image2}\n{image3}\n{image4}[/INST]",
+    #     "text": "<start_of_turn>user\nDescribe the images.\n{image1}\n{image2}\n{image3}\n{image4}<end_of_turn><start_of_turn>model\n",
     #     "images": {
     #         "image1": "../../eole/tests/data/images/image1.png",
     #         "image2": "../../eole/tests/data/images/image2.png",
@@ -79,7 +80,7 @@ test_input = [
     #     }
     # },
     # {
-    #     "text": "<s>[INST]Combine information in both the tables into a single markdown table\n{image1}{image2}[/INST]",
+    #     "text": "<start_of_turn>user\nCombine information in both the tables into a single markdown table\n{image1}{image2}<end_of_turn><start_of_turn>model\n",
     #     "images": {
     #         "image1": "../../eole/tests/data/images/table1.png",
     #         "image2": "../../eole/tests/data/images/table2.png"

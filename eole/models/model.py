@@ -25,7 +25,8 @@ from eole.modules.embeddings import Embeddings
 from eole.models.model_saver import load_checkpoint
 from eole.modules.estimator import FeedForward
 
-from eole.encoders.vision import VisionLanguageAdapter, VisionEncoder
+from eole.encoders.vision import str2adapter
+from eole.encoders.vision import VisionEncoder
 
 
 def build_encoder(model_config, running_config=None):
@@ -36,6 +37,14 @@ def build_encoder(model_config, running_config=None):
     """
     enc_type = model_config.encoder.encoder_type
     return str2enc[enc_type].from_config(model_config.encoder, running_config=running_config)  # full config for now
+
+
+def build_adapter(model_config, running_config=None):
+    """
+    Various adapter dispatcher function.
+    """
+    adapter_type = model_config.adapter
+    return str2adapter[adapter_type].from_config(model_config, running_config=running_config)
 
 
 def build_decoder(model_config, running_config=None, with_cross_attn=False):
@@ -909,7 +918,7 @@ class VisionEncoderDecoderModel(BaseModel):
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         encoder = build_encoder(model_config, running_config=running_config)
-        adapter = VisionLanguageAdapter(model_config)
+        adapter = build_adapter(model_config, running_config=running_config)
         tgt_emb = build_tgt_emb(
             model_config,
             vocabs,
@@ -937,15 +946,19 @@ class VisionEncoderDecoderModel(BaseModel):
         if len(images) == 0:
             return text_features
         image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
+
+        # images is a list of tensors, each being [channel, H, W]
         encoded_images = self.encoder(images)
+        # encoded_images is [N_img x seq x hidden_size]
         image_features = self.adapter(encoded_images, image_sizes=image_sizes)
 
         seq_len = src.shape[1]
         batch, N_txt, D_txt = text_features.shape
-        _, N_img, D_img = image_features.shape
+        N_img, tokperimg, D_img = image_features.shape
         assert D_txt == D_img, f"Text features dim {D_txt} should be equal to image features dim {D_img}"
-        assert seq_len == N_txt + N_img, (
-            f"seq_len {seq_len} should be equal to N_txt + N_img " f"{(N_txt, N_img, image_locations.sum().item())}"
+        assert batch * seq_len == batch * N_txt + N_img * tokperimg, (
+            f"seq_len {seq_len} should be equal to N_txt + N_img * tokperimg "
+            f"{(N_txt, N_img, tokperimg, image_locations.sum().item())}"
         )
 
         combined_features = torch.empty(
@@ -953,9 +966,11 @@ class VisionEncoderDecoderModel(BaseModel):
             dtype=text_features.dtype,
             device=text_features.device,
         )
-        combined_features[text_locations, :] = text_features
+        text_mask = text_locations.unsqueeze(-1).expand_as(combined_features)
+        combined_features = combined_features.masked_scatter(text_mask, text_features.view(-1, D_img))
         if len(images) > 0:
-            combined_features[image_locations, :] = image_features
+            image_mask = image_locations.unsqueeze(-1).expand_as(combined_features)
+            combined_features = combined_features.masked_scatter(image_mask, image_features.view(-1, D_img))
 
         return combined_features
 
