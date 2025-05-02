@@ -113,6 +113,12 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
             elif isinstance(example["tgt"], list):
                 tgt_tokens = self.tokenize_string(" ".join(example["tgt"]), side="tgt", is_train=is_train)
             example["tgt_ids"] = tgt_tokens
+        else:  # tricky case: when using tokenize_id and tgt is None then we use src instead (LM classic training)
+            if isinstance(example["src"], str):
+                tgt_tokens = self.tokenize_string(example["src"], side="tgt", is_train=is_train)
+            elif isinstance(example["src"], list):
+                tgt_tokens = self.tokenize_string(" ".join(example["src"]), side="tgt", is_train=is_train)
+            example["tgt_ids"] = tgt_tokens
         return example
 
     def apply_reverse(self, predicted):

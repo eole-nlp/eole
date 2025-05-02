@@ -323,6 +323,10 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
         default=0.0,
         description="Lambda value for alignement loss of Garg et al, 2019 " "(https://arxiv.org/abs/1909.02074)",
     )
+    prefix_LM: bool = Field(
+        default=False,
+        description="Whether the TransformerDecoder is a prefixLM or CausalLM https://arxiv.org/pdf/2308.06912",
+    )
 
     @model_validator(mode="after")
     def _validate_transformer_decoder_config(self):
