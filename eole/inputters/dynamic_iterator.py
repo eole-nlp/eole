@@ -278,7 +278,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         tuple_bucket = transform_bucket(self.task, tuple_bucket, self.score_threshold)
         for example in tuple_bucket:
             if example is not None:
-                bucket.append(numericalize(self.vocabs, example, model_type=self.model_type))
+                bucket.append(numericalize(self.vocabs, example, model_type=self.model_type, task=self.task))
 
         return bucket
 

@@ -205,7 +205,7 @@ class ParallelCorpus(object):
             dataset = self._load_hf_dataset(self.src)
             for i, example in enumerate(dataset):
                 sline = example.get(self.src.split("/")[-1])
-                tline = example.get(self.tgt.split("/")[-1])
+                tline = example.get(self.tgt.split("/")[-1]) if self.tgt is not None else None
                 if self.sco is not None:
                     scoline = example.get(self.sco.split("/")[-1], 1.0)
                 else:
@@ -239,14 +239,10 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
         for corpus_id, corpus_dict in config.data.items():
             if corpus_id != CorpusName.VALID:
                 if corpus_dict.path_txt is None:
-                    if corpus_dict.path_tgt is None:
-                        path_tgt = corpus_dict.path_src
-                    else:
-                        path_tgt = corpus_dict.path_tgt
                     corpora_dict[corpus_id] = ParallelCorpus(
                         corpus_id,
                         corpus_dict.path_src,
-                        path_tgt,
+                        corpus_dict.path_tgt,
                         corpus_dict.path_sco,
                         corpus_dict.path_align,
                     )
@@ -264,15 +260,11 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
                     )
     elif task == CorpusTask.VALID:
         if CorpusName.VALID in config.data.keys():
-            if config.data[CorpusName.VALID].path_tgt is None:
-                path_tgt = config.data[CorpusName.VALID].path_src
-            else:
-                path_tgt = config.data[CorpusName.VALID].path_tgt
             if config.data_type == "text":
                 corpora_dict[CorpusName.VALID] = ParallelCorpus(
                     CorpusName.VALID,
                     config.data[CorpusName.VALID].path_src,
-                    path_tgt if tgt is None else None,
+                    config.data[CorpusName.VALID].path_tgt,
                     None,
                     config.data[CorpusName.VALID].path_align,
                 )

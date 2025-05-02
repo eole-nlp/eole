@@ -55,6 +55,8 @@ def transform_bucket(task, bucket, threshold=0):
         #  'cid': corpus id
         #  'cid_line_number' : cid line number
         #  'align': ...,
+        #  if tokenize_id is used then it will include:
+        #  'src_ids' and 'tgt_ids'
         # }
     if len(transformed_bucket) > 0:
         return transformed_bucket
@@ -62,12 +64,12 @@ def transform_bucket(task, bucket, threshold=0):
         return None
 
 
-def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
+def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER, task=CorpusTask.INFER):
     """ """
     decoder_start_token = vocabs["decoder_start_token"]
     numeric = example
-    numeric["src"]["src_ids"] = example.get("src_ids", [])
-    maybe_tgt_ids = example.get("tgt_ids", [])
+    numeric["src"]["src_ids"] = example.pop("src_ids", [])
+    maybe_tgt_ids = example.pop("tgt_ids", [])
     if model_type == ModelType.ENCODER_DECODER:
         src_text = example["src"]["src"].split(" ")
         if numeric["src"]["src_ids"] == []:
@@ -87,19 +89,33 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER):
                 )
 
     elif model_type == ModelType.DECODER:
-        if numeric["src"]["src_ids"] == []:
+        if numeric["src"]["src_ids"] == []:  # tokenize_id not used
             src_text = example["src"]["src"].split(" ")
             if decoder_start_token != "":
                 src_text = [decoder_start_token] + src_text
             numeric["src"]["src_ids"] = vocabs["src"](src_text)
-        if example["tgt"] is not None:
+        numeric["src"]["prefix_len"] = len(numeric["src"]["src_ids"])
+        if example["tgt"] is None:  # no path_tgt given need to use src
+            if task == CorpusTask.TRAIN:
+                example["tgt"] = {}
+                if maybe_tgt_ids != []:
+                    numeric["tgt"]["tgt_ids"] = maybe_tgt_ids
+                else:
+                    tgt_text = example["src"]["src"].split(" ")
+                    numeric["tgt"]["tgt_ids"] = vocabs["tgt"](tgt_text + [vocabs["specials"].get("eos_token", "")])
+                if decoder_start_token == "":
+                    numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
+        else:  # path_tgt given = answer to prompt from path_src
             if maybe_tgt_ids != []:
-                numeric["tgt"]["tgt_ids"] = maybe_tgt_ids
+                numeric["tgt"]["tgt_ids"] = numeric["src"]["src_ids"] + maybe_tgt_ids
+                numeric["src"]["src_ids"] = numeric["src"]["src_ids"] + maybe_tgt_ids[:-1]
             else:
                 tgt_text = example["tgt"]["tgt"].split(" ")
                 numeric["tgt"]["tgt_ids"] = vocabs["tgt"](tgt_text + [vocabs["specials"].get("eos_token", "")])
-            if decoder_start_token == "":
-                numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
+                numeric["src"]["src_ids"] = numeric["src"]["src_ids"] + numeric["tgt"]["tgt_ids"]
+                numeric["tgt"]["tgt_ids"] = numeric["src"]["src_ids"]
+                numeric["src"]["src_ids"] = numeric["src"]["src_ids"][:-1]
+            numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
 
     # TODO: support id tokenization
     elif model_type == ModelType.ENCODER:
@@ -195,6 +211,16 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
         dtype=torch.long,
         device=device,
     )
+    if "prefix_len" in minibatch[0][0]["src"].keys():
+        tensor_batch["pfxlen"] = torch.tensor(
+            [ex["src"]["prefix_len"] for ex, indice in minibatch],
+            dtype=torch.long,
+            device=device,
+        )
+        if left_pad:
+            tensor_batch["pfxlen"] += tbatchsrc.eq(padidx).sum(dim=1)
+    else:
+        tensor_batch["pfxlen"] = None
 
     if minibatch[0][0].get("tgt", None) is not None:
         if left_pad:
@@ -265,6 +291,8 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
             # ]
             # for ex, indice in minibatch
         ]
+    else:
+        tensor_batch["images"] = None
 
     tensor_batch["ind_in_bucket"] = [indice for ex, indice in minibatch]
 
