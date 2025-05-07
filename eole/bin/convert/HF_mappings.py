@@ -1,4 +1,6 @@
+from copy import deepcopy
 from collections import defaultdict
+
 from eole.config.models import (
     TransformerEncoderModelConfig,
     TransformerModelConfig,
@@ -7,8 +9,6 @@ from eole.config.models import (
 )
 from eole.config import recursive_update_dict
 
-from rich import print
-from copy import deepcopy
 
 # Default tensor key mappings, based on Llama
 BASE_KEY_MAP = {
@@ -111,10 +111,7 @@ MODEL_OVERRIDES = {
             ".mlp.gate_up_proj.": (".mlp.c_fc.", ".t()"),
             ".mlp.down_proj.": (".mlp.c_proj.", ".t()"),
             ".input_layernorm.": ".ln_1.",
-            ".input_layernorm.": ".ln_1.",
             ".post_attention_layernorm.": ".ln_2.",
-            ".post_attention_layernorm.": ".ln_2.",
-            "decoder.layer_norm.": "ln_f.",
             "decoder.layer_norm.": "ln_f.",
         },
         "config": {

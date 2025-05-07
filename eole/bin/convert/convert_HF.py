@@ -6,7 +6,6 @@ import logging
 import math
 import os
 import re
-from collections import defaultdict
 from dataclasses import dataclass, field, fields
 from typing import Optional
 
@@ -22,12 +21,6 @@ from sentencepiece import SentencePieceProcessor
 # Eole Imports
 from eole.bin import BaseBin, register_bin
 from eole.config import recursive_model_fields_set
-from eole.config.models import (
-    TransformerEncoderModelConfig,
-    TransformerModelConfig,
-    TransformerLMModelConfig,
-    VisionTransformerLMModelConfig,
-)
 from eole.config.run import TrainConfig
 from eole.config.training import TrainingConfig
 from eole.constants import DefaultTokens, TORCH_DTYPES, PositionEncodingType
@@ -733,10 +726,11 @@ def build_shards(model_config, hf, args, params):
                                     ).contiguous()
                                 eole_safetensor[eole_prefix + str(i) + target + param] = w
 
-                    if model_config["shared_layer_norm"]:
-                        idx = 0
-                    else:
-                        idx = 1
+                    # NOTE: not sure this was really needed
+                    # if model_config["shared_layer_norm"]:
+                    #     idx = 0
+                    # else:
+                    #     idx = 1
 
         # Convert to another dtype if specified
         if args.dtype is not None:
