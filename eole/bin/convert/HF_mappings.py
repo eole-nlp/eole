@@ -68,7 +68,7 @@ MODEL_OVERRIDES = {
         }
     },
     "PhiForCausalLM": {
-        "decoder.layer_norm.": "model.final_layernorm.",
+        "decoder.layer_norm.weight": "model.final_layernorm.weight",
         "decoder.layer_norm.bias": "model.final_layernorm.bias",
         "generator.bias": "lm_head.bias",
         "decoder": {
