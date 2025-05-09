@@ -525,7 +525,7 @@ def get_weight(checkpoint, tensor_name):
 
 def check_tokenizer_config(hf):
     config = hf.config
-    add_bos_token = hf.tokenizer_config.get("add_bos_token", hf.tokenizer_config.get("bos_token", False) is not None)
+    add_bos_token = hf.tokenizer_config.get("add_bos_token", hf.tokenizer_config.get("bos_token", None) is not None)
     chat_template = {"chat_template": hf.tokenizer_config.get("chat_template", None)}
     eos_token_id = config.get("eos_token_id", None)
     optional_eos = []

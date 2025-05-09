@@ -99,7 +99,11 @@ MODEL_OVERRIDES = {
     },
     "GPT2LMHeadModel": {
         "decoder_layer_prefix": "h.",
+        "decoder.layer_norm.weight": "ln_f.weight",
+        "decoder.layer_norm.bias": "ln_f.bias",
         "tgt_emb.pe.weight": "wpe.weight",
+        "tgt_emb.embeddings.weight": "wte.weight",
+        "generator.weight": "wte.weight", # shared with embeddings
         "decoder": {
             ".self_attn.linear_query.": (".attn.c_attn.", ".t()[:hidden_size, ...]"),
             ".self_attn.linear_keys.": (
@@ -112,7 +116,6 @@ MODEL_OVERRIDES = {
             ".mlp.down_proj.": (".mlp.c_proj.", ".t()"),
             ".input_layernorm.": ".ln_1.",
             ".post_attention_layernorm.": ".ln_2.",
-            "decoder.layer_norm.": "ln_f.",
         },
         "config": {
             "parallel_residual": False,
