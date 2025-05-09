@@ -694,12 +694,16 @@ class TransformerModelConfig(TransformerConfig, BaseModelConfig):
         # patch to allow transparent setting of encoder/decoder_type
         if not (isinstance(data, dict)):
             return data
-        if "encoder" in data.keys():
+        if isinstance(data.get("encoder", None), Config):
             data["encoder"].encoder_type = "transformer"
+        elif isinstance(data.get("encoder", None), dict):
+            data["encoder"]["encoder_type"] = "transformer"
         else:
             data["encoder"] = {"encoder_type": "transformer"}
-        if "decoder" in data.keys():
+        if isinstance(data.get("decoder", None), Config):
             data["decoder"].decoder_type = "transformer"
+        elif isinstance(data.get("decoder", None), dict):
+            data["decoder"]["decoder_type"] = "transformer"
         else:
             data["decoder"] = {"decoder_type": "transformer"}
         return data

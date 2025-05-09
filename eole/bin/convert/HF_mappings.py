@@ -273,7 +273,8 @@ MODEL_OVERRIDES = {
             ".post_attention_layernorm.": ".final_layer_norm.",
         },
         "encoder_layer_prefix": "model.encoder.layers.",
-        "encoder.layer_norm.": "model.encoder.layer_norm.",
+        "encoder.layer_norm.weight": "model.encoder.layer_norm.weight",
+        "encoder.layer_norm.bias": "model.encoder.layer_norm.bias",
         "encoder": {
             ".self_attn.linear_query.": ".self_attn.q_proj.",
             ".self_attn.linear_keys.": ".self_attn.k_proj.",
