@@ -746,7 +746,13 @@ def build_shards(model_config, hf, args, params):
 def check_sentencepiece_tokenizer(hf):
     tokenizer_basename = os.path.basename(hf.tokenizer_model)
     if hf.tokenizer_json is not None:
-        vocab = list(hf.tokenizer["model"]["vocab"].keys())
+        tokenizer_vocab = hf.tokenizer["model"]["vocab"]
+        if isinstance(tokenizer_vocab, dict):
+            vocab = list(hf.tokenizer["model"]["vocab"].keys())
+        elif isinstance(tokenizer_vocab, list):
+            vocab = [token for token, freq in tokenizer_vocab]
+        else:
+            raise NotImplementedError(f"Type {type(tokenizer_vocab)} is not supported for SentencePiece vocab.")
     else:
         vocab = get_sentencepiece_vocab(hf.tokenizer_model)
         if hf.tokenizer_json is not None:

@@ -136,7 +136,7 @@ MODEL_OVERRIDES = {
         "encoder.layer_norm.bias": "roberta.encoder.LayerNorm.bias",
         "src_emb.embeddings.weight": "roberta.embeddings.word_embeddings.weight",
         "src_emb.pe.weight": "roberta.embeddings.position_embeddings.weight",
-        "decoder": {
+        "encoder": {
             ".self_attn.linear_query.": ".attention.self.query.",
             ".self_attn.linear_keys.": ".attention.self.key.",
             ".self_attn.linear_values.": ".attention.self.value.",
