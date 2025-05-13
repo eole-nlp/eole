@@ -16,6 +16,7 @@ models=(
     "meta-llama/CodeLlama-7b-hf"
     "microsoft/Phi-3.5-mini-instruct"
     "microsoft/Phi-3-mini-128k-instruct"
+    "microsoft/phi-2"
     # to work on
     # "mistralai/Mathstral-7B-v0.1" # fp32 !
     # "microsoft/Phi-3.5-MoE-instruct" # convert_HF not set for PhiMoEForCausalLM
