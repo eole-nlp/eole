@@ -443,7 +443,9 @@ class Inference(object):
             batch_data = self.predict_batch(batch, attn_debug)
 
             predictions = prediction_builder.from_batch(batch_data)
-            is_seq2seq = getattr(self.model, "encoder", None) is not None and getattr(self.model, "decoder", None) is not None
+            is_seq2seq = (
+                getattr(self.model, "encoder", None) is not None and getattr(self.model, "decoder", None) is not None
+            )
             if (
                 is_seq2seq
                 and self._tgt_sep_idx != self._tgt_unk_idx

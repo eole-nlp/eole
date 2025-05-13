@@ -104,7 +104,7 @@ MODEL_OVERRIDES = {
         "decoder.layer_norm.bias": "ln_f.bias",
         "tgt_emb.pe.weight": "wpe.weight",
         "tgt_emb.embeddings.weight": "wte.weight",
-        "generator.weight": "wte.weight", # shared with embeddings
+        "generator.weight": "wte.weight",  # shared with embeddings
         "decoder": {
             ".self_attn.linear_query.": (".attn.c_attn.", ".t()[:hidden_size, ...]"),
             ".self_attn.linear_keys.": (
