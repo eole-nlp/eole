@@ -83,6 +83,7 @@ MODEL_OVERRIDES = {
             "add_qkvbias": True,
             "add_final_linear_bias": True,
             "add_ffnbias": True,
+            "post_attention_layernorm": False,
         },
     },
     "Phi3ForCausalLM": {

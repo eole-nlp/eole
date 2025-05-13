@@ -231,6 +231,10 @@ class TransformerConfig(Config):
         default=False,
         description="Add pre/post_feedforward_layernorm around MLP forward. " "Note: introduced for gemma2 support.",
     )
+    post_attention_layernorm: bool = Field(
+        default=True,
+        description="Add post-attention layernorm around MHA forward.",
+    )
     add_qkvbias: bool = Field(
         default=False,
         description="Add bias to nn.Linear of Query/Key/Value in MHA. "
