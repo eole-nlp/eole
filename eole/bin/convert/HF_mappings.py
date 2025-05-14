@@ -43,6 +43,34 @@ MODEL_OVERRIDES = {
             "add_final_linear_bias": False,
         }
     },
+    "Qwen3ForCausalLM": {
+        "decoder": {
+            ".self_attn.q_norm.": ".self_attn.q_norm.",
+            ".self_attn.k_norm.": ".self_attn.k_norm.",
+        },
+        "config": {
+            "decoder": {
+                "query_norm": True,
+                "key_norm": True,
+            }
+        },
+    },
+    "Qwen3MoeForCausalLM": {
+        "decoder": {
+            ".self_attn.q_norm.": ".self_attn.q_norm.",
+            ".self_attn.k_norm.": ".self_attn.k_norm.",
+            ".mlp.gate.": ".mlp.gate.",
+            **{f".mlp.experts.{i}.gate_up_proj.": f".mlp.experts.{i}.gate_proj." for i in range(128)},
+            **{f".mlp.experts.{i}.up_proj.": f".mlp.experts.{i}.up_proj." for i in range(128)},
+            **{f".mlp.experts.{i}.down_proj.": f".mlp.experts.{i}.down_proj." for i in range(128)},
+        },
+        "config": {
+            "decoder": {
+                "query_norm": True,
+                "key_norm": True,
+            }
+        },
+    },
     "Gemma2ForCausalLM": {
         "decoder": {
             ".pre_feedforward_layernorm.": ".pre_feedforward_layernorm.",
@@ -249,6 +277,10 @@ MODEL_OVERRIDES = {
             "ffn_layernorm": True,
             "embeddings": {
                 "normalize": True,
+            },
+            "decoder": {
+                "query_norm": True,
+                "key_norm": True,
             },
         },
     },

@@ -14,7 +14,7 @@ from .relative_position_bias import relative_matmul, gen_relative_positions, com
 from .alibi_position_bias import AlibiPositionalBias
 from .rope import apply_rotary_emb
 
-from eole.modules.rmsnorm import GemmaRMSNorm
+from eole.constants import LayerNorm
 
 
 # Help functions to split model dim per head
@@ -112,9 +112,9 @@ class MultiHeadedAttention(torch.nn.Module):
 
         # introduced for gemma3
         if model_config.query_norm:
-            self.q_norm = GemmaRMSNorm(model_config.head_dim, eps=model_config.norm_eps)
+            self.q_norm = LayerNorm[model_config.layer_norm](model_config.head_dim, eps=model_config.norm_eps)
         if model_config.key_norm:
-            self.k_norm = GemmaRMSNorm(model_config.head_dim, eps=model_config.norm_eps)
+            self.k_norm = LayerNorm[model_config.layer_norm](model_config.head_dim, eps=model_config.norm_eps)
 
         self.final_linear = skip_init(
             nn.Linear,

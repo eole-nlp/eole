@@ -286,6 +286,7 @@ def build_config_dict(hf):
             config.get("n_head", config.get("n_heads", config.get("decoder_attention_heads", None))),
         ),  # default 32 patch for mistral-community/pixtral-12b
         "transformer_ff": config.get("intermediate_size", config.get("decoder_ffn_dim", None)),
+        "transformer_ff_moe": config.get("moe_intermediate_size", None),
         "mlp_activation_fn": ACT_TABLE[arch],
         "layer_norm": LN_TABLE[arch],
         "heads_kv": config.get("multi_query", False)
@@ -304,7 +305,7 @@ def build_config_dict(hf):
             config.get("layer_norm_epsilon", config.get("layer_norm_eps", 1e-5)),
         ),
         "sliding_window": config.get("sliding_window", 0) or 4096,
-        "num_experts": config.get("num_local_experts", 0),
+        "num_experts": config.get("num_local_experts", config.get("num_experts", 0)),
         "num_experts_per_tok": config.get("num_experts_per_tok", 0),
         "add_qkvbias": False,
         "add_final_linear_bias": False,
@@ -360,8 +361,6 @@ def build_config_dict(hf):
         model_config["adapter"] = "gemma3"
         # for decoder
         model_config["decoder"] = {
-            "query_norm": True,
-            "key_norm": True,
             "rope_config": {
                 "rotary_theta": 1000000,
                 "scaling_type": "gemma3",

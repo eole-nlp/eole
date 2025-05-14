@@ -267,6 +267,9 @@ class TransformerConfig(Config):
     )
     num_experts: int = Field(default=0, description="Number of experts for MoE models.")
     num_experts_per_tok: int = Field(default=2, description="Number of experts per token.")
+    transformer_ff_moe: int | None = Field(
+        default=None, description="Size of hidden transformer feed-forward for MoE models."
+    )
     # These fields are set at EmbeddingsConfig level but will be copied here to be accessible in MHA
     position_encoding_type: PositionEncodingType | None = Field(
         default=PositionEncodingType.SinusoidalInterleaved,

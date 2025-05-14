@@ -19,21 +19,26 @@ class MLP(nn.Module):
         self,
         model_config,
         running_config=None,
+        is_moe=False,
     ):
         self.parallel_gpu = getattr(running_config, "parallel_gpu", 1)
         super(MLP, self).__init__()
+        if is_moe:
+            ff_dim = model_config.transformer_ff_moe
+        else:
+            ff_dim = model_config.transformer_ff
         assert (
-            model_config.transformer_ff % self.parallel_gpu == 0
+            ff_dim % self.parallel_gpu == 0
         ), "Model intermediate ffn size must be divisible by the number of partitions"
         self.gate_up_proj = skip_init(
             nn.Linear,
             in_features=model_config.hidden_size,
-            out_features=model_config.transformer_ff // self.parallel_gpu,
+            out_features=ff_dim // self.parallel_gpu,
             bias=model_config.add_ffnbias,
         )
         self.down_proj = skip_init(
             nn.Linear,
-            in_features=model_config.transformer_ff // self.parallel_gpu,
+            in_features=ff_dim // self.parallel_gpu,
             out_features=model_config.hidden_size,
             bias=model_config.add_ffnbias,
         )
@@ -46,7 +51,7 @@ class MLP(nn.Module):
             skip_init(
                 nn.Linear,
                 in_features=model_config.hidden_size,
-                out_features=model_config.transformer_ff // self.parallel_gpu,
+                out_features=ff_dim // self.parallel_gpu,
                 bias=model_config.add_ffnbias,
             )
             if model_config.mlp_activation_fn in ["gated-silu", "gated-gelu", "gated-gelu-tanh"]
