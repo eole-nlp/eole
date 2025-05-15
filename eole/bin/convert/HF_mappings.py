@@ -88,11 +88,16 @@ MODEL_OVERRIDES = {
         "decoder": {
             ".mlp.gate.": ".block_sparse_moe.gate.",
             **{
-                f".mlp.experts.{i}.{attr}": f".block_sparse_moe.experts.{i}.w{j}."
+                f".mlp.experts.{i}.{attr}": f".block_sparse_moe.experts.{i}.w{j+1}."
                 for i in range(8)
                 for j, attr in enumerate(["gate_up_proj.", "down_proj.", "up_proj."])
             },
             **{f".mlp.experts.{i}.layer_norm.weight": ".post_attention_layernorm.weight" for i in range(8)},
+        },
+        "config": {
+            "decoder": {
+                "transformer_ff_moe": 14336
+            }
         }
     },
     "PhiForCausalLM": {
