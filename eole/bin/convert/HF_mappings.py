@@ -92,12 +92,13 @@ MODEL_OVERRIDES = {
                 for i in range(8)
                 for j, attr in enumerate(["gate_up_proj.", "down_proj.", "up_proj."])
             },
-            **{f".mlp.experts.{i}.layer_norm.weight": ".post_attention_layernorm.weight" for i in range(8)},
+            ".post_attention_layernorm.weight": ".post_attention_layernorm.weight",
         },
         "config": {
             "decoder": {
                 "transformer_ff_moe": 14336
-            }
+            },
+            "shared_layer_norm": True,
         }
     },
     "PhiForCausalLM": {
