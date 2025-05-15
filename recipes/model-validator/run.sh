@@ -34,6 +34,7 @@ models=(
     # "Qwen/Qwen2.5-3B"
     # "Qwen/Qwen2.5-3B-Instruct"
     # to work on
+    # "mistralai/Mixtral-8x7B-Instruct-v0.1|quant"
     # "mistralai/Mathstral-7B-v0.1" # fp32 !
     # "microsoft/Phi-3.5-MoE-instruct" # convert_HF not set for PhiMoEForCausalLM
     # "microsoft/Phi-3-small-128k-instruct" # tokenizer to be taken from another model
