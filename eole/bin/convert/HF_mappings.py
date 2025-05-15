@@ -95,11 +95,9 @@ MODEL_OVERRIDES = {
             ".post_attention_layernorm.weight": ".post_attention_layernorm.weight",
         },
         "config": {
-            "decoder": {
-                "transformer_ff_moe": 14336
-            },
+            "decoder": {"transformer_ff_moe": 14336},
             "shared_layer_norm": True,
-        }
+        },
     },
     "PhiForCausalLM": {
         "decoder.layer_norm.weight": "model.final_layernorm.weight",
