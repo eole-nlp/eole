@@ -40,7 +40,7 @@ class TransformerEncoderLayer(nn.Module):
         )
         self.dropout = nn.Dropout(self.dropout_p)
         self.post_attention_layernorm = LayerNorm[encoder_config.layer_norm](
-            encoder_config.hidden_size, eps=encoder_config.norm_eps
+            encoder_config.hidden_size, eps=encoder_config.norm_eps, bias=True
         )
         self.mlp = MLP(
             encoder_config,

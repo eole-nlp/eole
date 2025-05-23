@@ -125,9 +125,10 @@ class RotaryPosition(nn.Module):
             self.llama3_scaling()
         if getattr(self.model_config.rope_config, "scaling_type", None) == "gemma3" and variant == "global":
             self.gemma3_scaling()
-        cos, sin = self.update(1024)
-        self.register_buffer("cos", cos, persistent=False)
-        self.register_buffer("sin", sin, persistent=False)
+        # disable initialization for bagel (depends on image positions...)
+        # cos, sin = self.update(1024)
+        # self.register_buffer("cos", cos, persistent=False)
+        # self.register_buffer("sin", sin, persistent=False)
 
     def init_2d_inv_freq(self, inv_freq):
         """
@@ -183,13 +184,18 @@ class RotaryPosition(nn.Module):
         factor = rope_config.scaling_factor  # `8` in the original implementation
         self.inv_freq /= factor
 
-    def forward_1d(self, maxseqlen, step=0, prefetch=1024, offset=32):
+    def forward_1d(self, maxseqlen, step=0, prefetch=1024, offset=32, positions=None):
         maxseqlen += prefetch
-        device = self.cos.device if hasattr(self, "cos") else torch.device("cpu")
+        device = self.cos.device if hasattr(self, "cos") else torch.device("cuda")
         dtype = self.cos.dtype if hasattr(self, "cos") else torch.float32
 
-        tmax = torch.arange(max(offset + step, 0) + maxseqlen, device=device)
+        if positions is None:
+            tmax = torch.arange(maxseqlen, device=device)
+        else:
+            tmax = positions.to(device)
+
         tmax += self.model_config.rope_config.tmax_index
+
         rope = torch.outer(tmax, self.inv_freq.to(device))
         cos = torch.cos(rope)
         sin = torch.sin(rope)
@@ -261,8 +267,11 @@ class RotaryPosition(nn.Module):
             maxseqlen = max(maxseqlen, 1024)  # reset as in init() with self.update(1024)
         elif hasattr(self, "cos") and self.cos.size(0) >= max(offset + (step or 0), 0) + maxseqlen:
             return self.cos, self.sin
+        if positions is not None:
+            # apply offset...
+            positions = torch.cat((positions, torch.arange(positions[-1], positions[-1] + offset, device=positions.device)), dim=0)
         if self.mode == "1d":
-            cos, sin = self.forward_1d(maxseqlen, step=(step or 0), prefetch=prefetch, offset=offset)
+            cos, sin = self.forward_1d(maxseqlen, step=(step or 0), prefetch=prefetch, offset=offset, positions=positions)
         elif self.mode == "2d":
             cos, sin = self.forward_2d(maxseqlen, step=(step or 0), prefetch=prefetch, positions=positions)
         else:

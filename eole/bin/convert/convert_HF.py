@@ -66,6 +66,7 @@ class HuggingfaceFiles:
     wmap_path: Optional[str] = None
     model_path: Optional[str] = None
     special_tokens_json: Optional[str] = None
+    vision_config_path: Optional[str] = None
 
     # Unified dictionary to cache loaded files
     _loaded_files: dict = field(default_factory=dict, init=False)
@@ -117,7 +118,7 @@ class HuggingfaceFiles:
 
         # Fetch required and optional files
         paths = {
-            "config_path": get_file_fn("config.json", required=True),
+            "config_path": get_file_fn("llm_config.json", required=False), # hard patch for bagel
             "tokenizer_config_json": get_file_fn("tokenizer_config.json", required=True),
             "generation_config_json": get_file_fn("generation_config.json", required=False),
             "tokenizer_model": get_file_fn("tokenizer.model", required=False)
@@ -126,8 +127,9 @@ class HuggingfaceFiles:
             "wmap_path": get_file_fn("model.safetensors.index.json", required=False)
             or get_file_fn("pytorch_model.bin.index.json", required=False),
             "model_path": get_file_fn("model.safetensors", required=False)
-            or get_file_fn("pytorch_model.bin", required=False),
+            or get_file_fn("pytorch_model.bin", required=False) or get_file_fn("ema.safetensors", required=False),
             "special_tokens_json": get_file_fn("special_tokens_map.json", required=False),
+            "vision_config_path": get_file_fn("vit_config.json", required=False),
         }
 
         return cls(**paths, model_dir=args.model_dir, token=args.token)
@@ -270,9 +272,13 @@ def build_config_dict(hf):
     arch = hf.arch
     print("Architecture: ", arch)
 
-    vision_config = config.get("vision_config", None)
-    other_config = config  # save what is not text/vision for later use
-    config = config.get("text_config", config)
+    vision_config = getattr(hf, "vision_config", None)
+    if vision_config is None:
+        vision_config = config.get("vision_config", None)
+        other_config = config  # save what is not text/vision for later use
+        config = config.get("text_config", config)
+
+    print("VISION_CONFIG:", vision_config)
 
     model_config = {}
     training_config = {}
@@ -289,6 +295,7 @@ def build_config_dict(hf):
         "transformer_ff_moe": config.get("moe_intermediate_size", None),
         "mlp_activation_fn": ACT_TABLE[arch],
         "layer_norm": LN_TABLE[arch],
+        # TODO: this can break encoder (e.g. bagel)
         "heads_kv": config.get("multi_query", False)
         or config.get(
             "num_key_value_heads",
@@ -350,6 +357,30 @@ def build_config_dict(hf):
         model_config["multimodal_projector_bias"] = other_config.get("multimodal_projector_bias", False)
         model_config["projector_activation_fn"] = other_config.get("projector_hidden_act", "gelu")
         model_config["spatial_merge_size"] = other_config.get("spatial_merge_size", None)
+
+    if arch == "Qwen2ForCausalLM":
+        model_config["adapter"] = "bagel"
+        model_config["encoder"] = {
+            "mlp_activation_fn": "gelu-tanh",  # no up_proj it seems
+            "hidden_size": vision_config.get("hidden_size", 1152),
+            # "image_size": vision_config["image_size"],
+            "image_size": 1024,
+            "patch_size": vision_config["patch_size"],
+            "heads": vision_config["num_attention_heads"],
+            "heads_kv": vision_config["num_attention_heads"],
+            "layers": 26, # 27 in config, but actually 26 in safetensors...
+            "transformer_ff": vision_config["intermediate_size"],
+            # siglip style learned position embeddings (like gemma3)
+            "position_encoding_type": PositionEncodingType.Learned,
+            "n_positions": (vision_config["image_size"] // vision_config["patch_size"]) ** 2,
+            "add_ffnbias": True,
+            "add_final_linear_bias": True,
+            "add_qkvbias": True,
+            "layer_norm": "standard",
+            "patch_conv_bias": True,
+            "layernorm_pre": False,  # implies post layernorm
+            "image_token_id": 151654,
+        }
 
     if arch == "Gemma3ForConditionalGeneration":
         if model_config.get("head_dim", None) is None:

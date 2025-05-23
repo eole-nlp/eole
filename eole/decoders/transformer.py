@@ -110,6 +110,7 @@ class TransformerDecoderLayer(nn.Module):
         return_attn = kwargs.pop("return_attn", False)
         position_embeddings = kwargs.pop("position_embeddings", None)
 
+
         norm_layer_in = self.input_layernorm(layer_in)
 
         self_attn, attns = self.self_attn(
@@ -161,7 +162,8 @@ class TransformerDecoderLayer(nn.Module):
                 ctx_attn = 0
             ff_in = self.post_attention_layernorm(ctx_attn + self_attn + layer_in)
         # we apply residual with un-normed
-        layer_out = self.mlp(ff_in) + layer_in + self_attn + ctx_attn
+        MLP = self.mlp(ff_in)
+        layer_out = MLP + layer_in + self_attn + ctx_attn
 
         return layer_out, attns
 
@@ -311,7 +313,8 @@ class TransformerDecoder(DecoderBase):
         step = kwargs.pop("step", None)
         with_align = kwargs.pop("with_align", False)
         return_attn = with_align or kwargs.pop("return_attn", False)
-        position_embeddings = self.rope.update(emb.size(1), step=step)
+        positions = kwargs.pop("positions", None)
+        position_embeddings = self.rope.update(emb.size(1), step=step, positions=positions)
         if self.rope_local is not None:
             position_embeddings_local = self.rope_local.update(emb.size(1), step=step)
         else:
@@ -339,7 +342,7 @@ class TransformerDecoder(DecoderBase):
         # we need to adapt the mask for gemma3, TODO: find another condition?
         # SEEMS OK TO MASK IMAGES FOR LLAVA TOO ?
         if decoder_in is not None and attn_mask is not None:
-            attn_mask = self._update_causal_mask(attn_mask, decoder_in == image_token_id)
+            attn_mask = self._update_causal_mask(attn_mask, (decoder_in == image_token_id) | (decoder_in == 151652) | (decoder_in == 151653))
         if self.sliding_window > 0 and step >= self.sliding_window and attn_mask is not None:
             attn_mask = attn_mask[:, :, :, -self.sliding_window :]
 

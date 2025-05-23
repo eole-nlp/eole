@@ -112,9 +112,9 @@ class MultiHeadedAttention(torch.nn.Module):
 
         # introduced for gemma3
         if model_config.query_norm:
-            self.q_norm = LayerNorm[model_config.layer_norm](model_config.head_dim, eps=model_config.norm_eps)
+            self.q_norm = LayerNorm[model_config.layer_norm](model_config.dim_per_head, eps=model_config.norm_eps)
         if model_config.key_norm:
-            self.k_norm = LayerNorm[model_config.layer_norm](model_config.head_dim, eps=model_config.norm_eps)
+            self.k_norm = LayerNorm[model_config.layer_norm](model_config.dim_per_head, eps=model_config.norm_eps)
 
         self.final_linear = skip_init(
             nn.Linear,
@@ -199,6 +199,7 @@ class MultiHeadedAttention(torch.nn.Module):
             seqlen = query.size(2)
             cos, sin = position_embeddings[0][:seqlen], position_embeddings[1][:seqlen]
             query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
+
         return key, value, query
 
     def _compute_attention(
@@ -229,6 +230,7 @@ class MultiHeadedAttention(torch.nn.Module):
         """
 
         b, h, l, d = key.size()
+        # replaced by enable_gqa?
         if self.heads_kv < self.heads:
             qh = query.size(1)
             # expand key on heads dimension when it's less than query heads (multi-query variant)
@@ -250,9 +252,12 @@ class MultiHeadedAttention(torch.nn.Module):
                 key,
                 value,
                 attn_mask=attn_mask,
+                # is_causal=False,
                 dropout_p=self.dropout_p,
                 scale=self.scale,
+                # enable_gqa=True, # not memory efficient -- https://github.com/pytorch/pytorch/issues/154363
             )
+
             attn = None
         else:
             # batch x num_heads x query_len x key_len
@@ -375,7 +380,7 @@ class SelfMHA(MultiHeadedAttention):
 
         if self.position_encoding_type == PositionEncodingType.Rotary:
             seqlen = query.size(2)
-            cos, sin = position_embeddings[0][step : step + seqlen], position_embeddings[1][step : step + seqlen]
+            cos, sin = position_embeddings[0][step : step + seqlen].to(query.dtype), position_embeddings[1][step : step + seqlen].to(query.dtype)
             query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
 
         if step == 0:
@@ -401,6 +406,8 @@ class SelfMHA(MultiHeadedAttention):
             key = self.linear_keys(query)
             value = self.linear_values(query)
             query = self.linear_query(query)
+
+
             key = shape(key, self.dim_per_head)
             value = shape(value, self.dim_per_head)
             query = shape(query, self.dim_per_head)
@@ -409,6 +416,10 @@ class SelfMHA(MultiHeadedAttention):
                 query = self.q_norm(query)
             if hasattr(self, "k_norm"):
                 key = self.k_norm(key)
+
+            _key = key.transpose(1, 2)
+            _value = value.transpose(1, 2)
+            _query = query.transpose(1, 2)
 
             if (
                 not self.flash
@@ -438,6 +449,7 @@ class SelfMHA(MultiHeadedAttention):
                     if attn_mask is not None
                     else None
                 )
+
                 context = self.flash_attn_with_kvcache(
                     query.transpose(1, 2),
                     self.kcache[:, :, :, :].transpose(1, 2),
@@ -462,6 +474,10 @@ class SelfMHA(MultiHeadedAttention):
 
         else:
             key, value, query = super()._prepare_inputs(query, query, query, position_embeddings=position_embeddings)
+
+        _key = key.transpose(1, 2)
+        _value = value.transpose(1, 2)
+        _query = query.transpose(1, 2)
 
         return super()._compute_attention(
             key,

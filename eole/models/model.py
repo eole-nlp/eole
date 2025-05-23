@@ -901,6 +901,79 @@ class EncoderModel(BaseModel):
         self.encoder.update_dropout(dropout, attention_dropout)
 
 
+# bagel specific stuff
+
+import numpy as np
+
+def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
+    """
+    embed_dim: output dimension for each position
+    pos: a list of positions to be encoded: size (M,)
+    out: (M, D)
+    """
+    assert embed_dim % 2 == 0
+    omega = np.arange(embed_dim // 2, dtype=np.float64)
+    omega /= embed_dim / 2.
+    omega = 1. / 10000**omega  # (D/2,)
+
+    pos = pos.reshape(-1)  # (M,)
+    out = np.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
+
+    emb_sin = np.sin(out) # (M, D/2)
+    emb_cos = np.cos(out) # (M, D/2)
+
+    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
+    return emb
+
+
+def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
+    assert embed_dim % 2 == 0
+
+    # use half of dimensions to encode grid_h
+    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])  # (H*W, D/2)
+    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])  # (H*W, D/2)
+
+    emb = np.concatenate([emb_h, emb_w], axis=1) # (H*W, D)
+    return emb
+
+
+# --------------------------------------------------------
+# 2D sine-cosine position embedding
+# References:
+# DiT: https://github.com/facebookresearch/DiT/blob/main/models.py
+# --------------------------------------------------------
+def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_tokens=0):
+    grid_h = np.arange(grid_size, dtype=np.float32)
+    grid_w = np.arange(grid_size, dtype=np.float32)
+    grid = np.meshgrid(grid_w, grid_h)  # here w goes first
+    grid = np.stack(grid, axis=0)
+
+    grid = grid.reshape([2, 1, grid_size, grid_size])
+    pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
+    if cls_token and extra_tokens > 0:
+        pos_embed = np.concatenate([np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0)
+    return pos_embed
+
+
+class BagelPositionEmbedding(nn.Module):
+    def __init__(self, max_num_patch_per_side, hidden_size):
+        super().__init__()
+        self.max_num_patch_per_side = max_num_patch_per_side
+        self.hidden_size = hidden_size
+        self.pos_embed = nn.Parameter(
+            torch.zeros(max_num_patch_per_side ** 2, hidden_size), 
+            requires_grad=False
+        )
+        self._init_weights()
+
+    def _init_weights(self):
+        # Initialize (and freeze) pos_embed by sin-cos embedding:
+        pos_embed = get_2d_sincos_pos_embed(self.hidden_size, self.max_num_patch_per_side)
+        self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float())
+
+    def forward(self, position_ids):
+        return self.pos_embed[position_ids]
+
 class VisionEncoderDecoderModel(BaseModel):
     """VisionEncoderDecoderModel Class
     See :class:`~eole.models.BaseModel` for options."""
@@ -914,6 +987,10 @@ class VisionEncoderDecoderModel(BaseModel):
         # TODO: make this compatible?
         if self.add_estimator:
             self.estimator = FeedForward(self.hidden_size)
+        self.vit_pos_embed = BagelPositionEmbedding(
+            70, # todo grab from config
+            self.hidden_size,
+        )
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
@@ -942,15 +1019,21 @@ class VisionEncoderDecoderModel(BaseModel):
         batch_size = src.size(0)
         text_locations = src != self.image_token_id
         image_locations = src == self.image_token_id
+        text_positions = ((src != self.image_token_id) & (src != 151652) & (src != 151653))
         text_features = self.tgt_emb(src[text_locations].view(batch_size, -1))
         if len(images) == 0:
             return text_features
         image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
 
+
         # images is a list of tensors, each being [channel, H, W]
-        encoded_images = self.encoder(images)
+        encoded_images, positions = self.encoder(images)
         # encoded_images is [N_img x seq x hidden_size]
         image_features = self.adapter(encoded_images, image_sizes=image_sizes)
+
+        # Introduced for BAGEL, need to factorize/make configurable properly
+        pos_emb = self.vit_pos_embed(positions)
+        image_features = image_features + pos_emb
 
         seq_len = src.shape[1]
         batch, N_txt, D_txt = text_features.shape
@@ -972,7 +1055,13 @@ class VisionEncoderDecoderModel(BaseModel):
             image_mask = image_locations.unsqueeze(-1).expand_as(combined_features)
             combined_features = combined_features.masked_scatter(image_mask, image_features.view(-1, D_img))
 
-        return combined_features
+        # deduce positions for bagel ([0] * image_positions + range(1, len(text_locations) + 1))])
+        # NOTE: only works for single image, need to adapt if several images
+        positions = torch.zeros((batch, seq_len), dtype=torch.long, device=text_features.device)
+        positions[text_positions] = torch.arange(1, text_positions.sum().item() + 1, device=text_features.device)
+        positions = positions[0]
+
+        return combined_features, positions
 
     def forward(self, src, tgt, src_len, bptt=False, with_align=False, images=[]):
         """A DecoderModel forward the src side to the decoder along

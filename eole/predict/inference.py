@@ -165,6 +165,8 @@ class Inference(object):
         self.id_tokenization = id_tokenization
         self.image_token_id = image_token_id
 
+        self.positions = None
+
     @classmethod
     def from_config(
         cls,
@@ -634,9 +636,14 @@ class Inference(object):
             src_pad_mask = None
 
         if images is not None and step == 0:
-            emb = self.model.embed_vision_language_features(decoder_in, images)
+            emb, positions = self.model.embed_vision_language_features(decoder_in, images)
+            self.positions = positions
         else:
             emb = self.model.tgt_emb(decoder_in, step=step)
+            if self.positions is not None:
+                # add position
+                # NOTE: this does not work if image is after text...
+                self.positions = torch.cat((self.positions, torch.tensor([self.positions[-1] + 1], device=self.positions.device)), dim=0)
 
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
         dec_out, dec_attn = self.model.decoder(
@@ -650,6 +657,8 @@ class Inference(object):
             left_pad=left_pad,
             decoder_in=decoder_in,
             image_token_id=self.image_token_id,
+            # TODO: retrieve proper positions for bagel ([0] * image_tokens + [1, 2, ...])
+            positions=self.positions,
         )
         # Generator forward.
         if "std" in dec_attn:

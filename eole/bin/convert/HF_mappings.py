@@ -37,10 +37,45 @@ BASE_KEY_MAP = {
 MODEL_OVERRIDES = {
     "LlamaForCausalLM": {},  # default
     "MistralForCausalLM": {},
-    "Qwen2ForCausalLM": {
+    "Qwen2ForCausalLM": { # for bagel, but we need to add some conditions to keep supporting real qwen2...
+        "decoder_layer_prefix": "language_model.model.layers.",
+        "decoder.layer_norm.weight": "language_model.model.norm.weight",
+        "encoder_layer_prefix": "vit_model.vision_model.encoder.layers.",
+        "encoder.patch_conv.weight": "vit_model.vision_model.embeddings.patch_embedding.weight",
+        "encoder.patch_conv.bias": "vit_model.vision_model.embeddings.patch_embedding.bias",
+        "encoder.position_embeddings.weight": "vit_model.vision_model.embeddings.position_embedding.weight",
+        "encoder.post_layernorm.weight": "vit_model.vision_model.post_layernorm.weight",
+        "encoder.post_layernorm.bias": "vit_model.vision_model.post_layernorm.bias",
+        "tgt_emb.embeddings.weight": "language_model.model.embed_tokens.weight",
+        "generator.weight": "language_model.lm_head.weight",
+        # vision_adapter
+        "adapter.w_in.weight": "connector.fc1.weight",
+        "adapter.w_in.bias": "connector.fc1.bias",
+        "adapter.w_out.weight": "connector.fc2.weight",
+        "adapter.w_out.bias": "connector.fc2.bias",
+        "vit_pos_embed.pos_embed": "vit_pos_embed.pos_embed",
+        "decoder": {
+            ".self_attn.q_norm.": ".self_attn.q_norm.",
+            ".self_attn.k_norm.": ".self_attn.k_norm.",
+        },
+        "encoder": {
+            ".self_attn.linear_query.": ".self_attn.q_proj.",
+            ".self_attn.linear_keys.": ".self_attn.k_proj.",
+            ".self_attn.linear_values.": ".self_attn.v_proj.",
+            ".self_attn.final_linear.": ".self_attn.out_proj.",
+            ".mlp.gate_up_proj.": ".mlp.fc1.",
+            ".mlp.down_proj.": ".mlp.fc2.",
+            ".input_layernorm.": ".layer_norm1.",
+            ".post_attention_layernorm.": ".layer_norm2.",
+        },
         "config": {
             "add_qkvbias": True,
             "add_final_linear_bias": False,
+            # "ffn_layernorm": True,
+            "decoder": {
+                "query_norm": True,
+                "key_norm": True,
+            },
         }
     },
     "Qwen3ForCausalLM": {
@@ -353,6 +388,7 @@ LN_TABLE = defaultdict(
         "Gemma2ForCausalLM": "gemma-rms",
         "M2M100ForConditionalGeneration": "standard",
         "Gemma3ForConditionalGeneration": "gemma-rms",
+        "Qwen2ForCausalLM": "rms",
     },
 )
 
@@ -386,6 +422,7 @@ ARCH_TABLE = defaultdict(
         "Mistral3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "Gemma3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "M2M100ForConditionalGeneration": TransformerModelConfig,
+        "Qwen2ForCausalLM": VisionTransformerLMModelConfig,
     },
 )
 
