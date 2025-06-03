@@ -125,7 +125,7 @@ class RotaryPosition(nn.Module):
             self.llama3_scaling()
         if getattr(self.model_config.rope_config, "scaling_type", None) == "gemma3" and variant == "global":
             self.gemma3_scaling()
-        # disable initialization for bagel (depends on image positions...)
+        # disable auto initialization (e.g. bagel depends on image positions...)
         # cos, sin = self.update(1024)
         # self.register_buffer("cos", cos, persistent=False)
         # self.register_buffer("sin", sin, persistent=False)
@@ -184,10 +184,12 @@ class RotaryPosition(nn.Module):
         factor = rope_config.scaling_factor  # `8` in the original implementation
         self.inv_freq /= factor
 
-    def forward_1d(self, maxseqlen, step=0, prefetch=1024, offset=32, positions=None):
+    def forward_1d(
+        self, maxseqlen, step=0, prefetch=1024, offset=32, positions=None, device="cpu", dtype=torch.float32
+    ):
         maxseqlen += prefetch
-        device = self.cos.device if hasattr(self, "cos") else torch.device("cuda")
-        dtype = self.cos.dtype if hasattr(self, "cos") else torch.float32
+        # device = self.cos.device if hasattr(self, "cos") else torch.device("cuda")
+        # dtype = self.cos.dtype if hasattr(self, "cos") else torch.float32
 
         if positions is None:
             tmax = torch.arange(maxseqlen, device=device)
@@ -225,10 +227,12 @@ class RotaryPosition(nn.Module):
     #         self.inv_freq = self.original_inv_freq
     #         self.max_seq_len_cached = self.original_max_seq_len
 
-    def forward_2d(self, maxseqlen, step=0, prefetch=1024, offset=32, positions=None):
+    def forward_2d(
+        self, maxseqlen, step=0, prefetch=1024, offset=32, positions=None, device="cpu", dtype=torch.float32
+    ):
         # TODO: maybe do scaling here
-        device = self.cos.device if hasattr(self, "cos") else torch.device("cpu")
-        dtype = self.cos.dtype if hasattr(self, "cos") else torch.float32
+        # device = self.cos.device if hasattr(self, "cos") else torch.device("cuda")
+        # dtype = self.cos.dtype if hasattr(self, "cos") else torch.float32
 
         if positions is None:
             tmax = torch.arange(maxseqlen, device=self.inv_freq.device)
@@ -243,7 +247,7 @@ class RotaryPosition(nn.Module):
 
         return cos, sin
 
-    def update(self, maxseqlen, step=0, prefetch=1024, reset=False, positions=None):
+    def update(self, maxseqlen, step=0, prefetch=1024, reset=False, positions=None, device="cpu", dtype=torch.float32):
         """
         Computes the rotary position embeddings for a given input.
         Args:
@@ -269,11 +273,23 @@ class RotaryPosition(nn.Module):
             return self.cos, self.sin
         if positions is not None:
             # apply offset...
-            positions = torch.cat((positions, torch.arange(positions[-1], positions[-1] + offset, device=positions.device)), dim=0)
+            positions = torch.cat(
+                (positions, torch.arange(positions[-1], positions[-1] + offset, device=positions.device)), dim=0
+            )
         if self.mode == "1d":
-            cos, sin = self.forward_1d(maxseqlen, step=(step or 0), prefetch=prefetch, offset=offset, positions=positions)
+            cos, sin = self.forward_1d(
+                maxseqlen,
+                step=(step or 0),
+                prefetch=prefetch,
+                offset=offset,
+                positions=positions,
+                device=device,
+                dtype=dtype,
+            )
         elif self.mode == "2d":
-            cos, sin = self.forward_2d(maxseqlen, step=(step or 0), prefetch=prefetch, positions=positions)
+            cos, sin = self.forward_2d(
+                maxseqlen, step=(step or 0), prefetch=prefetch, positions=positions, device=device, dtype=dtype
+            )
         else:
             raise NotImplementedError
         self.register_buffer("cos", cos, persistent=False)

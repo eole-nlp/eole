@@ -4,20 +4,19 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # Define the models table
 models=(
-    "ByteDance-Seed/BAGEL-7B-MoT"
     # Validated
-    # "google/gemma-2-2b"
-    # "mistralai/Ministral-8B-Instruct-2410"
-    # "mistralai/Mistral-7B-v0.3"
-    # "mistralai/Mistral-7B-Instruct-v0.3"
-    # "meta-llama/Llama-3.2-3B-Instruct"
-    # "meta-llama/Llama-3.2-1B-Instruct"
-    # "meta-llama/Llama-3.1-8B-Instruct"
-    # "meta-llama/Meta-Llama-3-8B-Instruct"
-    # "meta-llama/CodeLlama-7b-hf"
-    # "microsoft/Phi-3.5-mini-instruct"
-    # "microsoft/Phi-3-mini-128k-instruct"
-    # "microsoft/phi-2"
+    "google/gemma-2-2b"
+    "mistralai/Ministral-8B-Instruct-2410"
+    "mistralai/Mistral-7B-v0.3"
+    "mistralai/Mistral-7B-Instruct-v0.3"
+    "meta-llama/Llama-3.2-3B-Instruct"
+    "meta-llama/Llama-3.2-1B-Instruct"
+    "meta-llama/Llama-3.1-8B-Instruct"
+    "meta-llama/Meta-Llama-3-8B-Instruct"
+    "meta-llama/CodeLlama-7b-hf"
+    "microsoft/Phi-3.5-mini-instruct"
+    "microsoft/Phi-3-mini-128k-instruct"
+    "microsoft/phi-2"
     # Needs quantization to be tested on 24GB GPU
     # "Qwen/Qwen3-30B-A3B|quant"
     # seems ok
@@ -110,12 +109,12 @@ for model_entry in "${models[@]}"; do
   echo "-------------------------------------------------"
 
   # Step 5: Run MMLU
-  # echo "MMLU for $model_name:"
-  # echo "-------------------------------------------------"
-  # if ! eole tools run_mmlu -model_path "$MODEL_DIR" -gpu_ranks 0 -batch_size 1 -batch_type sents $QUANT_SETTINGS; then
-  #   echo "Error: Failed to run MMLU for $model_name" | tee -a "$ERROR_LOG"
-  #   continue
-  # fi
+  echo "MMLU for $model_name:"
+  echo "-------------------------------------------------"
+  if ! eole tools run_mmlu -model_path "$MODEL_DIR" -gpu_ranks 0 -batch_size 1 -batch_type sents $QUANT_SETTINGS; then
+    echo "Error: Failed to run MMLU for $model_name" | tee -a "$ERROR_LOG"
+    continue
+  fi
   echo "-------------------------------------------------"
   
   

@@ -14,6 +14,10 @@ class DecoderBase(nn.Module):
         # Decoder state
         self.state = {}
 
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
     @classmethod
     def from_config(cls, decoder_config, running_config=None, with_cross_attn=False):
         """Alternate constructor.

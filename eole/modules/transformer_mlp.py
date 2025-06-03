@@ -15,13 +15,7 @@ class MLP(nn.Module):
         running_config: TrainingConfig or InferenceConfig derived from RunningConfig
     """
 
-    def __init__(
-        self,
-        model_config,
-        running_config=None,
-        is_moe=False,
-        is_decoder: bool = True
-    ):
+    def __init__(self, model_config, running_config=None, is_moe=False, is_decoder: bool = True):
         self.parallel_gpu = getattr(running_config, "parallel_gpu", 1)
         super(MLP, self).__init__()
         if is_moe:
@@ -70,19 +64,13 @@ class MLP(nn.Module):
         Returns:
             (FloatTensor): Output ``(batch_size, input_len, model_dim)``.
         """
-        # print("MLP INPUT:", x.shape, x.sum(), x)
         mlp_out = self.maybe_ckpt(self.gate_up_proj, x)
-        # print("GATE UP PROJ:", mlp_out.shape, mlp_out.sum(), mlp_out)
-        # print("ACT FN:", self.activation)
         mlp_out = self.activation(mlp_out)
-        # print("ACT GATE UP PROJ:", mlp_out.shape, mlp_out.sum(), mlp_out)
         if self.up_proj is not None:
             mlp_out.mul_(self.maybe_ckpt(self.up_proj, x))
-        # print("MUL:", mlp_out.shape, mlp_out.sum(), mlp_out)
         if self.dropout_p > 0:
             mlp_out = self.dropout_1(mlp_out)
         mlp_out = self.maybe_ckpt(self.down_proj, mlp_out)
-        # print("DOWN PROJ:", mlp_out.shape, mlp_out.sum(), mlp_out)
         if self.dropout_p > 0:
             mlp_out = self.dropout_2(mlp_out)
 

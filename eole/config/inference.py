@@ -105,31 +105,12 @@ class ImageGenerationConfig(Config):
         description="Height of the generated image. "
         "This will only work if the model is trained for image generation.",
     )
-    cfg_text_scale: float | None = Field(
-        default=1.0,
-        description="Classifier-free guidance scale for text input. "
-    )
-    cfg_image_scale: float | None = Field(
-        default=1.0,
-        description="Classifier-free guidance scale for image input. "
-    )
-    cfg_interval_min: float | None = Field(
-        default=0.0,
-        description="Minimum classifier-free guidance interval. "
-    )
-    cfg_interval_max: float | None = Field(
-        default=1.0,
-        description="Maximum classifier-free guidance interval. "
-    )
-    timestep_shift: float | None = Field(
-        default=1.0,
-        description="Shift the timestep for image generation. "
-    )
-    num_timesteps: int | None = Field(
-        default=50,
-        description="Number of timesteps for image generation. "
-    )
-
+    cfg_text_scale: float | None = Field(default=1.0, description="Classifier-free guidance scale for text input. ")
+    cfg_image_scale: float | None = Field(default=1.0, description="Classifier-free guidance scale for image input. ")
+    cfg_interval_min: float | None = Field(default=0.0, description="Minimum classifier-free guidance interval. ")
+    cfg_interval_max: float | None = Field(default=1.0, description="Maximum classifier-free guidance interval. ")
+    timestep_shift: float | None = Field(default=1.0, description="Shift the timestep for image generation. ")
+    num_timesteps: int | None = Field(default=50, description="Number of timesteps for image generation. ")
 
 
 # in legacy opts, decoding config is separated (probably to be used elsewhere)

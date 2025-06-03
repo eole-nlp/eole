@@ -24,13 +24,14 @@ from eole.constants import DefaultTokens, LayerNormFP32
 from eole.modules.embeddings import Embeddings
 from eole.models.model_saver import load_checkpoint
 from eole.modules.estimator import FeedForward
+from eole.modules.bagel_autoencoder import AutoEncoder, AutoEncoderParams, BagelPositionEmbedding, TimestepEmbedder
 
 from eole.encoders.vision import str2adapter
 from eole.encoders.vision import VisionEncoder
 
-import math
 from PIL import Image
 from tqdm import tqdm
+
 
 def build_encoder(model_config, running_config=None):
     """
@@ -904,133 +905,6 @@ class EncoderModel(BaseModel):
         self.encoder.update_dropout(dropout, attention_dropout)
 
 
-# bagel specific stuff
-
-import numpy as np
-
-def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
-    """
-    embed_dim: output dimension for each position
-    pos: a list of positions to be encoded: size (M,)
-    out: (M, D)
-    """
-    assert embed_dim % 2 == 0
-    omega = np.arange(embed_dim // 2, dtype=np.float64)
-    omega /= embed_dim / 2.
-    omega = 1. / 10000**omega  # (D/2,)
-
-    pos = pos.reshape(-1)  # (M,)
-    out = np.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
-
-    emb_sin = np.sin(out) # (M, D/2)
-    emb_cos = np.cos(out) # (M, D/2)
-
-    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
-    return emb
-
-
-def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
-    assert embed_dim % 2 == 0
-
-    # use half of dimensions to encode grid_h
-    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])  # (H*W, D/2)
-    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])  # (H*W, D/2)
-
-    emb = np.concatenate([emb_h, emb_w], axis=1) # (H*W, D)
-    return emb
-
-
-# --------------------------------------------------------
-# 2D sine-cosine position embedding
-# References:
-# DiT: https://github.com/facebookresearch/DiT/blob/main/models.py
-# --------------------------------------------------------
-def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_tokens=0):
-    grid_h = np.arange(grid_size, dtype=np.float32)
-    grid_w = np.arange(grid_size, dtype=np.float32)
-    grid = np.meshgrid(grid_w, grid_h)  # here w goes first
-    grid = np.stack(grid, axis=0)
-
-    grid = grid.reshape([2, 1, grid_size, grid_size])
-    pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
-    if cls_token and extra_tokens > 0:
-        pos_embed = np.concatenate([np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0)
-    return pos_embed
-
-
-class BagelPositionEmbedding(nn.Module):
-    def __init__(self, max_num_patch_per_side, hidden_size):
-        super().__init__()
-        self.max_num_patch_per_side = max_num_patch_per_side
-        self.hidden_size = hidden_size
-        self.pos_embed = nn.Parameter(
-            torch.zeros(max_num_patch_per_side ** 2, hidden_size), 
-            requires_grad=False
-        )
-        self._init_weights()
-
-    def _init_weights(self):
-        # Initialize (and freeze) pos_embed by sin-cos embedding:
-        pos_embed = get_2d_sincos_pos_embed(self.hidden_size, self.max_num_patch_per_side)
-        self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float())
-
-    def forward(self, position_ids):
-        return self.pos_embed[position_ids]
-
-
-# --------------------------------------------------------
-# TimestepEmbedder
-# Reference:
-# DiT: https://github.com/facebookresearch/DiT/blob/main/models.py
-# --------------------------------------------------------
-class TimestepEmbedder(nn.Module):
-    """
-    Embeds scalar timesteps into vector representations.
-    """
-    def __init__(self, hidden_size, frequency_embedding_size=256):
-        super().__init__()
-        self.mlp = nn.Sequential(
-            nn.Linear(frequency_embedding_size, hidden_size, bias=True),
-            nn.SiLU(),
-            nn.Linear(hidden_size, hidden_size, bias=True),
-        )
-        self.frequency_embedding_size = frequency_embedding_size
-
-    @staticmethod
-    def timestep_embedding(t, dim, max_period=10000):
-        """
-        Create sinusoidal timestep embeddings.
-        :param t: a 1-D Tensor of N indices, one per batch element.
-                          These may be fractional.
-        :param dim: the dimension of the output.
-        :param max_period: controls the minimum frequency of the embeddings.
-        :return: an (N, D) Tensor of positional embeddings.
-        """
-        half = dim // 2
-        freqs = torch.exp(
-            -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
-        ).to(device=t.device)
-        args = t[:, None].float() * freqs[None]
-        embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
-        if dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
-        return embedding
-
-    def forward(self, t):
-        t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
-        t_freq = t_freq.to(dtype=t.dtype) # TODO: not sure about casting here
-        t_emb = self.mlp(t_freq)
-        return t_emb
-
-
-
-class BagelImageGenerator(nn.Module):
-    def __init__(self):
-        pass
-    def forward(self, x):
-        pass
-
-
 class VisionEncoderDecoderModel(BaseModel):
     """VisionEncoderDecoderModel Class
     See :class:`~eole.models.BaseModel` for options."""
@@ -1039,53 +913,56 @@ class VisionEncoderDecoderModel(BaseModel):
         super(VisionEncoderDecoderModel, self).__init__(**kwargs)
         self.tgt_shift = 1
         self.image_token_id = kwargs.get("image_token_id", None)
+        self.image_start_token_id = kwargs.get("image_start_token_id", None)
+        self.image_end_token_id = kwargs.get("image_end_token_id", None)
         if self.encoder is None or self.decoder is None:
             raise ValueError("A EncoderDecoderModel requires both an Encoder and a Decoder")
         # TODO: make this compatible?
         if self.add_estimator:
             self.estimator = FeedForward(self.hidden_size)
-        self.vit_pos_embed = BagelPositionEmbedding(
-            70, # todo grab from config
-            self.hidden_size,
-        )
-        self.latent_pos_embed = BagelPositionEmbedding(
-            64, # todo grab from config # max_latent_size, NOTE: deduced from weights, though config seems to tell 32...
-            self.hidden_size,
-        )
-        # TODO: implement properly
-        # self.image_generator = BagelImageGenerator() # VAE model (separate from model in official code)
-        from eole.modules.bagel_autoencoder import AutoEncoder, AutoEncoderParams
-        ae_params = AutoEncoderParams(
-            resolution=256,
-            in_channels=3,
-            downsample=8,
-            ch=128,
-            out_ch=3,
-            ch_mult=[1, 2, 4, 4],
-            num_res_blocks=2,
-            z_channels=16,
-            scale_factor=0.3611,
-            shift_factor=0.1159,
-        )
-        self.image_autoencoder = AutoEncoder(ae_params)
-        self.time_embedder = TimestepEmbedder(self.hidden_size)
-        latent_patch_size = 2 # TODO: check this
-        latent_channel = 16 # TODO: check this
-        self.patch_latent_dim = latent_patch_size ** 2 * latent_channel
-        self.vae2llm = nn.Linear(
-            self.patch_latent_dim,
-            self.hidden_size
-        )
-        self.llm2vae = nn.Linear(
-            self.hidden_size,
-            self.patch_latent_dim
-        )
 
-        # settings
-        downsample = 8 # (grab from ae_params?)
-        self.latent_downsample = downsample * latent_patch_size
-        self.latent_patch_size = latent_patch_size
-        self.latent_channel = latent_channel
+        self.vit_position_embeddings = kwargs.pop("vit_position_embeddings", False)
+        if self.vit_position_embeddings:
+            self.vit_pos_embed = BagelPositionEmbedding(
+                70,  # todo grab from config
+                self.hidden_size,
+            )
+
+    def _maybe_init_image_generation(self, model_config, running_config):
+        self.image_generation = getattr(running_config, "image_generation", False)
+        if self.image_generation:
+            # NOTE: this is 100% mapped on ByteDance Bagel for now
+            self.latent_pos_embed = BagelPositionEmbedding(
+                # NOTE: deduced from weights, though config seems to tell 32...
+                64,  # todo grab from config # max_latent_size,
+                self.hidden_size,
+            )
+            # TODO: implement properly?
+            ae_params = AutoEncoderParams(
+                resolution=256,
+                in_channels=3,
+                downsample=8,
+                ch=128,
+                out_ch=3,
+                ch_mult=[1, 2, 4, 4],
+                num_res_blocks=2,
+                z_channels=16,
+                scale_factor=0.3611,
+                shift_factor=0.1159,
+            )
+            self.image_autoencoder = AutoEncoder(ae_params)
+            self.time_embedder = TimestepEmbedder(self.hidden_size)
+            latent_patch_size = 2  # TODO: check this
+            latent_channel = 16  # TODO: check this
+            self.patch_latent_dim = latent_patch_size**2 * latent_channel
+            self.vae2llm = nn.Linear(self.patch_latent_dim, self.hidden_size)
+            self.llm2vae = nn.Linear(self.hidden_size, self.patch_latent_dim)
+
+            # settings
+            downsample = 8  # (grab from ae_params?)
+            self.latent_downsample = downsample * latent_patch_size
+            self.latent_patch_size = latent_patch_size
+            self.latent_channel = latent_channel
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
@@ -1098,7 +975,7 @@ class VisionEncoderDecoderModel(BaseModel):
             share_embeddings=model_config.share_embeddings,
         )
         decoder = build_decoder(model_config, running_config=running_config)
-        return cls(
+        model = cls(
             encoder=encoder,
             decoder=decoder,
             adapter=adapter,
@@ -1106,20 +983,37 @@ class VisionEncoderDecoderModel(BaseModel):
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.decoder.hidden_size,
             image_token_id=model_config.encoder.image_token_id,
+            image_start_token_id=model_config.encoder.image_start_token_id,
+            image_end_token_id=model_config.encoder.image_end_token_id,
+            vit_position_embeddings=model_config.vit_position_embeddings,
         )
+        model._maybe_init_image_generation(model_config, running_config)
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
+        return model
 
     def embed_vision_language_features(self, src, images):
         # TODO: test with batch > 1?
         batch_size = src.size(0)
         text_locations = src != self.image_token_id
         image_locations = src == self.image_token_id
-        text_positions = ((src != self.image_token_id) & (src != 151652) & (src != 151653))
+        # build text_positions
+        non_text_ids = []
+        if self.image_token_id is not None:
+            non_text_ids.append(self.image_token_id)
+        if self.image_start_token_id is not None:
+            non_text_ids.append(self.image_start_token_id)
+        if self.image_end_token_id is not None:
+            non_text_ids.append(self.image_end_token_id)
+        text_positions = (
+            ~torch.isin(src, torch.tensor(non_text_ids, device=src.device))
+            if non_text_ids
+            else torch.ones_like(src, dtype=torch.bool)
+        )
+
         text_features = self.tgt_emb(src[text_locations].view(batch_size, -1))
         if len(images) == 0:
             return text_features
         image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
-
 
         # images is a list of tensors, each being [channel, H, W]
         encoded_images, positions = self.encoder(images)
@@ -1127,8 +1021,9 @@ class VisionEncoderDecoderModel(BaseModel):
         image_features = self.adapter(encoded_images, image_sizes=image_sizes)
 
         # Introduced for BAGEL, need to factorize/make configurable properly
-        pos_emb = self.vit_pos_embed(positions)
-        image_features = image_features + pos_emb
+        if self.vit_position_embeddings:
+            pos_emb = self.vit_pos_embed(positions)
+            image_features = image_features + pos_emb
 
         seq_len = src.shape[1]
         batch, N_txt, D_txt = text_features.shape
@@ -1155,6 +1050,9 @@ class VisionEncoderDecoderModel(BaseModel):
         positions = torch.zeros((batch, seq_len), dtype=torch.long, device=text_features.device)
         positions[text_positions] = torch.arange(1, text_positions.sum().item() + 1, device=text_features.device)
         positions = positions[0]
+
+        # only return positions for bagel ?
+        # positions = None
 
         return combined_features, positions
 
@@ -1197,15 +1095,13 @@ class VisionEncoderDecoderModel(BaseModel):
         h, w = image_height // self.latent_downsample, image_width // self.latent_downsample
         num_image_tokens = h * w
         init_noise = torch.randn(
-            num_image_tokens, self.latent_channel * self.latent_patch_size ** 2,
+            num_image_tokens,
+            self.latent_channel * self.latent_patch_size**2,
             # device="cuda", # TODO: deduce from config or running_config
             # dtype=torch.bfloat16, # TODO: deduce from config or running_config, or cast later?
         ).to(device="cuda", dtype=torch.bfloat16)
         seqlens = num_image_tokens + 2
         position_ids = [current_position_id] * seqlens
-        print("seqlens:", seqlens)
-        print("position_ids:", position_ids)
-        print("init_noise:", init_noise.shape, init_noise.sum(), init_noise)
 
         # how to handle prompt + image tokens?
         # official bagel code does two steps: first fill kv cache based on text prompt, then generate image
@@ -1235,36 +1131,32 @@ class VisionEncoderDecoderModel(BaseModel):
 
         x_t = init_noise
 
-        timesteps = torch.linspace(1, 0, num_timesteps, device=device, dtype=torch.bfloat16) # TODO: deduce dtype
+        timesteps = torch.linspace(1, 0, num_timesteps, device=device, dtype=torch.bfloat16)  # TODO: deduce dtype
         timesteps = timestep_shift * timesteps / (1 + (timestep_shift - 1) * timesteps)
         dts = timesteps[:-1] - timesteps[1:]
         timesteps = timesteps[:-1]
 
-        print("TIMESTEPS:", timesteps.shape, timesteps.sum(), timesteps)
-
-
         num_image_tokens, latent_dim = x_t.shape
         # TODO: make this configurable?
-        min_cfg, max_cfg = 0.0, 1.0
-        cfg_text_scale = 1.0
-        cfg_img_scale = 1.0
+        # min_cfg, max_cfg = 0.0, 1.0
+        # cfg_text_scale = 1.0
+        # cfg_img_scale = 1.0
 
-        text_ids = torch.tensor([151652, 151653], device=device)  # TODO: make configurable from start_of_image_token_id/end_of_image_token_id?
-        text_indices = [0, num_image_tokens + 1] # does this always work?
+        text_ids = torch.tensor([self.image_start_token_id, self.image_end_token_id], device=device)
+        text_indices = [0, num_image_tokens + 1]  # does this always work?
         image_indices = list(range(1, num_image_tokens + 1))  # [1, ..., num_image_tokens]
 
-        image_position_ids = torch.arange(
-            0, num_image_tokens, device=device
-        )
+        image_position_ids = torch.arange(0, num_image_tokens, device=device)
 
         for i, t in tqdm(enumerate(timesteps)):
             timestep = torch.tensor([t] * num_image_tokens, device=device)
-            if t > min_cfg and t <= max_cfg:
-                cfg_text_scale_ = cfg_text_scale
-                cfg_img_scale_ = cfg_img_scale
-            else:
-                cfg_text_scale_ = 1.0
-                cfg_img_scale_ = 1.0
+            # TODO: check in official implementation if this is needed/used
+            # if t > min_cfg and t <= max_cfg:
+            #     cfg_text_scale_ = cfg_text_scale
+            #     cfg_img_scale_ = cfg_img_scale
+            # else:
+            #     cfg_text_scale_ = 1.0
+            #     cfg_img_scale_ = 1.0
 
             v_t = self.forward_image_gen(
                 text_src,
@@ -1276,9 +1168,8 @@ class VisionEncoderDecoderModel(BaseModel):
                 torch.tensor([num_image_tokens + 2], device=device),  # seqlens is always num_image_tokens + 2?
                 image_position_ids,
                 position_ids,
-                )
+            )
 
-            print(f"V_T {i}:", v_t.shape, v_t.sum(), v_t.dtype)
             x_t = x_t - v_t.to(device) * dts[i]
 
         output = x_t.split([num_image_tokens])
@@ -1305,64 +1196,48 @@ class VisionEncoderDecoderModel(BaseModel):
         """
         (Somewhat corresponds to bagel._forward_flow at high level.)
         """
-        # print("TEXT_SRC:", text_src.shape, text_src)
-        # print("TEXT_IDS:", text_ids)
         text_embeddings = self.tgt_emb(text_ids)
         text_prompt_emb = self.tgt_emb(text_src)
 
-        # print("TEXT_EMBEDDINGS:", text_embeddings.shape, text_embeddings.sum(), text_embeddings.dtype)
         sequence = text_embeddings.new_zeros((sum(seqlens), self.hidden_size))
-        # print("SEQUENCE:", sequence.shape, sequence.sum(), sequence.dtype)
         sequence[text_indices] = text_embeddings
 
-
-        # print("IMAGE_POSITION_IDS:", image_position_ids)
         position_embeddings = self.latent_pos_embed(image_position_ids)
-        # print("POSITION_EMBEDDINGS:", position_embeddings.shape, position_embeddings.sum(), position_embeddings.dtype)
         timestep_embeddings = self.time_embedder(timestep)
-        # print("TIMESTEP_EMBEDDINGS:", timestep_embeddings.shape, timestep_embeddings.sum(), timestep_embeddings.dtype)
-        # print("X_T:", x_t.shape, x_t.sum(), x_t.dtype)
+
         x_t = self.vae2llm(x_t) + timestep_embeddings + position_embeddings
         sequence[image_indices] = x_t
 
-
-        
         sequence = sequence.unsqueeze(0)
 
         # used for CFG
         sequence_without_text = sequence.clone()
-
-        # print("TEXT_PROMPT_EMBED:", text_prompt_emb.shape, text_prompt_emb.sum(), text_prompt_emb.dtype)
-        # print("SEQUENCE before text prompt:", sequence.shape, sequence.sum(), sequence.dtype)
         sequence = torch.cat((text_prompt_emb, sequence), dim=1)
-        # print("SEQUENCE after text prompt:", sequence.shape, sequence.sum(), sequence.dtype)
-
-        # print("DECODER IN:", sequence.shape, sequence.sum(), sequence)
 
         offset_image_indices = [i + text_src.size(1) for i in image_indices]
         offset_text_indices = list(range(text_src.size(1))) + [i + text_src.size(1) for i in text_indices]
-        # print("OFFSET IMAGE INDICES:", len(offset_image_indices), offset_image_indices)
-        # print("OFFSET TEXT INDICES:", len(offset_text_indices), offset_text_indices)
         output, _ = self.decoder(
             sequence,
-            step=0, # not sure
+            step=0,  # not sure
             enc_out=None,
             src_len=seqlens,
             # tgt_pad_mask=None,  # TODO: handle padding mask properly
-            tgt_pad_mask=torch.zeros((sequence.size(0), sequence.size(1))).to(dtype=torch.bool, device=sequence.device), # no padding
+            tgt_pad_mask=torch.zeros((sequence.size(0), sequence.size(1))).to(
+                dtype=torch.bool, device=sequence.device
+            ),  # no padding
             text_indices=offset_text_indices,
             image_indices=offset_image_indices,
             # dirty patch to allow update_causal_mask in decoder
-            decoder_in=torch.cat((text_src, torch.tensor([[self.image_token_id] * (len(image_indices) + 2)], device=text_src.device)), dim=1),
+            decoder_in=torch.cat(
+                (text_src, torch.tensor([[self.image_token_id] * (len(image_indices) + 2)], device=text_src.device)),
+                dim=1,
+            ),
             image_token_id=self.image_token_id,
             positions=torch.tensor(list(range(text_src.size(1))) + position_ids, device=text_src.device),
         )
         v_t = self.llm2vae(output)
-        print("V_T before selection:", v_t.shape, v_t.sum(), v_t.dtype)
         v_t = v_t.squeeze(0)
         v_t = v_t[offset_image_indices]  # select only image tokens
-
-        print("V_T before cfg:", v_t.shape, v_t.sum(), v_t.dtype)
 
         # TODO: additional conditions for cfg_text_scale / cfg_img_scale ?
         if cfg_text_scale > 1.0:
@@ -1379,13 +1254,12 @@ class VisionEncoderDecoderModel(BaseModel):
                 decoder_in=torch.tensor([[self.image_token_id] * (len(image_indices) + 2)], device=text_src.device),
                 image_token_id=self.image_token_id,
                 positions=torch.zeros((sequence_without_text.size(1)), device=text_src.device),
-                # TODO: find a way to disable cache update for such calls (might be an issue for more complex queries downstream)
+                # TODO: find a way to disable cache update for such calls
+                # (might be an issue for more complex queries downstream)
             )
-            print("CFG TEXT OUTPUT:", cfg_text_output.shape, cfg_text_output.sum(), cfg_text_output.dtype)
             cfg_text_v_t = self.llm2vae(cfg_text_output)
             cfg_text_v_t = cfg_text_v_t.squeeze(0)
             cfg_text_v_t = cfg_text_v_t[image_indices]  # select only image tokens
-            print("CFG TEXT V_T:", cfg_text_v_t.shape, cfg_text_v_t.sum(), cfg_text_v_t.dtype)
 
         if cfg_img_scale > 1.0:
             cfg_img_v_t = v_t.clone()
@@ -1395,8 +1269,6 @@ class VisionEncoderDecoderModel(BaseModel):
 
         # cfg renorm stuff
         if cfg_text_scale > 1.0:
-            print("CFG_TEXT_SCALE > 1.0")
-            print("CFG_RENORM_TYPE:", cfg_renorm_type)
             if cfg_renorm_type == "text_channel":
                 v_t_text_ = cfg_text_v_t + cfg_text_scale * (v_t - cfg_text_v_t)
                 norm_v_t = torch.norm(v_t, dim=-1, keepdim=True)
@@ -1427,9 +1299,7 @@ class VisionEncoderDecoderModel(BaseModel):
                 scale = (norm_v_t / (norm_v_t_ + 1e-8)).clamp(min=cfg_renorm_min, max=1.0)
                 v_t = v_t_ * scale
 
-
         return v_t
-
 
     def decode_image(self, latent, image_height, image_width):
         h, w = image_height // self.latent_downsample, image_width // self.latent_downsample
@@ -1440,8 +1310,6 @@ class VisionEncoderDecoderModel(BaseModel):
         image = (image * 0.5 + 0.5).clamp(0, 1)[0].permute(1, 2, 0) * 255
         image = Image.fromarray((image).to(torch.uint8).cpu().numpy())
         return image
-
-
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)

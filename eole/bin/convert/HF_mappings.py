@@ -37,7 +37,7 @@ BASE_KEY_MAP = {
 MODEL_OVERRIDES = {
     "LlamaForCausalLM": {},  # default
     "MistralForCausalLM": {},
-    "Qwen2ForCausalLM": { # for bagel, but we need to add some conditions to keep supporting real qwen2...
+    "Bagel": {  # bagel's arch is actually Qwen2, but requires specific mapping
         "decoder_layer_prefix": "language_model.model.layers.",
         "decoder.layer_norm.weight": "language_model.model.norm.weight",
         "decoder.layer_norm_moe_gen.weight": "language_model.model.norm_moe_gen.weight",
@@ -95,12 +95,23 @@ MODEL_OVERRIDES = {
         "config": {
             "add_qkvbias": True,
             "add_final_linear_bias": False,
-            # "ffn_layernorm": True,
+            "adapter": "bagel",
+            "vit_position_embeddings": True,
             "decoder": {
                 "query_norm": True,
                 "key_norm": True,
             },
-        }
+            "encoder": {
+                "mlp_activation_fn": "gelu-tanh",
+                "add_ffnbias": True,
+                "add_final_linear_bias": True,
+                "add_qkvbias": True,
+                "layer_norm": "standard",
+                "patch_conv_bias": True,
+                "patch_conv_linear": True,
+                "layernorm_pre": False,  # implies post layernorm
+            },
+        },
     },
     "Qwen3ForCausalLM": {
         "decoder": {
@@ -412,7 +423,6 @@ LN_TABLE = defaultdict(
         "Gemma2ForCausalLM": "gemma-rms",
         "M2M100ForConditionalGeneration": "standard",
         "Gemma3ForConditionalGeneration": "gemma-rms",
-        "Qwen2ForCausalLM": "rms",
     },
 )
 
@@ -446,7 +456,7 @@ ARCH_TABLE = defaultdict(
         "Mistral3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "Gemma3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "M2M100ForConditionalGeneration": TransformerModelConfig,
-        "Qwen2ForCausalLM": VisionTransformerLMModelConfig,
+        "Bagel": VisionTransformerLMModelConfig,
     },
 )
 

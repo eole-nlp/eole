@@ -40,7 +40,7 @@ class TransformerEncoderLayer(nn.Module):
         )
         self.dropout = nn.Dropout(self.dropout_p)
         self.post_attention_layernorm = LayerNorm[encoder_config.layer_norm](
-            encoder_config.hidden_size, eps=encoder_config.norm_eps, bias=True
+            encoder_config.hidden_size, eps=encoder_config.norm_eps
         )
         self.mlp = MLP(
             encoder_config,
@@ -132,7 +132,7 @@ class TransformerEncoder(EncoderBase):
         """
         pad_mask = kwargs.pop("pad_mask", None)
         assert pad_mask is not None, "TransformerEncoder requires a src pad mask"
-        position_embeddings = self.rope.update(emb.size(1), step=None)
+        position_embeddings = self.rope.update(emb.size(1), step=None, device=self.device, dtype=emb.dtype)
         pad_mask = pad_mask.unsqueeze(1)  # batch x 1 x 1 x maxlen
         # dim 1 (heads) and 2 (src_len) will be broadcasted automatically in MHA
 

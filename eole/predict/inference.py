@@ -93,6 +93,7 @@ class Inference(object):
         image_width=1024,
         image_height=1024,
         num_timesteps=20,
+        output=None,
     ):
         self.model = model
         self.vocabs = vocabs
@@ -176,6 +177,7 @@ class Inference(object):
         self.image_width = image_width
         self.image_height = image_height
         self.num_timesteps = num_timesteps
+        self.output = output
 
     @classmethod
     def from_config(
@@ -256,6 +258,7 @@ class Inference(object):
             image_width=config.image_width,
             image_height=config.image_height,
             num_timesteps=config.num_timesteps,
+            output=config.output,
         )
 
     def _log(self, msg):
@@ -654,14 +657,11 @@ class Inference(object):
             self.positions = positions
         # "simple" image generation case
         elif self.image_generation:
-            # we actually need to prepend the prompt to the whole thing...
-            stuff = self.model.prepare_image_generation(
+            init_noise, position_ids = self.model.prepare_image_generation(
                 image_width=self.image_width,
                 image_height=self.image_height,
-                current_position_id=src_len.max().item() # TODO: not sure
+                current_position_id=src_len.max().item(),  # TODO: not sure
             )
-            init_noise, position_ids = stuff
-            # TODO: call image generation and return here?
             latent = self.model.generate_image(
                 decoder_in,
                 init_noise,
@@ -669,7 +669,9 @@ class Inference(object):
                 num_timesteps=self.num_timesteps,
             )
             image = self.model.decode_image(latent, self.image_height, self.image_width)
-            image.save("generated_image.png")
+            # TODO: should this logic be moved elsewhere?
+            if self.output is not None:
+                image.save(self.output)
             exit()
 
         # image edition case
@@ -680,7 +682,8 @@ class Inference(object):
             if self.positions is not None:
                 # add position
                 # NOTE: this does not work if image is after text...
-                self.positions = torch.cat((self.positions, torch.tensor([self.positions[-1] + 1], device=self.positions.device)), dim=0)
+                next_pos = self.positions[-1] + 1
+                self.positions = torch.cat([self.positions, next_pos.unsqueeze(0)])
 
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
         dec_out, dec_attn = self.model.decoder(
