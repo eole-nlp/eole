@@ -92,6 +92,7 @@ class Inference(object):
         image_generation=False,
         image_width=1024,
         image_height=1024,
+        num_timesteps=20,
     ):
         self.model = model
         self.vocabs = vocabs
@@ -174,6 +175,7 @@ class Inference(object):
         self.image_generation = image_generation
         self.image_width = image_width
         self.image_height = image_height
+        self.num_timesteps = num_timesteps
 
     @classmethod
     def from_config(
@@ -253,6 +255,7 @@ class Inference(object):
             image_generation=config.image_generation,
             image_width=config.image_width,
             image_height=config.image_height,
+            num_timesteps=config.num_timesteps,
         )
 
     def _log(self, msg):
@@ -663,7 +666,7 @@ class Inference(object):
                 decoder_in,
                 init_noise,
                 position_ids,
-                num_timesteps=50,
+                num_timesteps=self.num_timesteps,
             )
             image = self.model.decode_image(latent, self.image_height, self.image_width)
             image.save("generated_image.png")

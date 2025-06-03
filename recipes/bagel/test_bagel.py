@@ -37,6 +37,9 @@ config = PredictConfig(
     image_generation=True,
     image_width=1024,
     image_height=1024,
+    # num_timesteps=10,
+    # num_timesteps=30,
+    num_timesteps=50,
     # self_attn_backend="flash", # not properly supported (mixed masking)
 )
 
@@ -49,8 +52,7 @@ engine = InferenceEnginePY(config)
 print(engine.predictor.model)
 engine.predictor.model.count_parameters()
 
-# prompt = "A female cosplayer portraying an ethereal fairy or elf, wearing a flowing dress made of delicate fabrics in soft, mystical colors like emerald green and silver. She has pointed ears, a gentle, enchanting expression, and her outfit is adorned with sparkling jewels and intricate patterns. The background is a magical forest with glowing plants, mystical creatures, and a serene atmosphere."
-prompt = "A breathtaking photorealistic landscape of a windswept coastal cliff at golden hour. The scene features jagged rocks covered in moss, waves crashing below with mist rising, and seabirds flying overhead. The lighting is warm and natural, casting long shadows and reflecting on wet surfaces. The level of detail is ultra high, with textures of stone, water, and clouds rendered realistically, evoking a feeling of awe and solitude."
+prompt = "A female cosplayer portraying an ethereal fairy or elf, wearing a flowing dress made of delicate fabrics in soft, mystical colors like emerald green and silver. She has pointed ears, a gentle, enchanting expression, and her outfit is adorned with sparkling jewels and intricate patterns. The background is a magical forest with glowing plants, mystical creatures, and a serene atmosphere."
 
 # test_input = [{
 #     "text": f"<|im_start|>{prompt}<|im_end|><|im_start|>"

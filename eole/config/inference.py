@@ -81,8 +81,59 @@ class DecodingConfig(Config):
     align_debug: bool = Field(default=False, description="Print best align for each word.")
 
 
+class ImageGenerationConfig(Config):
+    """
+    Let's centralize image generation related stuff here.
+    This is not a complete config, but rather a subset of options
+    that are relevant for image generation tasks.
+    Used as mixin for InferenceConfig for now, but might be properly nested at some point.
+    """
+
+    # image generation specific stuff, might move elsewhere
+    image_generation: bool | None = Field(
+        default=False,
+        description="Generate image from text input. "
+        "This will only work if the model is trained for image generation.",
+    )
+    image_width: int | None = Field(
+        default=1024,
+        description="Width of the generated image. "
+        "This will only work if the model is trained for image generation.",
+    )
+    image_height: int | None = Field(
+        default=1024,
+        description="Height of the generated image. "
+        "This will only work if the model is trained for image generation.",
+    )
+    cfg_text_scale: float | None = Field(
+        default=1.0,
+        description="Classifier-free guidance scale for text input. "
+    )
+    cfg_image_scale: float | None = Field(
+        default=1.0,
+        description="Classifier-free guidance scale for image input. "
+    )
+    cfg_interval_min: float | None = Field(
+        default=0.0,
+        description="Minimum classifier-free guidance interval. "
+    )
+    cfg_interval_max: float | None = Field(
+        default=1.0,
+        description="Maximum classifier-free guidance interval. "
+    )
+    timestep_shift: float | None = Field(
+        default=1.0,
+        description="Shift the timestep for image generation. "
+    )
+    num_timesteps: int | None = Field(
+        default=50,
+        description="Number of timesteps for image generation. "
+    )
+
+
+
 # in legacy opts, decoding config is separated (probably to be used elsewhere)
-class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig):
+class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig, ImageGenerationConfig):
 
     model_config = get_config_dict()
     model_config["arbitrary_types_allowed"] = True  # to allow torch.dtype
@@ -109,23 +160,6 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     optional_eos: List[str] | None = Field(
         default=[],
         description="Optional EOS tokens that would stop generation, e.g. <|eot_id|> for Llama3",
-    )
-
-    # image generation specific stuff, might move elsewhere
-    image_generation: bool | None = Field(
-        default=False,
-        description="Generate image from text input. "
-        "This will only work if the model is trained for image generation.",
-    )
-    image_width: int | None = Field(
-        default=1024,
-        description="Width of the generated image. "
-        "This will only work if the model is trained for image generation.",
-    )
-    image_height: int | None = Field(
-        default=1024,
-        description="Height of the generated image. "
-        "This will only work if the model is trained for image generation.",
     )
 
     def get_model_path(self):

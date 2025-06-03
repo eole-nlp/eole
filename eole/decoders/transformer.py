@@ -138,8 +138,8 @@ class TransformerDecoderLayer(nn.Module):
         else:
             norm_layer_in = self.input_layernorm(layer_in)
 
-        print("NORM_LAYER_IN:", norm_layer_in.shape, norm_layer_in.sum(), norm_layer_in)
-        print("NORM_LAYER_IN img:", norm_layer_in[:, -4098:, :].shape, norm_layer_in[:, -4098:, :].sum(), norm_layer_in[:, -4098:, :])
+        # print("NORM_LAYER_IN:", norm_layer_in.shape, norm_layer_in.sum(), norm_layer_in)
+        # print("NORM_LAYER_IN img:", norm_layer_in[:, -4098:, :].shape, norm_layer_in[:, -4098:, :].sum(), norm_layer_in[:, -4098:, :])
 
         self_attn, attns = self.self_attn(
             norm_layer_in,
@@ -418,7 +418,7 @@ class TransformerDecoder(DecoderBase):
             attn_mask = attn_mask[:, :, :, -self.sliding_window :]
 
         for i, layer in enumerate(self.transformer_layers):
-            print(f"\n=================\nLAYER {i}\n=================\n")
+            # print(f"\n=================\nLAYER {i}\n=================\n")
             emb, attn = layer(
                 emb,
                 enc_out=enc_out if enc_out is not None else emb,
@@ -431,7 +431,7 @@ class TransformerDecoder(DecoderBase):
                 ),
                 **kwargs,
             )
-            print("EMB:", emb.shape, emb.sum(), emb)
+            # print("EMB:", emb.shape, emb.sum(), emb)
             if with_align:
                 attn_align = layer.get_attn_align(
                     emb,

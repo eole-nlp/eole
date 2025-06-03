@@ -30,7 +30,7 @@ from eole.encoders.vision import VisionEncoder
 
 import math
 from PIL import Image
-
+from tqdm import tqdm
 
 def build_encoder(model_config, running_config=None):
     """
@@ -1257,7 +1257,7 @@ class VisionEncoderDecoderModel(BaseModel):
             0, num_image_tokens, device=device
         )
 
-        for i, t in enumerate(timesteps):
+        for i, t in tqdm(enumerate(timesteps)):
             timestep = torch.tensor([t] * num_image_tokens, device=device)
             if t > min_cfg and t <= max_cfg:
                 cfg_text_scale_ = cfg_text_scale
@@ -1285,27 +1285,43 @@ class VisionEncoderDecoderModel(BaseModel):
         # no real multi image support for now, so we just return the first one
         return output[0]
 
-    def forward_image_gen(self, text_src, x_t, timestep, text_ids, text_indices, image_indices, seqlens, image_position_ids, position_ids):
+    def forward_image_gen(
+        self,
+        text_src,
+        x_t,
+        timestep,
+        text_ids,
+        text_indices,
+        image_indices,
+        seqlens,
+        image_position_ids,
+        position_ids,
+        # cfg_text_scale=1.0,
+        cfg_text_scale=4.0,
+        cfg_img_scale=1.0,
+        cfg_renorm_type="global",
+        cfg_renorm_min=0.0,
+    ):
         """
         (Somewhat corresponds to bagel._forward_flow at high level.)
         """
-        print("TEXT_SRC:", text_src.shape, text_src)
-        print("TEXT_IDS:", text_ids)
+        # print("TEXT_SRC:", text_src.shape, text_src)
+        # print("TEXT_IDS:", text_ids)
         text_embeddings = self.tgt_emb(text_ids)
         text_prompt_emb = self.tgt_emb(text_src)
 
-        print("TEXT_EMBEDDINGS:", text_embeddings.shape, text_embeddings.sum(), text_embeddings.dtype)
+        # print("TEXT_EMBEDDINGS:", text_embeddings.shape, text_embeddings.sum(), text_embeddings.dtype)
         sequence = text_embeddings.new_zeros((sum(seqlens), self.hidden_size))
-        print("SEQUENCE:", sequence.shape, sequence.sum(), sequence.dtype)
+        # print("SEQUENCE:", sequence.shape, sequence.sum(), sequence.dtype)
         sequence[text_indices] = text_embeddings
 
 
-        print("IMAGE_POSITION_IDS:", image_position_ids)
+        # print("IMAGE_POSITION_IDS:", image_position_ids)
         position_embeddings = self.latent_pos_embed(image_position_ids)
-        print("POSITION_EMBEDDINGS:", position_embeddings.shape, position_embeddings.sum(), position_embeddings.dtype)
+        # print("POSITION_EMBEDDINGS:", position_embeddings.shape, position_embeddings.sum(), position_embeddings.dtype)
         timestep_embeddings = self.time_embedder(timestep)
-        print("TIMESTEP_EMBEDDINGS:", timestep_embeddings.shape, timestep_embeddings.sum(), timestep_embeddings.dtype)
-        print("X_T:", x_t.shape, x_t.sum(), x_t.dtype)
+        # print("TIMESTEP_EMBEDDINGS:", timestep_embeddings.shape, timestep_embeddings.sum(), timestep_embeddings.dtype)
+        # print("X_T:", x_t.shape, x_t.sum(), x_t.dtype)
         x_t = self.vae2llm(x_t) + timestep_embeddings + position_embeddings
         sequence[image_indices] = x_t
 
@@ -1313,23 +1329,25 @@ class VisionEncoderDecoderModel(BaseModel):
         
         sequence = sequence.unsqueeze(0)
 
-        print("TEXT_PROMPT_EMBED:", text_prompt_emb.shape, text_prompt_emb.sum(), text_prompt_emb.dtype)
-        print("SEQUENCE before text prompt:", sequence.shape, sequence.sum(), sequence.dtype)
-        sequence = torch.cat((text_prompt_emb, sequence), dim=1)
-        print("SEQUENCE after text prompt:", sequence.shape, sequence.sum(), sequence.dtype)
+        # used for CFG
+        sequence_without_text = sequence.clone()
 
-        print("DECODER IN:", sequence.shape, sequence.sum(), sequence)
+        # print("TEXT_PROMPT_EMBED:", text_prompt_emb.shape, text_prompt_emb.sum(), text_prompt_emb.dtype)
+        # print("SEQUENCE before text prompt:", sequence.shape, sequence.sum(), sequence.dtype)
+        sequence = torch.cat((text_prompt_emb, sequence), dim=1)
+        # print("SEQUENCE after text prompt:", sequence.shape, sequence.sum(), sequence.dtype)
+
+        # print("DECODER IN:", sequence.shape, sequence.sum(), sequence)
 
         offset_image_indices = [i + text_src.size(1) for i in image_indices]
         offset_text_indices = list(range(text_src.size(1))) + [i + text_src.size(1) for i in text_indices]
-        print("OFFSET IMAGE INDICES:", len(offset_image_indices), offset_image_indices)
-        print("OFFSET TEXT INDICES:", len(offset_text_indices), offset_text_indices)
+        # print("OFFSET IMAGE INDICES:", len(offset_image_indices), offset_image_indices)
+        # print("OFFSET TEXT INDICES:", len(offset_text_indices), offset_text_indices)
         output, _ = self.decoder(
             sequence,
             step=0, # not sure
             enc_out=None,
             src_len=seqlens,
-            with_align=False,
             # tgt_pad_mask=None,  # TODO: handle padding mask properly
             tgt_pad_mask=torch.zeros((sequence.size(0), sequence.size(1))).to(dtype=torch.bool, device=sequence.device), # no padding
             text_indices=offset_text_indices,
@@ -1347,6 +1365,68 @@ class VisionEncoderDecoderModel(BaseModel):
         print("V_T before cfg:", v_t.shape, v_t.sum(), v_t.dtype)
 
         # TODO: additional conditions for cfg_text_scale / cfg_img_scale ?
+        if cfg_text_scale > 1.0:
+            cfg_text_output, _ = self.decoder(
+                sequence_without_text,
+                step=0,
+                enc_out=None,
+                src_len=sequence_without_text.size(1),
+                tgt_pad_mask=torch.zeros((sequence_without_text.size(0), sequence_without_text.size(1))).to(
+                    dtype=torch.bool, device=sequence_without_text.device
+                ),  # no padding
+                text_indices=text_indices,
+                image_indices=image_indices,
+                decoder_in=torch.tensor([[self.image_token_id] * (len(image_indices) + 2)], device=text_src.device),
+                image_token_id=self.image_token_id,
+                positions=torch.zeros((sequence_without_text.size(1)), device=text_src.device),
+                # TODO: find a way to disable cache update for such calls (might be an issue for more complex queries downstream)
+            )
+            print("CFG TEXT OUTPUT:", cfg_text_output.shape, cfg_text_output.sum(), cfg_text_output.dtype)
+            cfg_text_v_t = self.llm2vae(cfg_text_output)
+            cfg_text_v_t = cfg_text_v_t.squeeze(0)
+            cfg_text_v_t = cfg_text_v_t[image_indices]  # select only image tokens
+            print("CFG TEXT V_T:", cfg_text_v_t.shape, cfg_text_v_t.sum(), cfg_text_v_t.dtype)
+
+        if cfg_img_scale > 1.0:
+            cfg_img_v_t = v_t.clone()
+            # this is actually useful only for the image editing case (input=text+image, output=image),
+            # which is still to be investigated
+            pass
+
+        # cfg renorm stuff
+        if cfg_text_scale > 1.0:
+            print("CFG_TEXT_SCALE > 1.0")
+            print("CFG_RENORM_TYPE:", cfg_renorm_type)
+            if cfg_renorm_type == "text_channel":
+                v_t_text_ = cfg_text_v_t + cfg_text_scale * (v_t - cfg_text_v_t)
+                norm_v_t = torch.norm(v_t, dim=-1, keepdim=True)
+                norm_v_t_text_ = torch.norm(v_t_text_, dim=-1, keepdim=True)
+                scale = (norm_v_t / (norm_v_t_text_ + 1e-8)).clamp(min=cfg_renorm_min, max=1.0)
+                v_t_text = v_t_text_ * scale
+                if cfg_img_scale > 1.0:
+                    v_t = cfg_img_v_t + cfg_img_scale * (v_t_text - cfg_img_v_t)
+                else:
+                    v_t = v_t_text
+            else:
+                v_t_text_ = cfg_text_v_t + cfg_text_scale * (v_t - cfg_text_v_t)
+
+                if cfg_img_scale > 1.0:
+                    v_t_ = cfg_img_v_t + cfg_img_scale * (v_t_text_ - cfg_img_v_t)
+                else:
+                    v_t_ = v_t_text_
+
+                # NOTE norm is computed over all dimensions, thus currently only supports batch_size = 1 with navit
+                if cfg_renorm_type == "global":
+                    norm_v_t = torch.norm(v_t)
+                    norm_v_t_ = torch.norm(v_t_)
+                elif cfg_renorm_type == "channel":
+                    norm_v_t = torch.norm(v_t, dim=-1, keepdim=True)
+                    norm_v_t_ = torch.norm(v_t_, dim=-1, keepdim=True)
+                else:
+                    raise NotImplementedError(f"{cfg_renorm_type} is not suppoprted")
+                scale = (norm_v_t / (norm_v_t_ + 1e-8)).clamp(min=cfg_renorm_min, max=1.0)
+                v_t = v_t_ * scale
+
 
         return v_t
 
