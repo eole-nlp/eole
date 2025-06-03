@@ -40,6 +40,7 @@ MODEL_OVERRIDES = {
     "Qwen2ForCausalLM": { # for bagel, but we need to add some conditions to keep supporting real qwen2...
         "decoder_layer_prefix": "language_model.model.layers.",
         "decoder.layer_norm.weight": "language_model.model.norm.weight",
+        "decoder.layer_norm_moe_gen.weight": "language_model.model.norm_moe_gen.weight",
         "encoder_layer_prefix": "vit_model.vision_model.encoder.layers.",
         "encoder.patch_conv.weight": "vit_model.vision_model.embeddings.patch_embedding.weight",
         "encoder.patch_conv.bias": "vit_model.vision_model.embeddings.patch_embedding.bias",
@@ -53,10 +54,33 @@ MODEL_OVERRIDES = {
         "adapter.w_in.bias": "connector.fc1.bias",
         "adapter.w_out.weight": "connector.fc2.weight",
         "adapter.w_out.bias": "connector.fc2.bias",
+        # additional stuff, mostly replicated as-is for now
         "vit_pos_embed.pos_embed": "vit_pos_embed.pos_embed",
+        "latent_pos_embed.pos_embed": "latent_pos_embed.pos_embed",
+        "time_embedder.mlp.0.weight": "time_embedder.mlp.0.weight",
+        "time_embedder.mlp.0.bias": "time_embedder.mlp.0.bias",
+        "time_embedder.mlp.2.weight": "time_embedder.mlp.2.weight",
+        "time_embedder.mlp.2.bias": "time_embedder.mlp.2.bias",
+        "vae2llm.weight": "vae2llm.weight",
+        "vae2llm.bias": "vae2llm.bias",
+        "llm2vae.weight": "llm2vae.weight",
+        "llm2vae.bias": "llm2vae.bias",
+        # TODO: not sure how to properly grab VAE stuff
         "decoder": {
             ".self_attn.q_norm.": ".self_attn.q_norm.",
             ".self_attn.k_norm.": ".self_attn.k_norm.",
+            # MOE GEN (simplify with loop?)
+            ".self_attn.q_norm_moe_gen.": ".self_attn.q_norm_moe_gen.",
+            ".self_attn.k_norm_moe_gen.": ".self_attn.k_norm_moe_gen.",
+            ".self_attn.linear_query_moe_gen.": ".self_attn.q_proj_moe_gen.",
+            ".self_attn.linear_keys_moe_gen.": ".self_attn.k_proj_moe_gen.",
+            ".self_attn.linear_values_moe_gen.": ".self_attn.v_proj_moe_gen.",
+            ".self_attn.final_linear_moe_gen.": ".self_attn.o_proj_moe_gen.",
+            ".mlp_moe_gen.gate_up_proj.": ".mlp_moe_gen.gate_proj.",
+            ".mlp_moe_gen.down_proj.": ".mlp_moe_gen.down_proj.",
+            ".mlp_moe_gen.up_proj.": ".mlp_moe_gen.up_proj.",
+            ".input_layernorm_moe_gen.": ".input_layernorm_moe_gen.",
+            ".post_attention_layernorm_moe_gen.": ".post_attention_layernorm_moe_gen.",
         },
         "encoder": {
             ".self_attn.linear_query.": ".self_attn.q_proj.",

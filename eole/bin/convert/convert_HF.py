@@ -67,6 +67,7 @@ class HuggingfaceFiles:
     model_path: Optional[str] = None
     special_tokens_json: Optional[str] = None
     vision_config_path: Optional[str] = None
+    ae_model_path: Optional[str] = None
 
     # Unified dictionary to cache loaded files
     _loaded_files: dict = field(default_factory=dict, init=False)
@@ -130,6 +131,7 @@ class HuggingfaceFiles:
             or get_file_fn("pytorch_model.bin", required=False) or get_file_fn("ema.safetensors", required=False),
             "special_tokens_json": get_file_fn("special_tokens_map.json", required=False),
             "vision_config_path": get_file_fn("vit_config.json", required=False),
+            "ae_model_path": get_file_fn("ae.safetensors", required=False),
         }
 
         return cls(**paths, model_dir=args.model_dir, token=args.token)
@@ -677,6 +679,13 @@ def build_shards(model_config, hf, args, params):
         eole_safetensor = {}
 
         def build_first_shard(hf, eole_safetensor):
+            # let's add AE here
+            if hf.ae_model_path is not None:
+                ae_checkpoint = hf.get_load_ckpt(*os.path.split(hf.ae_model_path))
+                ae_params = safetensors.torch.load_file(ae_checkpoint)
+                for key, value in ae_params.items():
+                    eole_safetensor[f"image_autoencoder.{key}"] = value
+
             for target in KEY_MAPS[hf.arch].keys():
                 if model_config["share_decoder_embeddings"] and target == "generator.weight":
                     continue

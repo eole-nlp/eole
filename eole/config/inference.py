@@ -111,6 +111,23 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
         description="Optional EOS tokens that would stop generation, e.g. <|eot_id|> for Llama3",
     )
 
+    # image generation specific stuff, might move elsewhere
+    image_generation: bool | None = Field(
+        default=False,
+        description="Generate image from text input. "
+        "This will only work if the model is trained for image generation.",
+    )
+    image_width: int | None = Field(
+        default=1024,
+        description="Width of the generated image. "
+        "This will only work if the model is trained for image generation.",
+    )
+    image_height: int | None = Field(
+        default=1024,
+        description="Height of the generated image. "
+        "This will only work if the model is trained for image generation.",
+    )
+
     def get_model_path(self):
         return self.model_path[0]
 

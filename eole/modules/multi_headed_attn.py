@@ -107,6 +107,7 @@ class MultiHeadedAttention(torch.nn.Module):
             out_features=self.dim_per_head * self.heads // self.parallel_gpu,
             bias=model_config.add_qkvbias,
         )
+
         self.dropout_p = getattr(running_config, "attention_dropout", [0.0])[0]
         self.dropout = nn.Dropout(self.dropout_p)
 
@@ -122,7 +123,44 @@ class MultiHeadedAttention(torch.nn.Module):
             out_features=model_config.hidden_size,
             bias=model_config.add_final_linear_bias,
         )
+        
         self.is_decoder = is_decoder
+        self.image_generation = getattr(running_config, "image_generation", False)
+
+        if self.image_generation and self.is_decoder:
+            # initialize MOE GEN params
+            self.linear_keys_moe_gen = skip_init(
+                nn.Linear,
+                in_features=model_config.hidden_size,
+                out_features=self.dim_per_head * self.heads_kv // self.parallel_gpu,
+                bias=model_config.add_qkvbias,
+            )
+            self.linear_values_moe_gen = skip_init(
+                nn.Linear,
+                in_features=model_config.hidden_size,
+                out_features=self.dim_per_head * self.heads_kv // self.parallel_gpu,
+                bias=model_config.add_qkvbias,
+            )
+            self.linear_query_moe_gen = skip_init(
+                nn.Linear,
+                in_features=model_config.hidden_size,
+                out_features=self.dim_per_head * self.heads // self.parallel_gpu,
+                bias=model_config.add_qkvbias,
+            )
+            if model_config.query_norm:
+                self.q_norm_moe_gen = LayerNorm[model_config.layer_norm](model_config.dim_per_head, eps=model_config.norm_eps)
+            if model_config.key_norm:
+                self.k_norm_moe_gen = LayerNorm[model_config.layer_norm](model_config.dim_per_head, eps=model_config.norm_eps)
+            
+            self.final_linear_moe_gen = skip_init(
+                nn.Linear,
+                in_features=self.dim_per_head * self.heads // self.parallel_gpu,
+                out_features=model_config.hidden_size,
+                bias=model_config.add_final_linear_bias,
+            )
+
+
+        
         self.scale = self.attn_scaling**-0.5 if self.is_decoder and self.attn_scaling is not None else None
         self.relative_positions_buckets = model_config.relative_positions_buckets
         self.kcache, self.kcache = None, None
@@ -209,6 +247,8 @@ class MultiHeadedAttention(torch.nn.Module):
         query: Tensor,
         attn_mask: Optional[Tensor] = None,
         return_attn: Optional[bool] = False,
+        text_indices: Optional[Tensor] = None,
+        image_indices: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Tensor]:
         """
         Compute the context vector and the attention vectors.
@@ -257,6 +297,9 @@ class MultiHeadedAttention(torch.nn.Module):
                 scale=self.scale,
                 # enable_gqa=True, # not memory efficient -- https://github.com/pytorch/pytorch/issues/154363
             )
+
+            # print("ATTN OUTPUT sdpa:", attn_output.size(), attn_output.sum(), attn_output)
+            # print("ATTN OUTPUT sdpa img:", attn_output[:, :, -4098:, :].size(), attn_output[:, :, -4098:, :].sum(), attn_output[:, :, -4098:, :])
 
             attn = None
         else:
@@ -320,7 +363,14 @@ class MultiHeadedAttention(torch.nn.Module):
 
         context = unshape(attn_output)
 
-        if self.kcache is not None:
+        # TODO: enable MOE stuff here
+
+        if self.image_generation:
+            assert text_indices is not None and image_indices is not None, "text_indices and image_indices must be provided for image generation"
+            attn_output = torch.zeros_like(context)
+            attn_output[:, text_indices, :] = self.final_linear(context[:, text_indices, :])
+            attn_output[:, image_indices, :] = self.final_linear_moe_gen(context[:, image_indices, :])
+        elif self.kcache is not None:
             attn_output = self.final_linear(context)
         else:
             attn_output = self.maybe_ckpt(self.final_linear, context)
@@ -383,6 +433,14 @@ class SelfMHA(MultiHeadedAttention):
             cos, sin = position_embeddings[0][step : step + seqlen].to(query.dtype), position_embeddings[1][step : step + seqlen].to(query.dtype)
             query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
 
+            _query = query.transpose(1, 2).squeeze(0)
+            _key = key.transpose(1, 2).squeeze(0)
+
+            # print("ROTARY QUERY:", _query.size(), _query.sum(), _query)
+            # print("ROTARY KEY:", _key.size(), _key.sum(), _key)
+            # print("ROTARY QUERY img:", _query[-4098:, :, :].size(), _query[-4098:, :, :].sum(), _query[-4098:, :, :])
+            # print("ROTARY KEY img:", _key[-4098:, :, :].size(), _key[-4098:, :, :].sum(), _key[-4098:, :, :])
+
         if step == 0:
             # init cache with initial cat(key, value) on batch_size dim
             self.kcache, self.vcache = key, value
@@ -400,26 +458,135 @@ class SelfMHA(MultiHeadedAttention):
         step: Optional[int] = 0,
         return_attn: Optional[bool] = False,
         position_embeddings=None,
+        text_indices: Optional[Tensor] = None,
+        image_indices: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Tensor]:
         if self.kcache is not None:
             # Inference step decoding
-            key = self.linear_keys(query)
-            value = self.linear_values(query)
-            query = self.linear_query(query)
+            if self.image_generation:
+
+                # _query = query.transpose(1, 2).squeeze(0)
+                _query = query.squeeze(0)
+                # print("INPUT QUERY:", _query.size(), _query.sum(), _query)
+                # print("INPUT QUERY:", _query[:76].size(), _query[:76].sum(), _query[:76])
+                # print("INPUT QUERY img:", _query[-4098:, :].size(), _query[-4098:, :].sum(), _query[-4098:, :])
+
+                text_query = query[:, text_indices, :]
+                image_query = query[:, image_indices, :]
+
+                # print("TEXT QUERY:", text_query.size(), text_query.sum(), text_query)
+                # print("IMAGE QUERY:", image_query.size(), image_query.sum(), image_query)
+
+                text_key = self.linear_keys(text_query)
+                image_key = self.linear_keys_moe_gen(image_query)
+                text_value = self.linear_values(text_query)
+                image_value = self.linear_values_moe_gen(image_query)
+                text_query = self.linear_query(text_query)
+                image_query = self.linear_query_moe_gen(image_query)
+                
+                # prompt_text_key = self.linear_keys(prompt_text_query)
+                # prompt_text_value = self.linear_values(prompt_text_query)
+                # prompt_text_query = self.linear_query(prompt_text_query)
+                # print("PROMPT TEXT QUERY:", prompt_text_query.size(), prompt_text_query.sum(), prompt_text_query)
+                # print("PROMPT TEXT KEY:", prompt_text_key.size(), prompt_text_key.sum(), prompt_text_key)
+                # print("PROMPT TEXT VALUE:", prompt_text_value.size(), prompt_text_value.sum(), prompt_text_value)
+
+                # prompt_text_query = shape(prompt_text_query, self.dim_per_head).transpose(1, 2).squeeze(0)
+                # prompt_text_key = shape(prompt_text_key, self.dim_per_head).transpose(1, 2).squeeze(0)
+                # prompt_text_value = shape(prompt_text_value, self.dim_per_head).transpose(1, 2).squeeze(0)
+                # print("PROMPT TEXT QUERY:", prompt_text_query.size(), prompt_text_query.sum(), prompt_text_query)
+                # print("PROMPT TEXT KEY:", prompt_text_key.size(), prompt_text_key.sum(), prompt_text_key)
+                # print("PROMPT TEXT VALUE:", prompt_text_value.size(), prompt_text_value.sum(), prompt_text_value)
+
+                text_query = shape(text_query, self.dim_per_head)
+                image_query = shape(image_query, self.dim_per_head)
+                text_key = shape(text_key, self.dim_per_head)
+                image_key = shape(image_key, self.dim_per_head)
+                text_value = shape(text_value, self.dim_per_head)
+                image_value = shape(image_value, self.dim_per_head)
+
+                # print("TEXT QUERY:", text_query.size(), text_query.sum(), text_query)
+                # print("IMAGE QUERY:", image_query.size(), image_query.sum(), image_query)
+                # print("TEXT KEY:", text_key.size(), text_key.sum(), text_key)
+                # print("IMAGE KEY:", image_key.size(), image_key.sum(), image_key)
+                # print("TEXT VALUE:", text_value.size(), text_value.sum(), text_value)
+                # print("IMAGE VALUE:", image_value.size(), image_value.sum(), image_value)
 
 
-            key = shape(key, self.dim_per_head)
-            value = shape(value, self.dim_per_head)
-            query = shape(query, self.dim_per_head)
+                text_query_ = text_query.transpose(1, 2).squeeze(0)
+                text_key_ = text_key.transpose(1, 2).squeeze(0)
+                text_value_ = text_value.transpose(1, 2).squeeze(0)
 
-            if hasattr(self, "q_norm"):
-                query = self.q_norm(query)
-            if hasattr(self, "k_norm"):
-                key = self.k_norm(key)
+                # print("PROMPT TEXT QUERY:", text_query_[:76].size(), text_query_[:76].sum(), text_query_[:76])
+                # print("PROMPT TEXT KEY:", text_key_[:76].size(), text_key_[:76].sum(), text_key_[:76])
+                # print("PROMPT TEXT VALUE:", text_value_[:76].size(), text_value_[:76].sum(), text_value_[:76])
+                
+                key = query.new_zeros((query.size(0), self.heads_kv, query.size(1), self.dim_per_head // self.parallel_gpu))
+                value = query.new_zeros((query.size(0), self.heads_kv, query.size(1), self.dim_per_head // self.parallel_gpu))
+                query = query.new_zeros((query.size(0), self.heads, query.size(1), self.dim_per_head // self.parallel_gpu))
 
-            _key = key.transpose(1, 2)
-            _value = value.transpose(1, 2)
-            _query = query.transpose(1, 2)
+                key[:, :, text_indices, :] = text_key
+                key[:, :, image_indices, :] = image_key
+                value[:, :, text_indices, :] = text_value
+                value[:, :, image_indices, :] = image_value
+
+                query[:, :, text_indices, :] = text_query
+                query[:, :, image_indices, :] = image_query
+
+                # print("QUERY:", query.size(), query.sum(), query)
+                # print("KEY:", key.size(), key.sum(), key)
+                # print("VALUE:", value.size(), value.sum(), value)
+
+                query_ = query.transpose(1, 2).squeeze(0)
+                key_ = key.transpose(1, 2).squeeze(0)
+                value_ = value.transpose(1, 2).squeeze(0)
+
+                # print("QUERY img:", query_[-4098:, :, :].size(), query_[-4098:, :, :].sum(), query_[-4098:, :, :])
+                # print("KEY img:", key_[-4098:, :, :].size(), key_[-4098:, :, :].sum(), key_[-4098:, :, :])
+                # print("VALUE img:", value_[-4098:, :, :].size(), value_[-4098:, :, :].sum(), value_[-4098:, :, :])
+
+                # print("MERGED KEY:", key.size(), key.sum(), key)
+                # print("MERGED VALUE:", value.size(), value.sum(), value)
+                # print("MERGED QUERY:", query.size(), query.sum(), query)
+
+                # key = shape(key, self.dim_per_head)
+                # value = shape(value, self.dim_per_head)
+                # query = shape(query, self.dim_per_head)
+
+                if hasattr(self, "q_norm") and hasattr(self, "q_norm_moe_gen"):
+                    query[:, :, text_indices, :] = self.q_norm(query[:, :, text_indices, :])
+                    query[:, :, image_indices, :] = self.q_norm_moe_gen(query[:, :, image_indices, :])
+                if hasattr(self, "k_norm") and hasattr(self, "k_norm_moe_gen"):
+                    key[:, :, text_indices, :] = self.k_norm(key[:, :, text_indices, :])
+                    key[:, :, image_indices, :] = self.k_norm_moe_gen(key[:, :, image_indices, :])
+
+                _key = key.transpose(1, 2).squeeze(0)
+                _value = value.transpose(1, 2).squeeze(0)
+                _query = query.transpose(1, 2).squeeze(0)
+
+                # print("PROMPT TEXT KEY:", _key[:76].size(), _key[:76].sum(), _key[:76])
+                # print("PROMPT TEXT VALUE:", _value[:76].size(), _value[:76].sum(), _value[:76])
+                # print("PROMPT TEXT QUERY:", _query[:76].size(), _query[:76].sum(), _query[:76])
+
+                # print("QUERY NORM:", _query.size(), _query.sum(), _query)
+                # print("KEY NORM:", _key.size(), _key.sum(), _key)
+                # print("QUERY NORM img:", _query[-4098:, :, :].size(), _query[-4098:, :, :].sum(), _query[-4098:, :, :])
+                # print("KEY NORM img:", _key[-4098:, :, :].size(), _key[-4098:, :, :].sum(), _key[-4098:, :, :])
+                # print("VALUE:", _value.size(), _value.sum(), _value)
+
+            else:
+                key = self.linear_keys(query)
+                value = self.linear_values(query)
+                query = self.linear_query(query)
+
+                key = shape(key, self.dim_per_head)
+                value = shape(value, self.dim_per_head)
+                query = shape(query, self.dim_per_head)
+
+                if hasattr(self, "q_norm"):
+                    query = self.q_norm(query)
+                if hasattr(self, "k_norm"):
+                    key = self.k_norm(key)
 
             if (
                 not self.flash
@@ -464,6 +631,10 @@ class SelfMHA(MultiHeadedAttention):
                     causal=step == 0,
                     rotary_interleaved=self.rotary_interleave,
                 ).transpose(1, 2)
+
+
+                # print("CONTEXT:", context.size(), context.sum(), context)
+
                 attn_output = self.final_linear(unshape(context))
                 if self.parallel_gpu > 1:
                     # all_reduce is an inplace op - not easily backprop
@@ -475,16 +646,14 @@ class SelfMHA(MultiHeadedAttention):
         else:
             key, value, query = super()._prepare_inputs(query, query, query, position_embeddings=position_embeddings)
 
-        _key = key.transpose(1, 2)
-        _value = value.transpose(1, 2)
-        _query = query.transpose(1, 2)
-
         return super()._compute_attention(
             key,
             value,
             query,
             attn_mask=attn_mask,
             return_attn=return_attn,
+            text_indices=text_indices,
+            image_indices=image_indices,
         )
 
 

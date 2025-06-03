@@ -34,16 +34,49 @@ config = PredictConfig(
     batch_size=1,
     batch_type="sents",
     self_attn_backend="pytorch",
+    image_generation=True,
+    image_width=1024,
+    image_height=1024,
     # self_attn_backend="flash", # not properly supported (mixed masking)
 )
 
 print(config)
 
-config.data_type = "image"
+# config.data_type = "image"
+config.data_type = "text"
 engine = InferenceEnginePY(config)
 
 print(engine.predictor.model)
 engine.predictor.model.count_parameters()
+
+# prompt = "A female cosplayer portraying an ethereal fairy or elf, wearing a flowing dress made of delicate fabrics in soft, mystical colors like emerald green and silver. She has pointed ears, a gentle, enchanting expression, and her outfit is adorned with sparkling jewels and intricate patterns. The background is a magical forest with glowing plants, mystical creatures, and a serene atmosphere."
+prompt = "A breathtaking photorealistic landscape of a windswept coastal cliff at golden hour. The scene features jagged rocks covered in moss, waves crashing below with mist rising, and seabirds flying overhead. The lighting is warm and natural, casting long shadows and reflecting on wet surfaces. The level of detail is ultra high, with textures of stone, water, and clouds rendered realistically, evoking a feeling of awe and solitude."
+
+# test_input = [{
+#     "text": f"<|im_start|>{prompt}<|im_end|><|im_start|>"
+#     }] #not fully sure about prompt structure
+
+test_input = [f"<|im_start|>{prompt}<|im_end|>"]
+
+import torch
+import numpy as np
+import random
+
+seed = 42
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+pred = engine.infer_list(test_input)
+
+print(pred)
+
+exit()
 
 test_input = [
     {

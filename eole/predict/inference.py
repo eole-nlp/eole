@@ -89,6 +89,9 @@ class Inference(object):
         optional_eos=[],
         id_tokenization=False,
         image_token_id=10,
+        image_generation=False,
+        image_width=1024,
+        image_height=1024,
     ):
         self.model = model
         self.vocabs = vocabs
@@ -167,6 +170,11 @@ class Inference(object):
 
         self.positions = None
 
+        # image generation
+        self.image_generation = image_generation
+        self.image_width = image_width
+        self.image_height = image_height
+
     @classmethod
     def from_config(
         cls,
@@ -242,6 +250,9 @@ class Inference(object):
             optional_eos=config.optional_eos,
             id_tokenization=id_tokenization,
             image_token_id=image_token_id,
+            image_generation=config.image_generation,
+            image_width=config.image_width,
+            image_height=config.image_height,
         )
 
     def _log(self, msg):
@@ -638,6 +649,29 @@ class Inference(object):
         if images is not None and step == 0:
             emb, positions = self.model.embed_vision_language_features(decoder_in, images)
             self.positions = positions
+        # "simple" image generation case
+        elif self.image_generation:
+            # we actually need to prepend the prompt to the whole thing...
+            stuff = self.model.prepare_image_generation(
+                image_width=self.image_width,
+                image_height=self.image_height,
+                current_position_id=src_len.max().item() # TODO: not sure
+            )
+            init_noise, position_ids = stuff
+            # TODO: call image generation and return here?
+            latent = self.model.generate_image(
+                decoder_in,
+                init_noise,
+                position_ids,
+                num_timesteps=50,
+            )
+            image = self.model.decode_image(latent, self.image_height, self.image_width)
+            image.save("generated_image.png")
+            exit()
+
+        # image edition case
+        elif images is not None and self.image_generation:
+            pass
         else:
             emb = self.model.tgt_emb(decoder_in, step=step)
             if self.positions is not None:

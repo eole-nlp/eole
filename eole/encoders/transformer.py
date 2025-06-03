@@ -45,6 +45,7 @@ class TransformerEncoderLayer(nn.Module):
         self.mlp = MLP(
             encoder_config,
             running_config=running_config,
+            is_decoder=False,
         )
 
     def forward(self, layer_in, pad_mask, position_embeddings=None):

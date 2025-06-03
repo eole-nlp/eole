@@ -197,6 +197,7 @@ class RotaryPosition(nn.Module):
         tmax += self.model_config.rope_config.tmax_index
 
         rope = torch.outer(tmax, self.inv_freq.to(device))
+        print("ROPE freqs:", rope.shape, rope.sum(), rope)
         cos = torch.cos(rope)
         sin = torch.sin(rope)
         cos = torch.cat((cos, cos), dim=-1).to(dtype)  # Double the size by repeating `cos`
