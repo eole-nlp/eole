@@ -107,14 +107,15 @@ class MultiHeadedAttention(torch.nn.Module):
             out_features=self.dim_per_head * self.heads // self.parallel_gpu,
             bias=model_config.add_qkvbias,
         )
+
         self.dropout_p = getattr(running_config, "attention_dropout", [0.0])[0]
         self.dropout = nn.Dropout(self.dropout_p)
 
         # introduced for gemma3
         if model_config.query_norm:
-            self.q_norm = LayerNorm[model_config.layer_norm](model_config.head_dim, eps=model_config.norm_eps)
+            self.q_norm = LayerNorm[model_config.layer_norm](model_config.dim_per_head, eps=model_config.norm_eps)
         if model_config.key_norm:
-            self.k_norm = LayerNorm[model_config.layer_norm](model_config.head_dim, eps=model_config.norm_eps)
+            self.k_norm = LayerNorm[model_config.layer_norm](model_config.dim_per_head, eps=model_config.norm_eps)
 
         self.final_linear = skip_init(
             nn.Linear,
@@ -122,7 +123,11 @@ class MultiHeadedAttention(torch.nn.Module):
             out_features=model_config.hidden_size,
             bias=model_config.add_final_linear_bias,
         )
+
         self.is_decoder = is_decoder
+
+        self._maybe_init_image_generation(model_config, running_config)
+
         self.scale = self.attn_scaling**-0.5 if self.is_decoder and self.attn_scaling is not None else None
         self.relative_positions_buckets = model_config.relative_positions_buckets
         self.kcache, self.kcache = None, None
@@ -159,6 +164,45 @@ class MultiHeadedAttention(torch.nn.Module):
             self.flash = True
         else:
             self.flash = False
+
+    def _maybe_init_image_generation(self, model_config, running_config):
+        self.image_generation = getattr(running_config, "image_generation", False)
+
+        if self.image_generation and self.is_decoder:
+            # initialize MOE GEN params
+            self.linear_keys_moe_gen = skip_init(
+                nn.Linear,
+                in_features=model_config.hidden_size,
+                out_features=self.dim_per_head * self.heads_kv // self.parallel_gpu,
+                bias=model_config.add_qkvbias,
+            )
+            self.linear_values_moe_gen = skip_init(
+                nn.Linear,
+                in_features=model_config.hidden_size,
+                out_features=self.dim_per_head * self.heads_kv // self.parallel_gpu,
+                bias=model_config.add_qkvbias,
+            )
+            self.linear_query_moe_gen = skip_init(
+                nn.Linear,
+                in_features=model_config.hidden_size,
+                out_features=self.dim_per_head * self.heads // self.parallel_gpu,
+                bias=model_config.add_qkvbias,
+            )
+            if model_config.query_norm:
+                self.q_norm_moe_gen = LayerNorm[model_config.layer_norm](
+                    model_config.dim_per_head, eps=model_config.norm_eps
+                )
+            if model_config.key_norm:
+                self.k_norm_moe_gen = LayerNorm[model_config.layer_norm](
+                    model_config.dim_per_head, eps=model_config.norm_eps
+                )
+
+            self.final_linear_moe_gen = skip_init(
+                nn.Linear,
+                in_features=self.dim_per_head * self.heads // self.parallel_gpu,
+                out_features=model_config.hidden_size,
+                bias=model_config.add_final_linear_bias,
+            )
 
     def update_dropout(self, dropout: float) -> None:
         self.dropout.p = dropout
@@ -199,7 +243,22 @@ class MultiHeadedAttention(torch.nn.Module):
             seqlen = query.size(2)
             cos, sin = position_embeddings[0][:seqlen], position_embeddings[1][:seqlen]
             query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
+
         return key, value, query
+
+    def _final_linear(self, context, text_indices, image_indices):
+        if self.image_generation:
+            assert (
+                text_indices is not None and image_indices is not None
+            ), "text_indices and image_indices must be provided for image generation"
+            attn_output = torch.zeros_like(context)
+            attn_output[:, text_indices, :] = self.final_linear(context[:, text_indices, :])
+            attn_output[:, image_indices, :] = self.final_linear_moe_gen(context[:, image_indices, :])
+        elif self.kcache is not None:
+            attn_output = self.final_linear(context)
+        else:
+            attn_output = self.maybe_ckpt(self.final_linear, context)
+        return attn_output
 
     def _compute_attention(
         self,
@@ -208,6 +267,8 @@ class MultiHeadedAttention(torch.nn.Module):
         query: Tensor,
         attn_mask: Optional[Tensor] = None,
         return_attn: Optional[bool] = False,
+        text_indices: Optional[Tensor] = None,
+        image_indices: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Tensor]:
         """
         Compute the context vector and the attention vectors.
@@ -229,6 +290,7 @@ class MultiHeadedAttention(torch.nn.Module):
         """
 
         b, h, l, d = key.size()
+        # replaced by enable_gqa?
         if self.heads_kv < self.heads:
             qh = query.size(1)
             # expand key on heads dimension when it's less than query heads (multi-query variant)
@@ -252,6 +314,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 attn_mask=attn_mask,
                 dropout_p=self.dropout_p,
                 scale=self.scale,
+                # enable_gqa=True, # not memory efficient -- https://github.com/pytorch/pytorch/issues/154363
             )
             attn = None
         else:
@@ -315,10 +378,7 @@ class MultiHeadedAttention(torch.nn.Module):
 
         context = unshape(attn_output)
 
-        if self.kcache is not None:
-            attn_output = self.final_linear(context)
-        else:
-            attn_output = self.maybe_ckpt(self.final_linear, context)
+        attn_output = self._final_linear(context, text_indices, image_indices)
 
         if self.parallel_gpu > 1:
             # all_reduce is an inplace op - not easily backprop
@@ -375,7 +435,9 @@ class SelfMHA(MultiHeadedAttention):
 
         if self.position_encoding_type == PositionEncodingType.Rotary:
             seqlen = query.size(2)
-            cos, sin = position_embeddings[0][step : step + seqlen], position_embeddings[1][step : step + seqlen]
+            cos, sin = position_embeddings[0][step : step + seqlen].to(query.dtype), position_embeddings[1][
+                step : step + seqlen
+            ].to(query.dtype)
             query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
 
         if step == 0:
@@ -388,19 +450,52 @@ class SelfMHA(MultiHeadedAttention):
             self.vcache[:, :, cache_len - 1, :] = value[:, :, 0, :]
             return self.kcache[:, :, :cache_len, :], self.vcache[:, :, :cache_len, :], query
 
-    def forward(
-        self,
-        query: Tensor,
-        attn_mask: Optional[Tensor] = None,
-        step: Optional[int] = 0,
-        return_attn: Optional[bool] = False,
-        position_embeddings=None,
-    ) -> Tuple[Tensor, Tensor]:
-        if self.kcache is not None:
-            # Inference step decoding
+    def _qkv_image_generation(self, query, text_indices, image_indices):
+        text_query = query[:, text_indices, :]
+        image_query = query[:, image_indices, :]
+
+        text_key = self.linear_keys(text_query)
+        image_key = self.linear_keys_moe_gen(image_query)
+        text_value = self.linear_values(text_query)
+        image_value = self.linear_values_moe_gen(image_query)
+        text_query = self.linear_query(text_query)
+        image_query = self.linear_query_moe_gen(image_query)
+
+        text_query = shape(text_query, self.dim_per_head)
+        image_query = shape(image_query, self.dim_per_head)
+        text_key = shape(text_key, self.dim_per_head)
+        image_key = shape(image_key, self.dim_per_head)
+        text_value = shape(text_value, self.dim_per_head)
+        image_value = shape(image_value, self.dim_per_head)
+
+        key = query.new_zeros((query.size(0), self.heads_kv, query.size(1), self.dim_per_head // self.parallel_gpu))
+        value = query.new_zeros((query.size(0), self.heads_kv, query.size(1), self.dim_per_head // self.parallel_gpu))
+        query = query.new_zeros((query.size(0), self.heads, query.size(1), self.dim_per_head // self.parallel_gpu))
+
+        key[:, :, text_indices, :] = text_key
+        key[:, :, image_indices, :] = image_key
+        value[:, :, text_indices, :] = text_value
+        value[:, :, image_indices, :] = image_value
+
+        query[:, :, text_indices, :] = text_query
+        query[:, :, image_indices, :] = image_query
+
+        if hasattr(self, "q_norm") and hasattr(self, "q_norm_moe_gen"):
+            query[:, :, text_indices, :] = self.q_norm(query[:, :, text_indices, :])
+            query[:, :, image_indices, :] = self.q_norm_moe_gen(query[:, :, image_indices, :])
+        if hasattr(self, "k_norm") and hasattr(self, "k_norm_moe_gen"):
+            key[:, :, text_indices, :] = self.k_norm(key[:, :, text_indices, :])
+            key[:, :, image_indices, :] = self.k_norm_moe_gen(key[:, :, image_indices, :])
+        return query, key, value
+
+    def _qkv(self, query, text_indices, image_indices):
+        if self.image_generation:
+            return self._qkv_image_generation(query, text_indices, image_indices)
+        else:
             key = self.linear_keys(query)
             value = self.linear_values(query)
             query = self.linear_query(query)
+
             key = shape(key, self.dim_per_head)
             value = shape(value, self.dim_per_head)
             query = shape(query, self.dim_per_head)
@@ -410,6 +505,21 @@ class SelfMHA(MultiHeadedAttention):
             if hasattr(self, "k_norm"):
                 key = self.k_norm(key)
 
+            return query, key, value
+
+    def forward(
+        self,
+        query: Tensor,
+        attn_mask: Optional[Tensor] = None,
+        step: Optional[int] = 0,
+        return_attn: Optional[bool] = False,
+        position_embeddings=None,
+        text_indices: Optional[Tensor] = None,
+        image_indices: Optional[Tensor] = None,
+    ) -> Tuple[Tensor, Tensor]:
+        if self.kcache is not None:
+            # Inference step decoding
+            query, key, value = self._qkv(query, text_indices, image_indices)
             if (
                 not self.flash
                 or self.position_encoding_type in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
@@ -469,6 +579,8 @@ class SelfMHA(MultiHeadedAttention):
             query,
             attn_mask=attn_mask,
             return_attn=return_attn,
+            text_indices=text_indices,
+            image_indices=image_indices,
         )
 
 

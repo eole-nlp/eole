@@ -76,6 +76,63 @@ class TransformerDecoderLayer(nn.Module):
                 running_config=running_config,
             )
 
+        self._maybe_init_image_generation(decoder_config, running_config)
+
+    def _maybe_init_image_generation(self, decoder_config, running_config):
+        self.image_generation = getattr(running_config, "image_generation", False)
+        if self.image_generation:
+            self.input_layernorm_moe_gen = LayerNorm[decoder_config.layer_norm](
+                decoder_config.hidden_size, eps=decoder_config.norm_eps
+            )
+            if decoder_config.post_attention_layernorm:
+                self.post_attention_layernorm_moe_gen = LayerNorm[decoder_config.layer_norm](
+                    decoder_config.hidden_size, eps=decoder_config.norm_eps
+                )
+            self.mlp_moe_gen = MLP(
+                decoder_config,
+                running_config=running_config,
+            )
+
+    def _input_layernorm(self, x, **kwargs):
+        text_indices = kwargs.pop("text_indices", None)
+        image_indices = kwargs.pop("image_indices", None)
+
+        if self.image_generation:
+            # TODO: reduce frequency of such assert calls
+            assert text_indices is not None, "Text indices must be provided for image generation"
+            assert image_indices is not None, "Image indices must be provided for image generation"
+            out = torch.zeros_like(x, dtype=x.dtype, device=x.device)
+            out[:, text_indices, :] = self.input_layernorm(x[:, text_indices, :])
+            out[:, image_indices, :] = self.input_layernorm_moe_gen(x[:, image_indices, :])
+            return out
+        else:
+            return self.input_layernorm(x)
+
+    def _context_attention(self, layer_in, norm_layer_in, self_attn, enc_out, src_pad_mask, return_attn):
+        if not self.context_attn:
+            return 0, None
+
+        if self.parallel_residual:
+            ctx_attn, attns = self.context_attn(
+                enc_out,
+                enc_out,
+                norm_layer_in,
+                attn_mask=~src_pad_mask,
+                return_attn=return_attn,
+            )
+        else:
+            norm_query = self.precontext_layernorm(self_attn + layer_in)
+            ctx_attn, attns = self.context_attn(
+                enc_out,
+                enc_out,
+                norm_query,
+                attn_mask=~src_pad_mask,
+                return_attn=return_attn,
+            )
+        if self.dropout_p > 0:
+            ctx_attn = self.dropout(ctx_attn)
+        return ctx_attn, attns
+
     def _mlp(self, hidden_states):
         if self.ffn_layernorm:
             hidden_states = self.pre_feedforward_layernorm(hidden_states)
@@ -84,6 +141,23 @@ class TransformerDecoderLayer(nn.Module):
         else:
             hidden_states = self.mlp(hidden_states)
         return hidden_states
+
+    def _prepare_ff_input(self, layer_in, norm_layer_in, self_attn, ctx_attn, text_indices=None, image_indices=None):
+        """Prepare input for feedforward network, handling different residual configurations"""
+        if self.parallel_residual:
+            if not self.shared_layer_norm:
+                norm_res_layer_in = self.residual_layernorm(layer_in)
+                return norm_res_layer_in
+            else:
+                return norm_layer_in
+        else:
+            sequence = ctx_attn + self_attn + layer_in
+            if self.image_generation:
+                text_sequence = self.post_attention_layernorm(sequence[:, text_indices, :])
+                image_sequence = self.post_attention_layernorm_moe_gen(sequence[:, image_indices, :])
+                return text_sequence, image_sequence
+            else:
+                return self.post_attention_layernorm(sequence)
 
     def forward(self, layer_in, **kwargs):
         """
@@ -110,7 +184,14 @@ class TransformerDecoderLayer(nn.Module):
         return_attn = kwargs.pop("return_attn", False)
         position_embeddings = kwargs.pop("position_embeddings", None)
 
-        norm_layer_in = self.input_layernorm(layer_in)
+        text_indices = kwargs.pop("text_indices", None)
+        image_indices = kwargs.pop("image_indices", None)
+
+        norm_layer_in = self._input_layernorm(
+            layer_in,
+            text_indices=text_indices,
+            image_indices=image_indices,
+        )
 
         self_attn, attns = self.self_attn(
             norm_layer_in,
@@ -118,6 +199,8 @@ class TransformerDecoderLayer(nn.Module):
             step=step,
             return_attn=return_attn,
             position_embeddings=position_embeddings,
+            text_indices=text_indices,
+            image_indices=image_indices,
         )
 
         if self.dropout_p > 0:
@@ -129,39 +212,26 @@ class TransformerDecoderLayer(nn.Module):
             layer_out = ff_in + self._mlp(ff_in)
             return layer_out, attns
 
-        if self.parallel_residual:
-            if self.context_attn:
-                ctx_attn, attns = self.context_attn(
-                    enc_out,
-                    enc_out,
-                    norm_layer_in,
-                    attn_mask=~src_pad_mask,
-                    return_attn=return_attn,
-                )
-            else:
-                ctx_attn = 0
-            if not self.shared_layer_norm:
-                norm_res_layer_in = self.residual_layernorm(layer_in)
-                ff_in = norm_res_layer_in
-            else:
-                ff_in = norm_layer_in
+        ctx_attn, attns = self._context_attention(
+            layer_in,
+            norm_layer_in,
+            self_attn,
+            enc_out,
+            src_pad_mask,
+            return_attn,
+        )
+
+        ff_in = self._prepare_ff_input(layer_in, norm_layer_in, self_attn, ctx_attn, text_indices, image_indices)
+        if self.image_generation:
+            text_sequence, image_sequence = ff_in
+            MLP = torch.zeros_like(layer_in, dtype=layer_in.dtype, device=layer_in.device)
+            MLP[:, text_indices, :] = self.mlp(text_sequence)
+            MLP[:, image_indices, :] = self.mlp_moe_gen(image_sequence)
         else:
-            if self.context_attn:
-                norm_query = self.precontext_layernorm(self_attn + layer_in)
-                ctx_attn, attns = self.context_attn(
-                    enc_out,
-                    enc_out,
-                    norm_query,
-                    attn_mask=~src_pad_mask,
-                    return_attn=return_attn,
-                )
-                if self.dropout_p > 0:
-                    ctx_attn = self.dropout(ctx_attn)
-            else:
-                ctx_attn = 0
-            ff_in = self.post_attention_layernorm(ctx_attn + self_attn + layer_in)
+            MLP = self.mlp(ff_in)
+
         # we apply residual with un-normed
-        layer_out = self.mlp(ff_in) + layer_in + self_attn + ctx_attn
+        layer_out = MLP + layer_in + self_attn + ctx_attn
 
         return layer_out, attns
 
@@ -225,7 +295,13 @@ class TransformerDecoder(DecoderBase):
                 for i in range(decoder_config.layers)
             ]
         )
+        self.image_generation = getattr(running_config, "image_generation", False)
         self.layer_norm = LayerNorm[decoder_config.layer_norm](decoder_config.hidden_size, eps=decoder_config.norm_eps)
+        if self.image_generation:
+            # MOE GEN params
+            self.layer_norm_moe_gen = LayerNorm[decoder_config.layer_norm](
+                decoder_config.hidden_size, eps=decoder_config.norm_eps
+            )
         self._disable_cache()
 
     @classmethod
@@ -311,7 +387,10 @@ class TransformerDecoder(DecoderBase):
         step = kwargs.pop("step", None)
         with_align = kwargs.pop("with_align", False)
         return_attn = with_align or kwargs.pop("return_attn", False)
-        position_embeddings = self.rope.update(emb.size(1), step=step)
+        positions = kwargs.pop("positions", None)
+        position_embeddings = self.rope.update(
+            emb.size(1), step=step, positions=positions, device=self.device, dtype=emb.dtype
+        )
         if self.rope_local is not None:
             position_embeddings_local = self.rope_local.update(emb.size(1), step=step)
         else:
@@ -339,7 +418,10 @@ class TransformerDecoder(DecoderBase):
         # we need to adapt the mask for gemma3, TODO: find another condition?
         # SEEMS OK TO MASK IMAGES FOR LLAVA TOO ?
         if decoder_in is not None and attn_mask is not None:
-            attn_mask = self._update_causal_mask(attn_mask, decoder_in == image_token_id)
+            attn_mask = self._update_causal_mask(
+                attn_mask, (decoder_in == image_token_id) | (decoder_in == 151652) | (decoder_in == 151653)
+            )
+
         if self.sliding_window > 0 and step >= self.sliding_window and attn_mask is not None:
             attn_mask = attn_mask[:, :, :, -self.sliding_window :]
 
@@ -354,6 +436,7 @@ class TransformerDecoder(DecoderBase):
                 position_embeddings=(
                     position_embeddings_local if (i + 1) % self.interleave_local else position_embeddings
                 ),
+                **kwargs,
             )
             if with_align:
                 attn_align = layer.get_attn_align(
@@ -371,7 +454,18 @@ class TransformerDecoder(DecoderBase):
                 if attn_align is not None:
                     attn_aligns.append(attn_align)
 
-        emb = self.layer_norm(emb)
+        # TODO apply MOE logic here
+        if self.image_generation:
+            emb_ = torch.zeros_like(emb, dtype=emb.dtype, device=emb.device)
+            text_indices = kwargs.get("text_indices", None)
+            image_indices = kwargs.get("image_indices", None)
+            assert text_indices is not None, "Text indices must be provided for image generation"
+            assert image_indices is not None, "Image indices must be provided for image generation"
+            emb_[:, text_indices, :] = self.layer_norm(emb[:, text_indices, :])
+            emb_[:, image_indices, :] = self.layer_norm_moe_gen(emb[:, image_indices, :])
+            emb = emb_
+        else:
+            emb = self.layer_norm(emb)
 
         # we take the first head
         top_attn = None if attn is None else attn[:, 0, :, :].contiguous()

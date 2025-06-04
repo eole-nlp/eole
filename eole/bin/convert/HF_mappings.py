@@ -37,11 +37,81 @@ BASE_KEY_MAP = {
 MODEL_OVERRIDES = {
     "LlamaForCausalLM": {},  # default
     "MistralForCausalLM": {},
-    "Qwen2ForCausalLM": {
+    "Bagel": {  # bagel's arch is actually Qwen2, but requires specific mapping
+        "decoder_layer_prefix": "language_model.model.layers.",
+        "decoder.layer_norm.weight": "language_model.model.norm.weight",
+        "decoder.layer_norm_moe_gen.weight": "language_model.model.norm_moe_gen.weight",
+        "encoder_layer_prefix": "vit_model.vision_model.encoder.layers.",
+        "encoder.patch_conv.weight": "vit_model.vision_model.embeddings.patch_embedding.weight",
+        "encoder.patch_conv.bias": "vit_model.vision_model.embeddings.patch_embedding.bias",
+        "encoder.position_embeddings.weight": "vit_model.vision_model.embeddings.position_embedding.weight",
+        "encoder.post_layernorm.weight": "vit_model.vision_model.post_layernorm.weight",
+        "encoder.post_layernorm.bias": "vit_model.vision_model.post_layernorm.bias",
+        "tgt_emb.embeddings.weight": "language_model.model.embed_tokens.weight",
+        "generator.weight": "language_model.lm_head.weight",
+        # vision_adapter
+        "adapter.w_in.weight": "connector.fc1.weight",
+        "adapter.w_in.bias": "connector.fc1.bias",
+        "adapter.w_out.weight": "connector.fc2.weight",
+        "adapter.w_out.bias": "connector.fc2.bias",
+        # additional stuff, mostly replicated as-is for now
+        "vit_pos_embed.pos_embed": "vit_pos_embed.pos_embed",
+        "latent_pos_embed.pos_embed": "latent_pos_embed.pos_embed",
+        "time_embedder.mlp.0.weight": "time_embedder.mlp.0.weight",
+        "time_embedder.mlp.0.bias": "time_embedder.mlp.0.bias",
+        "time_embedder.mlp.2.weight": "time_embedder.mlp.2.weight",
+        "time_embedder.mlp.2.bias": "time_embedder.mlp.2.bias",
+        "vae2llm.weight": "vae2llm.weight",
+        "vae2llm.bias": "vae2llm.bias",
+        "llm2vae.weight": "llm2vae.weight",
+        "llm2vae.bias": "llm2vae.bias",
+        # TODO: not sure how to properly grab VAE stuff
+        "decoder": {
+            ".self_attn.q_norm.": ".self_attn.q_norm.",
+            ".self_attn.k_norm.": ".self_attn.k_norm.",
+            # MOE GEN (simplify with loop?)
+            ".self_attn.q_norm_moe_gen.": ".self_attn.q_norm_moe_gen.",
+            ".self_attn.k_norm_moe_gen.": ".self_attn.k_norm_moe_gen.",
+            ".self_attn.linear_query_moe_gen.": ".self_attn.q_proj_moe_gen.",
+            ".self_attn.linear_keys_moe_gen.": ".self_attn.k_proj_moe_gen.",
+            ".self_attn.linear_values_moe_gen.": ".self_attn.v_proj_moe_gen.",
+            ".self_attn.final_linear_moe_gen.": ".self_attn.o_proj_moe_gen.",
+            ".mlp_moe_gen.gate_up_proj.": ".mlp_moe_gen.gate_proj.",
+            ".mlp_moe_gen.down_proj.": ".mlp_moe_gen.down_proj.",
+            ".mlp_moe_gen.up_proj.": ".mlp_moe_gen.up_proj.",
+            ".input_layernorm_moe_gen.": ".input_layernorm_moe_gen.",
+            ".post_attention_layernorm_moe_gen.": ".post_attention_layernorm_moe_gen.",
+        },
+        "encoder": {
+            ".self_attn.linear_query.": ".self_attn.q_proj.",
+            ".self_attn.linear_keys.": ".self_attn.k_proj.",
+            ".self_attn.linear_values.": ".self_attn.v_proj.",
+            ".self_attn.final_linear.": ".self_attn.out_proj.",
+            ".mlp.gate_up_proj.": ".mlp.fc1.",
+            ".mlp.down_proj.": ".mlp.fc2.",
+            ".input_layernorm.": ".layer_norm1.",
+            ".post_attention_layernorm.": ".layer_norm2.",
+        },
         "config": {
             "add_qkvbias": True,
             "add_final_linear_bias": False,
-        }
+            "adapter": "bagel",
+            "vit_position_embeddings": True,
+            "decoder": {
+                "query_norm": True,
+                "key_norm": True,
+            },
+            "encoder": {
+                "mlp_activation_fn": "gelu-tanh",
+                "add_ffnbias": True,
+                "add_final_linear_bias": True,
+                "add_qkvbias": True,
+                "layer_norm": "standard",
+                "patch_conv_bias": True,
+                "patch_conv_linear": True,
+                "layernorm_pre": False,  # implies post layernorm
+            },
+        },
     },
     "Qwen3ForCausalLM": {
         "decoder": {
@@ -386,6 +456,7 @@ ARCH_TABLE = defaultdict(
         "Mistral3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "Gemma3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "M2M100ForConditionalGeneration": TransformerModelConfig,
+        "Bagel": VisionTransformerLMModelConfig,
     },
 )
 

@@ -15,12 +15,7 @@ class MLP(nn.Module):
         running_config: TrainingConfig or InferenceConfig derived from RunningConfig
     """
 
-    def __init__(
-        self,
-        model_config,
-        running_config=None,
-        is_moe=False,
-    ):
+    def __init__(self, model_config, running_config=None, is_moe=False, is_decoder: bool = True):
         self.parallel_gpu = getattr(running_config, "parallel_gpu", 1)
         super(MLP, self).__init__()
         if is_moe:

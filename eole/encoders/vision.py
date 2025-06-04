@@ -53,18 +53,28 @@ class PatchMerger(nn.Module):
         return image_features
 
 
-def position_ids_in_meshgrid(patch_embeds_list, max_width, flatten=True):
-    positions = []
-    for patch in patch_embeds_list:
-        height, width = patch.shape[-2:]
-        mesh = torch.meshgrid(torch.arange(height), torch.arange(width), indexing="ij")
-        h_grid, v_grid = torch.stack(mesh, dim=-1).reshape(-1, 2).chunk(2, -1)
-        ids = h_grid * max_width + v_grid
-        positions.append(ids[:, 0])
-    if flatten:
-        return torch.cat(positions)
-    else:
-        return torch.stack(positions)
+# replaced by get_flattened_position_ids_extrapolate
+# def position_ids_in_meshgrid(patch_embeds_list, max_width, flatten=True):
+#     positions = []
+#     for patch in patch_embeds_list:
+#         height, width = patch.shape[-2:]
+#         mesh = torch.meshgrid(torch.arange(height), torch.arange(width), indexing="ij")
+#         h_grid, v_grid = torch.stack(mesh, dim=-1).reshape(-1, 2).chunk(2, -1)
+#         ids = h_grid * max_width + v_grid
+#         positions.append(ids[:, 0])
+#     if flatten:
+#         return torch.cat(positions)
+#     else:
+#         return torch.stack(positions)
+
+
+# from bagel
+def get_flattened_position_ids_extrapolate(img_h, img_w, patch_size, max_num_patches_per_side):
+    num_patches_h, num_patches_w = img_h // patch_size, img_w // patch_size
+    coords_h = torch.arange(0, num_patches_h)
+    coords_w = torch.arange(0, num_patches_w)
+    pos_ids = (coords_h[:, None] * max_num_patches_per_side + coords_w).flatten()
+    return pos_ids
 
 
 def create_block_diagonal_mask(lengths, device):
@@ -88,6 +98,19 @@ def create_block_diagonal_mask(lengths, device):
     return mask.to(device)
 
 
+# grabbed from bagel repo
+
+
+def patchify(image, patch_size):
+    p = patch_size
+    c, h, w = image.shape
+    assert h % p == 0 and w % p == 0
+    image = image.reshape(c, h // p, p, w // p, p)
+    image = torch.einsum("chpwq->hwpqc", image)
+    image = image.reshape(-1, p**2 * c)
+    return image
+
+
 class VisionEncoder(nn.Module):
     def __init__(self, encoder_config, running_config=None):
         super(VisionEncoder, self).__init__()
@@ -99,13 +122,24 @@ class VisionEncoder(nn.Module):
             )
         else:
             self.rope = build_rope(encoder_config, mode="2d")
-        self.patch_conv = nn.Conv2d(
-            in_channels=encoder_config.num_channels,
-            out_channels=encoder_config.hidden_size,
-            kernel_size=encoder_config.patch_size,
-            stride=encoder_config.patch_size,
-            bias=encoder_config.patch_conv_bias,
-        )
+
+        self.patch_conv_linear = encoder_config.patch_conv_linear
+        if self.patch_conv_linear:
+            # linear patch conv for bagel
+            self.patch_conv = nn.Linear(
+                encoder_config.patch_size * encoder_config.patch_size * encoder_config.num_channels,
+                encoder_config.hidden_size,
+                bias=True,
+            )
+        else:
+            self.patch_conv = nn.Conv2d(
+                in_channels=encoder_config.num_channels,
+                out_channels=encoder_config.hidden_size,
+                kernel_size=encoder_config.patch_size,
+                stride=encoder_config.patch_size,
+                bias=encoder_config.patch_conv_bias,
+            )
+
         if encoder_config.layernorm_pre:
             self.ln_pre = RMSNorm(encoder_config.hidden_size, eps=1e-5)
         else:
@@ -133,6 +167,8 @@ class VisionEncoder(nn.Module):
 
     @property
     def max_patches_per_side(self):
+        if self.encoder_config.max_patches_per_side is not None:
+            return self.encoder_config.max_patches_per_side  # hardcoded bagel value
         return self.encoder_config.image_size // self.encoder_config.patch_size
 
     @property
@@ -152,7 +188,14 @@ class VisionEncoder(nn.Module):
         dtype = next(self.parameters()).dtype
 
         # pass images through initial convolution independently (because they may have different sizes)
-        patch_embeds_list = [self.patch_conv(img.to(dtype)) for img in images]
+
+        if self.patch_conv_linear:
+            print("patch_conv_linear")
+            # TODO: this is a patch condition for bagel, should be improved
+            pixel_values = [patchify(img, self.encoder_config.patch_size) for img in images]
+            patch_embeds_list = [self.patch_conv(pv.to(dtype)).transpose(0, 1) for pv in pixel_values]
+        else:
+            patch_embeds_list = [self.patch_conv(img.to(dtype)) for img in images]
 
         if self.ln_pre is not None:  # pixtral / mistral
             # flatten H+W then change to (H+W, C) and stack all images of ex
@@ -172,22 +215,37 @@ class VisionEncoder(nn.Module):
             mask = None
 
         # positional embeddings
-        positions = position_ids_in_meshgrid(
-            patch_embeds_list,
-            max_width=self.encoder_config.image_size // self.encoder_config.patch_size,
-            flatten=self.ln_pre is not None,  # dirty flag need to improve
-        ).to(self.device)
+        positions = (
+            torch.cat(
+                [
+                    get_flattened_position_ids_extrapolate(
+                        img.shape[-2],
+                        img.shape[-1],
+                        self.encoder_config.patch_size,
+                        self.max_patches_per_side,
+                    )
+                    for img in images
+                ],
+                axis=0,
+            )
+            .unsqueeze(0)
+            .to(self.device)
+        )
+
         # TODO: make this cleaner
         if hasattr(self, "position_embeddings"):
             # this is only used for rope
             position_embeddings = None
-            patch_embeds += self.position_embeddings(positions)
+            pos_embeds = self.position_embeddings(positions)
+            patch_embeds += pos_embeds
         else:
             position_embeddings = self.rope.update(
                 patch_embeds.size(1),
                 step=0,
                 reset=True,
-                positions=positions,
+                positions=positions,  # enable for bagel only?
+                device=self.device,
+                dtype=dtype,
             )
 
         out = patch_embeds
@@ -197,7 +255,7 @@ class VisionEncoder(nn.Module):
         if self.post_layernorm is not None:
             out = self.post_layernorm(out)
 
-        return out
+        return out, positions
 
 
 # Multi-Modal Projector
@@ -266,4 +324,5 @@ class Gemma3MultiModalProjector(nn.Module):
 str2adapter = {
     "llava": VisionLanguageAdapter,
     "gemma3": Gemma3MultiModalProjector,
+    "bagel": VisionLanguageAdapter,
 }

@@ -1,0 +1,1 @@
+eole convert HF --model_dir ByteDance-Seed/BAGEL-7B-MoT --output ./bagel --token $HF_TOKEN

@@ -89,6 +89,11 @@ class Inference(object):
         optional_eos=[],
         id_tokenization=False,
         image_token_id=10,
+        image_generation=False,
+        image_width=1024,
+        image_height=1024,
+        num_timesteps=20,
+        output=None,
     ):
         self.model = model
         self.vocabs = vocabs
@@ -165,6 +170,15 @@ class Inference(object):
         self.id_tokenization = id_tokenization
         self.image_token_id = image_token_id
 
+        self.positions = None
+
+        # image generation
+        self.image_generation = image_generation
+        self.image_width = image_width
+        self.image_height = image_height
+        self.num_timesteps = num_timesteps
+        self.output = output
+
     @classmethod
     def from_config(
         cls,
@@ -240,6 +254,11 @@ class Inference(object):
             optional_eos=config.optional_eos,
             id_tokenization=id_tokenization,
             image_token_id=image_token_id,
+            image_generation=config.image_generation,
+            image_width=config.image_width,
+            image_height=config.image_height,
+            num_timesteps=config.num_timesteps,
+            output=config.output,
         )
 
     def _log(self, msg):
@@ -634,9 +653,37 @@ class Inference(object):
             src_pad_mask = None
 
         if images is not None and step == 0:
-            emb = self.model.embed_vision_language_features(decoder_in, images)
+            emb, positions = self.model.embed_vision_language_features(decoder_in, images)
+            self.positions = positions
+        # "simple" image generation case
+        elif self.image_generation:
+            init_noise, position_ids = self.model.prepare_image_generation(
+                image_width=self.image_width,
+                image_height=self.image_height,
+                current_position_id=src_len.max().item(),  # TODO: not sure
+            )
+            latent = self.model.generate_image(
+                decoder_in,
+                init_noise,
+                position_ids,
+                num_timesteps=self.num_timesteps,
+            )
+            image = self.model.decode_image(latent, self.image_height, self.image_width)
+            # TODO: should this logic be moved elsewhere?
+            if self.output is not None:
+                image.save(self.output)
+            exit()
+
+        # image edition case
+        elif images is not None and self.image_generation:
+            pass
         else:
             emb = self.model.tgt_emb(decoder_in, step=step)
+            if self.positions is not None:
+                # add position
+                # NOTE: this does not work if image is after text...
+                next_pos = self.positions[-1] + 1
+                self.positions = torch.cat([self.positions, next_pos.unsqueeze(0)])
 
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
         dec_out, dec_attn = self.model.decoder(
@@ -650,6 +697,8 @@ class Inference(object):
             left_pad=left_pad,
             decoder_in=decoder_in,
             image_token_id=self.image_token_id,
+            # TODO: retrieve proper positions for bagel ([0] * image_tokens + [1, 2, ...])
+            positions=self.positions,
         )
         # Generator forward.
         if "std" in dec_attn:

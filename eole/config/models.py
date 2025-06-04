@@ -371,10 +371,17 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     num_channels: int | None = 3
     image_size: int | None = 1024
     patch_size: int | None = 16
+    max_patches_per_side: int | None = None
+    max_latent_size: int | None = 64  # bagel
+    latent_patch_size: int | None = 2
+    latent_channel: int | None = 16
     image_token_id: int | None = 10  # pixtral uses 10, gemma3 uses 262144
+    image_start_token_id: int | None = None
+    image_end_token_id: int | None = None
     mm_tokens_per_image: int | None = 256  # added for gemma3
     layernorm_pre: bool = True  # True for pixtral/mistral False for gemma3
     patch_conv_bias: bool = False  # False for pixtral/mistral True for gemma3
+    patch_conv_linear: bool = False  # False for pixtral/gemma3 True for bagel
 
 
 # use Field with default= + description would be more readable
@@ -770,6 +777,10 @@ class VisionTransformerLMModelConfig(TransformerConfig, BaseModelConfig):
     architecture: Literal["vision_transformer_lm"] = Field(default="vision_transformer_lm")
 
     adapter: str | None = Field(default="llava", description="Adapter type to use in the model.")
+
+    vit_position_embeddings: bool = Field(
+        default=False, description="Additional position embeddings for images, introduced for Bagel."
+    )
 
     @model_validator(mode="before")
     @classmethod

@@ -20,6 +20,7 @@ setup(
     install_requires=[
         "configargparse",
         "ctranslate2>=4,<5",
+        "einops",
         "fastapi",
         "fasttext-wheel",
         "huggingface_hub",

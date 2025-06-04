@@ -55,8 +55,7 @@ def transform_image(image: Image.Image, new_size: Tuple[int, int]) -> np.ndarray
     return normalize_llava(np_image, DATASET_MEAN, DATASET_STD)
 
 
-def image_to_num_tokens(img, image_size=1024, image_patch_size=16):
-    w, h = img.size
+def image_to_num_tokens(w, h, image_size=1024, image_patch_size=16):
     ratio = max(h / image_size, w / image_size)
     if ratio > 1:
         w = round(w / ratio)
@@ -417,7 +416,8 @@ def to_channel_dimension_format(
 def process_image(image_path, adapter="llava", image_size=1024, image_patch_size=16):
     if adapter == "llava":
         image = Image.open(image_path)
-        w, h = image_to_num_tokens(image, image_size=image_size, image_patch_size=image_patch_size)
+        w, h = image.size
+        w, h = image_to_num_tokens(w, h, image_size=image_size, image_patch_size=image_patch_size)
         new_image_size = (w * image_patch_size, h * image_patch_size)
         # TODO retrieve from model config / vocab / tokenizer
         image_tokens = (["[IMG]"] * w + ["[IMG_BREAK]"]) * h
@@ -436,6 +436,20 @@ def process_image(image_path, adapter="llava", image_size=1024, image_patch_size
         # return image
         # TODO: make this configurable?
         image_tokens = "<start_of_image>" + "<image_soft_token>" * 256 + "<end_of_image>"
+        return {"image": image, "tokens": image_tokens}
+    elif adapter == "bagel":
+        from eole.inputters.bagel_utils import ImageTransform
+
+        vae_transform = ImageTransform(1024, 512, 16)
+        vit_transform = ImageTransform(980, 224, 14)
+        image = Image.open(image_path)
+        image = _convert_to_rgb(image)
+        image = vae_transform.resize_transform(image)
+        image = vit_transform(image)
+        # return image
+        w, h = image.shape[-2:]
+        w, h = image_to_num_tokens(w, h, image_size=image_size, image_patch_size=image_patch_size)
+        image_tokens = ["<|vision_start|>"] + ["<|vision_pad|>"] * w * h + ["<|vision_end|>"]
         return {"image": image, "tokens": image_tokens}
     else:
         raise ValueError("Unsupported Adapter type: {}".format(adapter))

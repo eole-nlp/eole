@@ -16,6 +16,10 @@ class EncoderBase(nn.Module):
     def from_config(cls, encoder_config, running_config=None):
         raise NotImplementedError
 
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
     def forward(self, emb, **kwargs):
         """
         Args:
