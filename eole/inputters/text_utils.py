@@ -68,8 +68,12 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER, task=Cor
     """ """
     decoder_start_token = vocabs["decoder_start_token"]
     numeric = example
+
+    # In the case transform `tokenizer_id` is used ie hugging_face tokenizer
+    # fields `src_ids` and potentially `tgt_ids` are already filled
     numeric["src"]["src_ids"] = example.pop("src_ids", [])
     maybe_tgt_ids = example.pop("tgt_ids", [])
+
     if model_type == ModelType.ENCODER_DECODER:
         src_text = example["src"]["src"].split(" ")
         if numeric["src"]["src_ids"] == []:
@@ -89,23 +93,28 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER, task=Cor
                 )
 
     elif model_type == ModelType.DECODER:
-        if numeric["src"]["src_ids"] == []:  # tokenize_id not used
+        if numeric["src"]["src_ids"] == []:
+            # tokenize_id not used, we add start_token and numericalize
             src_text = example["src"]["src"].split(" ")
             if decoder_start_token != "":
                 src_text = [decoder_start_token] + src_text
             numeric["src"]["src_ids"] = vocabs["src"](src_text)
         numeric["src"]["prefix_len"] = len(numeric["src"]["src_ids"])
-        if example["tgt"] is None:  # no path_tgt given need to use src
+        if example["tgt"] is None:
+            # no path_tgt given need to use src, add eos if any and remove bos if any
             if task == CorpusTask.TRAIN:
                 example["tgt"] = {}
                 if maybe_tgt_ids != []:
+                    # tokenize_id in use
                     numeric["tgt"]["tgt_ids"] = maybe_tgt_ids
                 else:
                     tgt_text = example["src"]["src"].split(" ")
                     numeric["tgt"]["tgt_ids"] = vocabs["tgt"](tgt_text + [vocabs["specials"].get("eos_token", "")])
                 if decoder_start_token == "":
                     numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
-        else:  # path_tgt given = answer to prompt from path_src
+        else:
+            # path_tgt given, prompt from path_src and answer from path_tgt
+            # we concat both, add eos if any on tgt side and remove bos if any.
             if maybe_tgt_ids != []:
                 numeric["tgt"]["tgt_ids"] = numeric["src"]["src_ids"] + maybe_tgt_ids
                 numeric["src"]["src_ids"] = numeric["src"]["src_ids"] + maybe_tgt_ids[:-1]
