@@ -223,7 +223,7 @@ class TransformerDecoder(DecoderBase):
             ]
         )
         self.layer_norm = LayerNorm[decoder_config.layer_norm](decoder_config.hidden_size, eps=decoder_config.norm_eps)
-        self.prefix_LM = getattr(decoder_config, "prefix_LM", False)
+        self.LM_type = getattr(decoder_config, "LM_type", "causal")
         self._disable_cache()
 
     @classmethod
@@ -255,7 +255,7 @@ class TransformerDecoder(DecoderBase):
         for layer in self.transformer_layers:
             layer.update_dropout(dropout, attention_dropout)
 
-    def _causal_attn_mask(self, tgt_pad_mask, pfxlen=None):
+    def _causal_attn_mask(self, tgt_pad_mask, prefix_len=None):
         batch_size, _, tgt_len = tgt_pad_mask.size()
         device = tgt_pad_mask.device
         # Add triangular future_mask and pad_mask, result mask in (B, T, T).
@@ -265,10 +265,10 @@ class TransformerDecoder(DecoderBase):
         )  # Shape: (tgt_len, tgt_len)
         if self.sliding_window > 0:
             future_mask = future_mask.triu_(-self.sliding_window)
-        if self.prefix_LM and pfxlen is not None:
+        if self.LM_type == "prefix" and prefix_len is not None:
             idx = torch.arange(tgt_len, device=device)
-            block = (idx.view(1, tgt_len, 1) < pfxlen.view(batch_size, 1, 1)) & (
-                idx.view(1, 1, tgt_len) < pfxlen.view(batch_size, 1, 1)
+            block = (idx.view(1, tgt_len, 1) < prefix_len.view(batch_size, 1, 1)) & (
+                idx.view(1, 1, tgt_len) < prefix_len.view(batch_size, 1, 1)
             )
             future_mask = torch.where(block, torch.ones_like(future_mask), future_mask)  # (B, T, T)
             attn_mask = ~(tgt_pad_mask | tgt_pad_mask.transpose(2, 1)) & future_mask
@@ -326,7 +326,7 @@ class TransformerDecoder(DecoderBase):
             position_embeddings_local = position_embeddings
         decoder_in = kwargs.pop("decoder_in", None)
         image_token_id = kwargs.pop("image_token_id", None)
-        pfxlen = kwargs.pop("pfxlen", None)
+        prefix_len = kwargs.pop("prefix_len", None)
         attn_aligns = []
 
         if step == 0:
@@ -334,7 +334,7 @@ class TransformerDecoder(DecoderBase):
 
         if emb.size(1) > 1:
             # training or first step decoding
-            attn_mask = self._causal_attn_mask(tgt_pad_mask, pfxlen=pfxlen)
+            attn_mask = self._causal_attn_mask(tgt_pad_mask, prefix_len=prefix_len)
         else:
             # step by step decoding
             # we rebuild the pad mask of previous steps (left padded prompt)

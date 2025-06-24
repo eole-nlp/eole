@@ -407,7 +407,7 @@ class OnDeviceDatasetIter:
                 ]:
                     if isinstance(tensor_batch[key], list):
                         tensor_batch[key] = [t.to(self.device) for t in tensor_batch[key]]
-                    else:
+                    elif tensor_batch[key] is not None:
                         tensor_batch[key] = tensor_batch[key].to(self.device)
             yield (tensor_batch, bucket_idx)
 

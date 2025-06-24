@@ -938,12 +938,13 @@ class VisionEncoderDecoderModel(BaseModel):
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def embed_vision_language_features(self, src, images):
+    def embed_vision_language_features(self, src, **kwargs):
         batch_size = src.size(0)
+        images = kwargs.get("images", None)
         text_locations = src != self.image_token_id
         image_locations = src == self.image_token_id
         text_features = self.tgt_emb(src[text_locations].view(batch_size, -1))
-        if len(images) == 0:
+        if images is None or len(images) == 0:
             return text_features
         image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
 

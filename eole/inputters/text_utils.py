@@ -212,15 +212,15 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
         device=device,
     )
     if "prefix_len" in minibatch[0][0]["src"].keys():
-        tensor_batch["pfxlen"] = torch.tensor(
+        tensor_batch["prefix_len"] = torch.tensor(
             [ex["src"]["prefix_len"] for ex, indice in minibatch],
             dtype=torch.long,
             device=device,
         )
         if left_pad:
-            tensor_batch["pfxlen"] += tbatchsrc.eq(padidx).sum(dim=1)
+            tensor_batch["prefix_len"] += tbatchsrc.eq(padidx).sum(dim=1)
     else:
-        tensor_batch["pfxlen"] = None
+        tensor_batch["prefix_len"] = None
 
     if minibatch[0][0].get("tgt", None) is not None:
         if left_pad:

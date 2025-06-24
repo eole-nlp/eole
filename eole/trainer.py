@@ -458,7 +458,7 @@ class Trainer(object):
             report_stats.n_src_tokens += src_len.sum().item()
             total_stats.n_src_tokens += src_len.sum().item()
             tgt = batch["tgt"]
-            kwargs = {"image": batch["images"], "pfxlen": batch["pfxlen"]}
+            kwargs = {"images": batch["images"], "prefix_len": batch["prefix_len"]}
 
             try:
                 with get_autocast(enabled=self.optim.amp):

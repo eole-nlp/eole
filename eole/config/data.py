@@ -235,7 +235,7 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
             if corpus.path_src is None and corpus.path_txt is None:
                 raise ValueError(
                     f"Corpus {cname} `path_src` or `path_txt` is required."
-                    "tgt path is also required for non language"
+                    "Additionally, `path_tgt` is required for non language"
                     " modeling tasks."
                 )
             elif corpus.path_src is not None:
