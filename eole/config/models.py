@@ -325,7 +325,7 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
     )
     LM_type: Literal["causal", "prefix"] = Field(
         default="causal",
-        description="TransformerDecoder LM type (causal = classic, or prefix LM https://arxiv.org/pdf/2308.06912"),
+        description="TransformerDecoder LM type (causal = classic, or prefix LM https://arxiv.org/pdf/2308.06912)",
     )
 
     @model_validator(mode="after")
