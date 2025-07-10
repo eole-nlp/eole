@@ -102,7 +102,7 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER, task=Cor
         numeric["src"]["prefix_len"] = len(numeric["src"]["src_ids"])
         if example["tgt"] is None:
             # no path_tgt given need to use src, add eos if any and remove bos if any
-            if task == CorpusTask.TRAIN:
+            if task in [CorpusTask.TRAIN, CorpusTask.VALID]:
                 example["tgt"] = {}
                 if maybe_tgt_ids != []:
                     # tokenize_id in use
