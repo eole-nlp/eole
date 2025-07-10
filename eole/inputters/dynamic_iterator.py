@@ -278,7 +278,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         tuple_bucket = transform_bucket(self.task, tuple_bucket, self.score_threshold)
         for example in tuple_bucket:
             if example is not None:
-                bucket.append(numericalize(self.vocabs, example, model_type=self.model_type))
+                bucket.append(numericalize(self.vocabs, example, model_type=self.model_type, task=self.task))
 
         return bucket
 
@@ -407,7 +407,7 @@ class OnDeviceDatasetIter:
                 ]:
                     if isinstance(tensor_batch[key], list):
                         tensor_batch[key] = [t.to(self.device) for t in tensor_batch[key]]
-                    else:
+                    elif tensor_batch[key] is not None:
                         tensor_batch[key] = tensor_batch[key].to(self.device)
             yield (tensor_batch, bucket_idx)
 

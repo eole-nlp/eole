@@ -460,7 +460,7 @@ class BaseModel(nn.Module):
 
         return model, vocabs, model_config
 
-    def forward(self, src, tgt, src_len, with_align=False):
+    def forward(self, src, tgt, src_len, with_align=False, **kwargs):
         """Forward propagate a `src` and `tgt` pair for training.
 
         Args:
@@ -744,7 +744,7 @@ class EncoderDecoderModel(BaseModel):
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def forward(self, src, tgt, src_len, with_align=False):
+    def forward(self, src, tgt, src_len, with_align=False, **kwargs):
         """An EncoderDecoderModel forward the src side to the encoder.
         Then the output of encoder ``enc_out`` is forwarded to the
         decoder along with the target excluding the last token.
@@ -817,7 +817,7 @@ class DecoderModel(BaseModel):
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def forward(self, src, _, src_len, with_align=False):
+    def forward(self, src, _, src_len, with_align=False, **kwargs):
         """A DecoderModel forward the src side to the decoder along
         with the source lengths vector. It is a decoder only LM (cf GPT-2)"""
 
@@ -825,6 +825,7 @@ class DecoderModel(BaseModel):
         dec_out, attns = self.decoder(
             self.tgt_emb(src),
             tgt_pad_mask=src.eq(self.pad_idx).unsqueeze(1),
+            **kwargs,
         )
 
         if self.add_estimator:  # we take the average of dec_out using the pad mask
@@ -873,7 +874,7 @@ class EncoderModel(BaseModel):
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def forward(self, src, _, src_len, with_align=False):
+    def forward(self, src, _, src_len, with_align=False, **kwargs):
         """An EncoderModel encodes the source sentence to build hidden states"""
 
         pad_mask = src.eq(self.pad_idx).unsqueeze(1)  # [B, 1, T_src]
@@ -937,13 +938,13 @@ class VisionEncoderDecoderModel(BaseModel):
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def embed_vision_language_features(self, src, images):
-        # TODO: test with batch > 1?
+    def embed_vision_language_features(self, src, **kwargs):
         batch_size = src.size(0)
+        images = kwargs.get("images", None)
         text_locations = src != self.image_token_id
         image_locations = src == self.image_token_id
         text_features = self.tgt_emb(src[text_locations].view(batch_size, -1))
-        if len(images) == 0:
+        if images is None or len(images) == 0:
             return text_features
         image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
 
@@ -974,13 +975,12 @@ class VisionEncoderDecoderModel(BaseModel):
 
         return combined_features
 
-    def forward(self, src, tgt, src_len, bptt=False, with_align=False, images=[]):
+    def forward(self, src, tgt, src_len, with_align=False, **kwargs):
         """A DecoderModel forward the src side to the decoder along
         with the source lengths vector. It is a decoder only LM (cf GPT-2)"""
 
-        if not bptt:
-            self.decoder.init_state()
-        emb = self.embed_vision_language_features(src, images)
+        self.decoder.init_state()
+        emb = self.embed_vision_language_features(src, **kwargs)
         dec_in = tgt[:, :-1]
         pad_idx = self.tgt_emb.word_padding_idx
         pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]

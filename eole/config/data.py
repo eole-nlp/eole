@@ -234,18 +234,15 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
             # Check path
             if corpus.path_src is None and corpus.path_txt is None:
                 raise ValueError(
-                    f"Corpus {cname} `path_src` or `path_tgt` is required."
-                    "tgt path is also required for non language"
+                    f"Corpus {cname} `path_src` or `path_txt` is required."
+                    "Additionally, `path_tgt` is required for non language"
                     " modeling tasks."
                 )
             elif corpus.path_src is not None:
                 self.__class__._validate_file(corpus.path_src, info=f"{cname}/path_src")
                 if corpus.path_tgt is None:
                     logger.debug("path_tgt is None, it should be set unless the task" " is language modeling")
-                    # tgt is src for LM task
-                    # corpus["path_tgt"] = path_src
                     corpora[cname] = corpus
-                    # path_tgt = path_src
                 else:
                     self.__class__._validate_file(corpus.path_tgt, info=f"{cname}/path_tgt")
             if corpus.path_align is None:
