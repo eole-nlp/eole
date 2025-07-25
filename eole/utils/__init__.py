@@ -5,6 +5,12 @@ from eole.utils.alignment import make_batch_align_matrix
 from eole.utils.report_manager import ReportMgr, build_report_manager
 from eole.utils.statistics import Statistics
 from eole.utils.optimizers import MultipleOptimizer, Optimizer, AdaFactor
+from eole.utils.attention_entropy import (
+    compute_attention_entropy,
+    compute_attention_entropy_from_dict,
+    aggregate_attention_entropy,
+    compute_batch_attention_entropy,
+)
 from eole.utils.earlystopping import EarlyStopping, scorers_from_config
 
 __all__ = [
@@ -19,4 +25,8 @@ __all__ = [
     "EarlyStopping",
     "scorers_from_config",
     "make_batch_align_matrix",
+    "compute_attention_entropy",
+    "compute_attention_entropy_from_dict",
+    "aggregate_attention_entropy",
+    "compute_batch_attention_entropy",
 ]
