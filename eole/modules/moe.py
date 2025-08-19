@@ -18,6 +18,7 @@ class MoE(nn.Module):
                 MLP(
                     model_config,
                     running_config,
+                    is_moe=True,
                 )
                 for i in range(model_config.num_experts)
             ]

@@ -231,6 +231,10 @@ class TransformerConfig(Config):
         default=False,
         description="Add pre/post_feedforward_layernorm around MLP forward. " "Note: introduced for gemma2 support.",
     )
+    post_attention_layernorm: bool = Field(
+        default=True,
+        description="Add post-attention layernorm around MHA forward.",
+    )
     add_qkvbias: bool = Field(
         default=False,
         description="Add bias to nn.Linear of Query/Key/Value in MHA. "
@@ -263,6 +267,9 @@ class TransformerConfig(Config):
     )
     num_experts: int = Field(default=0, description="Number of experts for MoE models.")
     num_experts_per_tok: int = Field(default=2, description="Number of experts per token.")
+    transformer_ff_moe: int | None = Field(
+        default=None, description="Size of hidden transformer feed-forward for MoE models."
+    )
     # These fields are set at EmbeddingsConfig level but will be copied here to be accessible in MHA
     position_encoding_type: PositionEncodingType | None = Field(
         default=PositionEncodingType.SinusoidalInterleaved,
@@ -698,12 +705,16 @@ class TransformerModelConfig(TransformerConfig, BaseModelConfig):
         # patch to allow transparent setting of encoder/decoder_type
         if not (isinstance(data, dict)):
             return data
-        if "encoder" in data.keys():
+        if isinstance(data.get("encoder", None), Config):
             data["encoder"].encoder_type = "transformer"
+        elif isinstance(data.get("encoder", None), dict):
+            data["encoder"]["encoder_type"] = "transformer"
         else:
             data["encoder"] = {"encoder_type": "transformer"}
-        if "decoder" in data.keys():
+        if isinstance(data.get("decoder", None), Config):
             data["decoder"].decoder_type = "transformer"
+        elif isinstance(data.get("decoder", None), dict):
+            data["decoder"]["decoder_type"] = "transformer"
         else:
             data["decoder"] = {"decoder_type": "transformer"}
         return data
