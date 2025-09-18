@@ -147,13 +147,17 @@ class LossCompute(nn.Module):
             lm_prior_tau=lm_prior_tau,
             lm_prior_model=lm_prior_model,
         )
-        
+
         # Store attention entropy configuration
-        compute.log_attention_entropy = getattr(config.training, 'log_attention_entropy', False)
-        compute.attention_entropy_types = getattr(config.training, 'attention_entropy_types', None)
-        compute.attention_entropy_layers = getattr(config.training, 'attention_entropy_layers', None)
-        compute.attention_entropy_aggregation = getattr(config.training, 'attention_entropy_aggregation', "mean")
-        
+        compute.log_attention_entropy = getattr(
+            config.training, 'log_attention_entropy', False)
+        compute.attention_entropy_types = getattr(
+            config.training, 'attention_entropy_types', None)
+        compute.attention_entropy_layers = getattr(
+            config.training, 'attention_entropy_layers', None)
+        compute.attention_entropy_aggregation = getattr(
+            config.training, 'attention_entropy_aggregation', "mean")
+
         compute.to(device)  # this sometimes make embeddings move to the wrong device (cpu), not sure why
 
         return compute
@@ -231,7 +235,8 @@ class LossCompute(nn.Module):
         src_len = src[:, :, 0].ne(self.padding_idx).sum(1)
         # ct2 expects src with lengths without padding
         lm_outs, _ = self.lm_prior_model(src, None, src_len, with_align=False)
-        lm_scores = self.lm_prior_model.generator(self._bottle(lm_outs)).detach().clone() / self.lm_prior_tau
+        lm_scores = (self.lm_prior_model.generator(self._bottle(lm_outs))
+                     .detach().clone() / self.lm_prior_tau)
         # again we use raw probs to rescale with tau and apply log_softmax
         lm_scores = F.log_softmax(lm_scores.to(torch.float32), dim=-1)
         lm_scores[:, self.vocabs["tgt"]["unk_token"]] = -50
@@ -332,13 +337,14 @@ class LossCompute(nn.Module):
 
         # Compute attention entropy if attention weights are available and enabled
         attention_entropy = 0.0
-        attention_available = attns and any(attn is not None for attn in attns.values())
-        if (hasattr(self, 'log_attention_entropy')
-            and self.log_attention_entropy
-            and attention_available):
+        attention_available = (attns and
+                               any(attn is not None for attn in attns.values()))
+        if (hasattr(self, 'log_attention_entropy') and
+                self.log_attention_entropy and
+                attention_available):
             try:
                 attention_entropy = compute_batch_attention_entropy(
-                    attns, 
+                    attns,
                     attention_types=getattr(self, 'attention_entropy_types', None),
                     layer_indices=getattr(self, 'attention_entropy_layers', None),
                     aggregation_method=getattr(self, 'attention_entropy_aggregation', "mean")
@@ -396,6 +402,6 @@ class LossCompute(nn.Module):
             n_tokens=num_non_padding,
             n_correct=num_correct,
             data_stats=data,
-            attention_entropy=attention_entropy * bsz,  # Scale by batch size for proper averaging
+            attention_entropy=attention_entropy * bsz,  # Scale by batch size
             n_attention_samples=bsz,
         )
