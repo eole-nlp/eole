@@ -169,6 +169,7 @@ class RotaryPositionConfig(Config):
         default=None,
         description="Specifies the type of RoPE scaling to be applied, if any.",
     )
+    alpha: float | None = Field(None, description="alpha factor by which to scale rope theta.")
     scaling_factor: float | None = Field(default=8.0, description="Factor by which to scale RoPE embeddings.")
     low_freq_factor: float | None = Field(
         default=1.0,
@@ -241,6 +242,9 @@ class TransformerConfig(Config):
         default=False,
     )
     key_norm: bool = Field(
+        default=False,
+    )
+    qk_norm_post_rope: bool = Field(
         default=False,
     )
     add_final_linear_bias: bool = Field(default=False, description="Add bias to nn.Linear of final_linear in MHA.")
