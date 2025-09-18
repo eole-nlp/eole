@@ -422,6 +422,7 @@ class SelfMHA(MultiHeadedAttention):
                 or self.position_encoding_type in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
                 or query.dtype not in [torch.float16, torch.bfloat16]  # to match with flash
                 or query.device == torch.device("cpu")
+                or self.qk_norm_post_rope
             ):
                 key, value, query = self._prepare_inputs_w_cache(
                     query,
