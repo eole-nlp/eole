@@ -146,7 +146,7 @@ We tested BF16-AMP without the GradScaler and it does not give good results.
 For pure-bf16 training (using torch-optimi and kahan summation)
 ```
 compute_dtype: bf16
-use_amp: true
+use_amp: false
 optim: adam or adamw
 ```
 Pure-BF16 training is faster than AMP and the memory footprint is reduced (master weights are kept in BF16 vs FP32). However Kahan Summation is not magical, results are good but not as good as AMP.
