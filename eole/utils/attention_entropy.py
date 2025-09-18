@@ -134,10 +134,7 @@ def aggregate_attention_entropy(
     for entropy_tensor in entropy_dict.values():
         if entropy_tensor.numel() > 0:
             # If tensor has multiple dimensions (e.g., per head), take mean
-            if len(entropy_tensor.shape) > 1:
-                entropy_values.append(entropy_tensor.mean())
-            else:
-                entropy_values.append(entropy_tensor.mean())
+            entropy_values.append(entropy_tensor.mean())
     
     if not entropy_values:
         return torch.tensor(0.0)

@@ -149,7 +149,7 @@ class LossCompute(nn.Module):
         )
         
         # Store attention entropy configuration
-        compute.log_attention_entropy = getattr(config.training, 'log_attention_entropy', True)
+        compute.log_attention_entropy = getattr(config.training, 'log_attention_entropy', False)
         compute.attention_entropy_types = getattr(config.training, 'attention_entropy_types', None)
         compute.attention_entropy_layers = getattr(config.training, 'attention_entropy_layers', None)
         compute.attention_entropy_aggregation = getattr(config.training, 'attention_entropy_aggregation', "mean")
@@ -332,8 +332,10 @@ class LossCompute(nn.Module):
 
         # Compute attention entropy if attention weights are available and enabled
         attention_entropy = 0.0
-        if (hasattr(self, 'log_attention_entropy') and self.log_attention_entropy and 
-            attns and any(attn is not None for attn in attns.values())):
+        attention_available = attns and any(attn is not None for attn in attns.values())
+        if (hasattr(self, 'log_attention_entropy')
+            and self.log_attention_entropy
+            and attention_available):
             try:
                 attention_entropy = compute_batch_attention_entropy(
                     attns, 
