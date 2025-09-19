@@ -12,6 +12,7 @@ from eole.modules.sparse_activations import LogSparsemax
 from eole.constants import DefaultTokens
 from eole.models.model import DecoderModel
 from eole.utils.misc import get_device
+from eole.utils.attention_entropy import compute_batch_attention_entropy
 
 try:
     import ctranslate2
@@ -146,6 +147,13 @@ class LossCompute(nn.Module):
             lm_prior_tau=lm_prior_tau,
             lm_prior_model=lm_prior_model,
         )
+
+        # Store attention entropy configuration
+        compute.log_attention_entropy = getattr(config.training, "log_attention_entropy", False)
+        compute.attention_entropy_types = getattr(config.training, "attention_entropy_types", None)
+        compute.attention_entropy_layers = getattr(config.training, "attention_entropy_layers", None)
+        compute.attention_entropy_aggregation = getattr(config.training, "attention_entropy_aggregation", "mean")
+
         compute.to(device)  # this sometimes make embeddings move to the wrong device (cpu), not sure why
 
         return compute
@@ -322,6 +330,21 @@ class LossCompute(nn.Module):
             estimloss = torch.tensor([0.0], device=loss.device)
         n_sents = len(batch["srclen"])
 
+        # Compute attention entropy if attention weights are available and enabled
+        attention_entropy = 0.0
+        attention_available = attns and any(attn is not None for attn in attns.values())
+        if hasattr(self, "log_attention_entropy") and self.log_attention_entropy and attention_available:
+            try:
+                attention_entropy = compute_batch_attention_entropy(
+                    attns,
+                    attention_types=getattr(self, "attention_entropy_types", None),
+                    layer_indices=getattr(self, "attention_entropy_layers", None),
+                    aggregation_method=getattr(self, "attention_entropy_aggregation", "mean"),
+                )
+            except Exception:
+                # If entropy computation fails, default to 0
+                attention_entropy = 0.0
+
         stats = self._stats(
             n_sents,
             loss.sum().item(),
@@ -330,16 +353,18 @@ class LossCompute(nn.Module):
             flat_tgt,
             batch["cid"],
             batch["cid_line_number"],
+            attention_entropy,
         )
 
         return loss, stats, estimloss
 
-    def _stats(self, bsz, loss, auxloss, scores, target, cids, cids_idx):
+    def _stats(self, bsz, loss, auxloss, scores, target, cids, cids_idx, attention_entropy=0.0):
         """
         Args:
             loss (int): the loss computed by the loss criterion.
             scores (:obj:`FloatTensor`): a score for each possible output
             target (:obj:`FloatTensor`): true targets
+            attention_entropy (float): computed attention entropy for this batch
 
         Returns:
             :obj:`eole.utils.Statistics` : statistics for this batch.
@@ -369,4 +394,6 @@ class LossCompute(nn.Module):
             n_tokens=num_non_padding,
             n_correct=num_correct,
             data_stats=data,
+            attention_entropy=attention_entropy * bsz,  # Scale by batch size
+            n_attention_samples=bsz,
         )
