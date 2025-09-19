@@ -1,6 +1,14 @@
 # Changelog
 
 This is just a centralised version of the Github automatically generated Release changelogs.
+
+## 0.3.0
+
+* minor fix by @vince62s in https://github.com/eole-nlp/eole/pull/232
+* Gemma3 by @vince62s in https://github.com/eole-nlp/eole/pull/234
+* prefixLM + possibility to split prompt/answer in src/tgt by @vince62s in https://github.com/eole-nlp/eole/pull/236
+* Support for Hunyuan-MT-7B SOTA Model in WMT25 by @vince62s in https://github.com/eole-nlp/eole/pull/257
+
 ## 0.2.0
 
 * Fix docs build/deploy by @francoishernandez in https://github.com/eole-nlp/eole/pull/216
