@@ -110,7 +110,7 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER, task=Cor
                 else:
                     tgt_text = example["src"]["src"].split(" ")
                     numeric["tgt"]["tgt_ids"] = vocabs["tgt"](tgt_text + [vocabs["specials"].get("eos_token", "")])
-                if decoder_start_token == "":
+                if decoder_start_token == "" or len(numeric["tgt"]["tgt_ids"]) != len(numeric["src"]["src_ids"]):
                     numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
         else:
             # path_tgt given, prompt from path_src and answer from path_tgt

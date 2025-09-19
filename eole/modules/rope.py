@@ -116,7 +116,15 @@ class RotaryPosition(nn.Module):
             self.rotary_theta = model_config.rope_config.rotary_theta
         else:
             self.rotary_theta = model_config.rope_config.rotary_theta_local
-        inv_freq = 1.0 / (self.rotary_theta ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
+        if getattr(self.model_config.rope_config, "scaling_type", None) == "dynamic" and getattr(
+            self.model_config.rope_config, "alpha", None
+        ):
+            base = self.rotary_theta * getattr(self.model_config.rope_config, "alpha", None) ** (
+                rotary_dim / (rotary_dim - 2)
+            )
+        else:
+            base = self.rotary_theta
+        inv_freq = 1.0 / (base ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
         if mode == "2d":
             inv_freq = self.init_2d_inv_freq(inv_freq)
         self.inv_freq = inv_freq

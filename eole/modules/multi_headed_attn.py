@@ -14,7 +14,7 @@ from .relative_position_bias import relative_matmul, gen_relative_positions, com
 from .alibi_position_bias import AlibiPositionalBias
 from .rope import apply_rotary_emb
 
-from eole.modules.rmsnorm import GemmaRMSNorm
+from eole.constants import LayerNorm
 
 
 # Help functions to split model dim per head
@@ -110,11 +110,12 @@ class MultiHeadedAttention(torch.nn.Module):
         self.dropout_p = getattr(running_config, "attention_dropout", [0.0])[0]
         self.dropout = nn.Dropout(self.dropout_p)
 
-        # introduced for gemma3
+        # introduced for gemma3 / Hunyuan-MT
         if model_config.query_norm:
-            self.q_norm = GemmaRMSNorm(model_config.head_dim, eps=model_config.norm_eps)
+            self.q_norm = LayerNorm[model_config.layer_norm](model_config.head_dim, eps=model_config.norm_eps)
         if model_config.key_norm:
-            self.k_norm = GemmaRMSNorm(model_config.head_dim, eps=model_config.norm_eps)
+            self.k_norm = LayerNorm[model_config.layer_norm](model_config.head_dim, eps=model_config.norm_eps)
+        self.qk_norm_post_rope = model_config.qk_norm_post_rope
 
         self.final_linear = skip_init(
             nn.Linear,
@@ -199,6 +200,11 @@ class MultiHeadedAttention(torch.nn.Module):
             seqlen = query.size(2)
             cos, sin = position_embeddings[0][:seqlen], position_embeddings[1][:seqlen]
             query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
+            if self.qk_norm_post_rope:
+                if hasattr(self, "q_norm"):
+                    query = self.q_norm(query)
+                if hasattr(self, "k_norm"):
+                    key = self.k_norm(key)
         return key, value, query
 
     def _compute_attention(
@@ -396,6 +402,7 @@ class SelfMHA(MultiHeadedAttention):
         return_attn: Optional[bool] = False,
         position_embeddings=None,
     ) -> Tuple[Tensor, Tensor]:
+
         if self.kcache is not None:
             # Inference step decoding
             key = self.linear_keys(query)
@@ -404,17 +411,18 @@ class SelfMHA(MultiHeadedAttention):
             key = shape(key, self.dim_per_head)
             value = shape(value, self.dim_per_head)
             query = shape(query, self.dim_per_head)
-
-            if hasattr(self, "q_norm"):
-                query = self.q_norm(query)
-            if hasattr(self, "k_norm"):
-                key = self.k_norm(key)
+            if not self.qk_norm_post_rope:
+                if hasattr(self, "q_norm"):
+                    query = self.q_norm(query)
+                if hasattr(self, "k_norm"):
+                    key = self.k_norm(key)
 
             if (
                 not self.flash
                 or self.position_encoding_type in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
                 or query.dtype not in [torch.float16, torch.bfloat16]  # to match with flash
                 or query.device == torch.device("cpu")
+                or self.qk_norm_post_rope
             ):
                 key, value, query = self._prepare_inputs_w_cache(
                     query,
@@ -423,6 +431,11 @@ class SelfMHA(MultiHeadedAttention):
                     step=step,
                     position_embeddings=position_embeddings,
                 )
+                if self.qk_norm_post_rope:
+                    if hasattr(self, "q_norm"):
+                        query = self.q_norm(query)
+                    if hasattr(self, "k_norm"):
+                        key = self.k_norm(key)
             else:
                 # Fast path with flash_attn_with_kvcache
                 cache_len = self._expand_cache(32, step, key)

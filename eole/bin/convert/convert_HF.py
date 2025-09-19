@@ -88,6 +88,10 @@ MODEL_OVERRIDES = {
         ".mlp.gate_up_proj.": (".mlp.gate_up_proj.", "[:transformer_ff, :]"),
         ".mlp.up_proj.": (".mlp.gate_up_proj.", "[transformer_ff:, :]"),
     },
+    "HunYuanDenseV1ForCausalLM": {
+        ".self_attn.q_norm.": ".self_attn.query_layernorm.",
+        ".self_attn.k_norm.": ".self_attn.key_layernorm.",
+    },
     "GPT2LMHeadModel": {
         "decoder_layer_prefix": "h.",
         "tgt_emb.pe.weight": "wpe.weight",
@@ -660,6 +664,21 @@ def build_config_dict(hf):
             "image_token_id": hf.config["image_token_index"],
             "layernorm_pre": False,  # implies post layernorm
             "patch_conv_bias": True,
+        }
+
+    if arch == "HunYuanDenseV1ForCausalLM":
+        model_config["decoder"] = {
+            "query_norm": True,
+            "key_norm": True,
+            "qk_norm_post_rope": True,
+            "rope_config": {
+                "rotary_theta": config["rope_theta"],
+                "scaling_type": config["rope_scaling"]["type"],
+                "scaling_factor": config["rope_scaling"]["factor"],
+                "alpha": config["rope_scaling"]["alpha"],
+                "original_max_position_embeddings": config["max_position_embeddings"],
+                "rotary_interleave": False,
+            },
         }
 
     # TODO: patch this for various models
