@@ -9,6 +9,9 @@ Our goal is to provide a comprehensive yet compact and modular codebase for expe
 
 ## Latest developments
 
+- **Hunyuan-MT-7B** support (SOTA NMT at WMT25 better than Towerplus-9B and EuroLLM-9B)
+- **prefixLM + split prompt/answer in src/tgt** optional method to feed your data
+- **Gemma-3 Family** support (text and image input)
 - **Mistral-3.1-24B-instruct** support (text and image input)
 - **Pure-BF16 Training** thanks to [Kahan Summation](https://arxiv.org/pdf/2010.06192) implemented [here](https://optimi.benjaminwarner.dev/kahan_summation/)
 - **Web-based (Google translator-like) interface** featuring the latest EuroLLM-8B-Instruct LLM: read more [here](https://github.com/eole-nlp/eole/tree/main/recipes/eurollm)
@@ -63,12 +66,12 @@ You can customize the workflow and build your own images based on specific needs
 
 To pull the Docker image:
 ```bash
-docker pull ghcr.io/eole-nlp/eole:0.2.0-torch2.6.0-ubuntu22.04-cuda12.6
+docker pull ghcr.io/eole-nlp/eole:0.3.0-torch2.6.0-ubuntu22.04-cuda12.6
 ```
 
 Example one-liner to run a container and open a bash shell within it:
 ```bash
-docker run --rm -it --runtime=nvidia ghcr.io/eole-nlp/eole:0.2.0-torch2.6.0-ubuntu22.04-cuda12.6
+docker run --rm -it --runtime=nvidia ghcr.io/eole-nlp/eole:0.3.0-torch2.6.0-ubuntu22.04-cuda12.6
 ```
 
 > **Note**: Ensure you have the [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (formerly nvidia-docker) installed to take advantage of CUDA/GPU features.
@@ -83,7 +86,7 @@ Depending on your needs, you can add various flags:
 #### Requirements
 
 - Python >= 3.10
-- PyTorch >= 2.5 < 2.8
+- PyTorch >= 2.6 < 2.9
 
 #### Installation from Source
 
