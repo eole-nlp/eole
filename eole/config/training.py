@@ -217,25 +217,22 @@ class TrainingConfig(
     estim_loss_lambda: List[float] = Field(default=[1.0], description="Weight applied to estimator loss")
     estim_loss_lambda_steps: List[int] = Field(default=[0], description="Steps at which estimator loss lambda changes")
     score_threshold: float = Field(default=0.68, description="Threshold to filterout data")
-    
+
     # Attention entropy configuration
     log_attention_entropy: bool = Field(
-        default=True, 
-        description="Whether to compute and log attention entropy during training."
+        default=True, description="Whether to compute and log attention entropy during training."
     )
     attention_entropy_types: List[str] | None = Field(
         default=None,
         description="Which attention types to compute entropy for. "
-        "If None, computes for all available types (e.g., ['std', 'self', 'context'])."
+        "If None, computes for all available types (e.g., ['std', 'self', 'context']).",
     )
     attention_entropy_layers: List[int] | None = Field(
         default=None,
-        description="Which attention layer indices to include in entropy computation. "
-        "If None, includes all layers."
+        description="Which attention layer indices to include in entropy computation. " "If None, includes all layers.",
     )
     attention_entropy_aggregation: Literal["mean", "max", "min"] = Field(
-        default="mean",
-        description="How to aggregate attention entropy across different attention types/layers."
+        default="mean", description="How to aggregate attention entropy across different attention types/layers."
     )
 
     @computed_field

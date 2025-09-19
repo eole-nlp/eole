@@ -11,9 +11,7 @@ from typing import Dict, Optional, Union, List
 
 
 def compute_attention_entropy(
-    attention_weights: torch.Tensor,
-    mask: Optional[torch.Tensor] = None,
-    eps: float = 1e-8
+    attention_weights: torch.Tensor, mask: Optional[torch.Tensor] = None, eps: float = 1e-8
 ) -> torch.Tensor:
     """
     Compute entropy of attention weights.
@@ -63,7 +61,7 @@ def compute_attention_entropy_from_dict(
     attns_dict: Dict[str, Union[torch.Tensor, List[torch.Tensor]]],
     attention_types: Optional[List[str]] = None,
     layer_indices: Optional[List[int]] = None,
-    eps: float = 1e-8
+    eps: float = 1e-8,
 ) -> Dict[str, torch.Tensor]:
     """
     Compute attention entropy from attention dictionary returned by model.
@@ -112,8 +110,7 @@ def compute_attention_entropy_from_dict(
 
 
 def aggregate_attention_entropy(
-    entropy_dict: Dict[str, torch.Tensor],
-    aggregation_method: str = "mean"
+    entropy_dict: Dict[str, torch.Tensor], aggregation_method: str = "mean"
 ) -> torch.Tensor:
     """
     Aggregate attention entropy values across different attention types/layers.
@@ -155,7 +152,7 @@ def compute_batch_attention_entropy(
     attention_types: Optional[List[str]] = None,
     layer_indices: Optional[List[int]] = None,
     aggregation_method: str = "mean",
-    eps: float = 1e-8
+    eps: float = 1e-8,
 ) -> float:
     """
     Compute and aggregate attention entropy for a batch.
@@ -172,9 +169,7 @@ def compute_batch_attention_entropy(
     Returns:
         float: Aggregated attention entropy value for the batch.
     """
-    entropy_dict = compute_attention_entropy_from_dict(
-        attns_dict, attention_types, layer_indices, eps
-    )
+    entropy_dict = compute_attention_entropy_from_dict(attns_dict, attention_types, layer_indices, eps)
 
     aggregated_entropy = aggregate_attention_entropy(entropy_dict, aggregation_method)
 

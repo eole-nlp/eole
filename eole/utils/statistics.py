@@ -1,4 +1,4 @@
-""" Statistics calculation utility """
+"""Statistics calculation utility"""
 
 import time
 import math
