@@ -196,15 +196,21 @@ class MultiHeadedAttention(torch.nn.Module):
         value = shape(value, self.dim_per_head)
         query = shape(query, self.dim_per_head)
 
+        if not self.qk_norm_post_rope:
+            if hasattr(self, "q_norm"):
+                query = self.q_norm(query.contiguous())
+            if hasattr(self, "k_norm"):
+                key = self.k_norm(key.contiguous())
+
         if self.position_encoding_type == PositionEncodingType.Rotary:
             seqlen = query.size(2)
             cos, sin = position_embeddings[0][:seqlen], position_embeddings[1][:seqlen]
             query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
             if self.qk_norm_post_rope:
                 if hasattr(self, "q_norm"):
-                    query = self.q_norm(query)
+                    query = self.q_norm(query.contiguous())
                 if hasattr(self, "k_norm"):
-                    key = self.k_norm(key)
+                    key = self.k_norm(key.contiguous())
         return key, value, query
 
     def _compute_attention(
@@ -379,11 +385,6 @@ class SelfMHA(MultiHeadedAttention):
         position_embeddings=None,
     ) -> Tuple[Tensor, Tensor, Tensor]:
 
-        if self.position_encoding_type == PositionEncodingType.Rotary:
-            seqlen = query.size(2)
-            cos, sin = position_embeddings[0][step : step + seqlen], position_embeddings[1][step : step + seqlen]
-            query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
-
         if step == 0:
             # init cache with initial cat(key, value) on batch_size dim
             self.kcache, self.vcache = key, value
@@ -413,16 +414,25 @@ class SelfMHA(MultiHeadedAttention):
             query = shape(query, self.dim_per_head)
             if not self.qk_norm_post_rope:
                 if hasattr(self, "q_norm"):
-                    query = self.q_norm(query)
+                    query = self.q_norm(query.contiguous())
                 if hasattr(self, "k_norm"):
-                    key = self.k_norm(key)
+                    key = self.k_norm(key.contiguous())
+
+            if self.position_encoding_type == PositionEncodingType.Rotary:
+                seqlen = query.size(2)
+                cos, sin = position_embeddings[0][step : step + seqlen], position_embeddings[1][step : step + seqlen]
+                query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
+                if self.qk_norm_post_rope:
+                    if hasattr(self, "q_norm"):
+                        query = self.q_norm(query.contiguous())
+                    if hasattr(self, "k_norm"):
+                        key = self.k_norm(key.contiguous())
 
             if (
                 not self.flash
                 or self.position_encoding_type in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
                 or query.dtype not in [torch.float16, torch.bfloat16]  # to match with flash
                 or query.device == torch.device("cpu")
-                or self.qk_norm_post_rope
             ):
                 key, value, query = self._prepare_inputs_w_cache(
                     query,
@@ -431,20 +441,10 @@ class SelfMHA(MultiHeadedAttention):
                     step=step,
                     position_embeddings=position_embeddings,
                 )
-                if self.qk_norm_post_rope:
-                    if hasattr(self, "q_norm"):
-                        query = self.q_norm(query)
-                    if hasattr(self, "k_norm"):
-                        key = self.k_norm(key)
+
             else:
                 # Fast path with flash_attn_with_kvcache
                 cache_len = self._expand_cache(32, step, key)
-                if position_embeddings is not None:
-                    rotdim = self.rotary_dim // 2
-                    cos = position_embeddings[0][:, :rotdim].to(query.dtype).contiguous()
-                    sin = position_embeddings[1][:, :rotdim].to(query.dtype).contiguous()
-                else:
-                    cos, sin = None, None
                 # restore initial tgt_pad_mask - migth be better to store it instead.
                 cache_leftpad = (
                     (~torch.any(attn_mask, dim=-2).squeeze(1)).sum(dim=1).to(torch.int32)
@@ -457,8 +457,8 @@ class SelfMHA(MultiHeadedAttention):
                     self.vcache[:, :, :, :].transpose(1, 2),
                     key.transpose(1, 2),
                     value.transpose(1, 2),
-                    rotary_cos=cos,
-                    rotary_sin=sin,
+                    rotary_cos=None,
+                    rotary_sin=None,
                     cache_seqlens=cache_len - 1,
                     cache_leftpad=cache_leftpad,
                     softmax_scale=self.scale,

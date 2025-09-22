@@ -17,6 +17,8 @@ class BaseBin(object):
         raise NotImplementedError
 
 
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["VLLM_LOGGING_LEVEL"] = "CRITICAL"
 AVAILABLE_BINS = {}
 
 

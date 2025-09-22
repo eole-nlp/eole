@@ -86,8 +86,8 @@ class TrainConfig(LoggingConfig, MiscConfig, DataConfig, VocabConfig):  # ModelC
                 self.save_data
             ), "-save_data should be set if \
                 want save samples."
-        if torch.cuda.is_available() and not self.training.gpu_ranks:
-            logger.warn("You have a CUDA device, should run with -gpu_ranks")
+        # if torch.cuda.is_available() and len(self.training.gpu_ranks) == 0:
+        #     logger.warn("You have a CUDA device, should run with -gpu_ranks")
         return self
 
 
@@ -129,7 +129,7 @@ class PredictConfig(
         # TODO: do we really need this _all_transform?
         if self._all_transform is None:
             self._all_transform = self.transforms
-        if torch.cuda.is_available() and not self.gpu_ranks:
+        if torch.cuda.is_available() and len(self.gpu_ranks) == 0:
             logger.warn("You have a CUDA device, should run with -gpu_ranks")
         return self
 
