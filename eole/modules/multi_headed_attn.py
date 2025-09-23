@@ -170,6 +170,7 @@ class MultiHeadedAttention(torch.nn.Module):
         key: Tensor,
         value: Tensor,
         query: Tensor,
+        step: Optional[int] = 0,
         position_embeddings=None,
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """
@@ -204,7 +205,7 @@ class MultiHeadedAttention(torch.nn.Module):
 
         if self.position_encoding_type == PositionEncodingType.Rotary:
             seqlen = query.size(2)
-            cos, sin = position_embeddings[0][:seqlen], position_embeddings[1][:seqlen]
+            cos, sin = position_embeddings[0][step : step + seqlen], position_embeddings[1][step : step + seqlen]
             query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
             if self.qk_norm_post_rope:
                 if hasattr(self, "q_norm"):
@@ -376,7 +377,7 @@ class SelfMHA(MultiHeadedAttention):
         else:
             return step + 1
 
-    def _prepare_inputs_w_cache(
+    def _update_cache_w_inputs(
         self,
         query: Tensor,
         key: Tensor,
@@ -404,37 +405,18 @@ class SelfMHA(MultiHeadedAttention):
         position_embeddings=None,
     ) -> Tuple[Tensor, Tensor]:
 
+        key, value, query = super()._prepare_inputs(
+            query, query, query, step=0 if step is None else step, position_embeddings=position_embeddings
+        )
         if self.kcache is not None:
             # Inference step decoding
-            key = self.linear_keys(query)
-            value = self.linear_values(query)
-            query = self.linear_query(query)
-            key = shape(key, self.dim_per_head)
-            value = shape(value, self.dim_per_head)
-            query = shape(query, self.dim_per_head)
-            if not self.qk_norm_post_rope:
-                if hasattr(self, "q_norm"):
-                    query = self.q_norm(query.contiguous())
-                if hasattr(self, "k_norm"):
-                    key = self.k_norm(key.contiguous())
-
-            if self.position_encoding_type == PositionEncodingType.Rotary:
-                seqlen = query.size(2)
-                cos, sin = position_embeddings[0][step : step + seqlen], position_embeddings[1][step : step + seqlen]
-                query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
-                if self.qk_norm_post_rope:
-                    if hasattr(self, "q_norm"):
-                        query = self.q_norm(query.contiguous())
-                    if hasattr(self, "k_norm"):
-                        key = self.k_norm(key.contiguous())
-
             if (
                 not self.flash
                 or self.position_encoding_type in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
                 or query.dtype not in [torch.float16, torch.bfloat16]  # to match with flash
                 or query.device == torch.device("cpu")
             ):
-                key, value, query = self._prepare_inputs_w_cache(
+                key, value, query = self._update_cache_w_inputs(
                     query,
                     key,
                     value,
@@ -472,9 +454,6 @@ class SelfMHA(MultiHeadedAttention):
                     all_reduce(attn_output1)
                     attn_output.copy_(attn_output1 + (attn_output - attn_output.detach()))
                 return attn_output, None
-
-        else:
-            key, value, query = super()._prepare_inputs(query, query, query, position_embeddings=position_embeddings)
 
         return super()._compute_attention(
             key,
@@ -517,7 +496,7 @@ class ContextMHA(MultiHeadedAttention):
             # inference: we fill the cross-attention cache only once
             key, value, query = self._prepare_inputs_w_cache(key, value, query)
         else:
-            # training: we project key, value query and apply rotary if required
+            # training: we project key, value query
             key, value, query = super()._prepare_inputs(key, value, query)
 
         return super()._compute_attention(
