@@ -8,7 +8,7 @@ try:
     from vllm.model_executor.layers.layernorm import RMSNorm as VllmRMSNorm
     from vllm.model_executor.layers.layernorm import GemmaRMSNorm as VllmGemmaRMSNorm
 
-    _vllm_available = False
+    _vllm_available = True
 except ImportError:
     VllmRMSNorm = None
     VllmGemmaRMSNorm = None
