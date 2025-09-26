@@ -2,7 +2,6 @@
 
 from enum import Enum
 import torch
-from eole.modules.rmsnorm import RMSNorm, GemmaRMSNorm
 import torch.nn.functional as F
 from functools import partial
 
@@ -95,12 +94,35 @@ class LayerNormFP32(torch.nn.LayerNorm):
         return output.to(orig_dtype)  # Convert back to original dtype
 
 
-LayerNorm = {
-    "standardFP32": LayerNormFP32,
-    "standard": torch.nn.LayerNorm,
-    "rms": RMSNorm,
-    "gemma-rms": GemmaRMSNorm,
-}
+class LazyLayerNormDict:
+    """Dictionary-like object that lazily imports heavy LayerNorm classes."""
+
+    def __init__(self):
+        self._registry = {
+            "standardFP32": LayerNormFP32,
+            "standard": torch.nn.LayerNorm,
+            "rms": None,  # Placeholder
+            "gemma-rms": None,  # Placeholder
+        }
+
+    def __getitem__(self, key):
+        if key not in self._registry:
+            raise KeyError(f"Unknown LayerNorm type: {key}")
+
+        # Lazy import only when first accessed
+        if key == "rms" and self._registry[key] is None:
+            from eole.modules.rmsnorm import RMSNorm
+
+            self._registry[key] = RMSNorm
+        elif key == "gemma-rms" and self._registry[key] is None:
+            from eole.modules.rmsnorm import GemmaRMSNorm
+
+            self._registry[key] = GemmaRMSNorm
+
+        return self._registry[key]
+
+
+LayerNorm = LazyLayerNormDict()
 
 
 TORCH_DTYPES = {

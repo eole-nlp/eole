@@ -8,11 +8,9 @@ import torch
 import torch.nn as nn
 from typing import Optional
 
-# from eole.modules.multi_headed_attn import SelfMHA
-from eole.modules.rmsnorm import RMSNorm, GemmaRMSNorm
 from eole.encoders.transformer import TransformerEncoderLayer
 from eole.modules.rope import build_rope
-from eole.constants import PositionEncodingType
+from eole.constants import PositionEncodingType, LayerNorm
 
 
 class PatchMerger(nn.Module):
@@ -107,7 +105,7 @@ class VisionEncoder(nn.Module):
             bias=encoder_config.patch_conv_bias,
         )
         if encoder_config.layernorm_pre:
-            self.ln_pre = RMSNorm(encoder_config.hidden_size, eps=1e-5)
+            self.ln_pre = LayerNorm[encoder_config.layer_norm](encoder_config.hidden_size, eps=1e-5)
         else:
             self.ln_pre = None
         self.transformer_layers = torch.nn.ModuleList()
@@ -210,7 +208,7 @@ class VisionLanguageAdapter(nn.Module):
         self.has_patch = False
         if model_config.spatial_merge_size > 1:
             self.has_patch = True
-            self.layernorm = RMSNorm(in_dim, eps=1e-5)
+            self.layernorm = LayerNorm[model_config.encoder.layer_norm](in_dim, eps=1e-5)
             self.patch_merger = PatchMerger(model_config)
         self.w_in = nn.Linear(in_dim, out_dim, bias=bias)
         self.gelu = nn.GELU()
@@ -234,7 +232,7 @@ class Gemma3MultiModalProjector(nn.Module):
     def __init__(self, in_dim, out_dim, image_size, patch_size, mm_tokens_per_image):
         super(Gemma3MultiModalProjector, self).__init__()
         self.w_in = nn.Linear(in_dim, out_dim, bias=False)
-        self.norm = GemmaRMSNorm(in_dim)
+        self.norm = LayerNorm["gemma-rms"](in_dim)  # forced because no value in config file
         self.patches_per_image = int(image_size / patch_size)
         self.tokens_per_side = int(mm_tokens_per_image**0.5)
         self.kernel_size = self.patches_per_image // self.tokens_per_side

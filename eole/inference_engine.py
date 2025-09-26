@@ -2,6 +2,7 @@ import torch
 import json
 import os
 import codecs
+from time import time
 from eole.constants import CorpusTask, DefaultTokens, ModelType
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.utils.distributed import ErrorHandler
@@ -145,6 +146,7 @@ class InferenceEnginePY(InferenceEngine):
 
         super().__init__(config)
         self.logger = init_logger(config.log_file)
+        t0 = time()
 
         if config.world_size > 1:
             mp = torch.multiprocessing.get_context("spawn")
@@ -186,6 +188,7 @@ class InferenceEnginePY(InferenceEngine):
             self.vocabs = self.predictor.vocabs
             self.transforms = make_transforms(config, self.transforms_cls, self.vocabs)
             self.transform_pipe = TransformPipe.build_from(self.transforms.values())
+        self.logger.info("Build and loading model took %.2f sec." % (time() - t0))
 
     @torch.inference_mode()
     def _predict(self, infer_iter, settings={}):

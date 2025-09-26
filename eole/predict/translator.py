@@ -7,6 +7,7 @@ from eole.predict.greedy_search import GreedySearch
 from eole.utils.misc import tile
 from eole.utils.alignment import extract_alignment
 from eole.predict.inference import Inference
+from time import time
 
 
 class Translator(Inference):
@@ -159,6 +160,8 @@ class Translator(Inference):
         batch_size = len(batch["srclen"])
 
         # (1) Run the encoder on the src.
+        if self.report_time:
+            beg_time = time()
         src, enc_final_hs, enc_out, src_len = self._run_encoder(batch)
         self.model.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
 
@@ -218,6 +221,8 @@ class Translator(Inference):
 
             if parallel_paths > 1 or any_finished:
                 self.model.decoder.map_state(lambda state: state[select_indices])
+            if step == 0 and self.report_time:
+                self.step0_time += time() - beg_time
 
         if self.add_estimator:
             dec_in = [item for sublist in decode_strategy.predictions for item in sublist]
