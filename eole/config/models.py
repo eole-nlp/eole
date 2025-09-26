@@ -703,11 +703,11 @@ class TransformerModelConfig(TransformerConfig, BaseModelConfig):
         if not (isinstance(data, dict)):
             return data
         if "encoder" in data.keys():
-            data["encoder"].encoder_type = "transformer"
+            data["encoder"]["encoder_type"] = "transformer"
         else:
             data["encoder"] = {"encoder_type": "transformer"}
         if "decoder" in data.keys():
-            data["decoder"].decoder_type = "transformer"
+            data["decoder"]["decoder_type"] = "transformer"
         else:
             data["decoder"] = {"decoder_type": "transformer"}
         return data

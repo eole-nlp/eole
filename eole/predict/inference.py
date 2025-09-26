@@ -134,6 +134,7 @@ class Inference(object):
         self.data_type = data_type
         self.verbose = verbose
         self.report_time = report_time
+        self.step0_time = 0.0
 
         self.global_scorer = global_scorer
         if self.global_scorer.has_cov_pen and not self.model.decoder.attentional:
@@ -438,8 +439,11 @@ class Inference(object):
         bucket_predictions = []
         prev_idx = 0
 
+        src_tokens = 0
+
         for batch, bucket_idx in infer_iter:
 
+            src_tokens += batch["srclen"].sum()
             batch_data = self.predict_batch(batch, attn_debug)
 
             predictions = prediction_builder.from_batch(batch_data)
@@ -513,9 +517,12 @@ class Inference(object):
 
         if self.report_time:
             total_time = end_time - start_time
-            self._log("Total prediction time (s): %.1f" % total_time)
-            self._log("Average prediction time (ms): %.1f" % (total_time / len(all_predictions) * 1000))
-            self._log("Tokens per second: %.1f" % (pred_words_total / total_time))
+            decoding_time = total_time - self.step0_time
+            self._log("Step 0 time (s): %.2f" % self.step0_time)
+            self._log("Enc/Step 0 tokens / sec: %.1f" % (src_tokens / self.step0_time))
+            self._log("Subsequent prediction time (s): %.2f" % decoding_time)
+            self._log("Average prediction time (ms): %.1f" % (decoding_time / len(all_predictions) * 1000))
+            self._log("Tokens per second: %.1f" % (pred_words_total / decoding_time))
             self._log("pred_words_total: %.1f" % (pred_words_total))
 
         if self.dump_beam:

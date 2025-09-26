@@ -5,8 +5,7 @@ from eole.constants import ModelType
 from eole.predict.greedy_search import GreedySearchLM
 from eole.predict.beam_search import BeamSearchLM
 from eole.utils.misc import tile
-
-# from time import time
+from time import time
 
 
 class GeneratorLM(Inference):
@@ -127,7 +126,8 @@ class GeneratorLM(Inference):
         )
 
         # (4) Begin decoding step by step:
-        # beg_time = time()
+        if self.report_time:
+            beg_time = time()
         for step in range(decode_strategy.max_length):
             decoder_input = src if step == 0 else decode_strategy.current_predictions.view(-1, 1)
             log_probs, attn = self._decode_and_generate(
@@ -154,8 +154,8 @@ class GeneratorLM(Inference):
                 # select indexes in model state/cache
                 self.model.decoder.map_state(lambda state: state[select_indices])
 
-            # if step == 0:
-            #     print("step0 time: ", time() - beg_time)
+            if step == 0 and self.report_time:
+                self.step0_time += time() - beg_time
 
         if self.add_estimator:
             # Prepare estimator input = decoder out of each pred with initial enc_out
