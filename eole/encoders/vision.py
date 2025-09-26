@@ -232,7 +232,7 @@ class Gemma3MultiModalProjector(nn.Module):
     def __init__(self, in_dim, out_dim, image_size, patch_size, mm_tokens_per_image):
         super(Gemma3MultiModalProjector, self).__init__()
         self.w_in = nn.Linear(in_dim, out_dim, bias=False)
-        self.norm = LayerNorm["gemma-rms"](in_dim) # forced because no value in config file
+        self.norm = LayerNorm["gemma-rms"](in_dim)  # forced because no value in config file
         self.patches_per_image = int(image_size / patch_size)
         self.tokens_per_side = int(mm_tokens_per_image**0.5)
         self.kernel_size = self.patches_per_image // self.tokens_per_side
