@@ -229,10 +229,10 @@ class VisionLanguageAdapter(nn.Module):
 
 class Gemma3MultiModalProjector(nn.Module):
     # https://github.com/huggingface/transformers/blob/071a161d3e38f56dbda2743b979f0afeed2cd4f1/src/transformers/models/gemma3/modular_gemma3.py#L717
-    def __init__(self, in_dim, out_dim, image_size, patch_size, mm_tokens_per_image, lntype):
+    def __init__(self, in_dim, out_dim, image_size, patch_size, mm_tokens_per_image):
         super(Gemma3MultiModalProjector, self).__init__()
         self.w_in = nn.Linear(in_dim, out_dim, bias=False)
-        self.norm = LayerNorm[lntype](in_dim)
+        self.norm = LayerNorm["gemma-rms"](in_dim) # forced because no value in config file
         self.patches_per_image = int(image_size / patch_size)
         self.tokens_per_side = int(mm_tokens_per_image**0.5)
         self.kernel_size = self.patches_per_image // self.tokens_per_side
@@ -258,7 +258,6 @@ class Gemma3MultiModalProjector(nn.Module):
             image_size=model_config.encoder.image_size,
             patch_size=model_config.encoder.patch_size,
             mm_tokens_per_image=model_config.encoder.mm_tokens_per_image,
-            lntype=model_config.encoder.layer_norm,
         )
 
 
