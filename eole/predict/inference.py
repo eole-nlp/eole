@@ -324,7 +324,6 @@ class Inference(object):
         all_estim = []
         all_predictions = []
 
-        torch.cuda.synchronize()
         start_time = time()
         self.step0_time = []
 
@@ -525,7 +524,6 @@ class Inference(object):
             gold_score_total += bucket_gold_score
             gold_words_total += bucket_gold_words
 
-        torch.cuda.synchronize()
         end_time = time()
 
         if self.report_score:
