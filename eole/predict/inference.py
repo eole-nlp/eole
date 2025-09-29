@@ -89,8 +89,25 @@ class Inference(object):
         optional_eos=[],
         id_tokenization=False,
         image_token_id=10,
+        fuse_kvq=False,
+        fuse_gate=False,
     ):
         self.model = model
+        if hasattr(self.model, "decoder") and self.model.decoder is not None:
+            if hasattr(self.model.decoder, "transformer_layers"):
+                for layer in self.model.decoder.transformer_layers:
+                    if fuse_kvq:
+                        layer.self_attn._fuse_KVQ()
+                    if fuse_gate and layer.mlp.up_proj is not None:
+                        layer.mlp._fuse_gate()
+        if hasattr(self.model, "encoder") and self.model.encoder is not None:
+            if hasattr(self.model.encoder, "transformer_layers"):
+                for layer in self.model.encoder.transformer_layers:
+                    if fuse_kvq:
+                        layer.self_attn._fuse_KVQ()
+                    if fuse_gate and layer.mlp.up_proj is not None:
+                        layer.mlp._fuse_gate()
+
         self.vocabs = vocabs
         self._tgt_vocab = vocabs["tgt"]
         self._tgt_eos_idx = [vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("eos_token", ""))] + [
@@ -241,6 +258,8 @@ class Inference(object):
             optional_eos=config.optional_eos,
             id_tokenization=id_tokenization,
             image_token_id=image_token_id,
+            fuse_kvq=config.fuse_kvq,
+            fuse_gate=config.fuse_gate,
         )
 
     def _log(self, msg):
@@ -305,7 +324,9 @@ class Inference(object):
         all_estim = []
         all_predictions = []
 
+        torch.cuda.synchronize()
         start_time = time()
+        self.step0_time = []
 
         def _maybe_retranslate(translations, batch):
             """Here we handle the cases of mismatch in number of segments
@@ -504,6 +525,7 @@ class Inference(object):
             gold_score_total += bucket_gold_score
             gold_words_total += bucket_gold_words
 
+        torch.cuda.synchronize()
         end_time = time()
 
         if self.report_score:
@@ -517,10 +539,11 @@ class Inference(object):
 
         if self.report_time:
             total_time = end_time - start_time
-            decoding_time = total_time - self.step0_time
-            self._log("Step 0 time (s): %.2f" % self.step0_time)
-            self._log("Enc/Step 0 tokens / sec: %.1f" % (src_tokens / self.step0_time))
-            self._log("Subsequent prediction time (s): %.2f" % decoding_time)
+            step0 = sum(self.step0_time)
+            decoding_time = total_time - step0
+            self._log("Step 0 time (s): %.2f" % step0)
+            self._log("Enc/Step 0 tokens / sec: %.1f" % (src_tokens / step0))
+            self._log("Subsequent prediction time including all (s): %.2f" % decoding_time)
             self._log("Average prediction time (ms): %.1f" % (decoding_time / len(all_predictions) * 1000))
             self._log("Tokens per second: %.1f" % (pred_words_total / decoding_time))
             self._log("pred_words_total: %.1f" % (pred_words_total))
@@ -656,6 +679,7 @@ class Inference(object):
             decoder_in=decoder_in,
             image_token_id=self.image_token_id,
         )
+
         # Generator forward.
         if "std" in dec_attn:
             attn = dec_attn["std"]

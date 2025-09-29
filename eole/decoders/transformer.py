@@ -125,6 +125,8 @@ class TransformerDecoderLayer(nn.Module):
             ff_in = layer_in + self.post_attention_layernorm(self_attn)
             layer_out = ff_in + self._mlp(ff_in)
             return layer_out, attns
+        else:
+            self_attn.add_(layer_in)
 
         if self.parallel_residual:
             if self.context_attn:
@@ -135,11 +137,11 @@ class TransformerDecoderLayer(nn.Module):
                     attn_mask=~src_pad_mask,
                     return_attn=return_attn,
                 )
+                ctx_attn.add_(self_attn)
             else:
-                ctx_attn = 0
+                ctx_attn = self_attn
             if not self.shared_layer_norm:
-                norm_res_layer_in = self.residual_layernorm(layer_in)
-                ff_in = norm_res_layer_in
+                ff_in = self.residual_layernorm(layer_in)
             else:
                 ff_in = norm_layer_in
         else:
@@ -154,13 +156,12 @@ class TransformerDecoderLayer(nn.Module):
                 )
                 if self.dropout_p > 0:
                     ctx_attn = self.dropout(ctx_attn)
+                ctx_attn.add_(self_attn)
             else:
-                ctx_attn = 0
-            ff_in = self.post_attention_layernorm(ctx_attn + self_attn + layer_in)
+                ctx_attn = self_attn
+            ff_in = self.post_attention_layernorm(ctx_attn)
         # we apply residual with un-normed
-        layer_out = self.mlp(ff_in) + layer_in + self_attn + ctx_attn
-
-        return layer_out, attns
+        return ctx_attn + self.mlp(ff_in), attns
 
     def get_attn_align(self, layer_in, **kwargs):
         """:cite:`garg2019jointly`."""

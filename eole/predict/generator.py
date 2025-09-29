@@ -127,9 +127,12 @@ class GeneratorLM(Inference):
 
         # (4) Begin decoding step by step:
         if self.report_time:
+            torch.cuda.synchronize()
             beg_time = time()
+
         for step in range(decode_strategy.max_length):
             decoder_input = src if step == 0 else decode_strategy.current_predictions.view(-1, 1)
+
             log_probs, attn = self._decode_and_generate(
                 decoder_input,
                 None,
@@ -154,8 +157,9 @@ class GeneratorLM(Inference):
                 # select indexes in model state/cache
                 self.model.decoder.map_state(lambda state: state[select_indices])
 
-            if step == 0 and self.report_time:
-                self.step0_time += time() - beg_time
+            if self.report_time and step == 0:
+                torch.cuda.synchronize()
+                self.step0_time.append(time() - beg_time)
 
         if self.add_estimator:
             # Prepare estimator input = decoder out of each pred with initial enc_out

@@ -94,6 +94,10 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
         "Useful to test the performance of learnt alignments.",
     )
     report_time: bool = Field(default=False, description="Report some translation time metrics.")
+    fuse_kvq: bool = Field(default=False, description="Fuse K, V, Q Linear layers into a single KVQ in Self Attn.")
+    fuse_gate: bool = Field(
+        default=False, description="Fuse gate_up_proj and up_proj Linear layers into a single Linear."
+    )
     profile: bool = Field(default=False, description="Report pytorch profiling stats.")
     batch_size: int = Field(default=30, description="Batch size.")
     batch_type: Literal["sents", "tokens"] = Field(default="sents", description="Batch grouping for batch size.")

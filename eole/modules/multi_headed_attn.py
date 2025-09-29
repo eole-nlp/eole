@@ -80,6 +80,8 @@ class MultiHeadedAttention(torch.nn.Module):
 
     def __init__(self, model_config, running_config=None, is_decoder: bool = True) -> None:
         super(MultiHeadedAttention, self).__init__()
+        self.model_config = model_config
+        self.fused_kvq = False
         self.dim_per_head = model_config.dim_per_head
         self.heads = model_config.heads
         self.heads_kv = model_config.heads_kv if model_config.heads_kv is not None else model_config.heads
@@ -165,6 +167,56 @@ class MultiHeadedAttention(torch.nn.Module):
         self.dropout.p = dropout
         self.dropout_p = dropout
 
+    def _fuse_KVQ(self) -> None:
+        if hasattr(self.linear_keys, "weight"):
+            self.linear_kvq = skip_init(
+                nn.Linear,
+                in_features=self.model_config.hidden_size,
+                out_features=self.dim_per_head * (self.heads_kv * 2 + self.heads) // self.parallel_gpu,
+                bias=self.model_config.add_qkvbias,
+            )
+            self.linear_kvq.weight = nn.Parameter(
+                torch.cat([self.linear_keys.weight, self.linear_values.weight, self.linear_query.weight], 0)
+            )
+            if self.model_config.add_qkvbias:
+                self.linear_kvq.bias = nn.Parameter(
+                    torch.cat([self.linear_keys.bias, self.linear_values.bias, self.linear_query.bias], 0)
+                )
+
+        elif (
+            hasattr(self.linear_keys, "qweight")
+            and hasattr(self.linear_values, "qweight")
+            and hasattr(self.linear_query, "qweight")
+        ):
+            w_bit = self.linear_keys.w_bit
+            group_size = self.linear_keys.group_size
+
+            awq_cls = self.linear_keys.__class__
+            dim = 1 if awq_cls.__name__ == "WQLinear_GEMM" else 0
+
+            self.linear_kvq = awq_cls(
+                w_bit=w_bit,
+                group_size=group_size,
+                in_features=self.model_config.hidden_size,
+                out_features=self.dim_per_head * (self.heads_kv * 2 + self.heads) // self.parallel_gpu,
+                bias=self.model_config.add_qkvbias,
+                dev=self.linear_keys.qweight.device,
+            )
+            self.linear_kvq.qweight = torch.cat(
+                [self.linear_keys.qweight, self.linear_values.qweight, self.linear_query.qweight], dim
+            )
+            self.linear_kvq.qzeros = torch.cat(
+                [self.linear_keys.qzeros, self.linear_values.qzeros, self.linear_query.qzeros], dim
+            )
+            self.linear_kvq.scales = torch.cat(
+                [self.linear_keys.scales, self.linear_values.scales, self.linear_query.scales], dim
+            )
+
+        del self.linear_keys
+        del self.linear_values
+        del self.linear_query
+        self.fused_kvq = True
+
     def _prepare_inputs(
         self,
         key: Tensor,
@@ -190,9 +242,16 @@ class MultiHeadedAttention(torch.nn.Module):
             [batch_size, num_heads, seq_len, dim_per_head].
         """
         # Retrieve keys and values from linear layers (training mode).
-        key = self.maybe_ckpt(self.linear_keys, key)
-        value = self.maybe_ckpt(self.linear_values, value)
-        query = self.maybe_ckpt(self.linear_query, query)
+        if self.fused_kvq:  # only applicable for self_MHA and inference
+            kvq = self.maybe_ckpt(self.linear_kvq, query)
+            kvdim = self.dim_per_head * self.heads_kv // self.parallel_gpu
+            key = kvq[:, :, :kvdim]
+            value = kvq[:, :, kvdim : 2 * kvdim]
+            query = kvq[:, :, 2 * kvdim :]
+        else:
+            key = self.maybe_ckpt(self.linear_keys, key)
+            value = self.maybe_ckpt(self.linear_values, value)
+            query = self.maybe_ckpt(self.linear_query, query)
         key = shape(key, self.dim_per_head)
         value = shape(value, self.dim_per_head)
         query = shape(query, self.dim_per_head)

@@ -66,13 +66,11 @@ class TransformerEncoderLayer(nn.Module):
         )
         if self.dropout_p > 0:
             context = self.dropout(context)
-        residual = layer_in + context
-        ff_in = self.post_attention_layernorm(residual) if not self.parallel_residual else norm_layer_in
-        # apply post attention norm and add residual after mlp
-        mlp = self.mlp(ff_in)
-        layer_out = layer_in + context + mlp
 
-        return layer_out
+        context.add_(layer_in)
+        ff_in = self.post_attention_layernorm(context) if not self.parallel_residual else norm_layer_in
+        # apply post attention norm and add residual after mlp
+        return context + self.mlp(ff_in)
 
     def update_dropout(self, dropout, attention_dropout):
         self.self_attn.update_dropout(attention_dropout)
