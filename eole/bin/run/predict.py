@@ -8,7 +8,6 @@ from torch.profiler import profile, record_function, ProfilerActivity
 from eole.config.run import PredictConfig
 from eole.bin import register_bin
 from eole.bin.run import RunBin
-from time import time
 
 
 def model_type(config) -> ModelType:
@@ -51,9 +50,7 @@ class Predict(RunBin):
                     predict(config)
             print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=40))
         else:
-            init_time = time()
             predict(config)
-            print("Time w/o python interpreter load/terminate: ", time() - init_time)
 
 
 def _get_parser():

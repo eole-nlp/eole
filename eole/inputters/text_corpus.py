@@ -5,11 +5,10 @@ from eole.utils.logging import logger
 from eole.constants import CorpusName, CorpusTask
 from eole.transforms import TransformPipe
 from eole.inputters.text_utils import transform_bucket
-from eole.inputters.image_utils import process_image
+
 from contextlib import contextmanager
 import itertools
 import json
-from datasets import load_dataset
 
 
 @contextmanager
@@ -154,6 +153,8 @@ class ParallelCorpus(object):
         Match the last '/field' to get the language / score field
         Potentially a config_name field between dataset_name and last field
         """
+        from datasets import load_dataset
+
         parts = hf_string.replace("hf://", "").split("/")
         dataset_name = "/".join(parts[:2])
         remaining_parts = parts[2:]
@@ -374,6 +375,8 @@ class ImageTextCorpusIterator(object):
         self.adapter = adapter
 
     def _process(self, stream):
+        from eole.inputters.image_utils import process_image
+
         for i, example in enumerate(stream):
             # process images
             processed_images = {

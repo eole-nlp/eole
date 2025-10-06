@@ -2,7 +2,6 @@
 
 from enum import Enum
 import torch
-from eole.modules.rmsnorm import RMSNorm, GemmaRMSNorm
 import torch.nn.functional as F
 from functools import partial
 
@@ -57,14 +56,42 @@ class PositionEncodingType(str, Enum):
     Alibi = "Alibi"
 
 
+def fused_gated_gelu(x):
+    d = x.shape[-1] // 2
+    output_shape = x.shape[:-1] + (d,)
+    out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
+    torch.ops._C.gelu_and_mul(out, x)
+    return out
+
+
+def fused_gated_silu(x):
+    d = x.shape[-1] // 2
+    # basically doing return F.silu(x[..., :d]) * x[..., d:]
+    output_shape = x.shape[:-1] + (d,)
+    out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
+    torch.ops._C.silu_and_mul(out, x)
+    return out
+
+
+def fused_gated_gelu_tanh(x):
+    d = x.shape[-1] // 2
+    output_shape = x.shape[:-1] + (d,)
+    out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
+    torch.ops._C.gelu_tanh_and_mul(out, x)
+    return out
+
+
 class ActivationFunction(str, Enum):
     relu = "relu"
     gelu = "gelu"
     silu = "silu"
     gated_gelu = "gated-gelu"
+    fused_gated_gelu = "fused-gated-gelu"
     gated_silu = "gated-silu"
+    fused_gated_silu = "fused-gated-silu"
     gelu_tanh = "gelu-tanh"
     gated_gelu_tanh = "gated-gelu-tanh"
+    fused_gated_gelu_tanh = "fused-gated-gelu-tanh"
 
 
 class TransformType(str, Enum):
@@ -78,9 +105,12 @@ ACTIVATION_FUNCTIONS = {
     ActivationFunction.gelu: F.gelu,
     ActivationFunction.silu: F.silu,
     ActivationFunction.gated_gelu: F.gelu,
+    ActivationFunction.fused_gated_gelu: fused_gated_gelu,
     ActivationFunction.gated_silu: F.silu,
+    ActivationFunction.fused_gated_silu: fused_gated_silu,
     ActivationFunction.gelu_tanh: partial(F.gelu, approximate="tanh"),
     ActivationFunction.gated_gelu_tanh: partial(F.gelu, approximate="tanh"),
+    ActivationFunction.fused_gated_gelu_tanh: fused_gated_gelu_tanh,
 }
 
 
@@ -95,12 +125,35 @@ class LayerNormFP32(torch.nn.LayerNorm):
         return output.to(orig_dtype)  # Convert back to original dtype
 
 
-LayerNorm = {
-    "standardFP32": LayerNormFP32,
-    "standard": torch.nn.LayerNorm,
-    "rms": RMSNorm,
-    "gemma-rms": GemmaRMSNorm,
-}
+class LazyLayerNormDict:
+    """Dictionary-like object that lazily imports heavy LayerNorm classes."""
+
+    def __init__(self):
+        self._registry = {
+            "standardFP32": LayerNormFP32,
+            "standard": torch.nn.LayerNorm,
+            "rms": None,  # Placeholder
+            "gemma-rms": None,  # Placeholder
+        }
+
+    def __getitem__(self, key):
+        if key not in self._registry:
+            raise KeyError(f"Unknown LayerNorm type: {key}")
+
+        # Lazy import only when first accessed
+        if key == "rms" and self._registry[key] is None:
+            from eole.modules.rmsnorm import RMSNorm
+
+            self._registry[key] = RMSNorm
+        elif key == "gemma-rms" and self._registry[key] is None:
+            from eole.modules.rmsnorm import GemmaRMSNorm
+
+            self._registry[key] = GemmaRMSNorm
+
+        return self._registry[key]
+
+
+LayerNorm = LazyLayerNormDict()
 
 
 TORCH_DTYPES = {

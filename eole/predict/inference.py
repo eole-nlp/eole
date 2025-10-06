@@ -89,8 +89,25 @@ class Inference(object):
         optional_eos=[],
         id_tokenization=False,
         image_token_id=10,
+        fuse_kvq=False,
+        fuse_gate=False,
     ):
         self.model = model
+        if hasattr(self.model, "decoder") and self.model.decoder is not None:
+            if hasattr(self.model.decoder, "transformer_layers"):
+                for layer in self.model.decoder.transformer_layers:
+                    if fuse_kvq:
+                        layer.self_attn._fuse_KVQ()
+                    if fuse_gate and layer.mlp.up_proj is not None:
+                        layer.mlp._fuse_gate()
+        if hasattr(self.model, "encoder") and self.model.encoder is not None:
+            if hasattr(self.model.encoder, "transformer_layers"):
+                for layer in self.model.encoder.transformer_layers:
+                    if fuse_kvq:
+                        layer.self_attn._fuse_KVQ()
+                    if fuse_gate and layer.mlp.up_proj is not None:
+                        layer.mlp._fuse_gate()
+
         self.vocabs = vocabs
         self._tgt_vocab = vocabs["tgt"]
         self._tgt_eos_idx = [vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("eos_token", ""))] + [
@@ -134,6 +151,7 @@ class Inference(object):
         self.data_type = data_type
         self.verbose = verbose
         self.report_time = report_time
+        self.step0_time = 0.0
 
         self.global_scorer = global_scorer
         if self.global_scorer.has_cov_pen and not self.model.decoder.attentional:
@@ -240,6 +258,8 @@ class Inference(object):
             optional_eos=config.optional_eos,
             id_tokenization=id_tokenization,
             image_token_id=image_token_id,
+            fuse_kvq=config.fuse_kvq,
+            fuse_gate=config.fuse_gate,
         )
 
     def _log(self, msg):
@@ -305,6 +325,7 @@ class Inference(object):
         all_predictions = []
 
         start_time = time()
+        self.step0_time = []
 
         def _maybe_retranslate(translations, batch):
             """Here we handle the cases of mismatch in number of segments
@@ -438,8 +459,11 @@ class Inference(object):
         bucket_predictions = []
         prev_idx = 0
 
+        src_tokens = 0
+
         for batch, bucket_idx in infer_iter:
 
+            src_tokens += batch["srclen"].sum()
             batch_data = self.predict_batch(batch, attn_debug)
 
             predictions = prediction_builder.from_batch(batch_data)
@@ -513,9 +537,13 @@ class Inference(object):
 
         if self.report_time:
             total_time = end_time - start_time
-            self._log("Total prediction time (s): %.1f" % total_time)
-            self._log("Average prediction time (ms): %.1f" % (total_time / len(all_predictions) * 1000))
-            self._log("Tokens per second: %.1f" % (pred_words_total / total_time))
+            step0 = sum(self.step0_time)
+            decoding_time = total_time - step0
+            self._log("Step 0 time (s): %.2f" % step0)
+            self._log("Enc/Step 0 tokens / sec: %.1f" % (src_tokens / step0))
+            self._log("Subsequent prediction time including all (s): %.2f" % decoding_time)
+            self._log("Average prediction time (ms): %.1f" % (decoding_time / len(all_predictions) * 1000))
+            self._log("Tokens per second: %.1f" % (pred_words_total / decoding_time))
             self._log("pred_words_total: %.1f" % (pred_words_total))
 
         if self.dump_beam:
@@ -632,7 +660,7 @@ class Inference(object):
             src_pad_mask = None
 
         if images is not None and step == 0:
-            emb = self.model.embed_vision_language_features(decoder_in, images)
+            emb = self.model.embed_vision_language_features(decoder_in, images=images)
         else:
             emb = self.model.tgt_emb(decoder_in, step=step)
 
@@ -649,6 +677,7 @@ class Inference(object):
             decoder_in=decoder_in,
             image_token_id=self.image_token_id,
         )
+
         # Generator forward.
         if "std" in dec_attn:
             attn = dec_attn["std"]
