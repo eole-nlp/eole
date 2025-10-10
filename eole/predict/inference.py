@@ -84,6 +84,7 @@ class Inference(object):
         logger=None,
         seed=-1,
         with_score=False,
+        estim_only=False,
         return_gold_log_probs=False,
         add_estimator=False,
         optional_eos=[],
@@ -177,6 +178,7 @@ class Inference(object):
 
         set_random_seed(seed, self._use_gpu)
         self.with_score = with_score
+        self.estim_only = estim_only
 
         self.return_gold_log_probs = return_gold_log_probs
         self.add_estimator = add_estimator
@@ -254,6 +256,7 @@ class Inference(object):
             logger=logger,
             seed=config.seed,
             with_score=config.with_score,
+            estim_only=config.estim_only,
             add_estimator=model_config.add_estimator,
             optional_eos=config.optional_eos,
             id_tokenization=id_tokenization,
@@ -389,7 +392,8 @@ class Inference(object):
             bucket_predictions = sorted(bucket_predictions, key=lambda x: x.ind_in_bucket)
             for trans in bucket_predictions:
                 bucket_scores += [trans.pred_scores[: self.n_best]]
-                bucket_score += trans.pred_scores[0]
+                if len(trans.pred_scores) > 0:
+                    bucket_score += trans.pred_scores[0]
                 bucket_estims += [trans.estim[: self.n_best]]
                 bucket_estim += trans.estim[0]
                 bucket_words += len(trans.pred_sents[0])
@@ -735,10 +739,16 @@ class Inference(object):
                 key=lambda x: (x[3]),
                 reverse=True,
             )
-            scores.append([item[0] for item in sorted_tuples])
-            preds.append([item[1] for item in sorted_tuples])
-            attns.append([item[2] for item in sorted_tuples])
-            sorted_estim.append([item[3] for item in sorted_tuples])
+            if len(sorted_tuples) == 0:
+                scores = decode_strategy.scores
+                preds = decode_strategy.predictions
+                attns = decode_strategy.attention
+                sorted_estim = estim
+            else:
+                scores.append([item[0] for item in sorted_tuples])
+                preds.append([item[1] for item in sorted_tuples])
+                attns.append([item[2] for item in sorted_tuples])
+                sorted_estim.append([item[3] for item in sorted_tuples])
 
         results["scores"] = scores
         results["predictions"] = preds

@@ -124,49 +124,52 @@ class GeneratorLM(Inference):
             src_len,
             target_prefix=target_prefix,
         )
-
-        # (4) Begin decoding step by step:
-        if self.report_time:
-            torch.cuda.synchronize()
-            beg_time = time()
-
-        for step in range(decode_strategy.max_length):
-            decoder_input = src if step == 0 else decode_strategy.current_predictions.view(-1, 1)
-
-            log_probs, attn = self._decode_and_generate(
-                decoder_input,
-                None,
-                src_len=decode_strategy.src_len,
-                step=step if step == 0 else step + max(src_len.tolist()),
-                left_pad=batch["left_pad"],
-                images=batch.get("images", None),
-            )
-
-            if step == 0:
-                log_probs = self.tile_to_beam_size_after_initial_step(fn_tile, log_probs)
-
-            decode_strategy.advance(log_probs, attn)
-            any_finished = any([any(sublist) for sublist in decode_strategy.is_finished_list])
-            if any_finished:
-                decode_strategy.update_finished()
-                if decode_strategy.done:
-                    break
-            select_indices = decode_strategy.select_indices
-
-            if parallel_paths > 1 or any_finished:
-                # select indexes in model state/cache
-                self.model.decoder.map_state(lambda state: state[select_indices])
-
-            if self.report_time and step == 0:
+        if not self.estim_only:
+            # (4) Begin decoding step by step:
+            if self.report_time:
                 torch.cuda.synchronize()
-                self.step0_time.append(time() - beg_time)
+                beg_time = time()
+
+            for step in range(decode_strategy.max_length):
+                decoder_input = src if step == 0 else decode_strategy.current_predictions.view(-1, 1)
+
+                log_probs, attn = self._decode_and_generate(
+                    decoder_input,
+                    None,
+                    src_len=decode_strategy.src_len,
+                    step=step if step == 0 else step + max(src_len.tolist()),
+                    left_pad=batch["left_pad"],
+                    images=batch.get("images", None),
+                )
+
+                if step == 0:
+                    log_probs = self.tile_to_beam_size_after_initial_step(fn_tile, log_probs)
+
+                decode_strategy.advance(log_probs, attn)
+                any_finished = any([any(sublist) for sublist in decode_strategy.is_finished_list])
+                if any_finished:
+                    decode_strategy.update_finished()
+                    if decode_strategy.done:
+                        break
+                select_indices = decode_strategy.select_indices
+
+                if parallel_paths > 1 or any_finished:
+                    # select indexes in model state/cache
+                    self.model.decoder.map_state(lambda state: state[select_indices])
+
+                if self.report_time and step == 0:
+                    torch.cuda.synchronize()
+                    self.step0_time.append(time() - beg_time)
 
         if self.add_estimator:
             # Prepare estimator input = decoder out of each pred with initial enc_out
-            dec_in = [item for sublist in decode_strategy.predictions for item in sublist]
-            src = tile(src, parallel_paths)
-            dec_in = pad_sequence(dec_in, batch_first=True, padding_value=self._tgt_pad_idx)
-            dec_in = torch.cat((src, dec_in), 1)
+            if not self.estim_only:
+                dec_in = [item for sublist in decode_strategy.predictions for item in sublist]
+                src = tile(src, parallel_paths)
+                dec_in = pad_sequence(dec_in, batch_first=True, padding_value=self._tgt_pad_idx)
+                dec_in = torch.cat((src, dec_in), 1)
+            else:
+                dec_in = src
             tgt_pad_mask = dec_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, T_tgt]
             emb = self.model.tgt_emb(dec_in)
             self.model.decoder._disable_cache()
