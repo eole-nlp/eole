@@ -42,6 +42,8 @@ class PredictionBuilder(object):
                     self.phrase_table_dict[phrase_src] = phrase_trg
 
     def _build_target_tokens(self, src, srclen, pred, attn, voc):
+        if pred is None:
+            return []
         pred_list = pred.tolist()
         if pred_list[-1] in self.tgt_eos_idx:
             pred_list = pred_list[:-1]
@@ -98,7 +100,7 @@ class PredictionBuilder(object):
                     src[b, :] if src is not None else None,
                     srclen[b],
                     preds[b][n] if len(preds[b]) > 0 else None,
-                    align[b][n] if align[b] is not None else attn[b][n],
+                    align[b][n] if align[b] is not None else attn[b][n] if len(attn[b]) > 0 else None,
                     voc_tgt,
                 )
                 for n in range(self.n_best)

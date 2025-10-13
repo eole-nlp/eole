@@ -77,6 +77,7 @@ class DecodingConfig(Config):
     )  # not sure it's still working/useful
     verbose: bool = Field(default=False, description="Print scores and predictions for each input.")
     with_score: bool = Field(default=False, description="Add a tab separated score to each output.")
+    estim_only: bool = Field(default=False, description="Process the input to estimator only (no decoder).")
     attn_debug: bool = Field(default=False, description="Print best attn for each word.")
     align_debug: bool = Field(default=False, description="Print best align for each word.")
 

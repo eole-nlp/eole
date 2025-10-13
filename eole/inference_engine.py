@@ -52,16 +52,20 @@ class InferenceEngine(object):
 
         flatten_preds = [text for sublist in preds for text in sublist]
         flatten_scores = [score for sublist in scores for score in sublist]
+
         if estims is not None:
             flatten_estims = [estim for sublist in estims for estim in sublist]
         else:
             flatten_estims = [1.0 for sublist in scores for score in sublist]
 
         if self.config.with_score:
-            out_all = [
-                pred + "\t" + str(score) + "\t" + str(estim)
-                for (pred, score, estim) in zip(flatten_preds, flatten_scores, flatten_estims)
-            ]
+            if len(flatten_scores) > 0:
+                out_all = [
+                    pred + "\t" + str(score) + "\t" + str(estim)
+                    for (pred, score, estim) in zip(flatten_preds, flatten_scores, flatten_estims)
+                ]
+            else:
+                out_all = [str(estim) for estim in flatten_estims]
             out_file.write("\n".join(out_all) + "\n")
         else:
             out_file.write("\n".join(flatten_preds) + "\n")
