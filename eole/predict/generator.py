@@ -166,10 +166,16 @@ class GeneratorLM(Inference):
             if not self.estim_only:
                 dec_in = [item for sublist in decode_strategy.predictions for item in sublist]
                 src = tile(src, parallel_paths)
-                dec_in = pad_sequence(dec_in, batch_first=True, padding_value=self._tgt_pad_idx)
-                dec_in = torch.cat((src, dec_in), 1)
+                concat_seq = [torch.cat((s, d), dim=0) for s, d in zip(src, dec_in)]
+                # make padding left sided
+                concat_seq = [x.flip(dims=[0]) for x in concat_seq]
+                concat_seq = pad_sequence(concat_seq, batch_first=True, padding_value=self._tgt_pad_idx)
+                concat_seq = concat_seq.flip(dims=[1])
+                # remove eos
+                dec_in = concat_seq[:, :-1]
             else:
                 dec_in = src
+                parallel_paths = 1
             tgt_pad_mask = dec_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, T_tgt]
             emb = self.model.tgt_emb(dec_in)
             self.model.decoder._disable_cache()
@@ -179,11 +185,18 @@ class GeneratorLM(Inference):
                 return_attn=False,
                 tgt_pad_mask=tgt_pad_mask,
             )
-            pad_mask = ~dec_in.eq(self._tgt_pad_idx)
-            in_estim = (dec_out * pad_mask.unsqueeze(-1).float()).sum(dim=1) / pad_mask.sum(dim=1, keepdim=True).float()
+            if self.estimator_type == "average":
+                pad_mask = ~dec_in.eq(self._tgt_pad_idx)
+                in_estim = (dec_out * pad_mask.unsqueeze(-1).float()).sum(dim=1) / pad_mask.sum(
+                    dim=1, keepdim=True
+                ).float()
+            elif self.estimator_type == "last_token":
+                in_estim = dec_out[:, -1, :]
+            else:
+                raise ValueError("Decoder only model should use average or last token estimator")
             estim = self.model.estimator(in_estim.to(dec_out.dtype)).squeeze(-1)
             estim = [
-                [estim[i].item() for i in range(j, j + self.beam_size)] for j in range(0, len(estim), self.beam_size)
+                [estim[i].item() for i in range(j, j + parallel_paths)] for j in range(0, len(estim), parallel_paths)
             ]
         else:
             estim = [[1.0 for _ in range(self.beam_size)] for _ in range(batch_size)]

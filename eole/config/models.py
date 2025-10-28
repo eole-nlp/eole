@@ -467,6 +467,10 @@ class BaseModelConfig(Config):
     )
 
     add_estimator: bool = Field(default=False, description="Add estimator layer")
+    estimator_type: Literal["average", "last_token", "first_token"] = Field(
+        default="average",
+        description="Which hidden_states to use to feed the estimator",
+    )
 
     left_pad: bool = Field(default=False, description="Enable left-padding, useful for some LLMs.")
     huggingface_model: str | None = Field(default=None, description="Original huggingface model.")
