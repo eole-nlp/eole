@@ -44,7 +44,7 @@ def transform_bucket(task, bucket, threshold=0):
         transf_bucket = transform.batch_apply(sub_bucket, is_train=(task == CorpusTask.TRAIN), corpus_name=cid)
         for example, transform, cid in transf_bucket:
             example = clean_example(example)
-            if len(example["src"]["src"]) > 0 and example.get("sco", 1) > threshold:
+            if len(example["src"]["src"]) > 0 and example.get("sco", 1) >= threshold:
                 transformed_bucket.append(example)
 
         # at this point an example looks like:

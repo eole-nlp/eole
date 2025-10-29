@@ -121,6 +121,7 @@ class BaseModel(nn.Module):
         self.src_emb = kwargs.get("src_emb", None)
         self.tgt_emb = kwargs.get("tgt_emb", None)
         self.add_estimator = kwargs.get("add_estimator", False)
+        self.estimator_type = kwargs.get("estimator_type", "average")
         self.hidden_size = kwargs.get("hidden_size", None)
         self.share_decoder_embeddings = False
         if self.encoder is not None and self.src_emb is None:
@@ -770,10 +771,14 @@ class EncoderDecoderModel(BaseModel):
         )
 
         if self.add_estimator:  # we take the average of dec_out using the pad mask
-            pad_mask2 = ~dec_in.eq(self.tgt_pad_idx)
-            in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(dim=1) / pad_mask2.sum(
-                dim=1, keepdim=True
-            ).float()
+            if self.estimator_type == "average":
+                pad_mask2 = ~dec_in.eq(self.tgt_pad_idx)
+                in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(dim=1) / pad_mask2.sum(
+                    dim=1, keepdim=True
+                ).float()
+            elif self.estimator == "last_token":
+                # assumes left padding so -1 is the real last token (not eos)
+                in_estim2 = dec_out[:, -1, :]
             estim = self.estimator(in_estim2.to(dec_out.dtype)).squeeze(-1)
         else:
             estim = None
@@ -829,10 +834,16 @@ class DecoderModel(BaseModel):
         )
 
         if self.add_estimator:  # we take the average of dec_out using the pad mask
-            pad_mask2 = ~src.eq(self.pad_idx)
-            in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(dim=1) / pad_mask2.sum(
-                dim=1, keepdim=True
-            ).float()
+            if self.estimator_type == "average":
+                pad_mask2 = ~src.eq(self.pad_idx)
+                in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(dim=1) / pad_mask2.sum(
+                    dim=1, keepdim=True
+                ).float()
+            elif self.estimator_type == "last_token":
+                # assumes left padding so -1 is the real last token (not eos)
+                in_estim2 = dec_out[:, -1, :]
+            else:
+                raise ValueError("Estimator type should be average or last token")
             estim = self.estimator(in_estim2.to(dec_out.dtype)).squeeze(-1)
         else:
             estim = None
@@ -883,16 +894,16 @@ class EncoderModel(BaseModel):
             pad_mask=pad_mask,
         )
         if self.add_estimator:
-            # Version with average
-            """
-            pad_mask1 = ~src.eq(self.pad_idx)
-            in_estim1 = (enc_out * pad_mask1.unsqueeze(-1).float()).sum(
-                dim=1
-            ) / pad_mask1.sum(dim=1, keepdim=True).float()
-            estim = self.estimator(in_estim1.half()).squeeze(-1)
-            """
-            # Version with first token
-            estim = self.estimator(enc_out[:, 0, :]).squeeze(-1)
+            if self.estimator_type == "average":
+                pad_mask1 = ~src.eq(self.pad_idx)
+                in_estim1 = (enc_out * pad_mask1.unsqueeze(-1).float()).sum(dim=1) / pad_mask1.sum(
+                    dim=1, keepdim=True
+                ).float()
+            elif self.estimator_type == "first_token":
+                in_estim1 = enc_out[:, 0, :]
+            else:
+                raise ValueError("Estimator type should be average or first token")
+            estim = self.estimator(in_estim1.to(enc_out.dtype)).squeeze(-1)
         else:
             estim = None
 

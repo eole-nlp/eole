@@ -1,0 +1,24 @@
+models_root: "." # used only for HF downloads for now, but might override $EOLE_MODEL_DIR at some point
+models:
+# local model
+- id: "Hunyuan-MT-7B-eole"
+  path: "${EOLE_MODEL_DIR}/hunyuan-7B/merged"
+  preload: true
+  config:
+#    quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
+#    quant_type: "bnb_NF4"
+    top_k: 0 #20
+    top_p: 0.0 #0.6
+    temperature: 0.7
+    beam_size: 4
+    n_best: 1
+    length_penalty: avg
+    #block_ngram_repeat: 3
+    report_time: true
+    profile: false
+    self_attn_backend: "flash"
+    compute_dtype: bf16
+    fuse_kvq: true
+    fuse_gate: true
+    with_score: false
+    estim_only: false

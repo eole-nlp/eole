@@ -87,6 +87,7 @@ class Inference(object):
         estim_only=False,
         return_gold_log_probs=False,
         add_estimator=False,
+        estimator_type="average",
         optional_eos=[],
         id_tokenization=False,
         image_token_id=10,
@@ -182,6 +183,7 @@ class Inference(object):
 
         self.return_gold_log_probs = return_gold_log_probs
         self.add_estimator = add_estimator
+        self.estimator_type = estimator_type
         self.id_tokenization = id_tokenization
         self.image_token_id = image_token_id
 
@@ -258,6 +260,7 @@ class Inference(object):
             with_score=config.with_score,
             estim_only=config.estim_only,
             add_estimator=model_config.add_estimator,
+            estimator_type=model_config.estimator_type,
             optional_eos=config.optional_eos,
             id_tokenization=id_tokenization,
             image_token_id=image_token_id,

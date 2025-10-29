@@ -253,10 +253,15 @@ class Translator(Inference):
                 src_pad_mask=src_pad_mask,
                 tgt_pad_mask=tgt_pad_mask,
             )
-            pad_mask2 = ~dec_in[:, :-1].eq(self._tgt_pad_idx)
-            in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(dim=1) / pad_mask2.sum(
-                dim=1, keepdim=True
-            ).float()
+            if self.estimator_type == "average":
+                pad_mask2 = ~dec_in[:, :-1].eq(self._tgt_pad_idx)
+                in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(dim=1) / pad_mask2.sum(
+                    dim=1, keepdim=True
+                ).float()
+            elif self.estimator_type == "last_token":
+                in_estim2 = dec_out[:, -1, :]
+            else:
+                raise ValueError("EncoderDecoder model should use average or last token estimator")
             estim = self.model.estimator(in_estim2.to(dec_out.dtype)).squeeze(-1)
         else:
             if torch.is_tensor(enc_out2):
