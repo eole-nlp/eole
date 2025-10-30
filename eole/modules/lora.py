@@ -85,22 +85,21 @@ class Embedding(nn.Embedding, LoRALayer):
                 self.merged = True
 
     def forward(self, x: torch.Tensor):
+        result = nn.Embedding.forward(self, x)
+        r_dtype = result.dtype
         if self.r > 0 and not self.merged:
-            result = nn.Embedding.forward(self, x)
-            if self.r > 0:
-                after_A = F.embedding(
-                    x,
-                    self.lora_A.transpose(0, 1),
-                    self.padding_idx,
-                    self.max_norm,
-                    self.norm_type,
-                    self.scale_grad_by_freq,
-                    self.sparse,
-                )
-                result += (after_A @ self.lora_B.transpose(0, 1)) * self.scaling
-            return result
-        else:
-            return nn.Embedding.forward(self, x)
+            result = result.to(torch.float32)
+            after_A = F.embedding(
+                x,
+                self.lora_A.transpose(0, 1),
+                self.padding_idx,
+                self.max_norm,
+                self.norm_type,
+                self.scale_grad_by_freq,
+                self.sparse,
+            )
+            result += (after_A @ self.lora_B.transpose(0, 1)) * self.scaling
+        return result.to(r_dtype)
 
 
 class QLinear(type):
