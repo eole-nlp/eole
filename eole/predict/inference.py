@@ -737,11 +737,32 @@ class Inference(object):
             decode_strategy.predictions,
             decode_strategy.attention,
         ):
+
+            # key_fn = lambda x: x[3]  # tri sur estimation
+            # key_fn = lambda x: x[0]  # tri sur xentropy
+
+            # use a pareto like instead of one of the score above.
+            def key_fn(t):
+                CE = float(t[0])
+                E = float(t[3])
+                # Count how many sentences this sentence dominates within the set
+                dominates_count = sum(
+                    1
+                    for other in zip(sublist_scores, sublist_preds, sublist_attns, sublist_estim)
+                    if other is not t
+                    and float(other[0]) <= CE
+                    and float(other[3]) <= E
+                    and (float(other[0]) < CE or float(other[3]) < E)
+                )
+                # Return tuple: first dominates_count, then E
+                return (dominates_count, E)
+
             sorted_tuples = sorted(
                 zip(sublist_scores, sublist_preds, sublist_attns, sublist_estim),
-                key=lambda x: (x[3]),
+                key=key_fn,
                 reverse=True,
             )
+
             if len(sorted_tuples) == 0:
                 scores = decode_strategy.scores
                 preds = decode_strategy.predictions

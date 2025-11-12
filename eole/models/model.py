@@ -220,6 +220,7 @@ class BaseModel(nn.Module):
             out_features=len(vocabs["tgt"]),
             bias=model_config.generator_bias,
         )
+        # TODO: when share_decoder_embeddings generator should be adjusted to lora_embeddings A/B
         if model_config.share_decoder_embeddings:
             self.generator.weight = self.tgt_emb.embeddings.weight
         elif hasattr(running_config, "lora_embedding") and running_config.lora_embedding:
@@ -655,6 +656,7 @@ class BaseModel(nn.Module):
                                 "└─> Sharing from embeddings matrix since "
                                 "`share_decoder_embeddings` flag is enabled."
                             )
+                            self.generator.weight = self.tgt_emb.embeddings.weight  # Lora breaks the link
                     if getattr(running_config, "compute_dtype", None) == torch.int8:
                         torch.quantization.quantize_dynamic(module, inplace=True)
                     else:
