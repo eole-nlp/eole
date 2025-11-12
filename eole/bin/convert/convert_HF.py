@@ -252,6 +252,71 @@ MODEL_OVERRIDES = {
             ".post_attention_layernorm.bias": ".final_layer_norm.bias",
         },
     },
+    "DeepseekOCRForCausalLM": {
+        ".mlp.gate.weight": ".mlp.gate.weight",
+        **{
+            f".mlp.experts.{i}.{k}": f".mlp.experts.{i}.{v}"
+            for i in range(64)
+            for k, v in {"gate_up_proj.": "gate_proj.", "down_proj.": "down_proj.", "up_proj.": "up_proj."}.items()
+        },
+        **{
+            f".mlp.shared_experts.{k}": f".mlp.shared_experts.{v}"
+            for k, v in {"gate_up_proj.": "gate_proj.", "down_proj.": "down_proj.", "up_proj.": "up_proj."}.items()
+        },
+        "encoder.patch_conv.weight": "model.vision_model.embeddings.patch_embedding.weight",
+        "encoder.position_embeddings.weight": "model.vision_model.embeddings.position_embedding.weight",
+        "encoder.class_embedding": "model.vision_model.embeddings.class_embedding",
+        "encoder.ln_pre.weight": "model.vision_model.pre_layrnorm.weight",
+        "encoder.ln_pre.bias": "model.vision_model.pre_layrnorm.bias",
+        # vision_tower
+        "encoder_layer_prefix": "model.vision_model.transformer.layers.",
+        "encoder": {
+            "layers": 24,
+            ".self_attn.linear_query.weight": (".self_attn.qkv_proj.weight", "[:hidden_size, :]"),
+            ".self_attn.linear_keys.weight": (".self_attn.qkv_proj.weight", "[hidden_size:2*hidden_size, :]"),
+            ".self_attn.linear_values.weight": (".self_attn.qkv_proj.weight", "[-hidden_size:, :]"),
+            ".self_attn.linear_query.bias": (".self_attn.qkv_proj.bias", "[:hidden_size]"),
+            ".self_attn.linear_keys.bias": (".self_attn.qkv_proj.bias", "[hidden_size:2*hidden_size]"),
+            ".self_attn.linear_values.bias": (".self_attn.qkv_proj.bias", "[-hidden_size:]"),
+            ".self_attn.final_linear.": ".self_attn.out_proj.",
+            ".mlp.gate_up_proj.": ".mlp.fc1.",
+            ".mlp.down_proj.": ".mlp.fc2.",
+            ".input_layernorm.weight": ".layer_norm1.weight",
+            ".input_layernorm.bias": ".layer_norm1.bias",
+            ".post_attention_layernorm.weight": ".layer_norm2.weight",
+            ".post_attention_layernorm.bias": ".layer_norm2.bias",
+        },
+        # vision_adapter
+        "adapter.w_in.weight": "model.projector.layers.weight",
+        "adapter.w_in.bias": "model.projector.layers.bias",
+        # Misc deepseek ocr
+        "image_newline": "model.image_newline",
+        "view_separator": "model.view_seperator",
+        # sam_model
+        "encoder.sam.patch_embed.proj.weight": "model.sam_model.patch_embed.proj.weight",
+        "encoder.sam.patch_embed.proj.bias": "model.sam_model.patch_embed.proj.bias",
+        "encoder.sam.pos_embed": "model.sam_model.pos_embed",
+        "encoder.sam.neck.0.weight": "model.sam_model.neck.0.weight",
+        "encoder.sam.neck.1.weight": "model.sam_model.neck.1.weight",
+        "encoder.sam.neck.1.bias": "model.sam_model.neck.1.bias",
+        "encoder.sam.neck.2.weight": "model.sam_model.neck.2.weight",
+        "encoder.sam.neck.3.weight": "model.sam_model.neck.3.weight",
+        "encoder.sam.neck.3.bias": "model.sam_model.neck.3.bias",
+        "encoder.sam.net_2.weight": "model.sam_model.net_2.weight",
+        "encoder.sam.net_3.weight": "model.sam_model.net_3.weight",
+        "encoder_sam_layer_prefix": "model.sam_model.blocks.",
+        "encoder.sam": {
+            "layers": 12,
+            ".attn.proj.": ".attn.proj.",
+            ".attn.qkv.": ".attn.qkv.",
+            ".attn.rel_pos_h": ".attn.rel_pos_h",
+            ".attn.rel_pos_w": ".attn.rel_pos_w",
+            ".mlp.lin1.": ".mlp.lin1.",
+            ".mlp.lin2.": ".mlp.lin2.",
+            ".norm1.": ".norm1.",
+            ".norm2.": ".norm2.",
+        },
+    },
 }
 
 # Combine base mappings with overrides
@@ -298,6 +363,7 @@ ARCH_TABLE = defaultdict(
         "Mistral3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "Gemma3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "M2M100ForConditionalGeneration": TransformerModelConfig,
+        "DeepseekOCRForCausalLM": VisionTransformerLMModelConfig,
     },
 )
 
@@ -447,6 +513,10 @@ class HuggingfaceFiles:
         return KEY_MAPS[self.arch].get("encoder_layer_prefix", None)
 
     @property
+    def encoder_sam_layer_prefix(self):
+        return KEY_MAPS[self.arch].get("encoder_sam_layer_prefix", None)
+
+    @property
     def decoder_layer_prefix(self):
         return KEY_MAPS[self.arch].get("decoder_layer_prefix", None)
 
@@ -542,7 +612,7 @@ def build_config_dict(hf):
 
     vision_config = config.get("vision_config", None)
     other_config = config  # save what is not text/vision for later use
-    config = config.get("text_config", config)
+    config = config.get("text_config", config.get("language_config", config))
 
     model_config = {}
     training_config = {}
@@ -574,8 +644,11 @@ def build_config_dict(hf):
             config.get("layer_norm_epsilon", config.get("layer_norm_eps", 1e-5)),
         ),
         "sliding_window": config.get("sliding_window", 0) or 4096,
-        "num_experts": config.get("num_local_experts", 0),
+        "num_experts": config.get("num_local_experts", config.get("n_routed_experts", 0)),
+        "num_shared_experts": config.get("n_shared_experts", 0),
+        "first_k_dense_replace": config.get("first_k_dense_replace", 0),
         "num_experts_per_tok": config.get("num_experts_per_tok", 0),
+        "moe_transformer_ff": config.get("moe_intermediate_size", None),
         "add_qkvbias": False,
         "add_final_linear_bias": False,
         "add_ffnbias": False,
@@ -588,7 +661,6 @@ def build_config_dict(hf):
         },
         "embeddings": {},  # Populated later
     }
-
     # Vision encoder
     if arch in ["LlavaForConditionalGeneration", "Mistral3ForConditionalGeneration"]:
         model_config["encoder"] = {
@@ -680,6 +752,40 @@ def build_config_dict(hf):
                 "rotary_interleave": False,
             },
         }
+
+    if arch in ["DeepseekOCRForCausalLM"]:
+        model_config["adapter"] = "deepseekocr"
+        model_config["encoder"] = {
+            "encoder_type": "deepvision",
+            "mlp_activation_fn": "gelu-tanh",  # no up_proj it seems,
+            "layer_norm": "standard",
+            "norm_eps": 1e-5,
+            "hidden_size": vision_config.get("hidden_size", vision_config["image_size"]),
+            "position_encoding_type": PositionEncodingType.Learned,
+            "n_positions": (
+                vision_config["width"]["clip-l-14-224"]["image_size"]
+                // vision_config["width"]["clip-l-14-224"]["patch_size"]
+            )
+            ** 2
+            + 1,
+            "transformer_ff": vision_config.get(
+                "intermediate_size", vision_config["image_size"] * 4
+            ),  # hard-coded for mistral-community/pixtral-12b
+            "add_ffnbias": True,
+            "add_final_linear_bias": True,
+            "add_qkvbias": True,
+            "num_channels": 3,
+            # "image_size": vision_config["image_size"],
+            "patch_size": vision_config["width"]["clip-l-14-224"].get("patch_size", 14),
+            "layers": vision_config.get("num_hidden_layers", 24),  # hard-coded for mistral-community/pixtral-12b
+            "heads": vision_config["width"]["clip-l-14-224"].get("heads"),
+            "image_token_id": 128815,
+            # "layernorm_pre": True,
+            "patch_conv_bias": False,
+        }
+        model_config["multimodal_projector_bias"] = other_config.get("multimodal_projector_bias", False)
+        model_config["projector_activation_fn"] = other_config.get("projector_hidden_act", "gelu")
+        model_config["spatial_merge_size"] = other_config.get("spatial_merge_size", None)
 
     # TODO: patch this for various models
     if model_config.get("heads", None) is None:
@@ -942,11 +1048,15 @@ def get_shards_map(model_config, hf, nshards):
             - list of ranges: Layer ranges assigned to each shard
     """
     # Compute layer range for each shard
-    layers_per_shard = math.ceil(model_config["layers"] / nshards)
+    if "encoder" in model_config.keys():
+        n_layers = max(model_config["layers"], model_config["encoder"]["layers"])
+    else:
+        n_layers = model_config["layers"]
+    layers_per_shard = math.ceil(n_layers / nshards)
     shard_layer_ranges = [
         range(
             layers_per_shard * shard,
-            min(layers_per_shard * (shard + 1), model_config["layers"]),
+            min(layers_per_shard * (shard + 1), n_layers),
         )
         for shard in range(nshards)
     ]
@@ -1006,7 +1116,9 @@ def build_shards(model_config, hf, args, params):
             "generator.bias",
             "encoder.patch_conv.weight",
             "encoder.patch_conv.bias",
+            "encoder.class_embedding",
             "encoder.ln_pre.weight",
+            "encoder.ln_pre.bias",
             "adapter.w_in.weight",
             "adapter.w_in.bias",
             "adapter.w_out.weight",
@@ -1017,6 +1129,19 @@ def build_shards(model_config, hf, args, params):
             "encoder.position_embeddings.weight",
             "encoder.post_layernorm.weight",
             "encoder.post_layernorm.bias",
+            "encoder.sam.patch_embed.proj.weight",
+            "encoder.sam.patch_embed.proj.bias",
+            "encoder.sam.pos_embed",
+            "image_newline",
+            "view_separator",
+            "encoder.sam.neck.0.weight",
+            "encoder.sam.neck.1.weight",
+            "encoder.sam.neck.1.bias",
+            "encoder.sam.neck.2.weight",
+            "encoder.sam.neck.3.weight",
+            "encoder.sam.neck.3.bias",
+            "encoder.sam.net_2.weight",
+            "encoder.sam.net_3.weight",
         ]
 
         def build_first_shard(hf, eole_safetensor):
@@ -1058,9 +1183,11 @@ def build_shards(model_config, hf, args, params):
         for ckpt in ckpt_lists[shard]:
             print("Loading %s" % ckpt)
             checkpoint = hf.checkpoint(ckpt)
+            print(shard_layer_ranges[shard])
             for i in shard_layer_ranges[shard]:
                 prefix_mapping = (
                     (hf.encoder_layer_prefix, "encoder.transformer_layers."),
+                    (hf.encoder_sam_layer_prefix, "encoder.sam.blocks."),
                     (hf.decoder_layer_prefix, "decoder.transformer_layers."),
                 )
                 for hf_prefix, eole_prefix in prefix_mapping:
@@ -1068,7 +1195,11 @@ def build_shards(model_config, hf, args, params):
                         continue
                     for param in params:
                         # TODO: factorize this better
-                        for key_map in [KEY_MAPS[hf.arch], KEY_MAPS[hf.arch].get("encoder", {})]:
+                        for key_map in [
+                            KEY_MAPS[hf.arch],
+                            KEY_MAPS[hf.arch].get("encoder", {}),
+                            KEY_MAPS[hf.arch].get("encoder.sam", {}),
+                        ]:
                             for target, source in key_map.items():
                                 # TODO: this should be cleaned up when rationalizing encoder/decoder mappings
                                 if not (isinstance(source, str) or isinstance(source, tuple)):
@@ -1076,22 +1207,31 @@ def build_shards(model_config, hf, args, params):
                                 if target in first_shard_targets:
                                     continue
                                 srckey, srcmap = source if isinstance(source, tuple) else (source, None)
+                                if srckey.endswith("."):
+                                    srckey = srckey + param
                                 w = get_weight(
                                     checkpoint,
-                                    hf_prefix + str(i) + srckey + param,
+                                    hf_prefix + str(i) + srckey,
                                 )
 
                                 if w is not None:
                                     if srcmap is not None:
+                                        hidden_size = (
+                                            model_config["hidden_size"]
+                                            if hf_prefix.startswith("decoder")
+                                            else model_config["encoder"]["hidden_size"]
+                                        )
                                         w = eval(
                                             "w" + srcmap,
                                             {
                                                 "w": w,
-                                                "hidden_size": model_config["hidden_size"],
+                                                "hidden_size": hidden_size,
                                                 "transformer_ff": model_config["transformer_ff"],
                                             },
                                         ).contiguous()
-                                    eole_safetensor[eole_prefix + str(i) + target + param] = w
+                                    if target.endswith("."):
+                                        target = target + param
+                                    eole_safetensor[eole_prefix + str(i) + target] = w
 
                     if model_config["shared_layer_norm"]:
                         idx = 0

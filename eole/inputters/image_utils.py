@@ -437,5 +437,17 @@ def process_image(image_path, adapter="llava", image_size=1024, image_patch_size
         # TODO: make this configurable?
         image_tokens = "<start_of_image>" + "<image_soft_token>" * 256 + "<end_of_image>"
         return {"image": image, "tokens": image_tokens}
+    elif adapter == "deepseekocr":
+        image = Image.open(image_path)
+        w, h = image_to_num_tokens(image, image_size=image_size, image_patch_size=image_patch_size)
+        image = _convert_to_rgb(image)
+        image = resize(image=image, size=(1024, 1024), resample=2, input_data_format=ChannelDimension.LAST)
+        image = rescale(image=image, scale=0.00392156862745098, input_data_format=ChannelDimension.LAST)  # 1/256
+        image = normalize_gemma(
+            image=image, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], input_data_format=ChannelDimension.LAST
+        )
+        image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
+        image_tokens = (["<image>"] * w + ["<image>"]) * h + ["<image>"]
+        return {"image": image, "tokens": image_tokens}
     else:
         raise ValueError("Unsupported Adapter type: {}".format(adapter))

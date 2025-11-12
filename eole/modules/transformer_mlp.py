@@ -20,22 +20,27 @@ class MLP(nn.Module):
         self,
         model_config,
         running_config=None,
+        moe_transformer_ff=None,
     ):
         self.parallel_gpu = getattr(running_config, "parallel_gpu", 1)
         super(MLP, self).__init__()
         assert (
             model_config.transformer_ff % self.parallel_gpu == 0
         ), "Model intermediate ffn size must be divisible by the number of partitions"
+        if moe_transformer_ff is None:
+            self.transformer_ff = model_config.transformer_ff
+        else:
+            self.transformer_ff = moe_transformer_ff
         self.model_config = model_config
         self.gate_up_proj = skip_init(
             nn.Linear,
             in_features=model_config.hidden_size,
-            out_features=model_config.transformer_ff // self.parallel_gpu,
+            out_features=self.transformer_ff // self.parallel_gpu,
             bias=model_config.add_ffnbias,
         )
         self.down_proj = skip_init(
             nn.Linear,
-            in_features=model_config.transformer_ff // self.parallel_gpu,
+            in_features=self.transformer_ff // self.parallel_gpu,
             out_features=model_config.hidden_size,
             bias=model_config.add_ffnbias,
         )
@@ -48,7 +53,7 @@ class MLP(nn.Module):
             self.up_proj = skip_init(
                 nn.Linear,
                 in_features=model_config.hidden_size,
-                out_features=model_config.transformer_ff // self.parallel_gpu,
+                out_features=self.transformer_ff // self.parallel_gpu,
                 bias=model_config.add_ffnbias,
             )
             self.forward = self.gated_forward
@@ -63,7 +68,7 @@ class MLP(nn.Module):
             new_gate = skip_init(
                 nn.Linear,
                 in_features=self.model_config.hidden_size,
-                out_features=self.model_config.transformer_ff // self.parallel_gpu * 2,
+                out_features=self.transformer_ff // self.parallel_gpu * 2,
                 bias=self.model_config.add_ffnbias,
             )
             new_gate.weight = nn.Parameter(torch.cat([self.gate_up_proj.weight, self.up_proj.weight]))
@@ -80,7 +85,7 @@ class MLP(nn.Module):
                 w_bit=w_bit,
                 group_size=group_size,
                 in_features=self.model_config.hidden_size,
-                out_features=self.model_config.transformer_ff // self.parallel_gpu * 2,
+                out_features=self.transformer_ff // self.parallel_gpu * 2,
                 bias=self.model_config.add_ffnbias,
                 dev=self.gate_up_proj.qweight.device,
             )

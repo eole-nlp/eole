@@ -208,6 +208,7 @@ class TransformerConfig(Config):
     sliding_window: int = Field(default=0, description="Sliding window for transformer self-attention.")
     heads: int = Field(default=8, description="Number of heads for transformer self-attention.")
     transformer_ff: int = Field(default=2048, description="Size of hidden transformer feed-forward.")
+    moe_transformer_ff: int | None = Field(default=None, description="Size of hidden moe transformer feed-forward.")
     relative_positions_buckets: int = Field(
         default=0,
         description="Enable relative position bias "
@@ -266,6 +267,8 @@ class TransformerConfig(Config):
         description="Use parallel residual in decoder layer. " "Note: this is used by GPT-J / Falcon Architecture.",
     )
     num_experts: int = Field(default=0, description="Number of experts for MoE models.")
+    num_shared_experts: int = Field(default=0, description="Number of shared experts for MoE models (DeepSeekv2).")
+    first_k_dense_replace: int = Field(default=0, description="Number of layers using Dense instead of MoE")
     num_experts_per_tok: int = Field(default=2, description="Number of experts per token.")
     # These fields are set at EmbeddingsConfig level but will be copied here to be accessible in MHA
     position_encoding_type: PositionEncodingType | None = Field(
@@ -367,7 +370,7 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     Based on mistral-community/pixtral-12b, might evolve later.
     """
 
-    encoder_type: Literal["vision"] = Field(default="vision")
+    encoder_type: Literal["vision", "deepvision"] = Field(default="vision")
     # default to Pixtral 12B settings, might change later
     num_channels: int | None = 3
     image_size: int | None = 1024
@@ -426,6 +429,7 @@ class BaseModelConfig(Config):
         description="Number of layers in both encoder and decoder " "(will overwrite enc_layers/dec_layers).",
     )
     transformer_ff: int = Field(default=-1, description="Size of hidden transformer feed-forward.")
+    moe_transformer_ff: int | None = Field(default=None, description="Size of hidden moe transformer feed-forward.")
 
     share_decoder_embeddings: bool = Field(
         default=False,
@@ -778,10 +782,12 @@ class VisionTransformerLMModelConfig(TransformerConfig, BaseModelConfig):
         # patch to allow transparent setting of encoder/decoder_type
         if not (isinstance(data, dict)):
             return data
+        """
         if "encoder" in data.keys():
             data["encoder"]["encoder_type"] = "vision"
         else:
             data["encoder"] = {"encoder_type": "vision"}
+        """
         if "decoder" in data.keys():
             data["decoder"]["decoder_type"] = "transformer"
         else:

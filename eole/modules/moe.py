@@ -18,6 +18,7 @@ class MoE(nn.Module):
                 MLP(
                     model_config,
                     running_config,
+                    moe_transformer_ff=model_config.moe_transformer_ff,
                 )
                 for i in range(model_config.num_experts)
             ]
@@ -25,8 +26,17 @@ class MoE(nn.Module):
         self.gate = nn.Linear(model_config.hidden_size, model_config.num_experts, bias=False)
         self.num_experts_per_tok = model_config.num_experts_per_tok
         self.parallel_gpu = running_config.parallel_gpu
+        if model_config.num_shared_experts > 0:
+            self.shared_experts = MLP(
+                model_config,
+                running_config=running_config,
+                moe_transformer_ff=model_config.moe_transformer_ff * model_config.num_shared_experts,
+            )
+        else:
+            self.shared_experts = None
 
     def forward(self, x):
+        z = x
         orig_shape = x.shape
         x = x.view(-1, x.shape[-1])
 
@@ -43,4 +53,6 @@ class MoE(nn.Module):
             if torch.any(flat_expert_indices == i):
                 y[flat_expert_indices == i] = expert(x[flat_expert_indices == i].unsqueeze(0)).to(dtype=y.dtype)
         y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
+        if self.shared_experts is not None:
+            y = y + self.shared_experts(z)
         return y.view(*orig_shape)

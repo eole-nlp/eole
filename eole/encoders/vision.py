@@ -90,6 +90,7 @@ class VisionEncoder(nn.Module):
     def __init__(self, encoder_config, running_config=None):
         super(VisionEncoder, self).__init__()
         self.encoder_config = encoder_config
+
         if encoder_config.position_encoding_type == PositionEncodingType.Learned:
             self.position_embeddings = nn.Embedding(
                 encoder_config.n_positions,
@@ -97,6 +98,7 @@ class VisionEncoder(nn.Module):
             )
         else:
             self.rope = build_rope(encoder_config, mode="2d")
+        self.class_embedding = torch.nn.Parameter(torch.randn(encoder_config.hidden_size))
         self.patch_conv = nn.Conv2d(
             in_channels=encoder_config.num_channels,
             out_channels=encoder_config.hidden_size,
@@ -145,7 +147,8 @@ class VisionEncoder(nn.Module):
             image_features: tensor of token features for all tokens of all images of
                 shape (N_img, Seqlen, D)
         """
-
+        print(images)
+        exit()
         # TODO add as @property somewhere
         dtype = next(self.parameters()).dtype
 
@@ -261,7 +264,25 @@ class Gemma3MultiModalProjector(nn.Module):
         )
 
 
+# Multi-Modal Projector
+class DeepSeekOCRProjector(nn.Module):
+    def __init__(self, model_config):
+        super(DeepSeekOCRProjector, self).__init__()
+        bias = getattr(model_config, "adapter_bias", False)
+        self.w_in = nn.Linear(model_config.encoder.hidden_size, model_config.decoder.hidden_size, bias=bias)
+
+    def forward(self, x, image_sizes=None):
+        return self.w_in(x)
+
+    @classmethod
+    def from_config(cls, model_config, running_config=None):
+        return cls(
+            model_config,
+        )
+
+
 str2adapter = {
     "llava": VisionLanguageAdapter,
     "gemma3": Gemma3MultiModalProjector,
+    "deepseekocr": DeepSeekOCRProjector,
 }
