@@ -265,7 +265,7 @@ MODEL_OVERRIDES = {
         },
         "encoder.patch_conv.weight": "model.vision_model.embeddings.patch_embedding.weight",
         "encoder.position_embeddings.weight": "model.vision_model.embeddings.position_embedding.weight",
-        "encoder.class_embedding": "model.vision_model.embeddings.class_embedding",
+        "encoder.class_embedding.weight": "model.vision_model.embeddings.class_embedding",
         "encoder.ln_pre.weight": "model.vision_model.pre_layrnorm.weight",
         "encoder.ln_pre.bias": "model.vision_model.pre_layrnorm.bias",
         # vision_tower
@@ -661,6 +661,9 @@ def build_config_dict(hf):
         },
         "embeddings": {},  # Populated later
     }
+    if arch == "MixtralForCausalLM":
+        model_config["moe_softmax_after"]: True
+
     # Vision encoder
     if arch in ["LlavaForConditionalGeneration", "Mistral3ForConditionalGeneration"]:
         model_config["encoder"] = {
@@ -755,9 +758,14 @@ def build_config_dict(hf):
 
     if arch in ["DeepseekOCRForCausalLM"]:
         model_config["adapter"] = "deepseekocr"
+        # for decoder
+        model_config["decoder"] = {
+            "layer_norm": "rms",
+            "norm_eps": 1e-6,
+        }
         model_config["encoder"] = {
             "encoder_type": "deepvision",
-            "mlp_activation_fn": "gelu-tanh",  # no up_proj it seems,
+            "mlp_activation_fn": "quick_gelu",
             "layer_norm": "standard",
             "norm_eps": 1e-5,
             "hidden_size": vision_config.get("hidden_size", vision_config["image_size"]),
@@ -777,10 +785,11 @@ def build_config_dict(hf):
             "num_channels": 3,
             # "image_size": vision_config["image_size"],
             "patch_size": vision_config["width"]["clip-l-14-224"].get("patch_size", 14),
-            "layers": vision_config.get("num_hidden_layers", 24),  # hard-coded for mistral-community/pixtral-12b
+            "layers": vision_config.get("num_hidden_layers", 24),
             "heads": vision_config["width"]["clip-l-14-224"].get("heads"),
+            "heads_kv": vision_config["width"]["clip-l-14-224"].get("heads"),
             "image_token_id": 128815,
-            # "layernorm_pre": True,
+            "layernorm_pre": True,
             "patch_conv_bias": False,
         }
         model_config["multimodal_projector_bias"] = other_config.get("multimodal_projector_bias", False)
@@ -1116,7 +1125,7 @@ def build_shards(model_config, hf, args, params):
             "generator.bias",
             "encoder.patch_conv.weight",
             "encoder.patch_conv.bias",
-            "encoder.class_embedding",
+            "encoder.class_embedding.weight",
             "encoder.ln_pre.weight",
             "encoder.ln_pre.bias",
             "adapter.w_in.weight",
@@ -1169,7 +1178,10 @@ def build_shards(model_config, hf, args, params):
                                     "transformer_ff": model_config["transformer_ff"],
                                 },
                             ).contiguous()
-                        eole_safetensor[target] = w
+                        if target == "encoder.class_embedding.weight":
+                            eole_safetensor[target] = w.unsqueeze(0)
+                        else:
+                            eole_safetensor[target] = w
 
                     if target == "generator.bias":
                         model_config["generator_bias"] = True
