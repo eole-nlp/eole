@@ -34,6 +34,7 @@ class MoE(nn.Module):
             )
         else:
             self.shared_experts = None
+        self.moe_softmax_after = model_config.moe_softmax_after
 
     def forward(self, x):
         z = x
@@ -43,8 +44,11 @@ class MoE(nn.Module):
         scores = self.gate(x)
         if self.parallel_gpu > 1:
             all_reduce(scores)
-        expert_weights, expert_indices = torch.topk(scores, self.num_experts_per_tok, dim=-1)
-        expert_weights = expert_weights.softmax(dim=-1)
+        if not self.moe_softmax_after:
+            scores = scores.softmax(dim=-1)
+        expert_weights, expert_indices = torch.topk(scores, self.num_experts_per_tok, dim=-1, sorted=False)
+        if self.moe_softmax_after:
+            expert_weights = expert_weights.softmax(dim=-1)
         flat_expert_indices = expert_indices.view(-1)
 
         x = x.repeat_interleave(self.num_experts_per_tok, dim=0)
