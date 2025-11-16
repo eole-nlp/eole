@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image  # , ImageOps
 import PIL
 from typing import Tuple, Optional, Union
 from enum import Enum
@@ -492,15 +492,15 @@ def process_image(image_path, adapter="llava", image_size=1024, image_patch_size
         return {"image": image, "tokens": image_tokens}
     elif adapter == "deepseekocr":
         image = Image.open(image_path)
-
-        # Orignal DeepSeekOCR code
+        """
+        # Orignal DeepSeekOCR code - padding not optimal
         image = image.convert("RGB")
         image = ImageOps.pad(image, (image_size, image_size), color=tuple(int(x * 255) for x in [0.5, 0.5, 0.5]))
         image_transform = BasicImageTransform(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5), normalize=True)
         image = image_transform(image).to(torch.bfloat16)  # C H W
-
+        # careful returns a tensor vs others np array
         """
-        # same code as gemma3 above, works too even though not 100% equivalent
+        # same code as gemma3 above, works better it seems
         image = _convert_to_rgb(image)
         image = resize(image=image, size=(1024, 1024), resample=2, input_data_format=ChannelDimension.LAST)
         image = rescale(image=image, scale=0.00392156862745098, input_data_format=ChannelDimension.LAST)  # 1/256
@@ -508,8 +508,10 @@ def process_image(image_path, adapter="llava", image_size=1024, image_patch_size
             image=image, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], input_data_format=ChannelDimension.LAST
         )
         image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
-        image = torch.tensor(image).to(torch.bfloat16)
-        """
+        # print(type(image))
+        # img_pil = Image.fromarray((image * 255).astype('uint8'))
+        # img_pil.show()
+        # exit()
         # sam patches are 16 (hardcoded in original implementation)
         # for a 1024x1024 image it means patches of 64x64
         # for the sam encoder it is 64x64 = 4096 patches
