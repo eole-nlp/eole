@@ -764,7 +764,7 @@ def build_config_dict(hf):
             "norm_eps": 1e-6,
         }
         model_config["encoder"] = {
-            "encoder_type": "deepvision",
+            "encoder_type": "vision",
             "mlp_activation_fn": "quick_gelu",
             "layer_norm": "standard",
             "norm_eps": 1e-5,
@@ -791,6 +791,8 @@ def build_config_dict(hf):
             "image_token_id": 128815,
             "layernorm_pre": True,
             "patch_conv_bias": False,
+            "encoder_sam": True,
+            "use_class_embedding": True,
         }
         model_config["multimodal_projector_bias"] = other_config.get("multimodal_projector_bias", False)
         model_config["projector_activation_fn"] = other_config.get("projector_hidden_act", "gelu")

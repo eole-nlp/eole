@@ -456,7 +456,7 @@ class BasicImageTransform(BaseTransform):
 
         transform_pipelines = [transforms.ToTensor()]
 
-        normalize = normalize_transform(mean, std) if normalize else nn.Identity()
+        normalize = normalize_transform(mean, std) if normalize else torch.nn.Identity()
         if normalize is not None:
             transform_pipelines.append(normalize)
 

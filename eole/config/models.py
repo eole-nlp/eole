@@ -371,7 +371,7 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     Based on mistral-community/pixtral-12b, might evolve later.
     """
 
-    encoder_type: Literal["vision", "deepvision"] = Field(default="vision")
+    encoder_type: Literal["vision"] = Field(default="vision")
     # default to Pixtral 12B settings, might change later
     num_channels: int | None = 3
     image_size: int | None = 1024
@@ -380,6 +380,9 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     mm_tokens_per_image: int | None = 256  # added for gemma3
     layernorm_pre: bool = True  # True for pixtral/mistral False for gemma3
     patch_conv_bias: bool = False  # False for pixtral/mistral True for gemma3
+
+    encoder_sam: bool = False  # True for DeepSeekOCR (Segment Anything Model as 1st step)
+    use_class_embedding: bool = False
 
 
 # use Field with default= + description would be more readable

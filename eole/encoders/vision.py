@@ -6,6 +6,8 @@ https://github.com/mistralai/mistral-inference/pull/217/files#diff-5cf8b83293298
 
 import torch
 import torch.nn as nn
+import torch.functional as F
+import math
 from typing import Optional
 
 from eole.encoders.transformer import TransformerEncoderLayer
@@ -51,7 +53,7 @@ class PatchMerger(nn.Module):
         return image_features
 
 
-def position_ids_in_meshgrid(patch_embeds_list, max_width, flatten=True):
+def position_ids_in_meshgrid(patch_embeds_list, max_width):
     positions = []
     for patch in patch_embeds_list:
         height, width = patch.shape[-2:]
@@ -59,10 +61,7 @@ def position_ids_in_meshgrid(patch_embeds_list, max_width, flatten=True):
         h_grid, v_grid = torch.stack(mesh, dim=-1).reshape(-1, 2).chunk(2, -1)
         ids = h_grid * max_width + v_grid
         positions.append(ids[:, 0])
-    if flatten:
-        return torch.cat(positions)
-    else:
-        return torch.stack(positions)
+    return positions
 
 
 def create_block_diagonal_mask(lengths, device):
@@ -86,19 +85,62 @@ def create_block_diagonal_mask(lengths, device):
     return mask.to(device)
 
 
+def get_abs_pos(abs_pos, tgt_size):
+    # abs_pos: L, C
+    # tgt_size: M
+    # return: M, C
+
+    # print(tgt_size)
+    # print(abs_pos.shape)
+    # exit()
+    dim = abs_pos.size(-1)
+    # print(dim)
+    abs_pos_new = abs_pos.squeeze(0)
+    cls_token, old_pos_embed = abs_pos_new[:1], abs_pos_new[1:]
+
+    src_size = int(math.sqrt(abs_pos_new.shape[0] - 1))
+    tgt_size = int(math.sqrt(tgt_size))
+    dtype = abs_pos.dtype
+
+    if src_size != tgt_size:
+        old_pos_embed = old_pos_embed.view(1, src_size, src_size, dim).permute(0, 3, 1, 2).contiguous()
+        old_pos_embed = old_pos_embed.to(torch.float32)
+        new_pos_embed = F.interpolate(
+            old_pos_embed,
+            size=(tgt_size, tgt_size),
+            mode="bicubic",
+            antialias=True,
+            align_corners=False,
+        ).to(dtype)
+        new_pos_embed = new_pos_embed.permute(0, 2, 3, 1)
+        new_pos_embed = new_pos_embed.view(tgt_size * tgt_size, dim)
+        vision_pos_embed = torch.cat([cls_token, new_pos_embed], dim=0)
+        vision_pos_embed = vision_pos_embed.view(1, tgt_size * tgt_size + 1, dim)
+        return vision_pos_embed
+    else:
+        return abs_pos
+
+
+# Clip() based vision encoder
 class VisionEncoder(nn.Module):
     def __init__(self, encoder_config, running_config=None):
         super(VisionEncoder, self).__init__()
         self.encoder_config = encoder_config
+        if encoder_config.encoder_sam:
+            from eole.encoders.deepseek_sam import build_sam_vit_b
 
+            self.sam = build_sam_vit_b()
+        else:
+            self.sam = None
         if encoder_config.position_encoding_type == PositionEncodingType.Learned:
             self.position_embeddings = nn.Embedding(
                 encoder_config.n_positions,
                 encoder_config.hidden_size,
             )
+            self.register_buffer("position_ids", torch.arange(encoder_config.n_positions).expand((1, -1)))
         else:
             self.rope = build_rope(encoder_config, mode="2d")
-        self.class_embedding = torch.nn.Parameter(torch.randn(encoder_config.hidden_size))
+
         self.patch_conv = nn.Conv2d(
             in_channels=encoder_config.num_channels,
             out_channels=encoder_config.hidden_size,
@@ -106,6 +148,10 @@ class VisionEncoder(nn.Module):
             stride=encoder_config.patch_size,
             bias=encoder_config.patch_conv_bias,
         )
+        if encoder_config.use_class_embedding:
+            self.class_embedding = torch.nn.Embedding(1, encoder_config.hidden_size)
+        else:
+            self.class_embedding = None
         if encoder_config.layernorm_pre:
             self.ln_pre = LayerNorm[encoder_config.layer_norm](encoder_config.hidden_size, eps=1e-5)
         else:
@@ -139,62 +185,63 @@ class VisionEncoder(nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    def forward(self, images):
+    def forward(self, images, sam_patches=None):
         """
         Args:
-            images: list of N_img images of variable sizes, each of shape (C, H, W)
+            images: tensor of size, each of shape (B, C, H, W)
         Returns:
             image_features: tensor of token features for all tokens of all images of
                 shape (N_img, Seqlen, D)
         """
-        print(images)
-        exit()
         # TODO add as @property somewhere
         dtype = next(self.parameters()).dtype
-
-        # pass images through initial convolution independently (because they may have different sizes)
-        patch_embeds_list = [self.patch_conv(img.to(dtype)) for img in images]
-
-        if self.ln_pre is not None:  # pixtral / mistral
-            # flatten H+W then change to (H+W, C) and stack all images of ex
-            patch_embeds = torch.cat([p.flatten(1).permute(1, 0) for p in patch_embeds_list], dim=0)
-            patch_embeds = self.ln_pre(patch_embeds)
-            # create a fake batch dim
-            patch_embeds = patch_embeds.unsqueeze(0)
-            mask = create_block_diagonal_mask(
-                [p.shape[-2] * p.shape[-1] for p in patch_embeds_list],
-                device=self.device,
-            )  # block diagonal mask delimiting images
-            # revert for proper downstream compatibility
-            mask = ~mask
-        else:  # gemma3
-            patch_embeds = torch.cat([p.unsqueeze(0) for p in patch_embeds_list], dim=0)
+        mask = None
+        position_embeddings = None
+        if sam_patches is not None:
+            patch_embeds = sam_patches
+            # flatten H+W then change to (H+W, C)
             patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
-            mask = None
-
-        # positional embeddings
-        positions = position_ids_in_meshgrid(
-            patch_embeds_list,
-            max_width=self.encoder_config.image_size // self.encoder_config.patch_size,
-            flatten=self.ln_pre is not None,  # dirty flag need to improve
-        ).to(self.device)
-        # TODO: make this cleaner
-        if hasattr(self, "position_embeddings"):
-            # this is only used for rope
-            position_embeddings = None
-            patch_embeds += self.position_embeddings(positions)
+            if self.class_embedding is not None:  # deepseekocr
+                bs = patch_embeds.size(0)
+                class_embeds = self.class_embedding.weight.expand(bs, -1, -1)
+                patch_embeds = torch.cat([class_embeds, patch_embeds], dim=1)
+                patch_embeds += get_abs_pos(self.position_embeddings(self.position_ids), patch_embeds.size(1))
+            if self.ln_pre is not None:
+                patch_embeds = self.ln_pre(patch_embeds)
         else:
-            position_embeddings = self.rope.update(
-                patch_embeds.size(1),
-                step=0,
-                reset=True,
-                positions=positions,
+            patch_embeds_list = [self.patch_conv(img.to(dtype)) for img in images]
+            positions = position_ids_in_meshgrid(
+                patch_embeds_list,
+                max_width=self.encoder_config.image_size // self.encoder_config.patch_size,
             )
+            if hasattr(self, "position_embeddings"):
+                # Learned positions (Gemma3, Classic Clip)
+                patch_embeds = torch.cat([p.unsqueeze(0) for p in patch_embeds_list], dim=0)
+                patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
+                patch_embeds += self.position_embeddings(torch.stack(positions).to(self.device))
+            else:  # rope embedding / pixtral / Mistral
+                patch_embeds = torch.cat([p.flatten(1).permute(1, 0) for p in patch_embeds_list], dim=0)
+                if self.ln_pre is not None:
+                    patch_embeds = self.ln_pre(patch_embeds)
+                # create a fake batch dim
+                patch_embeds = patch_embeds.unsqueeze(0)
+                mask = create_block_diagonal_mask(
+                    [p.shape[-2] * p.shape[-1] for p in patch_embeds_list],
+                    device=self.device,
+                )  # block diagonal mask delimiting images
+                # revert for proper downstream compatibility
+                mask = ~mask
+                position_embeddings = self.rope.update(
+                    patch_embeds.size(1),
+                    step=0,
+                    reset=True,
+                    positions=torch.cat(positions).to(self.device),
+                )
 
         out = patch_embeds
+
         for i, layer in enumerate(self.transformer_layers):
             out = layer(out, pad_mask=mask, position_embeddings=position_embeddings)
-
         if self.post_layernorm is not None:
             out = self.post_layernorm(out)
 
@@ -269,7 +316,7 @@ class DeepSeekOCRProjector(nn.Module):
     def __init__(self, model_config):
         super(DeepSeekOCRProjector, self).__init__()
         bias = getattr(model_config, "adapter_bias", False)
-        self.w_in = nn.Linear(model_config.encoder.hidden_size, model_config.decoder.hidden_size, bias=bias)
+        self.w_in = nn.Linear(model_config.encoder.hidden_size * 2, model_config.decoder.hidden_size, bias=bias)
 
     def forward(self, x, image_sizes=None):
         return self.w_in(x)

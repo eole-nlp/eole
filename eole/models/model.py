@@ -645,7 +645,6 @@ class BaseModel(nn.Module):
                     elif prefix + param_name in keys_shard.keys():
 
                         ckpt_t = f[keys_shard[prefix + param_name]].get_tensor(prefix + param_name)
-                        print(prefix + param_name, param.data.size(), ckpt_t.size())
                         self._load_param(name, module, param_name, param, buf_list, ckpt_t, offset)
                         keyfound[prefix + param_name] = True
                     elif strict and ("lora" not in param_name and "slopes" not in param_name and "rope" not in name):
@@ -930,6 +929,11 @@ class VisionEncoderDecoderModel(BaseModel):
         self.image_token_id = kwargs.get("image_token_id", None)
         if self.encoder is None or self.decoder is None:
             raise ValueError("A EncoderDecoderModel requires both an Encoder and a Decoder")
+        if self.encoder.sam is not None:
+            n_embed = 1280
+            embed_std = 1 / torch.sqrt(torch.tensor(n_embed, dtype=torch.float32))
+            self.image_newline = nn.Parameter(torch.randn(n_embed) * embed_std)
+            self.view_separator = nn.Parameter(torch.randn(n_embed) * embed_std)
         # TODO: make this compatible?
         if self.add_estimator:
             self.estimator = FeedForward(self.hidden_size)
@@ -966,129 +970,25 @@ class VisionEncoderDecoderModel(BaseModel):
             return text_features
         image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
 
-        # images is a list of tensors, each being [channel, H, W]
-        encoded_images = self.encoder(images)
-        # encoded_images is [N_img x seq x hidden_size]
-        image_features = self.adapter(encoded_images, image_sizes=image_sizes)
-
-        seq_len = src.shape[1]
-        batch, N_txt, D_txt = text_features.shape
-        N_img, tokperimg, D_img = image_features.shape
-        assert D_txt == D_img, f"Text features dim {D_txt} should be equal to image features dim {D_img}"
-        assert batch * seq_len == batch * N_txt + N_img * tokperimg, (
-            f"seq_len {seq_len} should be equal to N_txt + N_img * tokperimg "
-            f"{(N_txt, N_img, tokperimg, image_locations.sum().item())}"
-        )
-
-        combined_features = torch.empty(
-            (batch, seq_len, D_txt),
-            dtype=text_features.dtype,
-            device=text_features.device,
-        )
-        text_mask = text_locations.unsqueeze(-1).expand_as(combined_features)
-        combined_features = combined_features.masked_scatter(text_mask, text_features.view(-1, D_img))
-        if len(images) > 0:
-            image_mask = image_locations.unsqueeze(-1).expand_as(combined_features)
-            combined_features = combined_features.masked_scatter(image_mask, image_features.view(-1, D_img))
-
-        return combined_features
-
-    def forward(self, src, tgt, src_len, with_align=False, **kwargs):
-        """A DecoderModel forward the src side to the decoder along
-        with the source lengths vector. It is a decoder only LM (cf GPT-2)"""
-
-        self.decoder.init_state()
-        emb = self.embed_vision_language_features(src, **kwargs)
-        dec_in = tgt[:, :-1]
-        pad_idx = self.tgt_emb.word_padding_idx
-        pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
-        dec_out, attns = self.decoder(
-            emb,
-            enc_out=None,
-            src_len=src_len,
-            with_align=with_align,
-            tgt_pad_mask=pad_mask,
-        )
-
-        if self.add_estimator:  # we take the average of dec_out using the pad mask
-            pad_mask2 = ~dec_in.eq(pad_idx)
-            in_estim2 = (dec_out * pad_mask2.unsqueeze(-1).float()).sum(dim=1) / pad_mask2.sum(
-                dim=1, keepdim=True
-            ).float()
-            estim = self.estimator(in_estim2.to(dec_out.dtype)).squeeze(-1)
+        if self.encoder.sam is not None:
+            sam_patches = self.encoder.sam(torch.stack(images, dim=0))  # tensor B C H W
+            encoded_images = self.encoder(images, sam_patches)
+            global_features = torch.cat((encoded_images[:, 1:], sam_patches.flatten(2).permute(0, 2, 1)), dim=-1)
+            image_features = self.adapter(global_features, image_sizes=image_sizes)
+            _, hw, n_dim = image_features.shape
+            h = w = int(hw**0.5)
+            image_features = image_features.view(h, w, n_dim)
+            image_features = torch.cat([image_features, self.image_newline[None, None, :].expand(h, 1, n_dim)], dim=1)
+            image_features = image_features.view(-1, n_dim)
+            image_features = torch.cat([image_features, self.view_separator[None, :]], dim=0).unsqueeze(0)
         else:
-            estim = None
-
-        return dec_out, attns, estim
-
-    def update_dropout(self, dropout, attention_dropout):
-        self.encoder.update_dropout(dropout, attention_dropout)
-        self.src_emb.update_dropout(dropout)
-        self.decoder.update_dropout(dropout, attention_dropout)
-        self.tgt_emb.update_dropout(dropout)
-
-
-class VisionDeepEncoderDecoderModel(BaseModel):
-    """VisionEncoderDecoderModel Class
-    See :class:`~eole.models.BaseModel` for options."""
-
-    def __init__(self, **kwargs):
-        super(VisionDeepEncoderDecoderModel, self).__init__(**kwargs)
-        self.tgt_shift = 1
-        self.image_token_id = kwargs.get("image_token_id", None)
-        if self.encoder is None or self.decoder is None:
-            raise ValueError("A EncoderDecoderModel requires both an Encoder and a Decoder")
-        from eole.encoders.deepseek_sam import build_sam_vit_b
-
-        self.encoder.sam = build_sam_vit_b()
-        n_embed = 1280
-        embed_std = 1 / torch.sqrt(torch.tensor(n_embed, dtype=torch.float32))
-        self.image_newline = nn.Parameter(torch.randn(n_embed) * embed_std)
-        self.view_separator = nn.Parameter(torch.randn(n_embed) * embed_std)
-        # TODO: make this compatible?
-        if self.add_estimator:
-            self.estimator = FeedForward(self.hidden_size)
-
-    @classmethod
-    def build_blocks(cls, model_config, vocabs, running_config=None):
-        encoder = build_encoder(model_config, running_config=running_config)
-        adapter = build_adapter(model_config, running_config=running_config)
-        tgt_emb = build_tgt_emb(
-            model_config,
-            vocabs,
-            running_config=running_config,
-            share_embeddings=model_config.share_embeddings,
-        )
-        decoder = build_decoder(model_config, running_config=running_config)
-        return cls(
-            encoder=encoder,
-            decoder=decoder,
-            adapter=adapter,
-            tgt_emb=tgt_emb,
-            add_estimator=model_config.add_estimator,
-            hidden_size=model_config.decoder.hidden_size,
-            image_token_id=model_config.encoder.image_token_id,
-        )
-        # from there, the base blocks exist, and the rest is done in the from_opt from base class
-
-    def embed_vision_language_features(self, src, **kwargs):
-        batch_size = src.size(0)
-        images = kwargs.get("images", None)
-        text_locations = src != self.image_token_id
-        image_locations = src == self.image_token_id
-        text_features = self.tgt_emb(src[text_locations].view(batch_size, -1))
-        if images is None or len(images) == 0:
-            return text_features
-        image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
-
-        # images is a list of tensors, each being [channel, H, W]
-        encoded_images = self.encoder(images)
-        # encoded_images is [N_img x seq x hidden_size]
-        image_features = self.adapter(encoded_images, image_sizes=image_sizes)
+            encoded_images = self.encoder(images)
+            image_features = self.adapter(encoded_images, image_sizes=image_sizes)
 
         seq_len = src.shape[1]
         batch, N_txt, D_txt = text_features.shape
         N_img, tokperimg, D_img = image_features.shape
+
         assert D_txt == D_img, f"Text features dim {D_txt} should be equal to image features dim {D_img}"
         assert batch * seq_len == batch * N_txt + N_img * tokperimg, (
             f"seq_len {seq_len} should be equal to N_txt + N_img * tokperimg "
@@ -1112,9 +1012,6 @@ class VisionDeepEncoderDecoderModel(BaseModel):
         """A DecoderModel forward the src side to the decoder along
         with the source lengths vector. It is a decoder only LM (cf GPT-2)"""
 
-        print(src)
-        print(kwargs)
-        exit()
         self.decoder.init_state()
         emb = self.embed_vision_language_features(src, **kwargs)
         dec_in = tgt[:, :-1]
@@ -1154,7 +1051,5 @@ def get_model_class(model_config):
         return DecoderModel
     elif model_config.encoder.encoder_type == "vision":
         return VisionEncoderDecoderModel
-    elif model_config.encoder.encoder_type == "deepvision":
-        return VisionDeepEncoderDecoderModel
     else:
         return EncoderDecoderModel
