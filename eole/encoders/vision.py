@@ -128,6 +128,7 @@ class VisionEncoder(nn.Module):
         self.encoder_config = encoder_config
         if encoder_config.encoder_sam:
             from eole.encoders.deepseek_sam import build_sam_vit_b
+
             self.sam = build_sam_vit_b()
         else:
             self.sam = None
@@ -246,6 +247,7 @@ class VisionEncoder(nn.Module):
             out = self.post_layernorm(out)
 
         return out
+
 
 # TODO refactor the 3 projectors below for unique code path
 # Multi-Modal Projector
