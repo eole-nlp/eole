@@ -764,7 +764,6 @@ def build_config_dict(hf):
             "norm_eps": 1e-6,
         }
         model_config["encoder"] = {
-            "encoder_type": "vision",
             "mlp_activation_fn": "quick_gelu",
             "layer_norm": "standard",
             "norm_eps": 1e-5,

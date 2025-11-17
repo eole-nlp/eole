@@ -639,7 +639,7 @@ class BaseModel(nn.Module):
                 # if param_name in [enc_emb_name, dec_emb_name, ]
                 if len(param_name.split(".")) == 1:  # only last key
                     if prefix + param_name in updated_params.keys():
-                        ckpt_t = updated_params[name + "." + param_name]
+                        ckpt_t = updated_params[prefix + param_name]
                         self._load_param(name, module, param_name, param, buf_list, ckpt_t, offset)
                         keyfound[prefix + param_name] = True
                     elif prefix + param_name in keys_shard.keys():
@@ -930,11 +930,9 @@ class VisionEncoderDecoderModel(BaseModel):
         if self.encoder is None or self.decoder is None:
             raise ValueError("A EncoderDecoderModel requires both an Encoder and a Decoder")
         if self.encoder.sam is not None:
-            n_embed = 1280
-            embed_std = 1 / torch.sqrt(torch.tensor(n_embed, dtype=torch.float32))
-            self.image_newline = nn.Parameter(torch.randn(n_embed) * embed_std)
-            self.view_separator = nn.Parameter(torch.randn(n_embed) * embed_std)
-        # TODO: make this compatible?
+            embed_std = 1 / torch.sqrt(torch.tensor(self.hidden_size, dtype=torch.float32))
+            self.image_newline = nn.Parameter(torch.randn(self.hidden_size) * embed_std)
+            self.view_separator = nn.Parameter(torch.randn(self.hidden_size) * embed_std)
         if self.add_estimator:
             self.estimator = FeedForward(self.hidden_size)
 
@@ -988,7 +986,6 @@ class VisionEncoderDecoderModel(BaseModel):
         seq_len = src.shape[1]
         batch, N_txt, D_txt = text_features.shape
         N_img, tokperimg, D_img = image_features.shape
-
         assert D_txt == D_img, f"Text features dim {D_txt} should be equal to image features dim {D_img}"
         assert batch * seq_len == batch * N_txt + N_img * tokperimg, (
             f"seq_len {seq_len} should be equal to N_txt + N_img * tokperimg "

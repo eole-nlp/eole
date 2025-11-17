@@ -508,10 +508,7 @@ def process_image(image_path, adapter="llava", image_size=1024, image_patch_size
             image=image, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], input_data_format=ChannelDimension.LAST
         )
         image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
-        # print(type(image))
-        # img_pil = Image.fromarray((image * 255).astype('uint8'))
-        # img_pil.show()
-        # exit()
+
         # sam patches are 16 (hardcoded in original implementation)
         # for a 1024x1024 image it means patches of 64x64
         # for the sam encoder it is 64x64 = 4096 patches

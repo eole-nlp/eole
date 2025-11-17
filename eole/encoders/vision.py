@@ -128,7 +128,6 @@ class VisionEncoder(nn.Module):
         self.encoder_config = encoder_config
         if encoder_config.encoder_sam:
             from eole.encoders.deepseek_sam import build_sam_vit_b
-
             self.sam = build_sam_vit_b()
         else:
             self.sam = None
@@ -140,7 +139,6 @@ class VisionEncoder(nn.Module):
             self.register_buffer("position_ids", torch.arange(encoder_config.n_positions).expand((1, -1)))
         else:
             self.rope = build_rope(encoder_config, mode="2d")
-
         self.patch_conv = nn.Conv2d(
             in_channels=encoder_config.num_channels,
             out_channels=encoder_config.hidden_size,
@@ -188,11 +186,12 @@ class VisionEncoder(nn.Module):
     def forward(self, images, sam_patches=None):
         """
         Args:
-            images: tensor of size, each of shape (B, C, H, W)
+            images: list of N_img images of variable sizes, each of shape (C, H, W)
         Returns:
             image_features: tensor of token features for all tokens of all images of
                 shape (N_img, Seqlen, D)
         """
+
         # TODO add as @property somewhere
         dtype = next(self.parameters()).dtype
         mask = None
@@ -242,12 +241,13 @@ class VisionEncoder(nn.Module):
 
         for i, layer in enumerate(self.transformer_layers):
             out = layer(out, pad_mask=mask, position_embeddings=position_embeddings)
+
         if self.post_layernorm is not None:
             out = self.post_layernorm(out)
 
         return out
 
-
+# TODO refactor the 3 projectors below for unique code path
 # Multi-Modal Projector
 class VisionLanguageAdapter(nn.Module):
     def __init__(self, model_config):

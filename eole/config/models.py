@@ -786,12 +786,10 @@ class VisionTransformerLMModelConfig(TransformerConfig, BaseModelConfig):
         # patch to allow transparent setting of encoder/decoder_type
         if not (isinstance(data, dict)):
             return data
-        """
         if "encoder" in data.keys():
             data["encoder"]["encoder_type"] = "vision"
         else:
             data["encoder"] = {"encoder_type": "vision"}
-        """
         if "decoder" in data.keys():
             data["decoder"]["decoder_type"] = "transformer"
         else:

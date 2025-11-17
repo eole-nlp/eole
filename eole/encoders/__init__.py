@@ -14,5 +14,4 @@ str2enc = {
     "transformer": TransformerEncoder,
     "mean": MeanEncoder,
     "vision": VisionEncoder,
-    "deepvision": VisionEncoder,
 }
