@@ -6,7 +6,7 @@ https://github.com/mistralai/mistral-inference/pull/217/files#diff-5cf8b83293298
 
 import torch
 import torch.nn as nn
-import torch.functional as F
+import torch.nn.functional as F
 import math
 from typing import Optional
 
@@ -86,15 +86,7 @@ def create_block_diagonal_mask(lengths, device):
 
 
 def get_abs_pos(abs_pos, tgt_size):
-    # abs_pos: L, C
-    # tgt_size: M
-    # return: M, C
-
-    # print(tgt_size)
-    # print(abs_pos.shape)
-    # exit()
     dim = abs_pos.size(-1)
-    # print(dim)
     abs_pos_new = abs_pos.squeeze(0)
     cls_token, old_pos_embed = abs_pos_new[:1], abs_pos_new[1:]
 

@@ -649,7 +649,7 @@ class BaseModel(nn.Module):
                         keyfound[prefix + param_name] = True
                     elif strict and ("lora" not in param_name and "slopes" not in param_name and "rope" not in name):
                         # Let's warn instead of just passing
-                        logger.info("Missing key in safetensors checkpoint: %s" % prefix + param_name)
+                        logger.info("Missing key in safetensors checkpoint: %s" % (prefix + param_name))
                         if len(buffers_list) > 0 and param_name in list(zip(*module.named_buffers()))[0]:
                             logger.info("└─> Found in buffers, probably ok")
                         if (
