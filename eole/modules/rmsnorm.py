@@ -35,23 +35,24 @@ class RMSNorm(torch.nn.Module):
             self._vllm_rmsnorm = None
 
     @torch.compile(dynamic=True)
-    def compute_rms(self, hidden_states, factor=0):
+    def compute_rms(self, hidden_states):
         inp_dtype = hidden_states.dtype
         hidden_states = hidden_states.to(torch.float32)
         variance = hidden_states.pow(2).mean(-1, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.eps)
-        hidden_states = hidden_states.to(inp_dtype)
-        hidden_states = hidden_states * (factor + self.weight.float())
-        return hidden_states.type_as(self.weight)
+        return hidden_states.to(inp_dtype) * self.weight
 
     def _forward(self, hidden_states, factor=0):
         if self.training or not _vllm_available:
-            return self.compute_rms(hidden_states, factor=factor)
+            return self.compute_rms(hidden_states)
         else:
             return self._vllm_rmsnorm(hidden_states)
 
     def forward(self, hidden_states):
         return self._forward(hidden_states)
+
+    def extra_repr(self):
+        return f"{tuple(self.weight.shape)}, eps={self.eps}"
 
 
 class GemmaRMSNorm(RMSNorm):
@@ -65,9 +66,17 @@ class GemmaRMSNorm(RMSNorm):
         else:
             self._vllm_gemmarmsnorm = None
 
+    @torch.compile(dynamic=True)
+    def compute_rms(self, hidden_states, factor=0):
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.eps)
+        hidden_states = hidden_states * (factor + self.weight.float())
+        return hidden_states.type_as(self.weight)
+
     def forward(self, hidden_states):
         if self.training or not _vllm_available:
-            return self._forward(hidden_states, factor=1.0)
+            return self.compute_rms(hidden_states, factor=1.0)
         else:
             return self._vllm_gemmarmsnorm(hidden_states)
 

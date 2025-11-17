@@ -1,11 +1,13 @@
 import torch
 import numpy as np
-from PIL import Image
+from PIL import Image  # , ImageOps
 import PIL
 from typing import Tuple, Optional, Union
 from enum import Enum
 from collections.abc import Collection
 from eole.utils.logging import logger
+from abc import ABC
+from torchvision import transforms
 
 """
 Most of this code is borrowed from:
@@ -414,6 +416,57 @@ def to_channel_dimension_format(
     return image
 
 
+def normalize_transform(mean, std):
+    if mean is None and std is None:
+        transform = None
+    elif mean is None and std is not None:
+        mean = [0.0] * len(std)
+        transform = transforms.Normalize(mean=mean, std=std)
+    elif mean is not None and std is None:
+        std = [1.0] * len(mean)
+        transform = transforms.Normalize(mean=mean, std=std)
+    else:
+        transform = transforms.Normalize(mean=mean, std=std)
+
+    return transform
+
+
+class BaseTransform(ABC):
+
+    def set_rng(self, *args, **kwargs):
+        pass
+
+    def __call__(self, *args, **kwargs) -> torch.Tensor:
+        pass
+
+    @property
+    def default_shape(self):
+        raise NotImplementedError
+
+
+class BasicImageTransform(BaseTransform):
+    def __init__(
+        self,
+        mean: Optional[Tuple[float, float, float]] = (0.5, 0.5, 0.5),
+        std: Optional[Tuple[float, float, float]] = (0.5, 0.5, 0.5),
+        normalize: bool = True,
+    ):
+        self.mean = mean
+        self.std = std
+
+        transform_pipelines = [transforms.ToTensor()]
+
+        normalize = normalize_transform(mean, std) if normalize else torch.nn.Identity()
+        if normalize is not None:
+            transform_pipelines.append(normalize)
+
+        self.transform = transforms.Compose(transform_pipelines)
+
+    def __call__(self, x):
+        x = self.transform(x)
+        return x
+
+
 def process_image(image_path, adapter="llava", image_size=1024, image_patch_size=16):
     if adapter == "llava":
         image = Image.open(image_path)
@@ -436,6 +489,33 @@ def process_image(image_path, adapter="llava", image_size=1024, image_patch_size
         # return image
         # TODO: make this configurable?
         image_tokens = "<start_of_image>" + "<image_soft_token>" * 256 + "<end_of_image>"
+        return {"image": image, "tokens": image_tokens}
+    elif adapter == "deepseekocr":
+        image = Image.open(image_path)
+        """
+        # Orignal DeepSeekOCR code - padding not optimal
+        image = image.convert("RGB")
+        image = ImageOps.pad(image, (image_size, image_size), color=tuple(int(x * 255) for x in [0.5, 0.5, 0.5]))
+        image_transform = BasicImageTransform(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5), normalize=True)
+        image = image_transform(image).to(torch.bfloat16)  # C H W
+        # careful returns a tensor vs others np array
+        """
+        # same code as gemma3 above, works better it seems
+        image = _convert_to_rgb(image)
+        image = resize(image=image, size=(1024, 1024), resample=2, input_data_format=ChannelDimension.LAST)
+        image = rescale(image=image, scale=0.00392156862745098, input_data_format=ChannelDimension.LAST)  # 1/256
+        image = normalize_gemma(
+            image=image, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], input_data_format=ChannelDimension.LAST
+        )
+        image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
+
+        # sam patches are 16 (hardcoded in original implementation)
+        # for a 1024x1024 image it means patches of 64x64
+        # for the sam encoder it is 64x64 = 4096 patches
+        # then goes to Clip 4096 / 16 = 256 tokens (16 patches x 16 patches)
+        # but there is one token at the end of each line, and one more at the end of the pic
+        # (16 + 1) x 16 + 1 = 273
+        image_tokens = ["<image>"] * 273
         return {"image": image, "tokens": image_tokens}
     else:
         raise ValueError("Unsupported Adapter type: {}".format(adapter))

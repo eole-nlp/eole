@@ -628,24 +628,28 @@ class BaseModel(nn.Module):
                 logger.info("%s: %d new tokens" % (side, len(new_tokens)))
 
         for name, module in self.named_modules():
+            if len(name) == 0:
+                prefix = ""
+            else:
+                prefix = name + "."
             buffers_list = list(module.named_buffers())
             named_buf_and_param = buffers_list + list(module.named_parameters())
             for param_name, param in named_buf_and_param:
                 # special handling for update vocab related stuff
                 # if param_name in [enc_emb_name, dec_emb_name, ]
                 if len(param_name.split(".")) == 1:  # only last key
-                    if name + "." + param_name in updated_params.keys():
-                        ckpt_t = updated_params[name + "." + param_name]
+                    if prefix + param_name in updated_params.keys():
+                        ckpt_t = updated_params[prefix + param_name]
                         self._load_param(name, module, param_name, param, buf_list, ckpt_t, offset)
-                        keyfound[name + "." + param_name] = True
-                    elif name + "." + param_name in keys_shard.keys():
+                        keyfound[prefix + param_name] = True
+                    elif prefix + param_name in keys_shard.keys():
 
-                        ckpt_t = f[keys_shard[name + "." + param_name]].get_tensor(name + "." + param_name)
+                        ckpt_t = f[keys_shard[prefix + param_name]].get_tensor(prefix + param_name)
                         self._load_param(name, module, param_name, param, buf_list, ckpt_t, offset)
-                        keyfound[name + "." + param_name] = True
+                        keyfound[prefix + param_name] = True
                     elif strict and ("lora" not in param_name and "slopes" not in param_name and "rope" not in name):
                         # Let's warn instead of just passing
-                        logger.info("Missing key in safetensors checkpoint: %s" % name + "." + param_name)
+                        logger.info("Missing key in safetensors checkpoint: %s" % (prefix + param_name))
                         if len(buffers_list) > 0 and param_name in list(zip(*module.named_buffers()))[0]:
                             logger.info("└─> Found in buffers, probably ok")
                         if (
@@ -925,7 +929,10 @@ class VisionEncoderDecoderModel(BaseModel):
         self.image_token_id = kwargs.get("image_token_id", None)
         if self.encoder is None or self.decoder is None:
             raise ValueError("A EncoderDecoderModel requires both an Encoder and a Decoder")
-        # TODO: make this compatible?
+        if self.encoder.sam is not None:
+            embed_std = 1 / torch.sqrt(torch.tensor(self.hidden_size, dtype=torch.float32))
+            self.image_newline = nn.Parameter(torch.randn(self.hidden_size) * embed_std)
+            self.view_separator = nn.Parameter(torch.randn(self.hidden_size) * embed_std)
         if self.add_estimator:
             self.estimator = FeedForward(self.hidden_size)
 
@@ -961,10 +968,20 @@ class VisionEncoderDecoderModel(BaseModel):
             return text_features
         image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
 
-        # images is a list of tensors, each being [channel, H, W]
-        encoded_images = self.encoder(images)
-        # encoded_images is [N_img x seq x hidden_size]
-        image_features = self.adapter(encoded_images, image_sizes=image_sizes)
+        if self.encoder.sam is not None:
+            sam_patches = self.encoder.sam(torch.stack(images, dim=0))  # tensor B C H W
+            encoded_images = self.encoder(images, sam_patches)
+            global_features = torch.cat((encoded_images[:, 1:], sam_patches.flatten(2).permute(0, 2, 1)), dim=-1)
+            image_features = self.adapter(global_features, image_sizes=image_sizes)
+            _, hw, n_dim = image_features.shape
+            h = w = int(hw**0.5)
+            image_features = image_features.view(h, w, n_dim)
+            image_features = torch.cat([image_features, self.image_newline[None, None, :].expand(h, 1, n_dim)], dim=1)
+            image_features = image_features.view(-1, n_dim)
+            image_features = torch.cat([image_features, self.view_separator[None, :]], dim=0).unsqueeze(0)
+        else:
+            encoded_images = self.encoder(images)
+            image_features = self.adapter(encoded_images, image_sizes=image_sizes)
 
         seq_len = src.shape[1]
         batch, N_txt, D_txt = text_features.shape

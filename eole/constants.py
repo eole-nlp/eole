@@ -81,10 +81,16 @@ def fused_gated_gelu_tanh(x):
     return out
 
 
+@torch.jit.script
+def quick_gelu(x):
+    return x * torch.sigmoid(1.702 * x)
+
+
 class ActivationFunction(str, Enum):
     relu = "relu"
     gelu = "gelu"
     silu = "silu"
+    quick_gelu = "quick_gelu"
     gated_gelu = "gated-gelu"
     fused_gated_gelu = "fused-gated-gelu"
     gated_silu = "gated-silu"
@@ -104,6 +110,7 @@ ACTIVATION_FUNCTIONS = {
     ActivationFunction.relu: F.relu,
     ActivationFunction.gelu: F.gelu,
     ActivationFunction.silu: F.silu,
+    ActivationFunction.quick_gelu: quick_gelu,
     ActivationFunction.gated_gelu: F.gelu,
     ActivationFunction.fused_gated_gelu: fused_gated_gelu,
     ActivationFunction.gated_silu: F.silu,

@@ -208,6 +208,7 @@ class TransformerConfig(Config):
     sliding_window: int = Field(default=0, description="Sliding window for transformer self-attention.")
     heads: int = Field(default=8, description="Number of heads for transformer self-attention.")
     transformer_ff: int = Field(default=2048, description="Size of hidden transformer feed-forward.")
+    moe_transformer_ff: int | None = Field(default=None, description="Size of hidden moe transformer feed-forward.")
     relative_positions_buckets: int = Field(
         default=0,
         description="Enable relative position bias "
@@ -266,7 +267,10 @@ class TransformerConfig(Config):
         description="Use parallel residual in decoder layer. " "Note: this is used by GPT-J / Falcon Architecture.",
     )
     num_experts: int = Field(default=0, description="Number of experts for MoE models.")
+    num_shared_experts: int = Field(default=0, description="Number of shared experts for MoE models (DeepSeekv2).")
+    first_k_dense_replace: int = Field(default=0, description="Number of layers using Dense instead of MoE")
     num_experts_per_tok: int = Field(default=2, description="Number of experts per token.")
+    moe_softmax_after: bool = Field(default=False, description="Usually softmax is before topk, Mixtral does it after.")
     # These fields are set at EmbeddingsConfig level but will be copied here to be accessible in MHA
     position_encoding_type: PositionEncodingType | None = Field(
         default=PositionEncodingType.SinusoidalInterleaved,
@@ -377,6 +381,9 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     layernorm_pre: bool = True  # True for pixtral/mistral False for gemma3
     patch_conv_bias: bool = False  # False for pixtral/mistral True for gemma3
 
+    encoder_sam: bool = False  # True for DeepSeekOCR (Segment Anything Model as 1st step)
+    use_class_embedding: bool = False
+
 
 # use Field with default= + description would be more readable
 # was inheriting from VocabConfig, but removed for now to facilitate inference tests
@@ -426,6 +433,7 @@ class BaseModelConfig(Config):
         description="Number of layers in both encoder and decoder " "(will overwrite enc_layers/dec_layers).",
     )
     transformer_ff: int = Field(default=-1, description="Size of hidden transformer feed-forward.")
+    moe_transformer_ff: int | None = Field(default=None, description="Size of hidden moe transformer feed-forward.")
 
     share_decoder_embeddings: bool = Field(
         default=False,

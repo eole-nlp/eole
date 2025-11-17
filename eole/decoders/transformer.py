@@ -21,7 +21,7 @@ class TransformerDecoderLayer(nn.Module):
         with_cross_attn (True when used with an encoder)
     """
 
-    def __init__(self, decoder_config, running_config=None, with_cross_attn=False):
+    def __init__(self, decoder_config, idx: int, running_config=None, with_cross_attn=False):
         super(TransformerDecoderLayer, self).__init__()
         self.parallel_residual = decoder_config.parallel_residual
         self.shared_layer_norm = decoder_config.shared_layer_norm
@@ -66,7 +66,13 @@ class TransformerDecoderLayer(nn.Module):
             decoder_config.hidden_size, eps=decoder_config.norm_eps
         )
         if decoder_config.num_experts > 0:
-            self.mlp = MoE(decoder_config, running_config)
+            if idx >= decoder_config.first_k_dense_replace:
+                self.mlp = MoE(decoder_config, running_config)
+            else:
+                self.mlp = MLP(
+                    decoder_config,
+                    running_config=running_config,
+                )
         else:
             self.mlp = MLP(
                 decoder_config,
@@ -219,6 +225,7 @@ class TransformerDecoder(DecoderBase):
                     decoder_config,
                     running_config=running_config,
                     with_cross_attn=with_cross_attn,
+                    idx=i,
                 )
                 for i in range(decoder_config.layers)
             ]
