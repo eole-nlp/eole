@@ -11,7 +11,7 @@ setup(
     description="Open language modeling toolkit based on PyTorch",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    version="0.3.0",
+    version="0.4.0",
     packages=find_packages(),
     project_urls={
         "Source": "https://github.com/eole-nlp/eole/",
@@ -39,7 +39,7 @@ setup(
         "spacy",
         "subword-nmt>=0.3.7",
         "tensorboard>=2.18.0",
-        "torch>=2.6,<2.9",
+        "torch>=2.8,<2.10",
         "torch-optimi",
         "uvicorn",
         "waitress",

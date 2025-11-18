@@ -2,6 +2,21 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.4.0
+
+* feat: Add attention entropy monitoring during training by @chillum-codeX in https://github.com/eole-nlp/eole/pull/250
+* replace awq_ext rmsnorm by vllm rmsnorm by @vince62s in https://github.com/eole-nlp/eole/pull/260
+* Better timing log and performance boost with fused layers by @vince62s in https://github.com/eole-nlp/eole/pull/261
+* Allow estimation only (no step decoding) by @vince62s in https://github.com/eole-nlp/eole/pull/263
+* hunyuan estimator by @vince62s in https://github.com/eole-nlp/eole/pull/264
+* partial fix to lora_embedding training by @vince62s in https://github.com/eole-nlp/eole/pull/265
+* Deepseekocr by @vince62s in https://github.com/eole-nlp/eole/pull/266
+* Takeover PR #238 by @vince62s in https://github.com/eole-nlp/eole/pull/267
+* update README by @vince62s in https://github.com/eole-nlp/eole/pull/268
+
+## New Contributors
+* @chillum-codeX made their first contribution in https://github.com/eole-nlp/eole/pull/250
+
 ## 0.3.0
 
 * minor fix by @vince62s in https://github.com/eole-nlp/eole/pull/232
