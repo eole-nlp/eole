@@ -9,6 +9,8 @@ models=(
     "mistralai/Ministral-8B-Instruct-2410"
     "mistralai/Mistral-7B-v0.3"
     "mistralai/Mistral-7B-Instruct-v0.3"
+    "mistralai/Mixtral-8x7B-Instruct-v0.1|quant"
+    "mistralai/Mathstral-7B-v0.1" # fp32 !
     "meta-llama/Llama-3.2-3B-Instruct"
     "meta-llama/Llama-3.2-1B-Instruct"
     "meta-llama/Llama-3.1-8B-Instruct"
@@ -17,26 +19,23 @@ models=(
     "microsoft/Phi-3.5-mini-instruct"
     "microsoft/Phi-3-mini-128k-instruct"
     "microsoft/phi-2"
-    # Needs quantization to be tested on 24GB GPU
-    # "Qwen/Qwen3-30B-A3B|quant"
-    # seems ok
-    # "Qwen/Qwen3-0.6B"
-    # "Qwen/Qwen3-1.7B"
-    # "Qwen/Qwen3-4B"
-    # "Qwen/Qwen3-8B"
-    # "Qwen/Qwen3-14B"
-    # "Qwen/Qwen2-0.5B"
-    # "Qwen/Qwen2.5-0.5B"
-    # "Qwen/Qwen2.5-0.5B-Instruct"
-    # "Qwen/Qwen2-1.5B"
-    # "Qwen/Qwen2.5-1.5B"
-    # "Qwen/Qwen2.5-1.5B-Instruct"
-    # "Qwen/Qwen2.5-3B"
-    # "Qwen/Qwen2.5-3B-Instruct"
+    "Qwen/Qwen3-30B-A3B|quant"
+    "Qwen/Qwen3-0.6B"
+    "Qwen/Qwen3-1.7B"
+    "Qwen/Qwen3-4B"
+    "Qwen/Qwen3-8B"
+    "Qwen/Qwen3-14B"
+    "Qwen/Qwen2-0.5B"
+    "Qwen/Qwen2.5-0.5B"
+    "Qwen/Qwen2.5-0.5B-Instruct"
+    "Qwen/Qwen2-1.5B"
+    "Qwen/Qwen2.5-1.5B"
+    "Qwen/Qwen2.5-1.5B-Instruct"
+    "Qwen/Qwen2.5-3B"
+    "Qwen/Qwen2.5-3B-Instruct"
+    "HunYuanDenseV1ForCausalLM"
     # to work on
-    # "mistralai/Mixtral-8x7B-Instruct-v0.1|quant"
-    # "mistralai/Mathstral-7B-v0.1" # fp32 !
-    # "microsoft/Phi-3.5-MoE-instruct" # convert_HF not set for PhiMoEForCausalLM
+    # "microsoft/Phi-3.5-MoE-instruct" # MoE gate looks different
     # "microsoft/Phi-3-small-128k-instruct" # tokenizer to be taken from another model
 )
 

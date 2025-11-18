@@ -8,7 +8,7 @@ from eole.config.models import (
     VisionTransformerLMModelConfig,
 )
 from eole.config import recursive_update_dict
-
+from eole.constants import PositionEncodingType
 
 # Default tensor key mappings, based on Llama
 BASE_KEY_MAP = {
@@ -92,7 +92,6 @@ MODEL_OVERRIDES = {
                 for i in range(8)
                 for j, attr in enumerate(["gate_up_proj.", "down_proj.", "up_proj."])
             },
-            ".post_attention_layernorm.weight": ".post_attention_layernorm.weight",  # already in main config ?
         },
         "config": {
             "decoder": {"moe_transformer_ff": 14336},
@@ -130,11 +129,31 @@ MODEL_OVERRIDES = {
             ".mlp.up_proj.": (".mlp.gate_up_proj.", "[transformer_ff:, :]"),
         }
     },
+    "PhiMoEForCausalLM": {
+        "decoder": {
+            ".mlp.gate.": ".block_sparse_moe.gate.",
+            **{
+                f".mlp.experts.{i}.{attr}": f".block_sparse_moe.experts.{i}.w{j+1}."
+                for i in range(16)
+                for j, attr in enumerate(["gate_up_proj.", "down_proj.", "up_proj."])
+            },
+        },
+        "config": {
+            "decoder": {"moe_transformer_ff": 6400},
+            "add_qkvbias": True,
+            "add_final_linear_bias": True,
+        },
+    },
     "HunYuanDenseV1ForCausalLM": {
         "decoder": {
             ".self_attn.q_norm.": ".self_attn.query_layernorm.",
             ".self_attn.k_norm.": ".self_attn.key_layernorm.",
-        }
+        },
+        "config": {
+            "query_norm": True,
+            "key_norm": True,
+            "qk_norm_post_rope": True,
+        },
     },
     "GPT2LMHeadModel": {
         "decoder_layer_prefix": "h.",
@@ -222,6 +241,14 @@ MODEL_OVERRIDES = {
         "adapter.w_in.bias": "multi_modal_projector.linear_1.bias",
         "adapter.w_out.weight": "multi_modal_projector.linear_2.weight",
         "adapter.w_out.bias": "multi_modal_projector.linear_2.bias",
+        "config": {
+            "encoder": {
+                "num_channels": 3,
+                "image_token_id": 10,
+                "layernorm_pre": True,
+                "patch_conv_bias": False,
+            },
+        },
     },
     "Mistral3ForConditionalGeneration": {
         "decoder_layer_prefix": "language_model.model.layers.",
@@ -249,6 +276,14 @@ MODEL_OVERRIDES = {
         "adapter.w_out.weight": "multi_modal_projector.linear_2.weight",
         "adapter.layernorm.weight": "multi_modal_projector.norm.weight",
         "adapter.patch_merger.merging_layer.weight": "multi_modal_projector.patch_merger.merging_layer.weight",
+        "config": {
+            "encoder": {
+                "num_channels": 3,
+                "image_token_id": 10,
+                "layernorm_pre": True,
+                "patch_conv_bias": False,
+            },
+        },
     },
     "Gemma3ForConditionalGeneration": {
         "decoder_layer_prefix": "language_model.model.layers.",
@@ -288,9 +323,27 @@ MODEL_OVERRIDES = {
             "embeddings": {
                 "normalize": True,
             },
+            "adapter": "gemma3",
             "decoder": {
                 "query_norm": True,
                 "key_norm": True,
+                "rope_config": {
+                    "rotary_theta": 1000000,
+                    "scaling_type": "gemma3",
+                    "rotary_theta_local": 10000,
+                    "interleave_local": 6,
+                    "tmax_index": 1,
+                },
+            },
+            "encoder": {
+                "mlp_activation_fn": "gelu-tanh",
+                "position_encoding_type": PositionEncodingType.Learned,
+                "layer_norm": "standard",
+                "add_ffnbias": True,
+                "add_final_linear_bias": True,
+                "add_qkvbias": True,
+                "layernorm_pre": False,  # implies post layernorm
+                "patch_conv_bias": True,
             },
         },
     },
@@ -404,6 +457,29 @@ MODEL_OVERRIDES = {
             ".mlp.lin2.": ".mlp.lin2.",
             ".norm1.": ".norm1.",
             ".norm2.": ".norm2.",
+        },
+        "config": {
+            "adapter": "deepseekocr",
+            "adapter_bias": True,
+            "decoder": {
+                "layer_norm": "rms",
+                "norm_eps": 1e-6,
+            },
+            "encoder": {
+                "mlp_activation_fn": "quick_gelu",
+                "layer_norm": "standard",
+                "norm_eps": 1e-5,
+                "position_encoding_type": PositionEncodingType.Learned,
+                "add_ffnbias": True,
+                "add_final_linear_bias": True,
+                "add_qkvbias": True,
+                "num_channels": 3,
+                "image_token_id": 128815,
+                "layernorm_pre": True,
+                "patch_conv_bias": False,
+                "encoder_sam": True,
+                "use_class_embedding": True,
+            },
         },
     },
 }

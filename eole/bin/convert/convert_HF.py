@@ -287,7 +287,7 @@ def build_config_dict(hf):
         "hidden_size": config.get("hidden_size", config.get("n_embd", config.get("hidden_dim", config.get("d_model")))),
         "heads": config.get(
             "num_attention_heads",
-            config.get("n_head", config.get("n_heads", config.get("decoder_attention_heads", None))),
+            config.get("n_head", config.get("n_heads", config.get("decoder_attention_heads", 32))),
         ),  # default 32 patch for mistral-community/pixtral-12b
         "transformer_ff": config.get("intermediate_size", config.get("decoder_ffn_dim", None)),
         "mlp_activation_fn": ACT_TABLE[arch],
@@ -322,11 +322,10 @@ def build_config_dict(hf):
         "adapter_bias": False,
         "rope_config": {
             "rotary_interleave": False,
+            "rotary_theta": config.get("rope_theta", 10000),
         },
         "embeddings": {},  # Populated later
     }
-    if arch == "MixtralForCausalLM":
-        model_config["moe_softmax_after"]: True
 
     # Vision encoder
     if arch in ["LlavaForConditionalGeneration", "Mistral3ForConditionalGeneration"]:
@@ -338,7 +337,6 @@ def build_config_dict(hf):
             "transformer_ff": vision_config.get(
                 "intermediate_size", vision_config["image_size"] * 4
             ),  # hard-coded for mistral-community/pixtral-12b
-            "num_channels": 3,
             "image_size": vision_config["image_size"],
             "patch_size": vision_config["patch_size"],
             "rope_config": {
@@ -351,9 +349,6 @@ def build_config_dict(hf):
                 "num_attention_heads", vision_config["image_size"] / vision_config["head_dim"]
             ),
             "head_dim": vision_config["head_dim"],
-            "image_token_id": 10,
-            "layernorm_pre": True,
-            "patch_conv_bias": False,
         }
         model_config["adapter_bias"] = other_config.get("multimodal_projector_bias", False)
         model_config["projector_activation_fn"] = other_config.get("projector_hidden_act", "gelu")
@@ -366,104 +361,38 @@ def build_config_dict(hf):
             model_config["heads_kv"] = 4
         if model_config.get("heads", None) is None:
             model_config["heads"] = 8
-        model_config["adapter"] = "gemma3"
-        # for decoder
-        model_config["decoder"] = {
-            "query_norm": True,
-            "key_norm": True,
-            "rope_config": {
-                "rotary_theta": 1000000,
-                "scaling_type": "gemma3",
-                "rotary_interleave": False,
-                "rotary_theta_local": 10000,
-                "interleave_local": 6,
-                "scaling_factor": config["rope_scaling"]["factor"],
-                "tmax_index": 1,
-            },
-        }
         model_config["encoder"] = {
-            "mlp_activation_fn": "gelu-tanh",  # no up_proj it seems
             "layers": vision_config["num_hidden_layers"],
             "image_size": vision_config["image_size"],
             "patch_size": vision_config["patch_size"],
             "hidden_size": vision_config["hidden_size"],
             "transformer_ff": vision_config["intermediate_size"],
-            "position_encoding_type": PositionEncodingType.Learned,
             "n_positions": (vision_config["image_size"] // vision_config["patch_size"]) ** 2,
             # head related stuff patched to match 1152 dim of siglip
             # https://github.com/huggingface/transformers/blob/main/src/transformers/models/siglip/modeling_siglip.py#L399-L402
             "heads": vision_config["num_attention_heads"],
             "heads_kv": vision_config["num_attention_heads"],
             "head_dim": vision_config["hidden_size"] // vision_config["num_attention_heads"],
-            "layer_norm": "standard",
-            "add_ffnbias": True,
-            "add_final_linear_bias": True,
-            "add_qkvbias": True,
             "mm_tokens_per_image": hf.config["mm_tokens_per_image"],
             "image_token_id": hf.config["image_token_index"],
-            "layernorm_pre": False,  # implies post layernorm
-            "patch_conv_bias": True,
-        }
-
-    if arch == "HunYuanDenseV1ForCausalLM":
-        model_config["decoder"] = {
-            "query_norm": True,
-            "key_norm": True,
-            "qk_norm_post_rope": True,
-            "rope_config": {
-                "rotary_theta": config["rope_theta"],
-                "scaling_type": config["rope_scaling"]["type"],
-                "scaling_factor": config["rope_scaling"]["factor"],
-                "alpha": config["rope_scaling"]["alpha"],
-                "original_max_position_embeddings": config["max_position_embeddings"],
-                "rotary_interleave": False,
-            },
         }
 
     if arch in ["DeepseekOCRForCausalLM"]:
-        model_config["adapter"] = "deepseekocr"
-        # for decoder
-        model_config["decoder"] = {
-            "layer_norm": "rms",
-            "norm_eps": 1e-6,
-        }
         model_config["encoder"] = {
-            "mlp_activation_fn": "quick_gelu",
-            "layer_norm": "standard",
-            "norm_eps": 1e-5,
             "hidden_size": vision_config.get("hidden_size", vision_config["image_size"]),
-            "position_encoding_type": PositionEncodingType.Learned,
             "n_positions": (
                 vision_config["width"]["clip-l-14-224"]["image_size"]
                 // vision_config["width"]["clip-l-14-224"]["patch_size"]
             )
             ** 2
             + 1,
-            "transformer_ff": vision_config.get(
-                "intermediate_size", vision_config["image_size"] * 4
-            ),  # hard-coded for mistral-community/pixtral-12b
-            "add_ffnbias": True,
-            "add_final_linear_bias": True,
-            "add_qkvbias": True,
-            "num_channels": 3,
+            "transformer_ff": vision_config.get("intermediate_size", vision_config["image_size"] * 4),
             # "image_size": vision_config["image_size"],
             "patch_size": vision_config["width"]["clip-l-14-224"].get("patch_size", 14),
             "layers": vision_config.get("num_hidden_layers", 24),
             "heads": vision_config["width"]["clip-l-14-224"].get("heads"),
             "heads_kv": vision_config["width"]["clip-l-14-224"].get("heads"),
-            "image_token_id": 128815,
-            "layernorm_pre": True,
-            "patch_conv_bias": False,
-            "encoder_sam": True,
-            "use_class_embedding": True,
         }
-        model_config["adapter_bias"] = True
-        model_config["projector_activation_fn"] = None
-        model_config["spatial_merge_size"] = None
-
-    # TODO: patch this for various models
-    if model_config.get("heads", None) is None:
-        model_config["heads"] = 32
 
     # patch transformer_ff
     if model_config["transformer_ff"] is None:
@@ -479,6 +408,14 @@ def build_config_dict(hf):
         "tgt_word_vec_size": model_config["hidden_size"],
     }
 
+    # Default position encoding configuration
+    model_config["embeddings"].update(
+        {
+            "position_encoding_type": PositionEncodingType.Rotary,
+            "n_positions": 0,
+        }
+    )
+
     # patch rotary dim
     if "rotary_dim" in config.keys():
         model_config["rope_config"]["rotary_dim"] = config["rotary_dim"]
@@ -491,9 +428,20 @@ def build_config_dict(hf):
     else:
         model_config["rope_config"]["rotary_dim"] = model_config["hidden_size"] // model_config["heads"]
 
-    # patch rotary theta
-    if "rope_theta" in config.keys():
-        model_config["rope_config"]["rotary_theta"] = config["rope_theta"]
+    # Update rope scaling related settings
+    if config.get("rope_scaling", None) is not None:
+        model_config["rope_config"].update(
+            {
+                "scaling_type": config["rope_scaling"].get("rope_type", config["rope_scaling"].get("type", None)),
+                "scaling_factor": config["rope_scaling"].get("factor", 8.0),
+                "alpha": config["rope_scaling"].get("alpha", None),
+                "low_freq_factor": config["rope_scaling"].get("low_freq_factor", 1.0),
+                "high_freq_factor": config["rope_scaling"].get("high_freq_factor", 4.0),
+                "original_max_position_embeddings": config["rope_scaling"].get(
+                    "original_max_position_embeddings", config.get("max_position_embeddings", 8192)
+                ),
+            }
+        )
 
     # Validate required fields
     required_fields = {
@@ -505,20 +453,6 @@ def build_config_dict(hf):
     for key, error_msg in required_fields.items():
         if model_config[key] is None:
             raise ValueError(error_msg)
-
-    # Update rope scaling related settings
-    if config.get("rope_scaling", None) is not None:
-        model_config["rope_config"].update(
-            {
-                "scaling_type": config["rope_scaling"].get("rope_type"),
-                "scaling_factor": config["rope_scaling"].get("factor", 8.0),
-                "low_freq_factor": config["rope_scaling"].get("low_freq_factor", 1.0),
-                "high_freq_factor": config["rope_scaling"].get("high_freq_factor", 4.0),
-                "original_max_position_embeddings": config["rope_scaling"].get(
-                    "original_max_position_embeddings", 8192
-                ),
-            }
-        )
 
     # Handle quantization
     quant_config = config.get("quantization_config", {})
@@ -555,14 +489,6 @@ def build_config_dict(hf):
         params = ["weight", "bias"]
 
     model_config["share_decoder_embeddings"] = config.get("tie_word_embeddings", False)
-
-    # Default position encoding configuration
-    model_config["embeddings"].update(
-        {
-            "position_encoding_type": PositionEncodingType.Rotary,
-            "n_positions": 0,
-        }
-    )
 
     # Update model_config based on architecture
     if arch in KEY_MAPS:
@@ -759,7 +685,6 @@ def build_shards(model_config, hf, args, params):
         for ckpt in shard_checkpoints[shard]:
             print("Loading %s" % ckpt)
             checkpoint = hf.checkpoint(ckpt)
-            print(shard_layer_ranges[shard])
             for i in shard_layer_ranges[shard]:
                 prefix_mapping = (
                     ("encoder", hf.encoder_layer_prefix, "encoder.transformer_layers."),
@@ -786,11 +711,16 @@ def build_shards(model_config, hf, args, params):
 
                             if w is not None:
                                 if srcmap is not None:
+                                    hidden_size = (
+                                        model_config["hidden_size"]
+                                        if section.startswith("decoder")
+                                        else model_config["encoder"]["hidden_size"]
+                                    )
                                     w = eval(
                                         "w" + srcmap,
                                         {
                                             "w": w,
-                                            "hidden_size": model_config["hidden_size"],
+                                            "hidden_size": hidden_size,
                                             "transformer_ff": model_config["transformer_ff"],
                                         },
                                     ).contiguous()

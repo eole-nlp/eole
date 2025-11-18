@@ -62,9 +62,10 @@ class TransformerDecoderLayer(nn.Module):
             self.residual_layernorm = LayerNorm[decoder_config.layer_norm](
                 decoder_config.hidden_size, eps=decoder_config.norm_eps
             )
-        self.post_attention_layernorm = LayerNorm[decoder_config.layer_norm](
-            decoder_config.hidden_size, eps=decoder_config.norm_eps
-        )
+        if self.ffn_layernorm or not self.parallel_residual:
+            self.post_attention_layernorm = LayerNorm[decoder_config.layer_norm](
+                decoder_config.hidden_size, eps=decoder_config.norm_eps
+            )
         if decoder_config.num_experts > 0:
             if idx >= decoder_config.first_k_dense_replace:
                 self.mlp = MoE(decoder_config, running_config)
