@@ -4,42 +4,30 @@
 
 Open language modeling toolkit based on [PyTorch](https://pytorch.org) initially spun-off of OpenNMT-py
 
-We aim to maintain the research-friendly approach of the original project while including latest architectures (LLMs) and various other techniques.
+We aim to maintain the **research-friendly** approach of the original project while including latest architectures (LLMs) and various other techniques.
 Our goal is to provide a comprehensive yet compact and modular codebase for experimenting with various types of language models (encoder, decoder, seq2seq).
+
+## HF Models supported
+
+- **deepseek-ai/DeepSeek-OCR** For now takes any image and rescales to 1024x1024 before processing - Gundam mode not implemented yet)
+- **tencent/Hunyuan-MT-7B** SOTA NMT at WMT25, better than Towerplus-9B and EuroLLM-9B
+- **Qwen/Qwen2/3** Non VL family. Includes Qwen3-30B-A3B
+- **google/gemma-3-27b-it** All Gemma3 family - supports text and image input
+- **Mistral-3.1-24B-instruct** supports all Mistral AI models (text and image input) - includes Ministral, Mixtral, Mathstral
+- **meta-llama/Llama-3.X** models
+- **microsoft/Phi-2/3** models
+
+Of course you can train your own architecture (Decoder only, Encoder Only, or EncoderDecoder Model)
 
 ## Latest developments
 
-- **Hunyuan-MT-7B** support (SOTA NMT at WMT25 better than Towerplus-9B and EuroLLM-9B)
+- **high inference speed** using Flash Attention and Vllm RMSNorm kernel.
 - **prefixLM + split prompt/answer in src/tgt** optional method to feed your data
-- **Gemma-3 Family** support (text and image input)
-- **Mistral-3.1-24B-instruct** support (text and image input)
 - **Pure-BF16 Training** thanks to [Kahan Summation](https://arxiv.org/pdf/2010.06192) implemented [here](https://optimi.benjaminwarner.dev/kahan_summation/)
-- **Web-based (Google translator-like) interface** featuring the latest EuroLLM-8B-Instruct LLM: read more [here](https://github.com/eole-nlp/eole/tree/main/recipes/eurollm)
+- **Web-based (Google translator-like) interface** featuring the latest Hunyuan-MT-7B or EuroLLM-8B-Instruct LLM
 - **Estimator layer** which enables to rescore multiple beams in the same model. Read article [here](https://medium.com/p/05b00b271a47) and [here](https://medium.com/p/7dccfe167814)
 - **Support Hugging Face Tokenizers** for better compatiblity
-- **New recipes** for TowerInstruct-llama2 and TowerInstruct-Mistral
-- **Support latest models** for Llama3.x, Gemma2, Pixtral
 - **Replicate CometKiwi(XL/XXL)** Encoder+Estimator models
-
-## Work completed
-
-We have made significant progress in several areas:
-
-- **Configuration Management**: Streamlined through [pydantic](https://docs.pydantic.dev) models.
-- **Command Line Entry Points**: Improved using structured subparsers for better organization.
-- **Reproducible Recipes**: Provided for widely used models and tasks, ensuring consistency and reliability.
-- **Core API Simplification**: Refined around the new configuration objects for ease of use.
-- **Revamped Fast API based server**: see above example with EuroLLM-9B-Instruct
-
-### Future Directions
-
-There are still several exciting avenues to explore:
-
-- **Further Simplification and Refactoring**: Continue enhancing the codebase for clarity and efficiency.
-- **Documentation**: Enhance and expand the documentation for better user guidance.
-- **Test Coverage**: Improve testing to ensure code reliability and performance.
-- **Logging Enhancements**: Implement more sophisticated logging mechanisms.
-- **Broader Model Support**: Extend support to include a wider range of open models, potentially multi-modal.
 
 ---
 
@@ -53,7 +41,27 @@ There are still several exciting avenues to explore:
 - **Flexible Inference**: Perform inference in 4-bit or 8-bit using the same layer quantization methods as in finetuning.
 - **Tensor Parallelism**: Enable tensor parallelism for both training and inference when models exceed the memory capacity of a single GPU.
 
+## Work completed
+
+We have made significant progress in several areas:
+
+- **Configuration Management**: Streamlined through [pydantic](https://docs.pydantic.dev) models.
+- **Command Line Entry Points**: Improved using structured subparsers for better organization.
+- **Reproducible Recipes**: Provided for widely used models and tasks, ensuring consistency and reliability.
+- **Core API Simplification**: Refined around the new configuration objects for ease of use.
+- **Revamped Fast API based server**: see above example with EuroLLM-9B-Instruct
+
 ---
+
+### Future Directions
+
+There are still several exciting avenues to explore:
+
+- **Further Simplification and Refactoring**: Continue enhancing the codebase for clarity and efficiency.
+- **Documentation**: Enhance and expand the documentation for better user guidance.
+- **Test Coverage**: Improve testing to ensure code reliability and performance.
+- **Logging Enhancements**: Implement more sophisticated logging mechanisms.
+- **Broader Model Support**: Extend support to include a wider range of open models, potentially multi-modal.
 
 ## Setup
 
