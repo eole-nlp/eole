@@ -9,11 +9,11 @@ Our goal is to provide a comprehensive yet compact and modular codebase for expe
 
 ## HF Models supported
 
-- **deepseek-ai/DeepSeek-OCR** For now take any image and rescale to 1024x1024 before processing - Gundam mode not implemented yet)
+- **deepseek-ai/DeepSeek-OCR** For now takes any image and rescales to 1024x1024 before processing - Gundam mode not implemented yet)
 - **tencent/Hunyuan-MT-7B** SOTA NMT at WMT25, better than Towerplus-9B and EuroLLM-9B
 - **Qwen/Qwen2/3** Non VL family. Includes Qwen3-30B-A3B
 - **google/gemma-3-27b-it** All Gemma3 family - supports text and image input
-- **Mistral-3.1-24B-instruct** support all Mistral AI models (text and image input) - includes Ministral, Mixtral, Mathstral
+- **Mistral-3.1-24B-instruct** supports all Mistral AI models (text and image input) - includes Ministral, Mixtral, Mathstral
 - **meta-llama/Llama-3.X** models
 - **microsoft/Phi-2/3** models
 
