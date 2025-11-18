@@ -461,11 +461,7 @@ class BaseModelConfig(Config):
         default=False,
         description="Control whether or not the adapter module has bias weights.",
     )
-    multimodal_projector_bias: bool = Field(
-        default=True,
-        description="Control whether or not the adater projector module has bias weights.",
-    )
-    projector_activation_fn: ActivationFunction = Field(
+    projector_activation_fn: ActivationFunction | None = Field(
         default=ActivationFunction.relu,
         description="The activation function to use in adapter projector layer.",
     )

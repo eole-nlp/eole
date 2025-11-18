@@ -24,13 +24,14 @@ class MLP(nn.Module):
     ):
         self.parallel_gpu = getattr(running_config, "parallel_gpu", 1)
         super(MLP, self).__init__()
-        assert (
-            model_config.transformer_ff % self.parallel_gpu == 0
-        ), "Model intermediate ffn size must be divisible by the number of partitions"
         if moe_transformer_ff is None:
             self.transformer_ff = model_config.transformer_ff
         else:
             self.transformer_ff = moe_transformer_ff
+        assert (
+            self.transformer_ff % self.parallel_gpu == 0
+        ), "Model intermediate ffn size must be divisible by the number of partitions"
+
         self.model_config = model_config
         self.gate_up_proj = skip_init(
             nn.Linear,
