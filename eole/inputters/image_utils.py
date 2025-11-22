@@ -491,7 +491,10 @@ def process_image(image_path, adapter="llava", image_size=1024, image_patch_size
         image_tokens = "<start_of_image>" + "<image_soft_token>" * 256 + "<end_of_image>"
         return {"image": image, "tokens": image_tokens}
     elif adapter == "deepseekocr":
-        image = Image.open(image_path)
+        if isinstance(image_path, Image.Image):
+            image = image_path
+        else:
+            image = Image.open(image_path)
         """
         # Orignal DeepSeekOCR code - padding not optimal
         image = image.convert("RGB")
