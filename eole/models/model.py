@@ -973,12 +973,16 @@ class VisionEncoderDecoderModel(BaseModel):
             encoded_images = self.encoder(images, sam_patches)
             global_features = torch.cat((encoded_images[:, 1:], sam_patches.flatten(2).permute(0, 2, 1)), dim=-1)
             image_features = self.adapter(global_features, image_sizes=image_sizes)
-            _, hw, n_dim = image_features.shape
+            b, hw, n_dim = image_features.shape
             h = w = int(hw**0.5)
-            image_features = image_features.view(h, w, n_dim)
-            image_features = torch.cat([image_features, self.image_newline[None, None, :].expand(h, 1, n_dim)], dim=1)
-            image_features = image_features.view(-1, n_dim)
-            image_features = torch.cat([image_features, self.view_separator[None, :]], dim=0).unsqueeze(0)
+            image_features = image_features.view(b, h, w, n_dim)
+            # Add newline token at the end of each row → shape (b, h, w+1, n_dim)
+            newline = self.image_newline.view(1, 1, 1, n_dim).expand(b, h, 1, n_dim)
+            image_features = torch.cat([image_features, newline], dim=2)
+            # Flatten back to (b, h*(w+1), n_dim)
+            image_features = image_features.view(b, -1, n_dim)
+            separator = self.view_separator.view(1, 1, n_dim).expand(b, 1, n_dim)
+            image_features = torch.cat([image_features, separator], dim=1)
         else:
             encoded_images = self.encoder(images)
             image_features = self.adapter(encoded_images, image_sizes=image_sizes)

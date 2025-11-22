@@ -100,14 +100,14 @@ class Inference(object):
                 for layer in self.model.decoder.transformer_layers:
                     if fuse_kvq:
                         layer.self_attn._fuse_KVQ()
-                    if fuse_gate and layer.mlp.up_proj is not None:
+                    if fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
                         layer.mlp._fuse_gate()
         if hasattr(self.model, "encoder") and self.model.encoder is not None:
             if hasattr(self.model.encoder, "transformer_layers"):
                 for layer in self.model.encoder.transformer_layers:
                     if fuse_kvq:
                         layer.self_attn._fuse_KVQ()
-                    if fuse_gate and layer.mlp.up_proj is not None:
+                    if fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
                         layer.mlp._fuse_gate()
 
         self.vocabs = vocabs
