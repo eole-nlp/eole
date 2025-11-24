@@ -3,12 +3,11 @@ import fitz
 import img2pdf
 import io
 import re
+import ast
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from eole.inference_engine import InferenceEnginePY
 from eole.config.run import PredictConfig
-
-# from torch.profiler import profile, record_function, ProfilerActivity
 
 
 class Colors:
@@ -29,7 +28,7 @@ def pdf_to_images_high_quality(pdf_path, dpi=144, image_format="PNG"):
 
     zoom = dpi / 72.0
     # 144/ 72 will make image 1191 x 1684 per page
-    # reized after to 1024x1024 by Eole
+    # resized after to 1024x1024 by Eole
     matrix = fitz.Matrix(zoom, zoom)
 
     for page_num in range(pdf_document.page_count):
@@ -77,7 +76,7 @@ def pil_to_pdf_img2pdf(pil_images, output_path):
             f.write(pdf_bytes)
 
     except Exception as e:
-        print(f"error: {e}")
+        print(f"Error converting images to PDF: {e}")
 
 
 def re_match(text):
@@ -104,8 +103,7 @@ def extract_coordinates_and_label(ref_text, image_width, image_height):
 
     try:
         label_type = ref_text[1]
-        # cor_list = eval(ref_text[2].replace(',,', ',').replace('1132', '132'))
-        cor_list = eval(ref_text[2])
+        cor_list = ast.literal_eval(ref_text[2])
     except Exception as e:
         print("Bad coord from inference:", e, repr(ref_text))
         return None
@@ -151,8 +149,7 @@ def draw_bounding_boxes(image, refs, jdx):
                             cropped = image.crop((x1, y1, x2, y2))
                             cropped.save(f"{OUTPUT_PATH}/images/{jdx}_{img_idx}.jpg")
                         except Exception as e:
-                            print(e)
-                            pass
+                            print("crop error:", e)
                         img_idx += 1
 
                     try:
@@ -175,7 +172,6 @@ def draw_bounding_boxes(image, refs, jdx):
                         draw.text((text_x, text_y), label_type, font=font, fill=color)
                     except Exception as e:
                         print("draw error:", e, repr(label_type))
-                        pass
         except Exception as e:
             print("DRAW ERROR:", e, repr(label_type))
             continue
@@ -211,7 +207,7 @@ if __name__ == "__main__":
         temperature=0.0,
         beam_size=1,
         seed=12,
-        batch_size=64,
+        batch_size=48,
         batch_type="sents",
         report_time=True,
         fuse_kvq=False,
@@ -231,24 +227,6 @@ if __name__ == "__main__":
                 "images": {"image": images[i]},
             }
         )
-        model_input.append(
-            {
-                "text": "{image}\n<|grounding|>Convert the document to markdown.",
-                "images": {"image": images[i]},
-            }
-        )
-
-    """
-    with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        profile_memory=True,
-        with_stack=True,
-    ) as prof:
-        with record_function("Infer"):
-            pred = engine.infer_list(model_input)
-
-    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=40))
-    """
 
     pred = engine.infer_list(model_input)
     outputs_list = []
@@ -260,7 +238,7 @@ if __name__ == "__main__":
     os.makedirs(output_path, exist_ok=True)
 
     mmd_det_path = output_path + "/" + INPUT_PATH.split("/")[-1].replace(".pdf", "_det.mmd")
-    mmd_path = output_path + "/" + INPUT_PATH.split("/")[-1].replace("pdf", "mmd")
+    mmd_path = output_path + "/" + INPUT_PATH.split("/")[-1].replace(".pdf", ".mmd")
     pdf_out_path = output_path + "/" + INPUT_PATH.split("/")[-1].replace(".pdf", "_layouts.pdf")
     contents_det = ""
     contents = ""

@@ -496,7 +496,7 @@ def process_image(image_path, adapter="llava", image_size=1024, image_patch_size
         else:
             image = Image.open(image_path)
         """
-        # Orignal DeepSeekOCR code - padding not optimal
+        # Original DeepSeekOCR code - padding not optimal
         image = image.convert("RGB")
         image = ImageOps.pad(image, (image_size, image_size), color=tuple(int(x * 255) for x in [0.5, 0.5, 0.5]))
         image_transform = BasicImageTransform(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5), normalize=True)

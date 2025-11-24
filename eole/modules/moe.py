@@ -119,6 +119,9 @@ class MoE(nn.Module):
         self._gates_fused = False
         self._grouped = GroupedExperts(self.experts)
 
+        self.activation_function = next(
+            (a for a in ("gelu", "relu", "silu") if a in model_config.mlp_activation_fn), None
+        )
         self._w1 = None
         self._w2 = None
 
@@ -128,10 +131,10 @@ class MoE(nn.Module):
             return
 
         for expert in self.experts:
-            if hasattr(expert, "_fuse_gate"):
+            if hasattr(expert, "_fuse_gate") and getattr(expert, "up_proj", None) is not None:
                 expert._fuse_gate()
 
-        if self.shared_experts is not None:
+        if self.shared_experts is not None and getattr(self.shared_experts, "up_proj", None) is not None:
             self.shared_experts._fuse_gate()
 
         self._gates_fused = True
@@ -146,8 +149,12 @@ class MoE(nn.Module):
         for e in self.experts:
             # --- W1 (gate_up + up) ---
             Wg = e.gate_up_proj.weight.to(device=device, dtype=dtype)
-            Wu = e.up_proj.weight.to(device=device, dtype=dtype)
-            W1 = torch.cat([Wg, Wu], dim=0)  # (2*ffn, hidden)
+            Wu = getattr(e, "up_proj", None)
+            if Wu is not None:
+                Wu = Wu.weight.to(device=device, dtype=dtype)
+                W1 = torch.cat([Wg, Wu], dim=0)  # (2*ffn, hidden)
+            else:
+                W1 = Wg  # Only gate_up_proj is available
             w1_list.append(W1.unsqueeze(0))
 
             # --- W2 (down_proj) ---
@@ -193,13 +200,17 @@ class MoE(nn.Module):
                 topk_weights=expert_weights,
                 topk_ids=expert_indices,
                 inplace=True,
-                activation="silu",
+                activation=self.activation_function,
             ).view(B, T, C)
         else:
             x_flat = x_flat.repeat_interleave(K, dim=0)  # (BTK, C)
-            # y = naive_moe(x_flat, expert_weights, expert_indices, K, self.experts).view(B, T, C)
             y = vectorized_moe(x_flat, expert_weights, expert_indices, K, self.experts).view(B, T, C)
-            # y = self._grouped.forward_tokens(x_flat, expert_weights, expert_indices, K).view(B, T, C)
+            """
+            For educational purpose, we leave here the original implementation
+            y = naive_moe(x_flat, expert_weights, expert_indices, K, self.experts).view(B, T, C)
+            and a faster vectorized version
+            y = self._grouped.forward_tokens(x_flat, expert_weights, expert_indices, K).view(B, T, C)
+            """
 
         # optional shared experts
         if self.shared_experts is not None:
