@@ -20,23 +20,20 @@ class Colors:
 
 def pdf_to_images_high_quality(pdf_path, dpi=144, image_format="PNG"):
     """
-    pdf2images
+    Convert a pdf file into a list of PIL Images
+    pdf_path: Path to the pdf file
+    dpi: default to 144 for a x2 zoom
+        144/ 72 will make image 1191 x 1684 per page
+        resized after to 1024x1024 by Eole
     """
     images = []
-
     pdf_document = fitz.open(pdf_path)
-
     zoom = dpi / 72.0
-    # 144/ 72 will make image 1191 x 1684 per page
-    # resized after to 1024x1024 by Eole
     matrix = fitz.Matrix(zoom, zoom)
-
     for page_num in range(pdf_document.page_count):
         page = pdf_document[page_num]
-
         pixmap = page.get_pixmap(matrix=matrix, alpha=False)
         Image.MAX_IMAGE_PIXELS = None
-
         if image_format.upper() == "PNG":
             img_data = pixmap.tobytes("png")
             img = Image.open(io.BytesIO(img_data))
@@ -47,34 +44,29 @@ def pdf_to_images_high_quality(pdf_path, dpi=144, image_format="PNG"):
                 background = Image.new("RGB", img.size, (255, 255, 255))
                 background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
                 img = background
-
         images.append(img)
-
     pdf_document.close()
     return images
 
 
 def pil_to_pdf_img2pdf(pil_images, output_path):
-
+    """
+    Convert a list of PIL Images to a pdf file
+    """
     if not pil_images:
         return
-
     image_bytes_list = []
-
     for img in pil_images:
         if img.mode != "RGB":
             img = img.convert("RGB")
-
         img_buffer = io.BytesIO()
         img.save(img_buffer, format="JPEG", quality=95)
         img_bytes = img_buffer.getvalue()
         image_bytes_list.append(img_bytes)
-
     try:
         pdf_bytes = img2pdf.convert(image_bytes_list)
         with open(output_path, "wb") as f:
             f.write(pdf_bytes)
-
     except Exception as e:
         print(f"Error converting images to PDF: {e}")
 
@@ -116,13 +108,9 @@ def draw_bounding_boxes(image, refs, jdx):
     image_width, image_height = image.size
     img_draw = image.copy()
     draw = ImageDraw.Draw(img_draw)
-
     overlay = Image.new("RGBA", img_draw.size, (0, 0, 0, 0))
     draw2 = ImageDraw.Draw(overlay)
-
-    #     except IOError:
     font = ImageFont.load_default()
-
     img_idx = 0
 
     for i, ref in enumerate(refs):
@@ -131,19 +119,14 @@ def draw_bounding_boxes(image, refs, jdx):
             if result:
                 label_type, points_list = result
                 label_type = "".join(ch for ch in label_type if ch.isprintable())
-
                 color = (np.random.randint(0, 200), np.random.randint(0, 200), np.random.randint(0, 255))
                 color_a = color + (20,)
-
                 for points in points_list:
                     x1, y1, x2, y2 = points
-
                     x1 = int(x1 / 999 * image_width)
                     y1 = int(y1 / 999 * image_height)
-
                     x2 = int(x2 / 999 * image_width)
                     y2 = int(y2 / 999 * image_height)
-
                     if label_type == "image":
                         try:
                             cropped = image.crop((x1, y1, x2, y2))
@@ -151,7 +134,6 @@ def draw_bounding_boxes(image, refs, jdx):
                         except Exception as e:
                             print("crop error:", e)
                         img_idx += 1
-
                     try:
                         if label_type == "title":
                             draw.rectangle([x1, y1, x2, y2], outline=color, width=4)
@@ -159,10 +141,8 @@ def draw_bounding_boxes(image, refs, jdx):
                         else:
                             draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
                             draw2.rectangle([x1, y1, x2, y2], fill=color_a, outline=(0, 0, 0, 0), width=1)
-
                         text_x = x1
                         text_y = max(0, y1 - 15)
-
                         text_bbox = draw.textbbox((0, 0), label_type, font=font)
                         text_width = text_bbox[2] - text_bbox[0]
                         text_height = text_bbox[3] - text_bbox[1]
@@ -245,13 +225,9 @@ if __name__ == "__main__":
     draw_images = []
     jdx = 0
     for content, img in zip(outputs_list, images):
-
         page_num = "\n<--- Page Split --->"
-
         contents_det += content + f"\n{page_num}\n"
-
         image_draw = img.copy()
-
         matches_ref, matches_images, matches_other, actual_content = re_match(content)
         actual_content = [x for x in actual_content if x != "\n"]
         if len(matches_other) != len(actual_content):
@@ -276,7 +252,6 @@ if __name__ == "__main__":
             )
 
         contents += content + f"\n{page_num}\n"
-
         jdx += 1
 
     with open(mmd_det_path, "w", encoding="utf-8") as afile:
