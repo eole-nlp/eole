@@ -89,15 +89,15 @@ def quick_gelu(x):
 class ActivationFunction(str, Enum):
     relu = "relu"
     gelu = "gelu"
-    silu = "silu"
-    quick_gelu = "quick_gelu"
-    gated_gelu = "gated-gelu"
-    fused_gated_gelu = "fused-gated-gelu"
-    gated_silu = "gated-silu"
-    fused_gated_silu = "fused-gated-silu"
     gelu_tanh = "gelu-tanh"
+    quick_gelu = "quick_gelu"
+    silu = "silu"
+    gated_gelu = "gated-gelu"
     gated_gelu_tanh = "gated-gelu-tanh"
+    gated_silu = "gated-silu"
+    fused_gated_gelu = "fused-gated-gelu"
     fused_gated_gelu_tanh = "fused-gated-gelu-tanh"
+    fused_gated_silu = "fused-gated-silu"
 
 
 class TransformType(str, Enum):
