@@ -125,11 +125,16 @@ class VisionEncoder(nn.Module):
         else:
             self.sam = None
         if encoder_config.position_encoding_type == PositionEncodingType.Learned:
+            n_positions = encoder_config.n_positions
+            self.interpolate_mode = encoder_config.interpolate_mode
+            if self.interpolate_mode is not None:
+                self.max_patch_per_side = int(n_positions**0.5)
+                n_positions += 1
             self.position_embeddings = nn.Embedding(
-                encoder_config.n_positions,
+                n_positions,
                 encoder_config.hidden_size,
             )
-            self.register_buffer("position_ids", torch.arange(encoder_config.n_positions).expand((1, -1)))
+            self.register_buffer("position_ids", torch.arange(n_positions).expand((1, -1)))
         else:
             self.rope = build_rope(encoder_config, mode="2d")
         self.patch_conv = nn.Conv2d(
@@ -151,7 +156,7 @@ class VisionEncoder(nn.Module):
         for _ in range(encoder_config.layers):
             self.transformer_layers.append(TransformerEncoderLayer(encoder_config, running_config=running_config))
 
-        if self.ln_pre is None:  # then post layer norm (gemma3)
+        if encoder_config.layernorm_post:
             self.post_layernorm = nn.LayerNorm(encoder_config.hidden_size, eps=encoder_config.norm_eps)
         else:
             self.post_layernorm = None
@@ -167,10 +172,6 @@ class VisionEncoder(nn.Module):
             encoder_config,
             running_config,
         )
-
-    @property
-    def max_patches_per_side(self):
-        return self.encoder_config.image_size // self.encoder_config.patch_size
 
     @property
     def device(self):
@@ -189,6 +190,7 @@ class VisionEncoder(nn.Module):
         dtype = next(self.parameters()).dtype
         mask = None
         position_embeddings = None
+
         if sam_patches is not None:
             patch_embeds = sam_patches
             # flatten H+W then change to (H+W, C)
@@ -209,8 +211,27 @@ class VisionEncoder(nn.Module):
             if hasattr(self, "position_embeddings"):
                 # Learned positions (Gemma3, Classic Clip)
                 patch_embeds = torch.cat([p.unsqueeze(0) for p in patch_embeds_list], dim=0)
+                B, D, H, W = patch_embeds.size()
                 patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
-                patch_embeds += self.position_embeddings(torch.stack(positions).to(self.device))
+
+                if self.interpolate_mode is None:  # Gemma3 / Deepseekocr
+                    patch_pos_embed = self.position_embeddings(torch.stack(positions).to(self.device))
+                else:  # Hunyunaocr
+                    patch_pos_shape = (1, self.max_patch_per_side, self.max_patch_per_side, D)
+                    patch_pos_embed = (
+                        self.position_embeddings.weight[1:, :].reshape(patch_pos_shape).permute(0, 3, 1, 2).float()
+                    )
+                    h0 = H + 0.1
+                    w0 = W + 0.1
+                    patch_pos_embed = nn.functional.interpolate(
+                        patch_pos_embed,
+                        scale_factor=((h0 / self.max_patch_per_side), (w0 / self.max_patch_per_side)),
+                        mode=self.interpolate_mode,
+                        align_corners=False,
+                    )
+                    patch_pos_embed = patch_pos_embed.reshape(D, -1).transpose(0, 1).unsqueeze(0).to(patch_embeds.dtype)
+
+                patch_embeds += patch_pos_embed
             else:  # rope embedding / pixtral / Mistral
                 patch_embeds = torch.cat([p.flatten(1).permute(1, 0) for p in patch_embeds_list], dim=0)
                 if self.ln_pre is not None:
@@ -322,8 +343,68 @@ class DeepSeekOCRProjector(nn.Module):
         )
 
 
+class HunYuanVisionPatchMerger(nn.Module):
+    def __init__(
+        self,
+        model_config,
+    ):
+        super().__init__()
+        in_channels = model_config.encoder.hidden_size
+        out_channels = model_config.decoder.hidden_size
+        rms_norm_eps = 1e-5
+        self.patch_size = model_config.encoder.patch_size
+        self.spatial_merge_size = model_config.spatial_merge_size
+        embed_std = out_channels**-0.5
+
+        self.proj = nn.Sequential(
+            nn.Conv2d(
+                in_channels,
+                in_channels * 2,
+                kernel_size=self.spatial_merge_size,
+                stride=self.spatial_merge_size,
+            ),
+            nn.GELU(),
+            nn.Conv2d(in_channels * 2, in_channels * 4, kernel_size=1),
+        )
+        self.mlp = nn.Linear(in_channels * 4, out_channels)
+
+        self.image_newline = nn.Parameter(torch.randn(in_channels * 4) * embed_std)
+        self.image_begin = nn.Parameter(torch.randn(out_channels) * embed_std)
+        self.image_end = nn.Parameter(torch.randn(out_channels) * embed_std)
+        self.image_sep = nn.Parameter(torch.randn(out_channels) * embed_std)
+
+        self.before_rms = LayerNorm["rms"](in_channels, eps=rms_norm_eps)
+        self.after_rms = LayerNorm["rms"](out_channels, eps=rms_norm_eps)
+
+    def forward(self, x, image_sizes):
+        x = self.before_rms(x)
+        h, w = image_sizes[0][1].item() // self.patch_size, image_sizes[0][0].item() // self.patch_size
+        dtype = x.dtype
+        x = x.permute(0, 2, 1).reshape(x.shape[0], -1, h, w)
+        x = self.proj(x)  # b,c,h,w
+        b, c, h, w = x.shape
+        x = torch.cat(
+            [x, self.image_newline.reshape(1, c, 1, 1).expand(b, c, h, 1).to(dtype)],
+            dim=-1,
+        )
+        x = x.reshape(b, c, -1).permute(0, 2, 1)
+        x = self.mlp(x)
+        begin = self.image_begin.reshape(1, 1, -1).expand(b, 1, x.shape[-1]).to(dtype)
+        end = self.image_end.reshape(1, 1, -1).expand(b, 1, x.shape[-1]).to(dtype)
+        x = torch.cat([begin, x, end], dim=1)
+        x = self.after_rms(x)
+        return x
+
+    @classmethod
+    def from_config(cls, model_config, running_config=None):
+        return cls(
+            model_config,
+        )
+
+
 str2adapter = {
     "llava": VisionLanguageAdapter,
     "gemma3": Gemma3MultiModalProjector,
     "deepseekocr": DeepSeekOCRProjector,
+    "hunyuanocr": HunYuanVisionPatchMerger,
 }

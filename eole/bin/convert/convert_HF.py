@@ -326,30 +326,39 @@ def build_config_dict(hf):
         },
         "embeddings": {},  # Populated later
     }
+    if model_config["num_experts"] == 1:
+        model_config["num_experts"] = 0
 
     # Vision encoder
-    if arch in ["LlavaForConditionalGeneration", "Mistral3ForConditionalGeneration"]:
+    if vision_config is not None:
         model_config["encoder"] = {
-            "mlp_activation_fn": model_config["mlp_activation_fn"],
-            "layer_norm": model_config["layer_norm"],
-            "norm_eps": model_config["norm_eps"],
-            "hidden_size": vision_config.get("hidden_size", vision_config["image_size"]),
-            "transformer_ff": vision_config.get(
-                "intermediate_size", vision_config["image_size"] * 4
-            ),  # hard-coded for mistral-community/pixtral-12b
-            "image_size": vision_config["image_size"],
-            "patch_size": vision_config["patch_size"],
-            "rope_config": {
-                "rotary_theta": vision_config["rope_theta"],
-                "rotary_interleave": False,
-            },
             "layers": vision_config.get("num_hidden_layers", 24),  # hard-coded for mistral-community/pixtral-12b
-            "heads": vision_config.get("num_attention_heads", vision_config["image_size"] / vision_config["head_dim"]),
-            "heads_kv": vision_config.get(
-                "num_attention_heads", vision_config["image_size"] / vision_config["head_dim"]
+            "hidden_size": vision_config.get("hidden_size", vision_config.get("image_size", 0)),
+            "transformer_ff": vision_config.get("intermediate_size", vision_config.get("image_size", 0) * 4),
+            "image_size": vision_config.get("image_size", 0),
+            "patch_size": vision_config.get("patch_size", 0),
+            "heads": vision_config.get(
+                "num_attention_heads", vision_config.get("image_size", 0) / vision_config.get("head_dim", 1)
             ),
-            "head_dim": vision_config["head_dim"],
+            "heads_kv": vision_config.get(
+                "num_attention_heads", vision_config.get("image_size", 0) / vision_config.get("head_dim", 1)
+            ),
+            "head_dim": vision_config.get(
+                "head_dim", vision_config.get("hidden_size", 0) // vision_config.get("num_attention_heads", 1)
+            ),
         }
+    if arch in ["LlavaForConditionalGeneration", "Mistral3ForConditionalGeneration"]:
+        model_config["encoder"].update(
+            {
+                "mlp_activation_fn": model_config["mlp_activation_fn"],
+                "layer_norm": model_config["layer_norm"],
+                "norm_eps": model_config["norm_eps"],
+                "rope_config": {
+                    "rotary_theta": vision_config["rope_theta"],
+                    "rotary_interleave": False,
+                },
+            }
+        )
         model_config["adapter_bias"] = other_config.get("multimodal_projector_bias", False)
         model_config["projector_activation_fn"] = other_config.get("projector_hidden_act", "gelu")
         model_config["spatial_merge_size"] = other_config.get("spatial_merge_size", None)
@@ -361,38 +370,34 @@ def build_config_dict(hf):
             model_config["heads_kv"] = 4
         if model_config.get("heads", None) is None:
             model_config["heads"] = 8
-        model_config["encoder"] = {
-            "layers": vision_config["num_hidden_layers"],
-            "image_size": vision_config["image_size"],
-            "patch_size": vision_config["patch_size"],
-            "hidden_size": vision_config["hidden_size"],
-            "transformer_ff": vision_config["intermediate_size"],
-            "n_positions": (vision_config["image_size"] // vision_config["patch_size"]) ** 2,
-            # head related stuff patched to match 1152 dim of siglip
-            # https://github.com/huggingface/transformers/blob/main/src/transformers/models/siglip/modeling_siglip.py#L399-L402
-            "heads": vision_config["num_attention_heads"],
-            "heads_kv": vision_config["num_attention_heads"],
-            "head_dim": vision_config["hidden_size"] // vision_config["num_attention_heads"],
-            "mm_tokens_per_image": hf.config["mm_tokens_per_image"],
-            "image_token_id": hf.config["image_token_index"],
-        }
+        model_config["encoder"].update(
+            {
+                "n_positions": (vision_config["image_size"] // vision_config["patch_size"]) ** 2,
+                # head related stuff patched to match 1152 dim of siglip
+                # https://github.com/huggingface/transformers/blob/main/src/transformers/models/siglip/modeling_siglip.py#L399-L402
+                "mm_tokens_per_image": hf.config["mm_tokens_per_image"],
+                "image_token_id": hf.config["image_token_index"],
+            }
+        )
 
     if arch in ["DeepseekOCRForCausalLM"]:
-        model_config["encoder"] = {
-            "hidden_size": vision_config.get("hidden_size", vision_config["image_size"]),
-            "n_positions": (
-                vision_config["width"]["clip-l-14-224"]["image_size"]
-                // vision_config["width"]["clip-l-14-224"]["patch_size"]
-            )
-            ** 2
-            + 1,
-            "transformer_ff": vision_config.get("intermediate_size", vision_config["image_size"] * 4),
-            # "image_size": vision_config["image_size"],
-            "patch_size": vision_config["width"]["clip-l-14-224"].get("patch_size", 14),
-            "layers": vision_config.get("num_hidden_layers", 24),
-            "heads": vision_config["width"]["clip-l-14-224"].get("heads"),
-            "heads_kv": vision_config["width"]["clip-l-14-224"].get("heads"),
-        }
+        model_config["encoder"].update(
+            {
+                "n_positions": (
+                    vision_config["width"]["clip-l-14-224"]["image_size"]
+                    // vision_config["width"]["clip-l-14-224"]["patch_size"]
+                )
+                ** 2
+                + 1,
+                "patch_size": vision_config["width"]["clip-l-14-224"].get("patch_size", 14),
+                "heads": vision_config["width"]["clip-l-14-224"].get("heads"),
+                "heads_kv": vision_config["width"]["clip-l-14-224"].get("heads"),
+            }
+        )
+
+    if arch in ["HunYuanVLForConditionalGeneration"]:
+        model_config["encoder"].update({})
+        model_config["spatial_merge_size"] = vision_config.get("spatial_merge_size", None)
 
     # patch transformer_ff
     if model_config["transformer_ff"] is None:

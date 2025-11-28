@@ -140,7 +140,8 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         left_pad=False,
         model_type=None,
         image_patch_size=16,
-        adapter=None,
+        image_size=1024,
+        adapter="llava",
     ):
         super(DynamicDatasetIter).__init__()
         self.corpora = corpora
@@ -174,6 +175,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             self.left_pad = False
         self.model_type = model_type
         self.image_patch_size = image_patch_size
+        self.image_size = image_size
         self.adapter = adapter
 
     @classmethod
@@ -225,6 +227,10 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             image_patch_size = config.model.encoder.patch_size * config.model.spatial_merge_size
         except AttributeError:
             image_patch_size = 16
+        try:
+            image_size = config.model.encoder.image_size
+        except AttributeError:
+            image_size = 0
         return cls(
             corpora,
             corpora_info,
@@ -246,6 +252,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             left_pad=getattr(config.model, "left_pad", False),
             model_type=model_type if model_type is not None else getattr(config.model, "model_type", None),
             image_patch_size=image_patch_size,
+            image_size=image_size,
             adapter=getattr(config.model, "adapter", None),
         )
 
@@ -264,6 +271,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             stride=stride,
             offset=offset,
             image_patch_size=self.image_patch_size,
+            image_size=self.image_size,
             adapter=self.adapter,
         )
         datasets_weights = {ds_name: int(self.corpora_info[ds_name].weight) for ds_name in datasets_iterables.keys()}

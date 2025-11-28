@@ -116,7 +116,7 @@ class RotaryPosition(nn.Module):
             self.rotary_theta = model_config.rope_config.rotary_theta
         else:
             self.rotary_theta = model_config.rope_config.rotary_theta_local
-        if getattr(self.model_config.rope_config, "scaling_type", None) == "dynamic" and getattr(
+        if getattr(self.model_config.rope_config, "scaling_type", None) in ["dynamic", "xdrope"] and getattr(
             self.model_config.rope_config, "alpha", None
         ):
             base = self.rotary_theta * getattr(self.model_config.rope_config, "alpha", None) ** (

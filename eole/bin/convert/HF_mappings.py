@@ -342,7 +342,8 @@ MODEL_OVERRIDES = {
                 "add_ffnbias": True,
                 "add_final_linear_bias": True,
                 "add_qkvbias": True,
-                "layernorm_pre": False,  # implies post layernorm
+                "layernorm_pre": False,
+                "layernorm_post": True,
                 "patch_conv_bias": True,
             },
         },
@@ -482,6 +483,59 @@ MODEL_OVERRIDES = {
             },
         },
     },
+    "HunYuanVLForConditionalGeneration": {
+        "decoder": {
+            ".self_attn.q_norm.": ".self_attn.query_layernorm.",
+            ".self_attn.k_norm.": ".self_attn.key_layernorm.",
+        },
+        "config": {
+            "adapter": "hunyuanocr",
+            "decoder": {
+                "query_norm": True,
+                "key_norm": True,
+                "qk_norm_post_rope": True,
+            },
+            "encoder": {
+                "position_encoding_type": PositionEncodingType.Learned,
+                "interpolate_mode": "bilinear",
+                "n_positions": 16384,
+                "layer_norm": "standard",
+                "layernorm_pre": False,
+                "mlp_activation_fn": "gelu",
+                "add_ffnbias": True,
+                "add_qkvbias": True,
+                "patch_conv_bias": True,
+                "image_token_id": 120120,
+            },
+        },
+        "encoder_layer_prefix": "vit.layers.",
+        "encoder.patch_conv.weight": "vit.embeddings.patch_embedding.weight",
+        "encoder.patch_conv.bias": "vit.embeddings.patch_embedding.bias",
+        "encoder.position_embeddings.weight": "vit.embeddings.position_embedding.weight",
+        # encoder layers modules
+        "encoder": {
+            ".self_attn.linear_query.": ".self_attn.q_proj.",
+            ".self_attn.linear_keys.": ".self_attn.k_proj.",
+            ".self_attn.linear_values.": ".self_attn.v_proj.",
+            ".self_attn.final_linear.": ".self_attn.o_proj.",
+            ".mlp.gate_up_proj.": ".mlp.dense_h_to_4h.",
+            ".mlp.down_proj.": ".mlp.dense_4h_to_h.",
+            ".input_layernorm.": ".input_layernorm.",
+            ".post_attention_layernorm.": ".post_attention_layernorm.",
+        },
+        "adapter.proj.0.weight": "vit.perceive.proj.0.weight",
+        "adapter.proj.2.weight": "vit.perceive.proj.2.weight",
+        "adapter.mlp.weight": "vit.perceive.mlp.weight",
+        "adapter.proj.0.bias": "vit.perceive.proj.0.bias",
+        "adapter.proj.2.bias": "vit.perceive.proj.2.bias",
+        "adapter.mlp.bias": "vit.perceive.mlp.bias",
+        "adapter.after_rms.weight": "vit.perceive.after_rms.weight",
+        "adapter.before_rms.weight": "vit.perceive.before_rms.weight",
+        "adapter.image_begin": "vit.perceive.image_begin",
+        "adapter.image_end": "vit.perceive.image_end",
+        "adapter.image_newline": "vit.perceive.image_newline",
+        "adapter.image_sep": "vit.perceive.image_sep",
+    },
 }
 
 # Combine base mappings with overrides
@@ -534,6 +588,7 @@ ARCH_TABLE = defaultdict(
         "Gemma3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "M2M100ForConditionalGeneration": TransformerModelConfig,
         "DeepseekOCRForCausalLM": VisionTransformerLMModelConfig,
+        "HunYuanVLForConditionalGeneration": VisionTransformerLMModelConfig,
     },
 )
 

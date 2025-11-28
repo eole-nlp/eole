@@ -1,27 +1,30 @@
-import torch
 import numpy as np
-from PIL import Image  # , ImageOps
-import PIL
-from typing import Tuple, Optional, Union
+from PIL import Image
+from typing import Optional, Union
 from enum import Enum
 from collections.abc import Collection
 from eole.utils.logging import logger
-from abc import ABC
-from torchvision import transforms
-
-"""
-Most of this code is borrowed from:
-https://github.com/mistralai/mistral-common/blob/main/src/mistral_common/tokens/tokenizers/multimodal.py
-"""
-
-# This is strictly restricted to pixtral-12b, extending to other models will require some mapping
-DATASET_MEAN = (0.48145466, 0.4578275, 0.40821073)  # RGB
-DATASET_STD = (0.26862954, 0.26130258, 0.27577711)  # RGB
 
 
-class ChannelDimension(Enum):
-    FIRST = "channels_first"
-    LAST = "channels_last"
+DATASET_MEAN = {
+    "llava": (0.48145466, 0.4578275, 0.40821073),
+    "gemma3": (0.5, 0.5, 0.5),
+    "deepseekocr": (0.5, 0.5, 0.5),
+    "hunyuanocr": (0.48145466, 0.4578275, 0.40821073),
+}
+DATASET_STD = {
+    "llava": (0.26862954, 0.26130258, 0.27577711),
+    "gemma3": (0.5, 0.5, 0.5),
+    "deepseekocr": (0.5, 0.5, 0.5),
+    "hunyuanocr": (0.26862954, 0.26130258, 0.27577711),
+}
+RESAMPLE = {
+    "llava": Image.BICUBIC,
+    "gemma3": Image.BILINEAR,
+    "deepseekocr": Image.BILINEAR,
+    "hunyuanocr": Image.BILINEAR,
+}
+SQUARE = {"llava": False, "gemma3": True, "deepseekocr": True, "hunyuanocr": False}
 
 
 def _convert_to_rgb(image: Image.Image) -> Image.Image:
@@ -38,113 +41,27 @@ def _convert_to_rgb(image: Image.Image) -> Image.Image:
     return white_bg.convert("RGB")
 
 
-def normalize_llava(np_image, mean, std):
-    # np_image = np_image / 255.0
-    assert len(np_image.shape) == 3, f"{np_image.shape=}"
-    assert np_image.shape[2] == len(mean) == len(std), f"{np_image.shape=}, {mean=}, {std=}"
-    mean = np.array(mean, dtype=np_image.dtype)
-    std = np.array(std, dtype=np_image.dtype)
-    image = (np_image - mean) / std
-    return image.transpose(2, 0, 1)
-
-
-def transform_image(image: Image.Image, new_size: Tuple[int, int]) -> np.ndarray:
-    # resize PIL image directly
-    resized_image = image.resize(new_size, resample=3, reducing_gap=None)  # hardcoded kwargs, reproducing HF
-    np_image = np.array(_convert_to_rgb(resized_image), dtype=np.uint8)
-    # rescale (dtype shennanigans to match HF processing)
-    np_image = (np_image.astype(np.float64) * 1 / 255).astype(np.float32)
-    return normalize_llava(np_image, DATASET_MEAN, DATASET_STD)
-
-
-def image_to_num_tokens(img, image_size=1024, image_patch_size=16):
+def image_to_num_tokens(img, image_size=0, image_patch_size=16, square=False):
+    if square:  # Gemma3 (896x896) and Deepseekocr (1024x1024) require square fixed size
+        return image_size // image_patch_size, image_size // image_patch_size
     w, h = img.size
+    if image_size == 0 or image_size is None:
+        image_size = max(w, h)
     ratio = max(h / image_size, w / image_size)
     if ratio > 1:
         w = round(w / ratio)
         h = round(h / ratio)
     width_tokens = (w - 1) // image_patch_size + 1
     height_tokens = (h - 1) // image_patch_size + 1
+    # make numbers even to ensure batch even number of img tokens
+    width_tokens = width_tokens + (width_tokens % 2)
+    height_tokens = height_tokens + (height_tokens % 2)
     return width_tokens, height_tokens
 
 
-def _rescale_for_pil_conversion(image):
-    """
-    Detects whether or not the image needs to be rescaled before being converted to a PIL image.
-
-    The assumption is that if the image is of type `np.float` and all values are between 0 and 1, it needs to be
-    rescaled.
-    """
-    if image.dtype == np.uint8:
-        do_rescale = False
-    elif np.allclose(image, image.astype(int)):
-        if np.all(0 <= image) and np.all(image <= 255):
-            do_rescale = False
-        else:
-            raise ValueError(
-                "The image to be converted to a PIL image contains values outside the range [0, 255], "
-                f"got [{image.min()}, {image.max()}] which cannot be converted to uint8."
-            )
-    elif np.all(0 <= image) and np.all(image <= 1):
-        do_rescale = True
-    else:
-        raise ValueError(
-            "The image to be converted to a PIL image contains values outside the range [0, 1], "
-            f"got [{image.min()}, {image.max()}] which cannot be converted to uint8."
-        )
-    return do_rescale
-
-
-def to_pil_image(
-    image: Union[np.ndarray, "PIL.Image.Image", "torch.Tensor"],
-    do_rescale: Optional[bool] = None,
-    image_mode: Optional[str] = None,
-    input_data_format: Optional[Union[str, ChannelDimension]] = None,
-) -> "PIL.Image.Image":
-    """
-    Converts `image` to a PIL Image. Optionally rescales it and puts the channel dimension back as the last axis if
-    needed.
-
-    Args:
-        image (`PIL.Image.Image` or `numpy.ndarray` or `torch.Tensor`):
-            The image to convert to the `PIL.Image` format.
-        do_rescale (`bool`, *optional*):
-            Whether or not to apply the scaling factor (to make pixel values integers between 0 and 255). Will default
-            to `True` if the image type is a floating type and casting to `int` would result in a loss of precision,
-            and `False` otherwise.
-        image_mode (`str`, *optional*):
-            The mode to use for the PIL image. If unset, will use the default mode for the input image type.
-        input_data_format (`ChannelDimension`, *optional*):
-            The channel dimension format of the input image. If unset, will use the inferred format from the input.
-
-    Returns:
-        `PIL.Image.Image`: The converted image.
-    """
-    # requires_backends(to_pil_image, ["vision"])
-
-    if isinstance(image, PIL.Image.Image):
-        return image
-
-    # Convert all tensors to numpy arrays before converting to PIL image
-    if isinstance(image, torch.Tensor):
-        image = image.numpy()
-    elif not isinstance(image, np.ndarray):
-        raise ValueError(f"Input image type not supported: {type(image)}")
-
-    # If the channel has been moved to first dim, we put it back at the end.
-    image = to_channel_dimension_format(image, ChannelDimension.LAST, input_data_format)
-
-    # If there is a single channel, we squeeze it, as otherwise PIL can't handle it.
-    image = np.squeeze(image, axis=-1) if image.shape[-1] == 1 else image
-
-    # PIL.Image can only store uint8 values so we rescale the image to be between 0 and 255 if needed.
-    do_rescale = _rescale_for_pil_conversion(image) if do_rescale is None else do_rescale
-
-    if do_rescale:
-        image = rescale(image, 255)
-
-    image = image.astype(np.uint8)
-    return PIL.Image.fromarray(image, mode=image_mode)
+class ChannelDimension(Enum):
+    FIRST = "channels_first"
+    LAST = "channels_last"
 
 
 def infer_channel_dimension_format(
@@ -183,75 +100,6 @@ def infer_channel_dimension_format(
     elif image.shape[last_dim] in num_channels:
         return ChannelDimension.LAST
     raise ValueError("Unable to infer channel dimension format")
-
-
-def resize(
-    image: np.ndarray,
-    size: Tuple[int, int],
-    resample: "Image.Resampling" = None,
-    reducing_gap: Optional[int] = None,
-    data_format: Optional[ChannelDimension] = None,
-    return_numpy: bool = True,
-    input_data_format: Optional[Union[str, ChannelDimension]] = None,
-) -> np.ndarray:
-    """
-    Resizes `image` to `(height, width)` specified by `size` using the PIL library.
-
-    Args:
-        image (`np.ndarray`):
-            The image to resize.
-        size (`Tuple[int, int]`):
-            The size to use for resizing the image.
-        resample (`int`, *optional*, defaults to `Image.Resampling.BILINEAR`):
-            The filter to user for resampling.
-        reducing_gap (`int`, *optional*):
-            Apply optimization by resizing the image in two steps. The bigger `reducing_gap`, the closer the result to
-            the fair resampling. See corresponding Pillow documentation for more details.
-        data_format (`ChannelDimension`, *optional*):
-            The channel dimension format of the output image. If unset, will use the inferred format from the input.
-        return_numpy (`bool`, *optional*, defaults to `True`):
-            Whether or not to return the resized image as a numpy array. If False a `PIL.Image.Image` object is
-            returned.
-        input_data_format (`ChannelDimension`, *optional*):
-            The channel dimension format of the input image. If unset, will use the inferred format from the input.
-
-    Returns:
-        `np.ndarray`: The resized image.
-    """
-    # requires_backends(resize, ["vision"])
-
-    resample = resample if resample is not None else Image.Resampling.BILINEAR
-
-    if not len(size) == 2:
-        raise ValueError("size must have 2 elements")
-
-    # For all transformations, we want to keep the same data format as the input image unless otherwise specified.
-    # The resized image from PIL will always have channels last, so find the input format first.
-    if input_data_format is None:
-        input_data_format = infer_channel_dimension_format(image)
-    data_format = input_data_format if data_format is None else data_format
-
-    # To maintain backwards compatibility with the resizing done in previous image feature extractors, we use
-    # the pillow library to resize the image and then convert back to numpy
-    do_rescale = False
-    if not isinstance(image, PIL.Image.Image):
-        do_rescale = _rescale_for_pil_conversion(image)
-        image = to_pil_image(image, do_rescale=do_rescale, input_data_format=input_data_format)
-    height, width = size
-    # PIL images are in the format (width, height)
-    resized_image = image.resize((width, height), resample=resample, reducing_gap=reducing_gap)
-
-    if return_numpy:
-        resized_image = np.array(resized_image)
-        # If the input image channel dimension was of size 1, then it is dropped when converting to a PIL image
-        # so we need to add it back if necessary.
-        resized_image = np.expand_dims(resized_image, axis=-1) if resized_image.ndim == 2 else resized_image
-        # The image is always in channels last format after converting from a PIL image
-        resized_image = to_channel_dimension_format(resized_image, data_format, input_channel_dim=ChannelDimension.LAST)
-        # If an image was rescaled to be in the range [0, 255] before converting to a PIL image, then we need to
-        # rescale it back to the original range.
-        resized_image = rescale(resized_image, 1 / 255) if do_rescale else resized_image
-    return resized_image
 
 
 def rescale(
@@ -316,7 +164,7 @@ def get_channel_dimension_axis(
     raise ValueError(f"Unsupported data format: {input_data_format}")
 
 
-def normalize_gemma(
+def normalize(
     image: np.ndarray,
     mean: Union[float, Collection[float]],
     std: Union[float, Collection[float]],
@@ -412,106 +260,41 @@ def to_channel_dimension_format(
         image = image.transpose((1, 2, 0))
     else:
         raise ValueError("Unsupported channel dimension format: {}".format(channel_dim))
-
     return image
 
 
-def normalize_transform(mean, std):
-    if mean is None and std is None:
-        transform = None
-    elif mean is None and std is not None:
-        mean = [0.0] * len(std)
-        transform = transforms.Normalize(mean=mean, std=std)
-    elif mean is not None and std is None:
-        std = [1.0] * len(mean)
-        transform = transforms.Normalize(mean=mean, std=std)
+def process_image(image_path, adapter="llava", image_patch_size=16, image_size=1024):
+    if isinstance(image_path, Image.Image):
+        PILimage = image_path
     else:
-        transform = transforms.Normalize(mean=mean, std=std)
+        PILimage = Image.open(image_path)
 
-    return transform
+    PILimage = _convert_to_rgb(PILimage)
+    if adapter == "deepseekocr":
+        image_patch_size = 16  # hardcoded (vs 14 for Clip module=encoder_config.patch_size)
 
+    w, h = image_to_num_tokens(
+        PILimage, image_size=image_size, image_patch_size=image_patch_size, square=SQUARE[adapter]
+    )
+    new_image_size = (w * image_patch_size, h * image_patch_size)
+    PILimage = PILimage.resize(new_image_size, resample=RESAMPLE[adapter], reducing_gap=None)
 
-class BaseTransform(ABC):
+    NPimage = np.array(PILimage, dtype=np.uint8)  # (H, W, C)
+    NPimage = rescale(image=NPimage, scale=1 / 255, input_data_format=ChannelDimension.LAST)
+    NPimage = normalize(
+        image=NPimage,
+        mean=DATASET_MEAN[adapter],
+        std=DATASET_STD[adapter],
+        input_data_format=ChannelDimension.LAST,
+    )
+    NPimage = to_channel_dimension_format(NPimage, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
 
-    def set_rng(self, *args, **kwargs):
-        pass
-
-    def __call__(self, *args, **kwargs) -> torch.Tensor:
-        pass
-
-    @property
-    def default_shape(self):
-        raise NotImplementedError
-
-
-class BasicImageTransform(BaseTransform):
-    def __init__(
-        self,
-        mean: Optional[Tuple[float, float, float]] = (0.5, 0.5, 0.5),
-        std: Optional[Tuple[float, float, float]] = (0.5, 0.5, 0.5),
-        normalize: bool = True,
-    ):
-        self.mean = mean
-        self.std = std
-
-        transform_pipelines = [transforms.ToTensor()]
-
-        normalize = normalize_transform(mean, std) if normalize else torch.nn.Identity()
-        if normalize is not None:
-            transform_pipelines.append(normalize)
-
-        self.transform = transforms.Compose(transform_pipelines)
-
-    def __call__(self, x):
-        x = self.transform(x)
-        return x
-
-
-def process_image(image_path, adapter="llava", image_size=1024, image_patch_size=16):
     if adapter == "llava":
-        image = Image.open(image_path)
-        w, h = image_to_num_tokens(image, image_size=image_size, image_patch_size=image_patch_size)
-        new_image_size = (w * image_patch_size, h * image_patch_size)
-        # TODO retrieve from model config / vocab / tokenizer
         image_tokens = (["[IMG]"] * w + ["[IMG_BREAK]"]) * h
         image_tokens[-1] = "[IMG_END]"
-        processed_image = transform_image(image, new_image_size)
-        return {"image": processed_image, "tokens": image_tokens}
     elif adapter == "gemma3":
-        image = Image.open(image_path)
-        image = _convert_to_rgb(image)
-        image = resize(image=image, size=(896, 896), resample=2, input_data_format=ChannelDimension.LAST)
-        image = rescale(image=image, scale=0.00392156862745098, input_data_format=ChannelDimension.LAST)  # 1/256
-        image = normalize_gemma(
-            image=image, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], input_data_format=ChannelDimension.LAST
-        )
-        image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
-        # return image
-        # TODO: make this configurable?
         image_tokens = "<start_of_image>" + "<image_soft_token>" * 256 + "<end_of_image>"
-        return {"image": image, "tokens": image_tokens}
     elif adapter == "deepseekocr":
-        if isinstance(image_path, Image.Image):
-            image = image_path
-        else:
-            image = Image.open(image_path)
-        """
-        # Original DeepSeekOCR code - padding not optimal
-        image = image.convert("RGB")
-        image = ImageOps.pad(image, (image_size, image_size), color=tuple(int(x * 255) for x in [0.5, 0.5, 0.5]))
-        image_transform = BasicImageTransform(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5), normalize=True)
-        image = image_transform(image).to(torch.bfloat16)  # C H W
-        # careful returns a tensor vs others np array
-        """
-        # same code as gemma3 above, works better it seems
-        image = _convert_to_rgb(image)
-        image = resize(image=image, size=(1024, 1024), resample=2, input_data_format=ChannelDimension.LAST)
-        image = rescale(image=image, scale=0.00392156862745098, input_data_format=ChannelDimension.LAST)  # 1/256
-        image = normalize_gemma(
-            image=image, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], input_data_format=ChannelDimension.LAST
-        )
-        image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
-
         # sam patches are 16 (hardcoded in original implementation)
         # for a 1024x1024 image it means patches of 64x64
         # for the sam encoder it is 64x64 = 4096 patches
@@ -519,6 +302,12 @@ def process_image(image_path, adapter="llava", image_size=1024, image_patch_size
         # but there is one token at the end of each line, and one more at the end of the pic
         # (16 + 1) x 16 + 1 = 273
         image_tokens = ["<image>"] * 273
-        return {"image": image, "tokens": image_tokens}
+    elif adapter == "hunyuanocr":
+        image_tokens = (
+            "<｜hy_place▁holder▁no▁100｜>"
+            + "<｜hy_place▁holder▁no▁102｜>" * (w * (h + 1) + 2)
+            + "<｜hy_place▁holder▁no▁101｜>"
+        )
     else:
         raise ValueError("Unsupported Adapter type: {}".format(adapter))
+    return {"image": NPimage, "tokens": image_tokens}
