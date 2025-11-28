@@ -278,10 +278,12 @@ class TransformerConfig(Config):
     )
     interpolate_mode: str | None = Field(
         default=None,
-        description="Two cases"
-        "Case None: position_embeddings is a lookup table based on n_positions"
-        "Case Str: for instance bilinear. position_embedding is a learned Grid"
-        "Using interpolation cf code in Vision.py encoder",
+        description=(
+            "Interpolation mode for position embeddings. "
+            "If None: position_embeddings is a lookup table based on n_positions. "
+            "If string (e.g., 'bilinear'): position_embedding is a learned grid using interpolation."
+            " (see Vision.py encoder)"
+        ),
     )
     n_positions: int | None = Field(
         default=None,

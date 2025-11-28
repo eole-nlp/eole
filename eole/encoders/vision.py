@@ -214,14 +214,14 @@ class VisionEncoder(nn.Module):
                 B, D, H, W = patch_embeds.size()
                 patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
 
-                if self.interpolate_mode is None:  # Gemma3 / Deepseekocr
+                if self.interpolate_mode is None:  # Gemma3 / DeepseekOCR
                     patch_pos_embed = self.position_embeddings(torch.stack(positions).to(self.device))
-                else:  # Hunyunaocr
+                else:  # HunyuanOCR
                     patch_pos_shape = (1, self.max_patch_per_side, self.max_patch_per_side, D)
                     patch_pos_embed = (
                         self.position_embeddings.weight[1:, :].reshape(patch_pos_shape).permute(0, 3, 1, 2).float()
                     )
-                    h0 = H + 0.1
+                    h0 = H + 0.1  # taken from the HunyuanPCR implementation
                     w0 = W + 0.1
                     patch_pos_embed = nn.functional.interpolate(
                         patch_pos_embed,
@@ -351,7 +351,7 @@ class HunYuanVisionPatchMerger(nn.Module):
         super().__init__()
         in_channels = model_config.encoder.hidden_size
         out_channels = model_config.decoder.hidden_size
-        rms_norm_eps = 1e-5
+        rms_norm_eps = getattr(model_config.encoder, "norm_eps", 1e-5)
         self.patch_size = model_config.encoder.patch_size
         self.spatial_merge_size = model_config.spatial_merge_size
         embed_std = out_channels**-0.5
@@ -377,6 +377,20 @@ class HunYuanVisionPatchMerger(nn.Module):
         self.after_rms = LayerNorm["rms"](out_channels, eps=rms_norm_eps)
 
     def forward(self, x, image_sizes):
+        """
+        Args:
+            x: Tensor of shape (batch_size, seq_len, hidden_size)
+            image_sizes: Tensor of shape (batch_size, 2), where each entry is (width, height).
+        Raises:
+            ValueError: If images in the batch have different sizes.
+        Note:
+            This implementation requires all images in the batch to have the same dimensions.
+        """
+        # Validate that all images in the batch have the same dimensions
+        if not torch.all(image_sizes == image_sizes[0]):
+            raise ValueError(
+                "All images in the batch must have the same dimensions. " f"Got image_sizes: {image_sizes.tolist()}"
+            )
         x = self.before_rms(x)
         h, w = image_sizes[0][1].item() // self.patch_size, image_sizes[0][0].item() // self.patch_size
         dtype = x.dtype
