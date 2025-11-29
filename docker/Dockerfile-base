@@ -25,4 +25,5 @@ RUN pip3 install packaging
 RUN CU=$(echo "${CUDA_VERSION%.*}" | sed 's/\.//g'); pip3 install torch==$TORCH_VERSION --index-url "https://download.pytorch.org/whl/cu$CU"
 
 # Install flash-attention
+RUN pip install numpy psutil
 RUN pip install flash-attn --no-build-isolation
