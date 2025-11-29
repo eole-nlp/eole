@@ -643,7 +643,6 @@ class BaseModel(nn.Module):
                         self._load_param(name, module, param_name, param, buf_list, ckpt_t, offset)
                         keyfound[prefix + param_name] = True
                     elif prefix + param_name in keys_shard.keys():
-
                         ckpt_t = f[keys_shard[prefix + param_name]].get_tensor(prefix + param_name)
                         self._load_param(name, module, param_name, param, buf_list, ckpt_t, offset)
                         keyfound[prefix + param_name] = True
@@ -665,7 +664,8 @@ class BaseModel(nn.Module):
                         torch.quantization.quantize_dynamic(module, inplace=True)
                     else:
                         module.to(getattr(running_config, "storage_dtype", torch.float32))
-                    module.to(device)
+                    param.to(device)  # cannot set full module on device because bnb will quantize
+        self.to(device)
         for key in keys_shard.keys():
             if key not in keyfound.keys() and key not in buf_list:
                 logger.warning("extra key in checkpoint %s" % key)

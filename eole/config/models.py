@@ -276,6 +276,15 @@ class TransformerConfig(Config):
         default=PositionEncodingType.SinusoidalInterleaved,
         description="Type of positional encoding.",
     )
+    interpolate_mode: str | None = Field(
+        default=None,
+        description=(
+            "Interpolation mode for position embeddings. "
+            "If None: position_embeddings is a lookup table based on n_positions. "
+            "If string (e.g., 'bilinear'): position_embedding is a learned grid using interpolation."
+            " (see Vision.py encoder)"
+        ),
+    )
     n_positions: int | None = Field(
         default=None,
         description="Two cases"
@@ -378,7 +387,8 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     patch_size: int | None = 16
     image_token_id: int | None = 10  # pixtral uses 10, gemma3 uses 262144
     mm_tokens_per_image: int | None = 256  # added for gemma3
-    layernorm_pre: bool = True  # True for pixtral/mistral False for gemma3
+    layernorm_pre: bool = True  # True for pixtral/mistral/deepseek False for gemma3/hunyuan
+    layernorm_post: bool = False  # False for pixtral/mistral/deepseek/hunyuan True for gemma3
     patch_conv_bias: bool = False  # False for pixtral/mistral True for gemma3
 
     encoder_sam: bool = False  # True for DeepSeekOCR (Segment Anything Model as 1st step)
