@@ -42,7 +42,7 @@ class PositionalEncoding(nn.Module):
             raise ValueError("Choice of Position encoding is SinusoidalInterleaved or" " SinusoidalConcat.")
         pe = pe.unsqueeze(1)  # we keep pe (len x batch x dim) for back comp
         super(PositionalEncoding, self).__init__()
-        self.register_buffer("pe", pe, persistent=False)
+        self.register_buffer("pe", pe, persistent=True)
         self.dim = dim
 
     def forward(self, emb, step=None):
