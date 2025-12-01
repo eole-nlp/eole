@@ -1,3 +1,6 @@
+# Most code taken from the Deepseek github repo
+# https://github.com/deepseek-ai/DeepSeek-OCR/blob/main/DeepSeek-OCR-master/DeepSeek-OCR-vllm/run_dpsk_ocr_pdf.py
+# except part used to run the model with Eole
 import os
 import fitz
 import img2pdf
@@ -72,23 +75,21 @@ def pil_to_pdf_img2pdf(pil_images, output_path):
 
 
 def re_match(text):
-    # pattern = r'(<\|ref\|>(.*?)<\|/ref\|><\|det\|>(.*?)<\|/det\|>)'
-    pattern = r"(<\|ref\|>(.*?)<\|/ref\|><\|det\|>(.*?)<\|/det\|>)(.*?)(?=<\|ref\|>|$)"
+    pattern = r'(<\|ref\|>(.*?)<\|/ref\|><\|det\|>(.*?)<\|/det\|>)'
+    # pattern = r"(<\|ref\|>(.*?)<\|/ref\|><\|det\|>(.*?)<\|/det\|>)(.*?)(?=<\|ref\|>|$)"
 
     matches = re.findall(pattern, text, re.DOTALL)
 
     match_ref = []
     matches_image = []
     matches_other = []
-    content = []
     for a_match in matches:
         if "<|ref|>image<|/ref|>" in a_match[0]:
             matches_image.append(a_match[0])
         else:
             matches_other.append(a_match[0])
         match_ref.append((a_match[0], a_match[1], a_match[2]))
-        content.append(a_match[3])
-    return match_ref, matches_image, matches_other, content
+    return match_ref, matches_image, matches_other
 
 
 def extract_coordinates_and_label(ref_text, image_width, image_height):
@@ -166,17 +167,17 @@ def process_image_with_refs(image, ref_texts, jdx):
 
 if __name__ == "__main__":
 
-    OUTPUT_PATH = "/mnt/InternalCrucial4/LLM_work/deepseek-ocr/"
+    OUTPUT_PATH = "/mnt/InternalCrucial4/LLM_work/DeepSeek-OCR/"
     os.makedirs(OUTPUT_PATH, exist_ok=True)
     os.makedirs(f"{OUTPUT_PATH}/images", exist_ok=True)
 
     print(f"{Colors.RED}PDF loading .....{Colors.RESET}")
 
-    INPUT_PATH = "/mnt/InternalCrucial4/LLM_work/deepseek-ocr/deepseekocr.pdf"
+    INPUT_PATH = "/mnt/InternalCrucial4/LLM_work/DeepSeek-OCR/deepseekocr.pdf"
     images = pdf_to_images_high_quality(INPUT_PATH)
 
     config = PredictConfig(
-        model_path="/mnt/InternalCrucial4/LLM_work/deepseek-ocr",
+        model_path="/mnt/InternalCrucial4/LLM_work/DeepSeek-OCR",
         src="dummy",
         max_length=8192,
         gpu_ranks=[0],
@@ -228,13 +229,7 @@ if __name__ == "__main__":
         page_num = "\n<--- Page Split --->"
         contents_det += content + f"\n{page_num}\n"
         image_draw = img.copy()
-        matches_ref, matches_images, matches_other, actual_content = re_match(content)
-        actual_content = [x for x in actual_content if x != "\n"]
-        if len(matches_other) != len(actual_content):
-            print(matches_other)
-            print("####")
-            print(actual_content)
-            print("#######################################")
+        matches_ref, matches_images, matches_other = re_match(content)
 
         result_image = process_image_with_refs(image_draw, matches_ref, jdx)
         draw_images.append(result_image)
