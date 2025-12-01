@@ -2,6 +2,13 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.4.1
+
+* FusedMoE (vllm) + PDF to markdown with DeepSpeed-OCR by @vince62s in https://github.com/eole-nlp/eole/pull/270
+* support HunyuanOCR model + fixes by @vince62s in https://github.com/eole-nlp/eole/pull/273
+* fix #272 by @vince62s in https://github.com/eole-nlp/eole/pull/274
+* Demo HunyuanOCR by @vince62s in https://github.com/eole-nlp/eole/pull/275
+
 ## 0.4.0
 
 * feat: Add attention entropy monitoring during training by @chillum-codeX in https://github.com/eole-nlp/eole/pull/250
