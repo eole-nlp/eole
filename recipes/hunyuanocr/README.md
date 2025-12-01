@@ -13,6 +13,13 @@ export HF_TOKEN=<your_hf_token>
 eole convert HF --model_dir tencent/HunyuanOCR --output $EOLE_MODEL_DIR/HunyuanOCR --token $HF_TOKEN
 ```
 
+Manually add at the bottom of the config.json the optional eos (HF config file is not up to date)
+
+```
+  "inference": {
+    "optional_eos": ["<｜hy_Assistant｜>"],
+```
+
 ## Run the test script
 
 ```
