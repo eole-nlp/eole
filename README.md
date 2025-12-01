@@ -9,6 +9,7 @@ Our goal is to provide a comprehensive yet compact and modular codebase for expe
 
 ## HF Models supported
 
+- **tencent/HunyuanOCR** End-to-End OCR model by Tencent. Uses more image token vs Deepseek but smaller LM. Results are impressive. (see [recipe](https://github.com/eole-nlp/eole/tree/main/recipes/hunyuanocr))
 - **deepseek-ai/DeepSeek-OCR** For now takes any image and rescales to 1024x1024 before processing - Gundam mode not implemented yet)
 - **tencent/Hunyuan-MT-7B** SOTA NMT at WMT25, better than Towerplus-9B and EuroLLM-9B
 - **Qwen/Qwen2/3** Non VL family. Includes Qwen3-30B-A3B
