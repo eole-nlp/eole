@@ -75,8 +75,7 @@ def pil_to_pdf_img2pdf(pil_images, output_path):
 
 
 def re_match(text):
-    pattern = r'(<\|ref\|>(.*?)<\|/ref\|><\|det\|>(.*?)<\|/det\|>)'
-    # pattern = r"(<\|ref\|>(.*?)<\|/ref\|><\|det\|>(.*?)<\|/det\|>)(.*?)(?=<\|ref\|>|$)"
+    pattern = r"(<\|ref\|>(.*?)<\|/ref\|><\|det\|>(.*?)<\|/det\|>)"
 
     matches = re.findall(pattern, text, re.DOTALL)
 
