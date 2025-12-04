@@ -6,8 +6,6 @@ from eole.inference_engine import InferenceEnginePY
 
 sys_prmt = "[SYSTEM_PROMPT]# HOW YOU SHOULD THINK AND ANSWER\n\nFirst draft your thinking process (inner monologue) until you arrive at a response. Format your response using Markdown, and use LaTeX for any mathematical equations. Write both your thoughts and the response in the same language as the input.\n\nYour thinking process must follow the template below:[THINK]Your thoughts or/and draft, like working through an exercise on scratch paper. Be as casual and as long as you want until you are confident to generate the response to the user.[/THINK]Here, provide a self-contained response.[/SYSTEM_PROMPT]"
 
-sys_prmt = ""
-
 mydir = os.getenv("EOLE_MODEL_DIR")
 
 config = PredictConfig(
