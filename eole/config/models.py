@@ -882,7 +882,7 @@ ModelConfig = Annotated[
         CnnModelConfig,
         CustomModelConfig,
     ],
-    Field(discriminator="architecture", default_factory=RnnModelConfig),  # noqa: F821
+    Field(discriminator="architecture"),  # noqa: F821
 ]
 
 build_model_config = TypeAdapter(ModelConfig).validate_python

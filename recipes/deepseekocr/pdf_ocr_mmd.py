@@ -21,34 +21,21 @@ class Colors:
     RESET = "\033[0m"
 
 
-def pdf_to_images_high_quality(pdf_path, dpi=144, image_format="PNG"):
-    """
-    Convert a pdf file into a list of PIL Images
-    pdf_path: Path to the pdf file
-    dpi: default to 144 for a x2 zoom
-        144/ 72 will make image 1191 x 1684 per page
-        resized after to 1024x1024 by Eole
-    """
+def pdf_to_images_ocr_optimized(pdf_path, max_px=1024):
     images = []
-    pdf_document = fitz.open(pdf_path)
-    zoom = dpi / 72.0
-    matrix = fitz.Matrix(zoom, zoom)
-    for page_num in range(pdf_document.page_count):
-        page = pdf_document[page_num]
-        pixmap = page.get_pixmap(matrix=matrix, alpha=False)
-        Image.MAX_IMAGE_PIXELS = None
-        if image_format.upper() == "PNG":
-            img_data = pixmap.tobytes("png")
-            img = Image.open(io.BytesIO(img_data))
-        else:
-            img_data = pixmap.tobytes("png")
-            img = Image.open(io.BytesIO(img_data))
-            if img.mode in ("RGBA", "LA"):
-                background = Image.new("RGB", img.size, (255, 255, 255))
-                background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
-                img = background
+    doc = fitz.open(pdf_path)
+
+    for i, page in enumerate(doc):
+        rect = page.rect
+        # Scale to optimal OCR resolution
+        scale = min(max_px / rect.width, max_px / rect.height, 2.0)
+        matrix = fitz.Matrix(scale, scale)
+        pix = page.get_pixmap(matrix=matrix, alpha=False, colorspace=fitz.csRGB)
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         images.append(img)
-    pdf_document.close()
+        print(f"Page {i} - input {rect.width} x {rect.height} - fitz zoom {scale} - image size {img.size}")
+
+    doc.close()
     return images
 
 
@@ -173,7 +160,7 @@ if __name__ == "__main__":
     print(f"{Colors.RED}PDF loading .....{Colors.RESET}")
 
     INPUT_PATH = "/mnt/InternalCrucial4/LLM_work/DeepSeek-OCR/deepseekocr.pdf"
-    images = pdf_to_images_high_quality(INPUT_PATH)
+    images = pdf_to_images_ocr_optimized(INPUT_PATH)
 
     config = PredictConfig(
         model_path="/mnt/InternalCrucial4/LLM_work/DeepSeek-OCR",
@@ -205,7 +192,7 @@ if __name__ == "__main__":
             {
                 "text": "{image}\n<|grounding|>Convert the document to markdown.",
                 "images": {"image": images[i]},
-            }
+            },
         )
 
     pred = engine.infer_list(model_input)

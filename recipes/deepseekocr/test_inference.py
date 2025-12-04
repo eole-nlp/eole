@@ -53,10 +53,8 @@ test_input = [
 
 pred = engine.infer_list(test_input)
 
-print(pred[2][0][0].replace("｟newline｠", "\n"))
-print("\n\n")
-print(pred[2][1][0].replace("｟newline｠", "\n"))
-print("\n\n")
-print(pred[2][2][0].replace("｟newline｠", "\n"))
-print("\n\n")
-print(pred[2][3][0].replace("｟newline｠", "\n"))
+print(pred)
+
+for i in range(len(test_input)):
+    print(pred[2][i][0].replace("｟newline｠", "\n"))
+    print("\n\n")

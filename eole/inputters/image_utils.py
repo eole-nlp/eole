@@ -1,5 +1,5 @@
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 from typing import Optional, Union
 from enum import Enum
 from collections.abc import Collection
@@ -270,14 +270,18 @@ def process_image(image_path, adapter="llava", image_patch_size=16, image_size=1
         PILimage = Image.open(image_path)
 
     PILimage = _convert_to_rgb(PILimage)
-    if adapter == "deepseekocr":
-        image_patch_size = 16  # hardcoded (vs 14 for Clip module=encoder_config.patch_size)
 
-    w, h = image_to_num_tokens(
-        PILimage, image_size=image_size, image_patch_size=image_patch_size, square=SQUARE[adapter]
-    )
-    new_image_size = (w * image_patch_size, h * image_patch_size)
-    PILimage = PILimage.resize(new_image_size, resample=RESAMPLE[adapter], reducing_gap=None)
+    if adapter in ["deepseekocr", "gemma3"]:
+        # padding
+        PILimage = ImageOps.pad(PILimage, (image_size, image_size), color=(127, 127, 127))
+    else:
+        # resize
+        w, h = image_to_num_tokens(
+            PILimage, image_size=image_size, image_patch_size=image_patch_size, square=SQUARE[adapter]
+        )
+        new_image_size = (w * image_patch_size, h * image_patch_size)
+        PILimage = PILimage.resize(new_image_size, resample=RESAMPLE[adapter], reducing_gap=None)
+    logger.info(f"Adapter is {adapter} - padded/resized image is {PILimage.size}")
 
     NPimage = np.array(PILimage, dtype=np.uint8)  # (H, W, C)
     NPimage = rescale(image=NPimage, scale=1 / 255, input_data_format=ChannelDimension.LAST)

@@ -1,16 +1,18 @@
 # flake8: noqa
-
+import os
 from rich import print
-from eole.config.run import *
+from eole.config.run import PredictConfig
 from eole.inference_engine import InferenceEnginePY
 
+mydir = os.getenv("EOLE_MODEL_DIR")
+
 config = PredictConfig(
-    model_path="./gemma3-27b-it",
+    model_path=os.path.join(mydir, "gemma3-27b-it"),
     src="dummy",
-    max_length=600,
+    max_length=800,
     gpu_ranks=[0],
     # quant_type="bnb_NF4",
-    quant_type="bnb_FP4",  # HF default, using it for initial reproducibility checks
+    quant_type="bnb_NF4",  # HF default, using it for initial reproducibility checks
     quant_layers=[
         "gate_up_proj",
         "down_proj",
@@ -29,22 +31,22 @@ config = PredictConfig(
     seed=42,
     batch_size=1,
     batch_type="sents",
-    self_attn_backend="pytorch",
+    report_time=True,
 )
 
-print(config)
+# print(config)
 
 config.data_type = "image"
 engine = InferenceEnginePY(config)
 
-print(engine.predictor.model)
-engine.predictor.model.count_parameters()
+# print(engine.predictor.model)
+# engine.predictor.model.count_parameters()
 
 test_input = [
-    # {
-    #    "text": "<start_of_turn>user\nList the top 5 countries in Europe with the highest GDP from this image\n{image1}<end_of_turn><start_of_turn>model\n",
-    #    "images": {"image1": "../../eole/tests/data/images/gdp.png"},
-    # },
+    {
+        "text": "<start_of_turn>user\nList the top 5 countries in Europe with the highest GDP from this image\n{image1}<end_of_turn><start_of_turn>model\n",
+        "images": {"image1": "eole/tests/data/images/gdp.png"},
+    },
     # {
     #     "text": "<start_of_turn>user\nWhen did things start to go wrong for dark dragon?\n{image1}<end_of_turn><start_of_turn>model\n",
     #     "images": {
@@ -57,13 +59,14 @@ test_input = [
     #         "image1": "../../eole/tests/data/images/pisa_2.jpg"
     #     }
     # },
-    {
-        "text": "<start_of_turn>user\nCombine information in both the tables into a single markdown table\n{image1}\n{image2}<end_of_turn><start_of_turn>model\n",
-        "images": {
-            "image1": "../../eole/tests/data/images/table1.png",
-            "image2": "../../eole/tests/data/images/table2.png",
-        },
-    },
+    # {
+    # "text": "<start_of_turn>user\nCombine information in both the tables into a single markdown table\n{image1}\n{image2}<end_of_turn><start_of_turn>model\n",
+    # "text": "<s>[INST]Combine information in both the tables into a single markdown table\n{image1}\n{image2}[/INST]",
+    # "images": {
+    #    "image1": "../../eole/tests/data/images/table1.png",
+    #    "image2": "../../eole/tests/data/images/table2.png",
+    # },
+    # },
     # {
     #     "text": "<start_of_turn>user\nCombine information in both the tables into a single markdown table\n{image1}<end_of_turn><start_of_turn>model\n",
     #     "images": {
@@ -91,4 +94,6 @@ test_input = [
 pred = engine.infer_list(test_input)
 
 print(pred)
-print(pred[2][0][0].replace("｟newline｠", "\n"))
+for i in range(len(test_input)):
+    print(pred[2][i][0].replace("｟newline｠", "\n"))
+    print("\n\n")
