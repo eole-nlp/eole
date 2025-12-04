@@ -4,12 +4,15 @@ from rich import print
 from eole.config.run import PredictConfig
 from eole.inference_engine import InferenceEnginePY
 
+sys_prmt = "[SYSTEM_PROMPT]# HOW YOU SHOULD THINK AND ANSWER\n\nFirst draft your thinking process (inner monologue) until you arrive at a response. Format your response using Markdown, and use LaTeX for any mathematical equations. Write both your thoughts and the response in the same language as the input.\n\nYour thinking process must follow the template below:[THINK]Your thoughts or/and draft, like working through an exercise on scratch paper. Be as casual and as long as you want until you are confident to generate the response to the user.[/THINK]Here, provide a self-contained response.[/SYSTEM_PROMPT]"
+
 mydir = os.getenv("EOLE_MODEL_DIR")
 
 config = PredictConfig(
-    model_path=os.path.join(mydir, "mistralai/pixtral-12b"),
+    model_path=os.path.join(mydir, "mistralai/Ministral-3-14B-Reasoning-2512"),
+    # model_path=os.path.join(mydir, "mistralai/mistral-3.1-24B-instruct"),
     src="dummy",
-    max_length=500,
+    max_length=4096,
     gpu_ranks=[0],
     # quant_type="bnb_NF4",
     # quant_type="bnb_NF4",  # HF default, using it for initial reproducibility checks
@@ -44,12 +47,12 @@ engine = InferenceEnginePY(config)
 
 test_input = [
     {
-        "text": "[INST]List the top 5 countries in Europe with the highest GDP\n{image1}[/INST]",
-        "images": {"image1": "eole/tests/data/images/gdp.png"},
+        "text": sys_prmt + "[INST]Convert the image to markdown. Tables should be in html.\n{image1}[/INST]",
+        "images": {"image1": "eole/tests/data/images/deepseekpaper.png"},
     },
     {
-        "text": "[INST]When did things start to go wrong for dark dragon?\n{image1}[/INST]",
-        "images": {"image1": "eole/tests/data/images/loss_curve.jpg"},
+        "text": sys_prmt + "[INST]Convert the image to markdown. Tables should be in html.\n{image1}[/INST]",
+        "images": {"image1": "eole/tests/data/images/deepseekpapertable.png"},
     },
     # {
     #     "text": "<s>[INST]Is this person really big, or is this building just super small?\n{image1}[/INST]",
@@ -91,7 +94,6 @@ test_input = [
 pred = engine.infer_list(test_input)
 
 print(pred)
-
 for i in range(len(test_input)):
     print(pred[2][i][0].replace("｟newline｠", "\n"))
     print("\n\n")

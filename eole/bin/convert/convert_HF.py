@@ -322,7 +322,7 @@ def build_config_dict(hf):
         "adapter_bias": False,
         "rope_config": {
             "rotary_interleave": False,
-            "rotary_theta": config.get("rope_theta", 10000),
+            "rotary_theta": config.get("rope_theta", config.get("rope_parameters", {}).get("rope_theta", 10000)),
         },
         "embeddings": {},  # Populated later
     }

@@ -1,7 +1,7 @@
 # flake8: noqa
 import os
 from rich import print
-from eole.config.run import *
+from eole.config.run import PredictConfig
 from eole.inference_engine import InferenceEnginePY
 
 mydir = os.getenv("EOLE_MODEL_DIR")
@@ -40,26 +40,27 @@ test_input = [
         "text": "<｜hy_begin▁of▁sentence｜><｜hy_place▁holder▁no▁3｜>{image}提 取 文 档 图 片 中 正 文 的 所 有 信 息用markdown 格 式 表 示 ， 其 中 页眉、页脚部分忽略，表格用html 格式表达，文档中公式用LATEX格式表示，按照阅读顺序组织进行解析。<｜hy_User｜>",
         "images": {"image": "eole/tests/data/images/deepseekpapertable.png"},
     },
+    {
+        "text": "<｜hy_begin▁of▁sentence｜><｜hy_place▁holder▁no▁3｜>{image} Detect and recognize text in the image, and output the text coordinates in a formatted manner.<｜hy_User｜>",
+        "images": {"image": "eole/tests/data/images/deepseekpaper.png"},
+    },
+    {
+        "text": "<｜hy_begin▁of▁sentence｜><｜hy_place▁holder▁no▁3｜>{image}检测并识别图片中的文字，将文本坐标格式化输出。<｜hy_User｜>",
+        "images": {"image": "eole/tests/data/images/deepseekpaper.png"},
+    },
 ]
 
 pred = engine.infer_list(test_input)
 
 print(pred, "\n\n")
 
-text = pred[2][0][0]
-text = text.replace("<｜hy_place▁holder▁no▁110｜>", "<quad>")
-text = text.replace("<｜hy_place▁holder▁no▁111｜>", "</quad>")
-text = text.replace("<｜hy_place▁holder▁no▁112｜>", "<ref>")
-text = text.replace("<｜hy_place▁holder▁no▁113｜>", "</ref>")
-text = text.replace("<｜hy_place▁holder▁no▁114｜>", "<pFig>")
-text = text.replace("<｜hy_place▁holder▁no▁115｜>", "</pFig>")
-print(text.replace("｟newline｠", "\n"))
-print("\n\n")
-text = pred[2][1][0]
-text = text.replace("<｜hy_place▁holder▁no▁110｜>", "<quad>")
-text = text.replace("<｜hy_place▁holder▁no▁111｜>", "</quad>")
-text = text.replace("<｜hy_place▁holder▁no▁112｜>", "<ref>")
-text = text.replace("<｜hy_place▁holder▁no▁113｜>", "</ref>")
-text = text.replace("<｜hy_place▁holder▁no▁114｜>", "<pFig>")
-text = text.replace("<｜hy_place▁holder▁no▁115｜>", "</pFig>")
-print(text.replace("｟newline｠", "\n"))
+for i in range(len(test_input)):
+    text = pred[2][i][0]
+    text = text.replace("<｜hy_place▁holder▁no▁110｜>", "<quad>")
+    text = text.replace("<｜hy_place▁holder▁no▁111｜>", "</quad>")
+    text = text.replace("<｜hy_place▁holder▁no▁112｜>", "<ref>")
+    text = text.replace("<｜hy_place▁holder▁no▁113｜>", "</ref>")
+    text = text.replace("<｜hy_place▁holder▁no▁114｜>", "<pFig>")
+    text = text.replace("<｜hy_place▁holder▁no▁115｜>", "</pFig>")
+    print(text.replace("｟newline｠", "\n"))
+    print("\n\n")
