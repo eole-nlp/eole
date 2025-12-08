@@ -70,16 +70,16 @@ def create_block_diagonal_mask(lengths, device):
     Args:
         lengths (list of int): List of lengths for each block.
     Returns:
-        torch.Tensor: A 2D boolean tensor with True in the
+        torch.Tensor: A 2D boolean tensor with False in the
             block diagonal regions and False elsewhere.
     """
     total_length = sum(lengths)
-    mask = torch.zeros((total_length, total_length), dtype=torch.bool)
+    mask = torch.ones((total_length, total_length), dtype=torch.bool)
 
     start = 0
     for length in lengths:
         end = start + length
-        mask[start:end, start:end] = True
+        mask[start:end, start:end] = False
         start = end
 
     return mask.to(device)
@@ -210,28 +210,40 @@ class VisionEncoder(nn.Module):
             )
             if hasattr(self, "position_embeddings"):
                 # Learned positions (Gemma3, Classic Clip)
-                patch_embeds = torch.cat([p.unsqueeze(0) for p in patch_embeds_list], dim=0)
-                B, D, H, W = patch_embeds.size()
-                patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
-
                 if self.interpolate_mode is None:  # Gemma3 / DeepseekOCR
+                    # all images have the same size.
                     patch_pos_embed = self.position_embeddings(torch.stack(positions).to(self.device))
+                    patch_embeds = torch.cat([p.unsqueeze(0) for p in patch_embeds_list], dim=0)
+                    patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
+                    patch_embeds += patch_pos_embed
                 else:  # HunyuanOCR
-                    patch_pos_shape = (1, self.max_patch_per_side, self.max_patch_per_side, D)
-                    patch_pos_embed = (
-                        self.position_embeddings.weight[1:, :].reshape(patch_pos_shape).permute(0, 3, 1, 2).float()
-                    )
-                    h0 = H + 0.1  # taken from the HunyuanPCR implementation
-                    w0 = W + 0.1
-                    patch_pos_embed = nn.functional.interpolate(
-                        patch_pos_embed,
-                        scale_factor=((h0 / self.max_patch_per_side), (w0 / self.max_patch_per_side)),
-                        mode=self.interpolate_mode,
-                        align_corners=False,
-                    )
-                    patch_pos_embed = patch_pos_embed.reshape(D, -1).transpose(0, 1).unsqueeze(0).to(patch_embeds.dtype)
+                    # images may have a different size
+                    all_patch_embeds = []
+                    for patch_embeds in patch_embeds_list:
+                        D, H, W = patch_embeds.size()
+                        # flatten this image's patches → (H*W, D)
+                        patch_embeds_flat = patch_embeds.flatten(1).transpose(0, 1)  # (N, D)
+                        patch_pos_shape = (1, self.max_patch_per_side, self.max_patch_per_side, D)
+                        patch_pos_embed = (
+                            self.position_embeddings.weight[1:, :].reshape(patch_pos_shape).permute(0, 3, 1, 2).float()
+                        )
+                        h0 = H + 0.1  # taken from the HunyuanPCR implementation
+                        w0 = W + 0.1
+                        patch_pos_embed = nn.functional.interpolate(
+                            patch_pos_embed,
+                            scale_factor=((h0 / self.max_patch_per_side), (w0 / self.max_patch_per_side)),
+                            mode=self.interpolate_mode,
+                            align_corners=False,
+                        )
+                        patch_pos_embed = patch_pos_embed.reshape(D, -1).transpose(0, 1)  # -> (N, D)
+                        patch_embeds_flat = patch_embeds_flat + patch_pos_embed.to(patch_embeds_flat.dtype)
+                        all_patch_embeds.append(patch_embeds_flat)
+                    patch_embeds = torch.cat(all_patch_embeds, dim=0).unsqueeze(0)
+                    mask = create_block_diagonal_mask(
+                        [p.shape[-2] * p.shape[-1] for p in patch_embeds_list],
+                        device=self.device,
+                    )  # block diagonal mask delimiting images
 
-                patch_embeds += patch_pos_embed
             else:  # rope embedding / pixtral / Mistral
                 patch_embeds = torch.cat([p.flatten(1).permute(1, 0) for p in patch_embeds_list], dim=0)
                 if self.ln_pre is not None:
@@ -242,8 +254,6 @@ class VisionEncoder(nn.Module):
                     [p.shape[-2] * p.shape[-1] for p in patch_embeds_list],
                     device=self.device,
                 )  # block diagonal mask delimiting images
-                # revert for proper downstream compatibility
-                mask = ~mask
                 position_embeddings = self.rope.update(
                     patch_embeds.size(1),
                     step=0,
@@ -292,6 +302,7 @@ class VisionLanguageAdapter(nn.Module):
         )
 
 
+# Multi-Modal Projector
 class Gemma3MultiModalProjector(nn.Module):
     # https://github.com/huggingface/transformers/blob/071a161d3e38f56dbda2743b979f0afeed2cd4f1/src/transformers/models/gemma3/modular_gemma3.py#L717
     def __init__(self, in_dim, out_dim, image_size, patch_size, mm_tokens_per_image):
@@ -343,6 +354,7 @@ class DeepSeekOCRProjector(nn.Module):
         )
 
 
+# Multi-Modal Projector + Patch merger
 class HunYuanVisionPatchMerger(nn.Module):
     def __init__(
         self,
@@ -378,36 +390,42 @@ class HunYuanVisionPatchMerger(nn.Module):
 
     def forward(self, x, image_sizes):
         """
-        Args:
-            x: Tensor of shape (batch_size, seq_len, hidden_size)
-            image_sizes: Tensor of shape (batch_size, 2), where each entry is (width, height).
-        Raises:
-            ValueError: If images in the batch have different sizes.
-        Note:
-            This implementation requires all images in the batch to have the same dimensions.
+        x: Tensor (1, sum_i N_i, D)
+        image_sizes: (B, 2) = (width_px, height_px) for each image
         """
-        # Validate that all images in the batch have the same dimensions
-        if not torch.all(image_sizes == image_sizes[0]):
-            raise ValueError(
-                "All images in the batch must have the same dimensions. " f"Got image_sizes: {image_sizes.tolist()}"
-            )
-        x = self.before_rms(x)
-        h, w = image_sizes[0][1].item() // self.patch_size, image_sizes[0][0].item() // self.patch_size
-        dtype = x.dtype
-        x = x.permute(0, 2, 1).reshape(x.shape[0], -1, h, w)
-        x = self.proj(x)  # b,c,h,w
-        b, c, h, w = x.shape
-        x = torch.cat(
-            [x, self.image_newline.reshape(1, c, 1, 1).expand(b, c, h, 1).to(dtype)],
-            dim=-1,
-        )
-        x = x.reshape(b, c, -1).permute(0, 2, 1)
-        x = self.mlp(x)
-        begin = self.image_begin.reshape(1, 1, -1).expand(b, 1, x.shape[-1]).to(dtype)
-        end = self.image_end.reshape(1, 1, -1).expand(b, 1, x.shape[-1]).to(dtype)
-        x = torch.cat([begin, x, end], dim=1)
-        x = self.after_rms(x)
-        return x
+        x = x.squeeze(0)
+        patch_h = image_sizes[:, 1] // self.patch_size
+        patch_w = image_sizes[:, 0] // self.patch_size
+        patch_counts = (patch_h * patch_w).tolist()
+
+        xs = x.split(patch_counts)
+        outputs = []
+
+        # ---- 2) Process each image independently ----
+        for i, xi in enumerate(xs):
+            h, w = int(patch_h[i]), int(patch_w[i])
+            xi = self.before_rms(xi)  # (N_i, D)
+            # (N_i, D) -> (1, D, h, w)
+            xi = xi.reshape(h, w, -1).permute(2, 0, 1).unsqueeze(0)
+            # Convolution / projection
+            xi = self.proj(xi)  # (1, C, h, w)
+            _, c, h, w = xi.shape
+            # Add image_newline
+            newline = self.image_newline.reshape(1, c, 1, 1).to(xi.dtype)
+            xi = torch.cat([xi, newline.expand(1, c, h, 1)], dim=-1)  # (1, C, h, w+1)
+            # Flatten back to sequence
+            xi = xi.flatten(2).permute(0, 2, 1)  # (1, L_i, C)
+            # MLP
+            xi = self.mlp(xi)  # (1, L_i, C)
+            # Add begin / end tokens
+            begin = self.image_begin.reshape(1, 1, -1).to(xi.dtype)
+            end = self.image_end.reshape(1, 1, -1).to(xi.dtype)
+            xi = torch.cat([begin, xi, end], dim=1)  # (1, L_i+2, C)
+            xi = self.after_rms(xi)  # (1, L_i+2, C)
+            outputs.append(xi.squeeze(0))  # (L_i+2, C)
+
+        # ---- 3) Return concatenation over patch dimension ----
+        return torch.cat(outputs, dim=0).unsqueeze(0)  # (sum_i (L_i+2), C)
 
     @classmethod
     def from_config(cls, model_config, running_config=None):
