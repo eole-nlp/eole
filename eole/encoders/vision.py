@@ -71,7 +71,7 @@ def create_block_diagonal_mask(lengths, device):
         lengths (list of int): List of lengths for each block.
     Returns:
         torch.Tensor: A 2D boolean tensor with False in the
-            block diagonal regions and False elsewhere.
+            block diagonal regions and True elsewhere.
     """
     total_length = sum(lengths)
     mask = torch.ones((total_length, total_length), dtype=torch.bool)
@@ -227,7 +227,7 @@ class VisionEncoder(nn.Module):
                         patch_pos_embed = (
                             self.position_embeddings.weight[1:, :].reshape(patch_pos_shape).permute(0, 3, 1, 2).float()
                         )
-                        h0 = H + 0.1  # taken from the HunyuanPCR implementation
+                        h0 = H + 0.1  # taken from the HunyuanOCR implementation
                         w0 = W + 0.1
                         patch_pos_embed = nn.functional.interpolate(
                             patch_pos_embed,
@@ -425,7 +425,7 @@ class HunYuanVisionPatchMerger(nn.Module):
             outputs.append(xi.squeeze(0))  # (L_i+2, C)
 
         # ---- 3) Return concatenation over patch dimension ----
-        return torch.cat(outputs, dim=0).unsqueeze(0)  # (sum_i (L_i+2), C)
+        return torch.cat(outputs, dim=0).unsqueeze(0)  # (1, sum_i (L_i+2), C)
 
     @classmethod
     def from_config(cls, model_config, running_config=None):
