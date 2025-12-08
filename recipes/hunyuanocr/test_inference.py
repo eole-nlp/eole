@@ -18,7 +18,7 @@ config = PredictConfig(
     temperature=1.0,
     beam_size=1,
     seed=42,
-    batch_size=1,
+    batch_size=4,
     batch_type="sents",
     report_time=True,
 )
