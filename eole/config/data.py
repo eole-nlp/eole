@@ -52,7 +52,7 @@ class BaseVocabConfig(Config):
 
 
 class VocabConfig(BaseVocabConfig):
-    src_vocab_size: int = Field(default=32758, description="Maximum size of the source vocabulary.")
+    src_vocab_size: int = Field(default=32768, description="Maximum size of the source vocabulary.")
     tgt_vocab_size: int = Field(default=32768, description="Maximum size of the target vocabulary.")
     vocab_size_multiple: int = Field(
         default=8,
