@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import math
 from torch import Tensor
-from typing import Tuple
+from typing import Tuple, List
 from eole.constants import PositionEncodingType
 
 
@@ -31,7 +31,7 @@ def apply_rotary_pos_emb_xdrope(
     q: Tensor,
     k: Tensor,
     rope: Tuple[Tensor, Tensor],
-    xdrope_section=[16, 16, 16, 16],
+    xdrope_section: List[int],
 ) -> Tuple[Tensor, Tensor]:
     """
     Applies XD Rotary Position Embedding to the query and key tensors.
@@ -49,19 +49,19 @@ def apply_rotary_pos_emb_xdrope(
     seqlen, rotary_dim = cos.shape
     B, Heads, _, head_dim = q.shape
 
-    # Reshape cos and sin for broadcasting: [1, 1, seqlen, rotary_dim]
     cos = cos.unsqueeze(0).unsqueeze(0)  # [1, 1, seqlen, rotary_dim]
-    sin = sin.unsqueeze(0).unsqueeze(0)  # [1, 1, seqlen, rotary_dim]
+    sin = sin.unsqueeze(0).unsqueeze(0)
 
-    xdrope_section = [s * 2 for s in xdrope_section]  # Double for concat
+    x_dim = len(xdrope_section)
+    xdrope_section = [s * 2 for s in xdrope_section]
 
     # Split and concat for XD RoPE
     cos = torch.cat(
-        [m for i, m in enumerate(cos.split(xdrope_section, dim=-1))],
+        [m[:, :, :, i % x_dim] for i, m in enumerate(cos.split(xdrope_section, dim=-1))],
         dim=-1,
     )
     sin = torch.cat(
-        [m for i, m in enumerate(sin.split(xdrope_section, dim=-1))],
+        [m[:, :, :, i % x_dim] for i, m in enumerate(sin.split(xdrope_section, dim=-1))],
         dim=-1,
     )
 
