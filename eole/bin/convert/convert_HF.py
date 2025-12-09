@@ -440,6 +440,7 @@ def build_config_dict(hf):
                 "scaling_type": config["rope_scaling"].get("rope_type", config["rope_scaling"].get("type", None)),
                 "scaling_factor": config["rope_scaling"].get("factor", 8.0),
                 "alpha": config["rope_scaling"].get("alpha", None),
+                "xdrope_section": config["rope_scaling"].get("xdrope_section", None),
                 "low_freq_factor": config["rope_scaling"].get("low_freq_factor", 1.0),
                 "high_freq_factor": config["rope_scaling"].get("high_freq_factor", 4.0),
                 "original_max_position_embeddings": config["rope_scaling"].get(

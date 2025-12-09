@@ -27,6 +27,59 @@ def rotate_half(x: Tensor) -> Tensor:
     return torch.cat((-x2, x1), dim=-1)
 
 
+def apply_rotary_pos_emb_xdrope(
+    q: Tensor,
+    k: Tensor,
+    rope: Tuple[Tensor, Tensor],
+    xdrope_section=[16, 16, 16, 16],
+) -> Tuple[Tensor, Tensor]:
+    """
+    Applies XD Rotary Position Embedding to the query and key tensors.
+
+    Args:
+        q (`torch.Tensor`): The query tensor.
+        k (`torch.Tensor`): The key tensor.
+        rope (`Tuple[torch.Tensor, torch.Tensor]`): Tuple of (cos, sin) tensors.
+        xdrope_section (`list`): The section ratios for XD RoPE.
+
+    Returns:
+        `Tuple[torch.Tensor, torch.Tensor]`: The query and key tensors rotated using the XD Rotary Position Embedding.
+    """
+    cos, sin = rope
+    seqlen, rotary_dim = cos.shape
+    B, Heads, _, head_dim = q.shape
+
+    # Reshape cos and sin for broadcasting: [1, 1, seqlen, rotary_dim]
+    cos = cos.unsqueeze(0).unsqueeze(0)  # [1, 1, seqlen, rotary_dim]
+    sin = sin.unsqueeze(0).unsqueeze(0)  # [1, 1, seqlen, rotary_dim]
+
+    xdrope_section = [s * 2 for s in xdrope_section]  # Double for concat
+
+    # Split and concat for XD RoPE
+    cos = torch.cat(
+        [m for i, m in enumerate(cos.split(xdrope_section, dim=-1))],
+        dim=-1,
+    )
+    sin = torch.cat(
+        [m for i, m in enumerate(sin.split(xdrope_section, dim=-1))],
+        dim=-1,
+    )
+
+    # Reshape for broadcasting: [1, 1, seqlen, head_dim]
+    cos = cos.view(1, 1, seqlen, -1)
+    sin = sin.view(1, 1, seqlen, -1)
+
+    # Apply rotary embedding
+    origin_dtype = q.dtype
+    q, k = q.float(), k.float()
+    cos, sin = cos.float(), sin.float()
+
+    q_out = (q * cos) + (rotate_half(q) * sin)
+    k_out = (k * cos) + (rotate_half(k) * sin)
+
+    return q_out.to(origin_dtype), k_out.to(origin_dtype)
+
+
 def apply_rotary_emb(
     query: Tensor, key: Tensor, rope: Tuple[Tensor, Tensor], interleave: bool
 ) -> Tuple[Tensor, Tensor]:
