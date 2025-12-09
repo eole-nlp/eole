@@ -28,8 +28,8 @@ def rotate_half(x: Tensor) -> Tensor:
 
 
 def apply_rotary_pos_emb_xdrope(
-    q: Tensor,
-    k: Tensor,
+    query: Tensor,
+    key: Tensor,
     rope: Tuple[Tensor, Tensor],
     xdrope_section: List[int],
 ) -> Tuple[Tensor, Tensor]:
@@ -47,35 +47,41 @@ def apply_rotary_pos_emb_xdrope(
     """
     cos, sin = rope
     seqlen, rotary_dim = cos.shape
-    B, Heads, _, head_dim = q.shape
+    B, Heads, _, head_dim = query.shape
 
     cos = cos.unsqueeze(0).unsqueeze(0)  # [1, 1, seqlen, rotary_dim]
     sin = sin.unsqueeze(0).unsqueeze(0)
 
     x_dim = len(xdrope_section)
     xdrope_section = [s * 2 for s in xdrope_section]
+    if sum(xdrope_section) != rotary_dim:
+        raise ValueError(f"Sum of xdrope_section ({sum(xdrope_section)}) must equal rotary_dim ({rotary_dim})")
+    # Split and reorder for XD RoPE
+    cos_chunks = cos.split(xdrope_section, dim=-1)
+    sin_chunks = sin.split(xdrope_section, dim=-1)
 
-    # Split and concat for XD RoPE
-    cos = torch.cat(
-        [m[:, :, :, i % x_dim] for i, m in enumerate(cos.split(xdrope_section, dim=-1))],
-        dim=-1,
-    )
-    sin = torch.cat(
-        [m[:, :, :, i % x_dim] for i, m in enumerate(sin.split(xdrope_section, dim=-1))],
-        dim=-1,
-    )
+    # Reorder chunks using i % x_dim
+    cos_reordered = []
+    sin_reordered = []
+    for i in range(len(cos_chunks)):
+        cos_reordered.append(cos_chunks[i % x_dim])
+        sin_reordered.append(sin_chunks[i % x_dim])
+
+    # Concatenate reordered chunks along the last dimension
+    cos = torch.cat(cos_reordered, dim=-1)
+    sin = torch.cat(sin_reordered, dim=-1)
 
     # Reshape for broadcasting: [1, 1, seqlen, head_dim]
     cos = cos.view(1, 1, seqlen, -1)
     sin = sin.view(1, 1, seqlen, -1)
 
     # Apply rotary embedding
-    origin_dtype = q.dtype
-    q, k = q.float(), k.float()
+    origin_dtype = query.dtype
+    query, key = query.float(), key.float()
     cos, sin = cos.float(), sin.float()
 
-    q_out = (q * cos) + (rotate_half(q) * sin)
-    k_out = (k * cos) + (rotate_half(k) * sin)
+    q_out = (query * cos) + (rotate_half(query) * sin)
+    k_out = (key * cos) + (rotate_half(key) * sin)
 
     return q_out.to(origin_dtype), k_out.to(origin_dtype)
 

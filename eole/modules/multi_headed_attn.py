@@ -267,6 +267,8 @@ class MultiHeadedAttention(torch.nn.Module):
         if self.position_encoding_type == PositionEncodingType.Rotary:
             seqlen = query.size(2)
             cos, sin = position_embeddings[0][step : step + seqlen], position_embeddings[1][step : step + seqlen]
+            # XDRoPE is only applied at step 0 (initial forward pass) because it is designed for full-sequence encoding.
+            # For subsequent steps (e.g., during autoregressive decoding), standard RoPE is used.
             if step == 0 and self.xdrope_section is not None:
                 query, key = apply_rotary_pos_emb_xdrope(query, key, (cos, sin), self.xdrope_section)
             else:
