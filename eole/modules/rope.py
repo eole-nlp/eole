@@ -49,12 +49,12 @@ def apply_rotary_pos_emb_xdrope(
     cos = cos[position_ids, ...].permute(0, 2, 1, 3).reshape(bs, seqlen, x_dim, -1).contiguous()
     sin = sin[position_ids, ...].permute(0, 2, 1, 3).reshape(bs, seqlen, x_dim, -1).contiguous()
 
-    xdrope_section = xdrope_section * 2
+    xdrope_section_2 = xdrope_section * 2
 
     # for xd concat
-    assert sum(xdrope_section) == cos.shape[-1], "Illegal partition for xd rope"
-    cos = torch.cat([m[:, :, i % x_dim, :] for i, m in enumerate(cos.split(xdrope_section, dim=-1))], dim=-1)
-    sin = torch.cat([m[:, :, i % x_dim, :] for i, m in enumerate(sin.split(xdrope_section, dim=-1))], dim=-1)
+    assert sum(xdrope_section_2) == cos.shape[-1], "Illegal partition for xd rope"
+    cos = torch.cat([m[:, :, i % x_dim, :] for i, m in enumerate(cos.split(xdrope_section_2, dim=-1))], dim=-1)
+    sin = torch.cat([m[:, :, i % x_dim, :] for i, m in enumerate(sin.split(xdrope_section_2, dim=-1))], dim=-1)
 
     # for head repeat
     cos = cos.view(bs, 1, seqlen, -1)  # .repeat(1, heads, 1, 1)

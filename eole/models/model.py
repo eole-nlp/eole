@@ -962,7 +962,7 @@ class VisionEncoderDecoderModel(BaseModel):
         """
         src: [B, S]
         image_locations: bool mask of same shape as src
-        image_sizes: [num_images, 2] with (H, W)
+        image_sizes: [num_images, 2] with (height_px, width_px)
         """
         B, S = src.shape
         device = src.device
@@ -1050,8 +1050,8 @@ class VisionEncoderDecoderModel(BaseModel):
             image_mask = image_locations.unsqueeze(-1).expand_as(combined_features)
             combined_features = combined_features.masked_scatter(image_mask, image_features.view(-1, D_img))
 
-        # Temporary solution to support xdrope (hunyuanOCR) with 4 sections (hence size (bs, 4, seqlen)
-        # might be revisited with real mRope for Qwen VL (3 sections, no time)
+        # TODO: Revisit this when implementing real mRope for Qwen VL (3 sections). This is a temporary solution
+        # and may not generalize to other vision-language models with different position encoding schemes.
         position_ids = self.build_position_ids(src, image_locations, image_sizes)
 
         return combined_features, position_ids
@@ -1071,6 +1071,7 @@ class VisionEncoderDecoderModel(BaseModel):
             src_len=src_len,
             with_align=with_align,
             tgt_pad_mask=pad_mask,
+            pos_ids=pos_ids,
         )
 
         if self.add_estimator:  # we take the average of dec_out using the pad mask
