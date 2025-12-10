@@ -927,6 +927,8 @@ class VisionEncoderDecoderModel(BaseModel):
         super(VisionEncoderDecoderModel, self).__init__(**kwargs)
         self.tgt_shift = 1
         self.image_token_id = kwargs.get("image_token_id", None)
+        self.patch_size = kwargs.get("patch_size", None)
+        self.spatial_merge_size = kwargs.get("spatial_merge_size", None)
         if self.encoder is None or self.decoder is None:
             raise ValueError("A EncoderDecoderModel requires both an Encoder and a Decoder")
         if self.encoder.sam is not None:
@@ -955,8 +957,59 @@ class VisionEncoderDecoderModel(BaseModel):
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.decoder.hidden_size,
             image_token_id=model_config.encoder.image_token_id,
+            patch_size=model_config.encoder.patch_size,
+            spatial_merge_size=model_config.spatial_merge_size,
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
+
+    def build_position_ids(self, src, image_locations, image_sizes):
+        """
+        src: [B, S]
+        image_locations: bool mask of same shape as src
+        image_sizes: [num_images, 2] with (height_px, width_px)
+
+        This part is specific to HunyunOCR for several reasons:
+        - it detects continuous sequences of image_token, so does not work with llava (IMG_BREAK)
+        - it supposed one image_token as new line sep (W+1)
+        - it adds 2 image_token at the end: H * (W+1) + 2
+
+        """
+        B, S = src.shape
+        device = src.device
+        position_ids = torch.zeros((B, 4, S), device=device, dtype=torch.long)
+        ar = torch.arange(S, device=device)
+        position_ids[:, 0, :] = ar
+        position_ids[:, 1, :] = ar
+        position_ids[:, 2, :] = ar
+        position_ids[:, 3, :] = 0
+
+        img_ptr = 0  # pointer into image_sizes list
+
+        # --- For each batch item ---
+        for b in range(B):
+            mask = image_locations[b]  # [S]
+            if not mask.any():
+                continue
+            # ---------- find contiguous blocks of True ----------
+            idxs = mask.nonzero(as_tuple=False).squeeze(1)  # sorted positions
+            # difference = 1 means contiguous
+            breaks = (idxs[1:] != idxs[:-1] + 1).nonzero(as_tuple=False).squeeze(1)
+            starts = torch.cat([idxs[:1], idxs[breaks + 1]])
+            ends = torch.cat([idxs[breaks], idxs[-1:]])
+            for start, end in zip(starts.tolist(), ends.tolist()):
+                length = end - start + 1
+                H, W = image_sizes[img_ptr] // (self.patch_size * self.spatial_merge_size)
+                img_ptr += 1
+                HW = H * (W + 1) + 2  # SPECIFIC to HunyuanOCR
+                if HW != length:
+                    raise ValueError(f"image tokens={length} but H*W={HW} at image {img_ptr-1}")
+                r = torch.arange(length, device=device)
+                w = r % (W + 1)  # SPECIFIC to HunyuanOCR
+                h = r // (W + 1)  # SPECIFIC to HunyuanOCR
+                position_ids[b, 1, start : end + 1] = w
+                position_ids[b, 2, start : end + 1] = h
+                position_ids[b, 3, start : end + 1] = 0
+        return position_ids
 
     def embed_vision_language_features(self, src, **kwargs):
         batch_size = src.size(0)
@@ -1007,14 +1060,21 @@ class VisionEncoderDecoderModel(BaseModel):
             image_mask = image_locations.unsqueeze(-1).expand_as(combined_features)
             combined_features = combined_features.masked_scatter(image_mask, image_features.view(-1, D_img))
 
-        return combined_features
+        # TODO: Revisit this when implementing real mRope for Qwen VL (3 sections). This is a temporary solution
+        # and may not generalize to other vision-language models with different position encoding schemes.
+        if self.adapter.__class__.__name__ == "HunYuanVisionPatchMerger":
+            position_ids = self.build_position_ids(src, image_locations, image_sizes)
+        else:
+            position_ids = None
+
+        return combined_features, position_ids
 
     def forward(self, src, tgt, src_len, with_align=False, **kwargs):
         """A DecoderModel forward the src side to the decoder along
         with the source lengths vector. It is a decoder only LM (cf GPT-2)"""
 
         self.decoder.init_state()
-        emb = self.embed_vision_language_features(src, **kwargs)
+        emb, pos_ids = self.embed_vision_language_features(src, **kwargs)
         dec_in = tgt[:, :-1]
         pad_idx = self.tgt_emb.word_padding_idx
         pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
@@ -1024,6 +1084,7 @@ class VisionEncoderDecoderModel(BaseModel):
             src_len=src_len,
             with_align=with_align,
             tgt_pad_mask=pad_mask,
+            pos_ids=pos_ids,
         )
 
         if self.add_estimator:  # we take the average of dec_out using the pad mask

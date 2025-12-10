@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import math
 from torch import Tensor
-from typing import Tuple
+from typing import Tuple, List
 from eole.constants import PositionEncodingType
 
 
@@ -25,6 +25,47 @@ def rotate_half(x: Tensor) -> Tensor:
     """Rotates half the hidden dims of the input."""
     x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
+
+
+def apply_rotary_pos_emb_xdrope(
+    query: Tensor, key: Tensor, rope: Tuple[Tensor, Tensor], position_ids: Tensor, xdrope_section: List[int]
+) -> Tuple[Tensor, Tensor]:
+    """Applies XD Rotary Position Embedding to the query and key tensors.
+
+    Args:
+        query (`torch.Tensor`): The query tensor.
+        key (`torch.Tensor`): The key tensor.
+        rope (`torch.Tensor`, `torch.Tensor`): cos/sin of the rotary embedding.
+        position_ids (`torch.Tensor`): The position IDs for the tokens.
+        xdrope_section (`list`): The section ratios for XD RoPE.
+
+    Returns:
+        `tuple(torch.Tensor)`: The query and key tensors rotated using the XD Rotary Position Embedding.
+    """
+    cos, sin = rope
+    bs, heads, seqlen, rot_dim = query.size()
+
+    x_dim = len(xdrope_section)
+    cos = cos[position_ids, ...].permute(0, 2, 1, 3).reshape(bs, seqlen, x_dim, -1).contiguous()
+    sin = sin[position_ids, ...].permute(0, 2, 1, 3).reshape(bs, seqlen, x_dim, -1).contiguous()
+
+    xdrope_section_2 = xdrope_section * 2
+
+    # for xd concat
+    assert sum(xdrope_section_2) == cos.shape[-1], "Illegal partition for xd rope"
+    cos = torch.cat([m[:, :, i % x_dim, :] for i, m in enumerate(cos.split(xdrope_section_2, dim=-1))], dim=-1)
+    sin = torch.cat([m[:, :, i % x_dim, :] for i, m in enumerate(sin.split(xdrope_section_2, dim=-1))], dim=-1)
+
+    # for head repeat
+    cos = cos.view(bs, 1, seqlen, -1)  # .repeat(1, heads, 1, 1)
+    sin = sin.view(bs, 1, seqlen, -1)  # .repeat(1, heads, 1, 1)
+
+    origin_dtype = query.dtype
+    query, key = query.float(), key.float()
+    cos, sin = cos.float(), sin.float()
+    q_out, k_out = (query * cos) + (rotate_half(query) * sin), (key * cos) + (rotate_half(key) * sin)
+
+    return q_out.to(origin_dtype), k_out.to(origin_dtype)
 
 
 def apply_rotary_emb(

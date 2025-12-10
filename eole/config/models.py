@@ -1,4 +1,4 @@
-from typing import Dict, Union, Literal, Any, Annotated
+from typing import Dict, Union, Literal, Any, Annotated, List
 from pydantic import (
     Field,
     field_validator,
@@ -170,6 +170,7 @@ class RotaryPositionConfig(Config):
         description="Specifies the type of RoPE scaling to be applied, if any.",
     )
     alpha: float | None = Field(None, description="alpha factor by which to scale rope theta.")
+    xdrope_section: List[int] | None = Field(None, description="Sections for XDRope mappings")
     scaling_factor: float | None = Field(default=8.0, description="Factor by which to scale RoPE embeddings.")
     low_freq_factor: float | None = Field(
         default=1.0,

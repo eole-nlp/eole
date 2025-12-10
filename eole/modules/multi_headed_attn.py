@@ -12,7 +12,7 @@ from importlib import import_module
 from eole.constants import PositionEncodingType
 from .relative_position_bias import relative_matmul, gen_relative_positions, compute_bias
 from .alibi_position_bias import AlibiPositionalBias
-from .rope import apply_rotary_emb
+from .rope import apply_rotary_emb, apply_rotary_pos_emb_xdrope
 
 from eole.constants import LayerNorm
 
@@ -134,6 +134,7 @@ class MultiHeadedAttention(torch.nn.Module):
         self.relative_positions_embeddings = None
         self.relative_attention_bias = None
         self.rotary_interleave = None  # for flash_kvcache without rotary
+        self.xdrope_section = None
         if self.relative_positions_buckets > 0:
             self.relative_attention_bias = nn.Embedding(self.relative_positions_buckets, self.heads)
         elif self.position_encoding_type == PositionEncodingType.Relative:
@@ -150,6 +151,7 @@ class MultiHeadedAttention(torch.nn.Module):
             else:
                 self.rotary_dim = model_config.rope_config.rotary_dim
             self.rotary_interleave = model_config.rope_config.rotary_interleave
+            self.xdrope_section = model_config.rope_config.xdrope_section
         elif self.position_encoding_type == PositionEncodingType.Alibi:
             self.alibi = AlibiPositionalBias(self.heads)
 
@@ -224,6 +226,7 @@ class MultiHeadedAttention(torch.nn.Module):
         query: Tensor,
         step: Optional[int] = 0,
         position_embeddings=None,
+        pos_ids=None,
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Prepare inputs for attention computation.
@@ -265,7 +268,12 @@ class MultiHeadedAttention(torch.nn.Module):
         if self.position_encoding_type == PositionEncodingType.Rotary:
             seqlen = query.size(2)
             cos, sin = position_embeddings[0][step : step + seqlen], position_embeddings[1][step : step + seqlen]
-            query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
+            # XDRoPE is only applied at step 0 (initial forward pass) because it is designed for full-sequence encoding.
+            # For subsequent steps (e.g., during autoregressive decoding), standard RoPE is used.
+            if step == 0 and self.xdrope_section is not None and pos_ids is not None:
+                query, key = apply_rotary_pos_emb_xdrope(query, key, (cos, sin), pos_ids, self.xdrope_section)
+            else:
+                query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
             if self.qk_norm_post_rope:
                 if hasattr(self, "q_norm"):
                     query = self.q_norm(query.contiguous())
@@ -462,10 +470,16 @@ class SelfMHA(MultiHeadedAttention):
         step: Optional[int] = 0,
         return_attn: Optional[bool] = False,
         position_embeddings=None,
+        pos_ids=None,
     ) -> Tuple[Tensor, Tensor]:
 
         key, value, query = super()._prepare_inputs(
-            query, query, query, step=0 if step is None else step, position_embeddings=position_embeddings
+            query,
+            query,
+            query,
+            step=0 if step is None else step,
+            position_embeddings=position_embeddings,
+            pos_ids=pos_ids,
         )
         if self.kcache is not None:
             # Inference step decoding

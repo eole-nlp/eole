@@ -113,6 +113,7 @@ class TransformerDecoderLayer(nn.Module):
         step = kwargs.pop("step", None)
         return_attn = kwargs.pop("return_attn", False)
         position_embeddings = kwargs.pop("position_embeddings", None)
+        pos_ids = kwargs.pop("pos_ids", None)
 
         norm_layer_in = self.input_layernorm(layer_in)
 
@@ -122,6 +123,7 @@ class TransformerDecoderLayer(nn.Module):
             step=step,
             return_attn=return_attn,
             position_embeddings=position_embeddings,
+            pos_ids=pos_ids,
         )
 
         if self.dropout_p > 0:
@@ -336,6 +338,7 @@ class TransformerDecoder(DecoderBase):
         decoder_in = kwargs.pop("decoder_in", None)
         image_token_id = kwargs.pop("image_token_id", None)
         prefix_len = kwargs.pop("prefix_len", None)
+        pos_ids = kwargs.pop("pos_ids", None)
         attn_aligns = []
 
         if step == 0:
@@ -372,6 +375,7 @@ class TransformerDecoder(DecoderBase):
                 position_embeddings=(
                     position_embeddings_local if (i + 1) % self.interleave_local else position_embeddings
                 ),
+                pos_ids=pos_ids,
             )
             if with_align:
                 attn_align = layer.get_attn_align(

@@ -33,7 +33,7 @@ engine = InferenceEnginePY(config)
 
 test_input = [
     {
-        "text": "<｜hy_begin▁of▁sentence｜><｜hy_place▁holder▁no▁3｜>{image} Extract all information from the main body of the document image and represent it in markdown format, ignoring headers and footers. Tables should be expressed in HTML format, formulas in the document should be represented using LaTeX format, and the parsing should be organized according to the reading order. Make sure you do not repeat sentences.<｜hy_User｜>",
+        "text": "<｜hy_begin▁of▁sentence｜><｜hy_place▁holder▁no▁3｜>{image}Extract all information from the main body of the document image and represent it in markdown format, ignoring headers and footers. Tables should be expressed in HTML format, formulas in the document should be represented using LaTeX format, and the parsing should be organized according to the reading order.<｜hy_User｜>",
         "images": {"image": "eole/tests/data/images/deepseekpapertable.png"},
     },
     {
