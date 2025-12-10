@@ -391,11 +391,11 @@ class HunYuanVisionPatchMerger(nn.Module):
     def forward(self, x, image_sizes):
         """
         x: Tensor (1, sum_i N_i, D)
-        image_sizes: (B, 2) = (width_px, height_px) for each image
+        image_sizes: (B, 2) = (height_px, width_px) for each image
         """
         x = x.squeeze(0)
-        patch_h = image_sizes[:, 1] // self.patch_size
-        patch_w = image_sizes[:, 0] // self.patch_size
+        patch_h = image_sizes[:, 0] // self.patch_size
+        patch_w = image_sizes[:, 1] // self.patch_size
         patch_counts = (patch_h * patch_w).tolist()
 
         xs = x.split(patch_counts)

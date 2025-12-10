@@ -28,60 +28,42 @@ def rotate_half(x: Tensor) -> Tensor:
 
 
 def apply_rotary_pos_emb_xdrope(
-    query: Tensor,
-    key: Tensor,
-    rope: Tuple[Tensor, Tensor],
-    xdrope_section: List[int],
+    query: Tensor, key: Tensor, rope: Tuple[Tensor, Tensor], position_ids: Tensor, xdrope_section: List[int]
 ) -> Tuple[Tensor, Tensor]:
-    """
-    Applies XD Rotary Position Embedding to the query and key tensors.
+    """Applies XD Rotary Position Embedding to the query and key tensors.
 
     Args:
-        q (`torch.Tensor`): The query tensor.
-        k (`torch.Tensor`): The key tensor.
-        rope (`Tuple[torch.Tensor, torch.Tensor]`): Tuple of (cos, sin) tensors.
+        query (`torch.Tensor`): The query tensor.
+        key (`torch.Tensor`): The key tensor.
+        rope (`torch.Tensor`, `torch.Tensor`): cos/sin of the rotary embedding.
+        position_ids (`torch.Tensor`): The position IDs for the tokens.
         xdrope_section (`list`): The section ratios for XD RoPE.
 
     Returns:
-        `Tuple[torch.Tensor, torch.Tensor]`: The query and key tensors rotated using the XD Rotary Position Embedding.
+        `tuple(torch.Tensor)`: The query and key tensors rotated using the XD Rotary Position Embedding.
     """
     cos, sin = rope
-    seqlen, rotary_dim = cos.shape
-    B, Heads, _, head_dim = query.shape
-
-    cos = cos.unsqueeze(0).unsqueeze(0)  # [1, 1, seqlen, rotary_dim]
-    sin = sin.unsqueeze(0).unsqueeze(0)
+    bs, heads, seqlen, rot_dim = query.size()
 
     x_dim = len(xdrope_section)
-    xdrope_section = [s * 2 for s in xdrope_section]
-    if sum(xdrope_section) != rotary_dim:
-        raise ValueError(f"Sum of xdrope_section ({sum(xdrope_section)}) must equal rotary_dim ({rotary_dim})")
-    # Split and reorder for XD RoPE
-    cos_chunks = cos.split(xdrope_section, dim=-1)
-    sin_chunks = sin.split(xdrope_section, dim=-1)
+    cos = cos[position_ids, ...].permute(0, 2, 1, 3).reshape(bs, seqlen, x_dim, -1).contiguous()
+    sin = sin[position_ids, ...].permute(0, 2, 1, 3).reshape(bs, seqlen, x_dim, -1).contiguous()
 
-    # Reorder chunks using i % x_dim
-    cos_reordered = []
-    sin_reordered = []
-    for i in range(len(cos_chunks)):
-        cos_reordered.append(cos_chunks[i % x_dim])
-        sin_reordered.append(sin_chunks[i % x_dim])
+    xdrope_section = xdrope_section * 2
 
-    # Concatenate reordered chunks along the last dimension
-    cos = torch.cat(cos_reordered, dim=-1)
-    sin = torch.cat(sin_reordered, dim=-1)
+    # for xd concat
+    assert sum(xdrope_section) == cos.shape[-1], "Illegal partition for xd rope"
+    cos = torch.cat([m[:, :, i % x_dim, :] for i, m in enumerate(cos.split(xdrope_section, dim=-1))], dim=-1)
+    sin = torch.cat([m[:, :, i % x_dim, :] for i, m in enumerate(sin.split(xdrope_section, dim=-1))], dim=-1)
 
-    # Reshape for broadcasting: [1, 1, seqlen, head_dim]
-    cos = cos.view(1, 1, seqlen, -1)
-    sin = sin.view(1, 1, seqlen, -1)
+    # for head repeat
+    cos = cos.view(bs, 1, seqlen, -1)  # .repeat(1, heads, 1, 1)
+    sin = sin.view(bs, 1, seqlen, -1)  # .repeat(1, heads, 1, 1)
 
-    # Apply rotary embedding
     origin_dtype = query.dtype
     query, key = query.float(), key.float()
     cos, sin = cos.float(), sin.float()
-
-    q_out = (query * cos) + (rotate_half(query) * sin)
-    k_out = (key * cos) + (rotate_half(key) * sin)
+    q_out, k_out = (query * cos) + (rotate_half(query) * sin), (key * cos) + (rotate_half(key) * sin)
 
     return q_out.to(origin_dtype), k_out.to(origin_dtype)
 

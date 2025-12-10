@@ -281,7 +281,7 @@ def process_image(image_path, adapter="llava", image_patch_size=16, image_size=1
         )
         new_image_size = (w * image_patch_size, h * image_patch_size)
         PILimage = PILimage.resize(new_image_size, resample=RESAMPLE[adapter], reducing_gap=None)
-    logger.info(f"Adapter is {adapter} - padded/resized image is {PILimage.size}")
+    logger.info(f"Adapter is {adapter} - padded/resized PIL image is (w, h) {PILimage.size}")
 
     NPimage = np.array(PILimage, dtype=np.uint8)  # (H, W, C)
     NPimage = rescale(image=NPimage, scale=1 / 255, input_data_format=ChannelDimension.LAST)
@@ -292,6 +292,7 @@ def process_image(image_path, adapter="llava", image_patch_size=16, image_size=1
         input_data_format=ChannelDimension.LAST,
     )
     NPimage = to_channel_dimension_format(NPimage, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
+    # NPimage is (C, H, W)
 
     if adapter == "llava":
         image_tokens = (["[IMG]"] * w + ["[IMG_BREAK]"]) * h
@@ -309,7 +310,7 @@ def process_image(image_path, adapter="llava", image_patch_size=16, image_size=1
     elif adapter == "hunyuanocr":
         image_tokens = (
             "<｜hy_place▁holder▁no▁100｜>"
-            + "<｜hy_place▁holder▁no▁102｜>" * (w * (h + 1) + 2)
+            + "<｜hy_place▁holder▁no▁102｜>" * ((w + 1) * h + 2)
             + "<｜hy_place▁holder▁no▁101｜>"
         )
     else:

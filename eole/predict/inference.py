@@ -669,9 +669,10 @@ class Inference(object):
             src_pad_mask = None
 
         if images is not None and step == 0:
-            emb = self.model.embed_vision_language_features(decoder_in, images=images)
+            emb, pos_ids = self.model.embed_vision_language_features(decoder_in, images=images)
         else:
             emb = self.model.tgt_emb(decoder_in, step=step)
+            pos_ids = None
 
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
         dec_out, dec_attn = self.model.decoder(
@@ -685,6 +686,7 @@ class Inference(object):
             left_pad=left_pad,
             decoder_in=decoder_in,
             image_token_id=self.image_token_id,
+            pos_ids=pos_ids,
         )
 
         # Generator forward.

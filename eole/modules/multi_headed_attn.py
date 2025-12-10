@@ -226,6 +226,7 @@ class MultiHeadedAttention(torch.nn.Module):
         query: Tensor,
         step: Optional[int] = 0,
         position_embeddings=None,
+        pos_ids=None,
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Prepare inputs for attention computation.
@@ -270,7 +271,7 @@ class MultiHeadedAttention(torch.nn.Module):
             # XDRoPE is only applied at step 0 (initial forward pass) because it is designed for full-sequence encoding.
             # For subsequent steps (e.g., during autoregressive decoding), standard RoPE is used.
             if step == 0 and self.xdrope_section is not None:
-                query, key = apply_rotary_pos_emb_xdrope(query, key, (cos, sin), self.xdrope_section)
+                query, key = apply_rotary_pos_emb_xdrope(query, key, (cos, sin), pos_ids, self.xdrope_section)
             else:
                 query, key = apply_rotary_emb(query, key, (cos, sin), interleave=self.rotary_interleave)
             if self.qk_norm_post_rope:
@@ -469,10 +470,16 @@ class SelfMHA(MultiHeadedAttention):
         step: Optional[int] = 0,
         return_attn: Optional[bool] = False,
         position_embeddings=None,
+        pos_ids=None,
     ) -> Tuple[Tensor, Tensor]:
 
         key, value, query = super()._prepare_inputs(
-            query, query, query, step=0 if step is None else step, position_embeddings=position_embeddings
+            query,
+            query,
+            query,
+            step=0 if step is None else step,
+            position_embeddings=position_embeddings,
+            pos_ids=pos_ids,
         )
         if self.kcache is not None:
             # Inference step decoding
