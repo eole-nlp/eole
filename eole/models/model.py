@@ -927,6 +927,8 @@ class VisionEncoderDecoderModel(BaseModel):
         super(VisionEncoderDecoderModel, self).__init__(**kwargs)
         self.tgt_shift = 1
         self.image_token_id = kwargs.get("image_token_id", None)
+        self.patch_size = kwargs.get("patch_size", None)
+        self.spatial_merge_size = kwargs.get("spatial_merge_size", None)
         if self.encoder is None or self.decoder is None:
             raise ValueError("A EncoderDecoderModel requires both an Encoder and a Decoder")
         if self.encoder.sam is not None:
@@ -955,6 +957,8 @@ class VisionEncoderDecoderModel(BaseModel):
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.decoder.hidden_size,
             image_token_id=model_config.encoder.image_token_id,
+            patch_size=model_config.encoder.patch_size,
+            spatial_merge_size=model_config.spatial_merge_size,
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
@@ -963,6 +967,12 @@ class VisionEncoderDecoderModel(BaseModel):
         src: [B, S]
         image_locations: bool mask of same shape as src
         image_sizes: [num_images, 2] with (height_px, width_px)
+
+        This part is specific to HunyunOCR for several reasons:
+        - it detects continuous sequences of image_token, so does not work with llava (IMG_BREAK)
+        - it supposed one image_token as new line sep (W+1)
+        - it adds 2 image_token at the end: H * (W+1) + 2
+
         """
         B, S = src.shape
         device = src.device
@@ -988,7 +998,7 @@ class VisionEncoderDecoderModel(BaseModel):
             ends = torch.cat([idxs[breaks], idxs[-1:]])
             for start, end in zip(starts.tolist(), ends.tolist()):
                 length = end - start + 1
-                H, W = image_sizes[img_ptr] // (self.adapter.patch_size * self.adapter.spatial_merge_size)
+                H, W = image_sizes[img_ptr] // (self.patch_size * self.spatial_merge_size)
                 img_ptr += 1
                 HW = H * (W + 1) + 2  # SPECIFIC to HunyuanOCR
                 if HW != length:
@@ -1052,7 +1062,10 @@ class VisionEncoderDecoderModel(BaseModel):
 
         # TODO: Revisit this when implementing real mRope for Qwen VL (3 sections). This is a temporary solution
         # and may not generalize to other vision-language models with different position encoding schemes.
-        position_ids = self.build_position_ids(src, image_locations, image_sizes)
+        if self.adapter.__class__.__name__ == "HunYuanVisionPatchMerger":
+            position_ids = self.build_position_ids(src, image_locations, image_sizes)
+        else:
+            position_ids = None
 
         return combined_features, position_ids
 
