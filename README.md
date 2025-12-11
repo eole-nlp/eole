@@ -14,7 +14,7 @@ Our goal is to provide a comprehensive yet compact and modular codebase for expe
 - **tencent/Hunyuan-MT-7B** SOTA NMT at WMT25, better than Towerplus-9B and EuroLLM-9B
 - **Qwen/Qwen2/3** Non VL family. Includes Qwen3-30B-A3B
 - **google/gemma-3-27b-it** All Gemma3 family - supports text and image input
-- **Mistral-3.1-24B-instruct** supports all Mistral AI models (text and image input) - includes Ministral, Mixtral, Mathstral
+- **Mistral-3.1-24B-instruct** supports all Mistral AI models (text and image input) - includes Ministral 3, Mixtral, Mathstral
 - **meta-llama/Llama-3.X** models
 - **microsoft/Phi-2/3** models
 
