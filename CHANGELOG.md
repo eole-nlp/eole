@@ -2,6 +2,13 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.4.2
+
+* Add Deepseek OCR demo scripts by @vince62s in https://github.com/eole-nlp/eole/pull/277
+* various fixes + Ministral3 (3B/8B/14B) support by @vince62s in https://github.com/eole-nlp/eole/pull/279
+* Support batches of images with HunyuanOCR by @vince62s in https://github.com/eole-nlp/eole/pull/280
+* Add xdrope for HunyuanOCR (even though does not seem to improve results) by @vince62s in https://github.com/eole-nlp/eole/pull/281
+
 ## 0.4.1
 
 * FusedMoE (vllm) + PDF to markdown with DeepSpeed-OCR by @vince62s in https://github.com/eole-nlp/eole/pull/270
