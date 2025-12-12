@@ -1,5 +1,6 @@
 import gradio as gr
 import requests
+import re
 
 # List of 35 supported languages
 languages = [
@@ -41,6 +42,46 @@ languages = [
 ]
 
 
+def extract_chunks(text):
+    # Split into: (sentence/text) OR (one or more newlines)
+    parts = re.split(r"(\n+)", text)
+
+    # Join consecutive non-newline parts and track newline blocks separately
+    sentences = []
+    breaks = []
+
+    for part in parts:
+        if part.strip() == "":
+            # It's a newline block
+            breaks.append(part)
+        else:
+            # It's text (a sentence)
+            sentences.append(part.strip())
+
+    # Remove empty sentences
+    sentences_no_empty = [s for s in sentences if s]
+
+    return sentences_no_empty, breaks
+
+
+def rebuild_text(translated_sentences, breaks):
+    result = []
+    s_idx = 0
+    b_idx = 0
+
+    # Alternate between sentence and break in the original order
+    # starting with a sentence if the original text did
+    while s_idx < len(translated_sentences) or b_idx < len(breaks):
+        if s_idx < len(translated_sentences):
+            result.append(translated_sentences[s_idx])
+            s_idx += 1
+        if b_idx < len(breaks):
+            result.append(breaks[b_idx])
+            b_idx += 1
+
+    return "".join(result)
+
+
 # Function to call Eole API
 def translate_text(source_lang, target_lang, source_text):
     # Define the API URL for inference
@@ -49,7 +90,8 @@ def translate_text(source_lang, target_lang, source_text):
     # Replace this with the correct model ID from the server's configuration
     model_id = "Hunyuan-MT-7B-eole"  # Adjust this to match the server configuration
 
-    paragraphs = source_text.split("\n")
+    # 1. Extract sentences and newline blocks
+    paragraphs, breaks = extract_chunks(source_text)
     inputs = []
     for para in paragraphs:
         inputs.append(
@@ -85,7 +127,7 @@ def translate_text(source_lang, target_lang, source_text):
     except Exception as e:
         translated_text = [f"Error: {str(e)}"]
 
-    return "\n".join(translated_text)
+    return rebuild_text(translated_text, breaks)
 
 
 # Gradio Interface
