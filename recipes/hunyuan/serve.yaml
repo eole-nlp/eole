@@ -23,5 +23,5 @@ models:
     with_score: false
     estim_only: false
 #    specific to serve.py
-    batch_size: 8
-    batch_timeout: 0.1
+#    batch_size: 8
+#    batch_timeout: 0.1
