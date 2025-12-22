@@ -124,6 +124,7 @@ class GeneratorLM(Inference):
             src_len,
             target_prefix=target_prefix,
         )
+        prefill_length = max(src_len.tolist())
         if not self.estim_only:
             # (4) Begin decoding step by step:
             if self.report_time:
@@ -137,9 +138,9 @@ class GeneratorLM(Inference):
                     decoder_input,
                     None,
                     src_len=decode_strategy.src_len,
-                    step=step if step == 0 else step + max(src_len.tolist()),
+                    step=step if step == 0 else step + prefill_length - 1,
                     left_pad=batch["left_pad"],
-                    images=batch.get("images", None),
+                    images=batch.get("images", None) if step == 0 else None,
                 )
 
                 if step == 0:

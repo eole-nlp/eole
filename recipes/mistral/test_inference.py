@@ -95,5 +95,10 @@ pred = engine.infer_list(test_input)
 
 print(pred)
 for i in range(len(test_input)):
-    print(pred[2][i][0].replace("｟newline｠", "\n"))
+    print(
+        pred[2][i][0]
+        .replace("[THINK]", "\[THINK]\n\n")
+        .replace("[/THINK]", "\[/THINK]\n\n")
+        .replace("｟newline｠", "\n")
+    )
     print("\n\n")
