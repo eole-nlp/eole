@@ -1057,9 +1057,8 @@ class VisionEncoderDecoderModel(BaseModel):
         )
         text_mask = text_locations.unsqueeze(-1).expand_as(combined_features)
         combined_features = combined_features.masked_scatter(text_mask, text_features)
-        if len(images) > 0:
-            image_mask = image_locations.unsqueeze(-1).expand_as(combined_features)
-            combined_features = combined_features.masked_scatter(image_mask, image_features.view(-1, D_img))
+        image_mask = image_locations.unsqueeze(-1).expand_as(combined_features)
+        combined_features = combined_features.masked_scatter(image_mask, image_features.view(-1, D_img))
 
         # TODO: Revisit this when implementing real mRope for Qwen VL (3 sections). This is a temporary solution
         # and may not generalize to other vision-language models with different position encoding schemes.
