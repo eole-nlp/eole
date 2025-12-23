@@ -47,12 +47,10 @@ test_input = [
         "text": "<start_of_turn>user\nList the top 5 countries in Europe with the highest GDP from this image\n{image1}<end_of_turn><start_of_turn>model\n",
         "images": {"image1": "eole/tests/data/images/gdp.png"},
     },
-    # {
-    #     "text": "<start_of_turn>user\nWhen did things start to go wrong for dark dragon?\n{image1}<end_of_turn><start_of_turn>model\n",
-    #     "images": {
-    #         "image1": "../../eole/tests/data/images/loss_curve.jpg"
-    #     }
-    # },
+    {
+        "text": "<start_of_turn>user\nWhen did things start to go wrong for dark dragon?\n{image1}<end_of_turn><start_of_turn>model\n",
+        "images": {"image1": "eole/tests/data/images/loss_curve.jpg"},
+    },
     # {
     #     "text": "<start_of_turn>user\nIs this person really big, or is this building just super small?\n{image1}<end_of_turn><start_of_turn>model\n",
     #     "images": {

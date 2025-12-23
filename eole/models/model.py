@@ -1012,13 +1012,14 @@ class VisionEncoderDecoderModel(BaseModel):
         return position_ids
 
     def embed_vision_language_features(self, src, **kwargs):
-        batch_size = src.size(0)
+        batch_size, seq_len = src.size()
         images = kwargs.get("images", None)
+        if images is None or len(images) == 0:
+            return self.tgt_emb(src), None
+
         text_locations = src != self.image_token_id
         image_locations = src == self.image_token_id
-        text_features = self.tgt_emb(src[text_locations].view(batch_size, -1))
-        if images is None or len(images) == 0:
-            return text_features
+        text_features = self.tgt_emb(src[text_locations])
         image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
 
         if self.encoder.sam is not None:
@@ -1040,25 +1041,24 @@ class VisionEncoderDecoderModel(BaseModel):
             encoded_images = self.encoder(images)
             image_features = self.adapter(encoded_images, image_sizes=image_sizes)
 
-        seq_len = src.shape[1]
-        batch, N_txt, D_txt = text_features.shape
         N_img, tokperimg, D_img = image_features.shape
-        assert D_txt == D_img, f"Text features dim {D_txt} should be equal to image features dim {D_img}"
-        assert batch * seq_len == batch * N_txt + N_img * tokperimg, (
+        N_txt = text_features.size(0)
+
+        assert text_features.size(-1) == D_img
+        assert batch_size * seq_len == N_txt + N_img * tokperimg, (
             f"seq_len {seq_len} should be equal to N_txt + N_img * tokperimg "
             f"{(N_txt, N_img, tokperimg, image_locations.sum().item())}"
         )
 
         combined_features = torch.empty(
-            (batch, seq_len, D_txt),
+            (batch_size, seq_len, D_img),
             dtype=text_features.dtype,
             device=text_features.device,
         )
         text_mask = text_locations.unsqueeze(-1).expand_as(combined_features)
-        combined_features = combined_features.masked_scatter(text_mask, text_features.view(-1, D_img))
-        if len(images) > 0:
-            image_mask = image_locations.unsqueeze(-1).expand_as(combined_features)
-            combined_features = combined_features.masked_scatter(image_mask, image_features.view(-1, D_img))
+        combined_features = combined_features.masked_scatter(text_mask, text_features)
+        image_mask = image_locations.unsqueeze(-1).expand_as(combined_features)
+        combined_features = combined_features.masked_scatter(image_mask, image_features.view(-1, D_img))
 
         # TODO: Revisit this when implementing real mRope for Qwen VL (3 sections). This is a temporary solution
         # and may not generalize to other vision-language models with different position encoding schemes.

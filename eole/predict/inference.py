@@ -670,9 +670,11 @@ class Inference(object):
 
         if images is not None and step == 0:
             emb, pos_ids = self.model.embed_vision_language_features(decoder_in, images=images)
+            image_locations = decoder_in == self.image_token_id
         else:
             emb = self.model.tgt_emb(decoder_in, step=step)
             pos_ids = None
+            image_locations = None
 
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
         dec_out, dec_attn = self.model.decoder(
@@ -684,8 +686,7 @@ class Inference(object):
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
             left_pad=left_pad,
-            decoder_in=decoder_in,
-            image_token_id=self.image_token_id,
+            image_locations=image_locations,
             pos_ids=pos_ids,
         )
 

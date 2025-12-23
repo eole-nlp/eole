@@ -335,8 +335,7 @@ class TransformerDecoder(DecoderBase):
             position_embeddings_local = self.rope_local.update(emb.size(1), step=step)
         else:
             position_embeddings_local = position_embeddings
-        decoder_in = kwargs.pop("decoder_in", None)
-        image_token_id = kwargs.pop("image_token_id", None)
+        image_locations = kwargs.pop("image_locations", None)
         prefix_len = kwargs.pop("prefix_len", None)
         pos_ids = kwargs.pop("pos_ids", None)
         attn_aligns = []
@@ -357,10 +356,10 @@ class TransformerDecoder(DecoderBase):
             else:
                 attn_mask = None
 
-        # we need to adapt the mask for gemma3, TODO: find another condition?
-        # SEEMS OK TO MASK IMAGES FOR LLAVA TOO ?
-        if decoder_in is not None and attn_mask is not None:
-            attn_mask = self._update_causal_mask(attn_mask, decoder_in == image_token_id)
+        # we need to adapt the mask for wrt image_locations (gemma3 / seems ok for llava too)
+        # probably missing in the model.py for finetuning gemma3
+        if image_locations is not None and attn_mask is not None:
+            attn_mask = self._update_causal_mask(attn_mask, image_locations)
         if self.sliding_window > 0 and (step or 0) >= self.sliding_window and attn_mask is not None:
             attn_mask = attn_mask[:, :, :, -self.sliding_window :]
 
