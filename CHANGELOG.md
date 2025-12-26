@@ -2,6 +2,13 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.4.3
+
+* Dynamic batching server / OpenAI like API (on top of the proprietary one) / load test tool by @vince62s in https://github.com/eole-nlp/eole/pull/283
+* Add eole-translator.py in a new `eole/apps` directory. Will add more apps example.
+* few fixes by @vince62s in https://github.com/eole-nlp/eole/pull/284
+* fix vllm regression in dispatch forward by @vince62s in https://github.com/eole-nlp/eole/pull/286
+
 ## 0.4.2
 
 * Add Deepseek OCR demo scripts by @vince62s in https://github.com/eole-nlp/eole/pull/277
