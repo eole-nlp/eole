@@ -146,16 +146,14 @@ class TransformerDecoderLayer(nn.Module):
                     attn_mask=~src_pad_mask,
                     return_attn=return_attn,
                 )
-                ctx_attn.add_(self_attn)
-            else:
-                ctx_attn = self_attn
+                self_attn = self_attn + ctx_attn
             if not self.shared_layer_norm:
                 ff_in = self.residual_layernorm(layer_in)
             else:
                 ff_in = norm_layer_in
         else:
             if self.context_attn:
-                norm_query = self.precontext_layernorm(self_attn + layer_in)
+                norm_query = self.precontext_layernorm(self_attn)
                 ctx_attn, attns = self.context_attn(
                     enc_out,
                     enc_out,
@@ -165,12 +163,11 @@ class TransformerDecoderLayer(nn.Module):
                 )
                 if self.dropout_p > 0:
                     ctx_attn = self.dropout(ctx_attn)
-                ctx_attn.add_(self_attn)
-            else:
-                ctx_attn = self_attn
-            ff_in = self.post_attention_layernorm(ctx_attn)
+                self_attn = self_attn + ctx_attn
+
+            ff_in = self.post_attention_layernorm(self_attn)
         # we apply residual with un-normed
-        return ctx_attn + self.mlp(ff_in), attns
+        return self_attn + self.mlp(ff_in), attns
 
     def get_attn_align(self, layer_in, **kwargs):
         """:cite:`garg2019jointly`."""

@@ -9,6 +9,7 @@ mydir = os.getenv("EOLE_MODEL_DIR")
 config = PredictConfig(
     model_path=os.path.join(mydir, "DeepSeek-OCR"),
     src="dummy",
+    self_attn_backend="flash",
     max_length=8192,
     gpu_ranks=[0],
     compute_dtype="bf16",
@@ -20,9 +21,8 @@ config = PredictConfig(
     batch_size=4,
     batch_type="sents",
     report_time=True,
-    fuse_kvq=False,
+    fuse_kvq=True,
     fuse_gate=True,
-    # block_ngram_repeat=5,
 )
 # print(config)
 

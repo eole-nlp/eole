@@ -13,7 +13,7 @@ config = PredictConfig(
     max_length=4096,
     gpu_ranks=[0],
     compute_dtype="bf16",
-    top_k=1,
+    top_k=1.0,
     top_p=0.0,
     temperature=1.0,
     beam_size=1,
@@ -21,6 +21,8 @@ config = PredictConfig(
     batch_size=4,
     batch_type="sents",
     report_time=True,
+    fuse_gate=True,
+    fuse_kvq=True,
 )
 
 # print(config)

@@ -177,9 +177,8 @@ if __name__ == "__main__":
         batch_size=48,
         batch_type="sents",
         report_time=True,
-        fuse_kvq=False,
+        fuse_kvq=True,
         fuse_gate=True,
-        # block_ngram_repeat=5,
     )
 
     config.data_type = "image"
