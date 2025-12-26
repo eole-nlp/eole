@@ -46,7 +46,7 @@ class RMSNorm(torch.nn.Module):
         if self.training or not _vllm_available:
             return self.compute_rms(hidden_states)
         else:
-            return self._vllm_rmsnorm(hidden_states)
+            return self._vllm_rmsnorm.forward_cuda(hidden_states)
 
     def forward(self, hidden_states):
         return self._forward(hidden_states)
@@ -78,7 +78,7 @@ class GemmaRMSNorm(RMSNorm):
         if self.training or not _vllm_available:
             return self.compute_rms(hidden_states, factor=1.0)
         else:
-            return self._vllm_gemmarmsnorm(hidden_states)
+            return self._vllm_gemmarmsnorm.forward_cuda(hidden_states)
 
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.eps}"

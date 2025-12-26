@@ -9,20 +9,14 @@ mydir = os.getenv("EOLE_MODEL_DIR")
 config = PredictConfig(
     model_path=os.path.join(mydir, "gemma3-27b-it"),
     src="dummy",
-    max_length=800,
+    self_attn_backend="flash",
+    max_length=2048,
     gpu_ranks=[0],
-    # quant_type="bnb_NF4",
     quant_type="bnb_NF4",  # HF default, using it for initial reproducibility checks
     quant_layers=[
         "gate_up_proj",
         "down_proj",
         "up_proj",
-        "linear_values",
-        "linear_query",
-        "linear_keys",
-        "final_linear",
-        "w_in",
-        "w_out",
     ],
     compute_dtype="bf16",
     top_p=0.8,
@@ -32,6 +26,7 @@ config = PredictConfig(
     batch_size=1,
     batch_type="sents",
     report_time=True,
+    fuse_kvq=True,
 )
 
 # print(config)
