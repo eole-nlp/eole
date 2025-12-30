@@ -5,6 +5,13 @@ import torch
 import torch.nn.functional as F
 from functools import partial
 
+try:
+    from vllm import _custom_ops  # noqa: F401
+
+    _vllm_available = True
+except ImportError:
+    _vllm_available = False
+
 
 class DefaultTokens(object):
     PAD = "<blank>"
@@ -57,6 +64,7 @@ class PositionEncodingType(str, Enum):
 
 
 def fused_gated_gelu(x):
+    assert _vllm_available, "Fused Gate requires vllm installed"
     d = x.shape[-1] // 2
     output_shape = x.shape[:-1] + (d,)
     out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
@@ -65,6 +73,7 @@ def fused_gated_gelu(x):
 
 
 def fused_gated_silu(x):
+    assert _vllm_available, "Fused Gate requires vllm installed"
     d = x.shape[-1] // 2
     # basically doing return F.silu(x[..., :d]) * x[..., d:]
     output_shape = x.shape[:-1] + (d,)
@@ -74,6 +83,7 @@ def fused_gated_silu(x):
 
 
 def fused_gated_gelu_tanh(x):
+    assert _vllm_available, "Fused Gate requires vllm installed"
     d = x.shape[-1] // 2
     output_shape = x.shape[:-1] + (d,)
     out = torch.empty(output_shape, dtype=x.dtype, device=x.device)

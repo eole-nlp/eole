@@ -3,7 +3,7 @@ import torch.nn as nn
 import math
 from torch import Tensor
 from typing import Tuple, List
-from eole.constants import PositionEncodingType
+from eole.constants import PositionEncodingType, _vllm_available
 
 
 class NoOpPosition:
@@ -14,104 +14,129 @@ class NoOpPosition:
 
 
 def build_rope(model_config, mode="1d", variant="global"):
+    """Build RoPE with optional vLLM acceleration."""
     if model_config.position_encoding_type == PositionEncodingType.Rotary:
         return RotaryPosition(model_config, mode=mode, variant=variant)
     else:
         return NoOpPosition()
 
 
-# Help functions for Rotary Embeddings
-def rotate_half(x: Tensor) -> Tensor:
-    """Rotates half the hidden dims of the input."""
-    x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
-
-
 def apply_rotary_pos_emb_xdrope(
-    query: Tensor, key: Tensor, rope: Tuple[Tensor, Tensor], position_ids: Tensor, xdrope_section: List[int]
+    query: Tensor,
+    key: Tensor,
+    cos_sin: Tensor,
+    position_ids: Tensor,
+    xdrope_section: List[int],
 ) -> Tuple[Tensor, Tensor]:
-    """Applies XD Rotary Position Embedding to the query and key tensors.
-
-    Args:
-        query (`torch.Tensor`): The query tensor.
-        key (`torch.Tensor`): The key tensor.
-        rope (`torch.Tensor`, `torch.Tensor`): cos/sin of the rotary embedding.
-        position_ids (`torch.Tensor`): The position IDs for the tokens.
-        xdrope_section (`list`): The section ratios for XD RoPE.
-
-    Returns:
-        `tuple(torch.Tensor)`: The query and key tensors rotated using the XD Rotary Position Embedding.
     """
-    cos, sin = rope
-    bs, heads, seqlen, rot_dim = query.size()
+    query, key: (bs, seqlen, heads, rot_dim)
+    cos_sin: (max_pos, x_dim, rot_dim_per_x)
+    """
+    bs, seqlen, heads, rot_dim = query.size()
 
     x_dim = len(xdrope_section)
-    cos = cos[position_ids, ...].permute(0, 2, 1, 3).reshape(bs, seqlen, x_dim, -1).contiguous()
-    sin = sin[position_ids, ...].permute(0, 2, 1, 3).reshape(bs, seqlen, x_dim, -1).contiguous()
+    cos = cos_sin[:, : cos_sin.size(1) // 2]
+    sin = cos_sin[:, cos_sin.size(1) // 2 :]
 
-    xdrope_section_2 = xdrope_section * 2
+    # ---- THIS PERMUTE IS REQUIRED ----
+    cos = (
+        cos[position_ids, ...]  # (bs, seqlen, x_dim, dim_per_x)
+        .permute(0, 2, 1, 3)  # (bs, x_dim, seqlen, dim_per_x)
+        .reshape(bs, seqlen, x_dim, -1)  # XD-friendly layout
+        .contiguous()
+    )
+    sin = (
+        sin[position_ids, ...]  # (bs, seqlen, x_dim, dim_per_x)
+        .permute(0, 2, 1, 3)  # (bs, x_dim, seqlen, dim_per_x)
+        .reshape(bs, seqlen, x_dim, -1)  # XD-friendly layout
+        .contiguous()
+    )
 
-    # for xd concat
-    assert sum(xdrope_section_2) == cos.shape[-1], "Illegal partition for xd rope"
-    cos = torch.cat([m[:, :, i % x_dim, :] for i, m in enumerate(cos.split(xdrope_section_2, dim=-1))], dim=-1)
-    sin = torch.cat([m[:, :, i % x_dim, :] for i, m in enumerate(sin.split(xdrope_section_2, dim=-1))], dim=-1)
+    assert sum(xdrope_section) == cos.shape[-1], "Illegal partition for xd rope"
 
-    # for head repeat
-    cos = cos.view(bs, 1, seqlen, -1)  # .repeat(1, heads, 1, 1)
-    sin = sin.view(bs, 1, seqlen, -1)  # .repeat(1, heads, 1, 1)
+    # XD concat
+    cos = torch.cat(
+        [m[:, :, i % x_dim, :] for i, m in enumerate(cos.split(xdrope_section, dim=-1))],
+        dim=-1,
+    )
+    sin = torch.cat(
+        [m[:, :, i % x_dim, :] for i, m in enumerate(sin.split(xdrope_section, dim=-1))],
+        dim=-1,
+    )
+
+    # broadcast over heads (new layout)
+    cos = cos.view(bs, seqlen, 1, -1)
+    sin = sin.view(bs, seqlen, 1, -1)
 
     origin_dtype = query.dtype
-    query, key = query.float(), key.float()
-    cos, sin = cos.float(), sin.float()
-    q_out, k_out = (query * cos) + (rotate_half(query) * sin), (key * cos) + (rotate_half(key) * sin)
+    query = query.float()
+    key = key.float()
+    cos = cos.float()
+    sin = sin.float()
+
+    # Split query/key into halves
+    half = rot_dim // 2
+    q1, q2 = query[..., :half], query[..., half:]
+    k1, k2 = key[..., :half], key[..., half:]
+
+    # Apply rotation
+    q_out = torch.cat((q1 * cos - q2 * sin, q1 * sin + q2 * cos), dim=-1)
+    k_out = torch.cat((k1 * cos - k2 * sin, k1 * sin + k2 * cos), dim=-1)
 
     return q_out.to(origin_dtype), k_out.to(origin_dtype)
 
 
-def apply_rotary_emb(
-    query: Tensor, key: Tensor, rope: Tuple[Tensor, Tensor], interleave: bool
-) -> Tuple[Tensor, Tensor]:
-    # now rope is a tuple (cos, sin)
-    cos, sin = rope
-    if interleave:
-        query, key = query.transpose(1, 2), key.transpose(1, 2)
-        query_ = query.reshape(*query.shape[:-1], -1, 2)
-        key_ = key.reshape(*key.shape[:-1], -1, 2)
+def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bool) -> Tuple[Tensor, Tensor]:
 
-        # Reshape cos and sin to match the dimensions of query_ and key_
-        cos = cos[:, : cos.size(1) // 2].view(1, query_.size(1), 1, query_.size(3))
-        sin = sin[:, : sin.size(1) // 2].view(1, key_.size(1), 1, key_.size(3))
+    B, S, H, D = query.shape
 
-        query_rotated = query_[..., 0] * cos - query_[..., 1] * sin
-        query_rotated_imag = query_[..., 0] * sin + query_[..., 1] * cos
-        query_out = torch.stack((query_rotated, query_rotated_imag), dim=-1).flatten(3)
+    if _vllm_available and query.device.type == "cuda":
+        num_tok = B * S
+        query = query.view(num_tok, -1, D)
+        key = key.view(num_tok, -1, D)
+        positions = torch.arange(S, device=query.device).repeat(B)
+        # vllm ops change query key in-place
+        torch.ops._C.rotary_embedding(positions, query, key, D, cos_sin, not interleave)
+        return query.view(B, S, -1, D), key.view(B, S, -1, D)
 
-        key_rotated = key_[..., 0] * cos - key_[..., 1] * sin
-        key_rotated_imag = key_[..., 0] * sin + key_[..., 1] * cos
-        key_out = torch.stack((key_rotated, key_rotated_imag), dim=-1).flatten(3)
-        return query_out.transpose(1, 2), key_out.transpose(1, 2)
-
-        # Old code with complex instead
-        # rope_complex = torch.complex(cos, sin)
-        # query_ = torch.view_as_complex(query_)
-        # key_ = torch.view_as_complex(key_)
-        # query_out = torch.view_as_real(query_ * rope_complex).flatten(3)
-        # key_out = torch.view_as_real(key_ * rope_complex).flatten(3)
-        # return query_out.transpose(1, 2).type_as(query), key_out.transpose(
-        #     1, 2
-        # ).type_as(key)
     else:
-        rotary_dim = cos.size(1)
-        head_dim = query.size(3)
-        if rotary_dim < head_dim:
-            q_embed = (query[:, :, :, :rotary_dim] * cos) + (rotate_half(query[:, :, :, :rotary_dim]) * sin)
-            k_embed = (key[:, :, :, :rotary_dim] * cos) + (rotate_half(key[:, :, :, :rotary_dim]) * sin)
-            q_embed = torch.cat([q_embed, query[:, :, :, rotary_dim:]], dim=-1)
-            k_embed = torch.cat([k_embed, key[:, :, :, rotary_dim:]], dim=-1)
+        Rd = cos_sin.size(1)
+        q_rot, q_pass = query[..., :Rd], query[..., Rd:]
+        k_rot, k_pass = key[..., :Rd], key[..., Rd:]
+
+        # Reshape based on interleave mode
+        if interleave:
+            # Split into pairs: (B, S, H, Rd) -> (B, S, H, Rd//2, 2)
+            q1, q2 = q_rot.view(B, S, H, -1, 2).unbind(-1)
+            k1, k2 = k_rot.view(B, S, H, -1, 2).unbind(-1)
         else:
-            q_embed = (query * cos) + (rotate_half(query) * sin)
-            k_embed = (key * cos) + (rotate_half(key) * sin)
-        return q_embed, k_embed
+            # Split into halves
+            half = Rd // 2
+            q1, q2 = q_rot[..., :half], q_rot[..., half:]
+            k1, k2 = k_rot[..., :half], k_rot[..., half:]
+
+        # Broadcast cos/sin to match
+        cos = cos_sin[None, :, None, : Rd // 2]
+        sin = cos_sin[None, :, None, Rd // 2 :]
+
+        # Apply rotation (same formula for both modes)
+        qr = q1 * cos - q2 * sin
+        qi = q1 * sin + q2 * cos
+        kr = k1 * cos - k2 * sin
+        ki = k1 * sin + k2 * cos
+
+        # Recombine based on interleave mode
+        if interleave:
+            q_rotated = torch.stack((qr, qi), dim=-1).flatten(-2)
+            k_rotated = torch.stack((kr, ki), dim=-1).flatten(-2)
+        else:
+            q_rotated = torch.cat((qr, qi), dim=-1)
+            k_rotated = torch.cat((kr, ki), dim=-1)
+
+        return (
+            torch.cat((q_rotated, q_pass), dim=-1),
+            torch.cat((k_rotated, k_pass), dim=-1),
+        )
 
 
 class RotaryPosition(nn.Module):
@@ -174,9 +199,9 @@ class RotaryPosition(nn.Module):
             self.llama3_scaling()
         if getattr(self.model_config.rope_config, "scaling_type", None) == "gemma3" and variant == "global":
             self.gemma3_scaling()
-        cos, sin = self.update(1024)
-        self.register_buffer("cos", cos, persistent=False)
-        self.register_buffer("sin", sin, persistent=False)
+
+        cos_sin = self.update(1024)
+        self.register_buffer("cos_sin", cos_sin, persistent=False)
 
     def init_2d_inv_freq(self, inv_freq):
         """
@@ -194,7 +219,6 @@ class RotaryPosition(nn.Module):
             ],
             dim=-1,
         ).reshape(-1, self.dim_per_head // 2)
-        inv_freq = torch.cat((inv_freq, inv_freq), dim=-1)
         return inv_freq
 
     def llama3_scaling(self):
@@ -234,16 +258,14 @@ class RotaryPosition(nn.Module):
 
     def forward_1d(self, maxseqlen, step=0, prefetch=1024, offset=32):
         maxseqlen += prefetch
-        device = self.cos.device if hasattr(self, "cos") else torch.device("cpu")
-        dtype = self.cos.dtype if hasattr(self, "cos") else torch.float32
+        device = self.cos_sin.device if hasattr(self, "cos_sin") else torch.device("cpu")
+        dtype = self.cos_sin.dtype if hasattr(self, "cos_sin") else torch.float32
 
         tmax = torch.arange(max(offset + step, 0) + maxseqlen, device=device)
         tmax += self.model_config.rope_config.tmax_index
         rope = torch.outer(tmax, self.inv_freq.to(device))
-        cos = torch.cos(rope)
-        sin = torch.sin(rope)
-        cos = torch.cat((cos, cos), dim=-1).to(dtype)  # Double the size by repeating `cos`
-        sin = torch.cat((sin, sin), dim=-1).to(dtype)  # Double the size by repeating `sin`
+        cos = torch.cos(rope).to(dtype)
+        sin = torch.sin(rope).to(dtype)
 
         return cos, sin
 
@@ -270,8 +292,8 @@ class RotaryPosition(nn.Module):
 
     def forward_2d(self, maxseqlen, step=0, prefetch=1024, offset=32, positions=None):
         # TODO: maybe do scaling here
-        device = self.cos.device if hasattr(self, "cos") else torch.device("cpu")
-        dtype = self.cos.dtype if hasattr(self, "cos") else torch.float32
+        device = self.cos_sin.device if hasattr(self, "cos_sin") else torch.device("cpu")
+        dtype = self.cos_sin.dtype if hasattr(self, "cos_sin") else torch.float32
 
         if positions is None:
             tmax = torch.arange(maxseqlen, device=self.inv_freq.device)
@@ -316,6 +338,6 @@ class RotaryPosition(nn.Module):
             cos, sin = self.forward_2d(maxseqlen, step=(step or 0), prefetch=prefetch, positions=positions)
         else:
             raise NotImplementedError
-        self.register_buffer("cos", cos, persistent=False)
-        self.register_buffer("sin", sin, persistent=False)
-        return cos, sin
+        cos_sin = torch.cat([cos, sin], dim=-1)
+        self.register_buffer("cos_sin", cos_sin, persistent=False)
+        return cos_sin
