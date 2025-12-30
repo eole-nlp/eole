@@ -255,9 +255,9 @@ class MultiHeadedAttention(torch.nn.Module):
 
         if not self.qk_norm_post_rope:
             if hasattr(self, "q_norm"):
-                query = self.q_norm(query.contiguous())
+                query = self.q_norm(query)
             if hasattr(self, "k_norm"):
-                key = self.k_norm(key.contiguous())
+                key = self.k_norm(key)
 
         if self.position_encoding_type == PositionEncodingType.Rotary:
             seq_len = query.size(1)

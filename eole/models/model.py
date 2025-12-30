@@ -964,7 +964,7 @@ class VisionEncoderDecoderModel(BaseModel):
 
     def build_position_ids(self, src, image_locations, image_sizes):
         """
-        src: [B, S]
+        src: [B, L]
         image_locations: bool mask of same shape as src
         image_sizes: [num_images, 2] with (height_px, width_px)
 
@@ -974,20 +974,20 @@ class VisionEncoderDecoderModel(BaseModel):
         - it adds 2 image_token at the end: H * (W+1) + 2
 
         """
-        B, S = src.shape
+        B, L = src.shape
         device = src.device
-        position_ids = torch.zeros((B, 4, S), device=device, dtype=torch.long)
-        ar = torch.arange(S, device=device)
-        position_ids[:, 0, :] = ar
-        position_ids[:, 1, :] = ar
-        position_ids[:, 2, :] = ar
-        position_ids[:, 3, :] = 0
+        position_ids = torch.zeros((B, L, 4), device=device, dtype=torch.long)
+        ar = torch.arange(L, device=device)
+        position_ids[:, :, 0] = ar
+        position_ids[:, :, 1] = ar
+        position_ids[:, :, 2] = ar
+        position_ids[:, :, 3] = 0
 
         img_ptr = 0  # pointer into image_sizes list
 
         # --- For each batch item ---
         for b in range(B):
-            mask = image_locations[b]  # [S]
+            mask = image_locations[b]  # [L]
             if not mask.any():
                 continue
             # ---------- find contiguous blocks of True ----------
@@ -1006,9 +1006,9 @@ class VisionEncoderDecoderModel(BaseModel):
                 r = torch.arange(length, device=device)
                 w = r % (W + 1)  # SPECIFIC to HunyuanOCR
                 h = r // (W + 1)  # SPECIFIC to HunyuanOCR
-                position_ids[b, 1, start : end + 1] = w
-                position_ids[b, 2, start : end + 1] = h
-                position_ids[b, 3, start : end + 1] = 0
+                position_ids[b, start : end + 1, 1] = w
+                position_ids[b, start : end + 1, 2] = h
+                position_ids[b, start : end + 1, 3] = 0
         return position_ids
 
     def embed_vision_language_features(self, src, **kwargs):

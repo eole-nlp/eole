@@ -28,29 +28,15 @@ def apply_rotary_pos_emb_xdrope(
     position_ids: Tensor,
     xdrope_section: List[int],
 ) -> Tuple[Tensor, Tensor]:
-    """
-    query, key: (bs, seqlen, heads, rot_dim)
-    cos_sin: (max_pos, x_dim, rot_dim_per_x)
-    """
+
     bs, seqlen, heads, rot_dim = query.size()
 
     x_dim = len(xdrope_section)
     cos = cos_sin[:, : cos_sin.size(1) // 2]
     sin = cos_sin[:, cos_sin.size(1) // 2 :]
 
-    # ---- THIS PERMUTE IS REQUIRED ----
-    cos = (
-        cos[position_ids, ...]  # (bs, seqlen, x_dim, dim_per_x)
-        .permute(0, 2, 1, 3)  # (bs, x_dim, seqlen, dim_per_x)
-        .reshape(bs, seqlen, x_dim, -1)  # XD-friendly layout
-        .contiguous()
-    )
-    sin = (
-        sin[position_ids, ...]  # (bs, seqlen, x_dim, dim_per_x)
-        .permute(0, 2, 1, 3)  # (bs, x_dim, seqlen, dim_per_x)
-        .reshape(bs, seqlen, x_dim, -1)  # XD-friendly layout
-        .contiguous()
-    )
+    cos = cos[position_ids, ...]  # positions_ids is (bs, seqlen, x_dim) so (bs, seqlen, x_dim, dim_per_x)
+    sin = sin[position_ids, ...]
 
     assert sum(xdrope_section) == cos.shape[-1], "Illegal partition for xd rope"
 
@@ -92,12 +78,12 @@ def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bo
 
     if _vllm_available and query.device.type == "cuda":
         num_tok = B * S
-        query = query.view(num_tok, -1, D)
-        key = key.view(num_tok, -1, D)
+        query_vllm = query.view(num_tok, -1, D)
+        key_vllm = key.view(num_tok, -1, D)
         positions = torch.arange(S, device=query.device).repeat(B)
         # vllm ops change query key in-place
-        torch.ops._C.rotary_embedding(positions, query, key, D, cos_sin, not interleave)
-        return query.view(B, S, -1, D), key.view(B, S, -1, D)
+        torch.ops._C.rotary_embedding(positions, query_vllm, key_vllm, D, cos_sin, not interleave)
+        return query_vllm.view(B, S, -1, D), key_vllm.view(B, S, -1, D)
 
     else:
         Rd = cos_sin.size(1)

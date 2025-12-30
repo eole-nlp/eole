@@ -42,13 +42,16 @@ class GemmaRMSNorm(RMSNorm):
         super().__init__(hidden_size, eps)
 
     @torch.compile(dynamic=True)
-    def forward(self, hidden_states):
+    def compute_rms(self, hidden_states):
         dtype = hidden_states.dtype
         hidden_states = hidden_states.to(torch.float32)
         variance = hidden_states.pow(2).mean(dim=-1, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.eps)
         hidden_states = hidden_states * (1.0 + self.weight.float())
         return hidden_states.to(dtype)
+
+    def forward(self, hidden_states):
+        return self.compute_rms(hidden_states)
 
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.eps}"
