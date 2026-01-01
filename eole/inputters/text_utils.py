@@ -74,7 +74,7 @@ def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER, task=Cor
     Inference
     src: stok1 stok2 stok3
     if tgt is None then <decoder_start_token> is set to start generation/translation
-    if tgt is not None (check tgt_prefix / tgt_file_preifx)
+    if tgt is not None (check tgt_prefix / tgt_file_prefix)
 
     DECODER
     most of the time <decoder_start_token> = <bos>, but sometimes it's empty or <eos>

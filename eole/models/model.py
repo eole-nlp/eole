@@ -217,9 +217,6 @@ class BaseModel(nn.Module):
     @classmethod
     def build(cls, model_config, vocabs, running_config):
         """Build a complete model with all components.
-
-        This is the main entry point for model construction.
-        Replaces the old build_base_model method.
         """
         logger.info("Building model...")
 
@@ -320,7 +317,6 @@ class BaseModel(nn.Module):
         return model, vocabs, model_config
 
     def maybe_quantize(self, running_config):
-        # these are not supposed to be "model" opts, but rather "chekpoint" opts
         # -> at some point we need to retrieve such opts from metadata
         nonlora_to_quant = [
             layer
@@ -477,6 +473,9 @@ class BaseModel(nn.Module):
                 logger.warning(f"Extra key in checkpoint: {key}")
 
     def _get_tp_slices(self, param, base_name, offset):
+        """
+            Returns a tuple of size 2 or 4 depending on param
+        """
         col_start, col_end = 0, param.size(0)
         if base_name in {
             "linear_keys",

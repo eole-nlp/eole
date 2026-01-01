@@ -302,7 +302,7 @@ class Optimizer(object):
         Args:
           cls: The ``Optimizer`` class to instantiate.
           model: The model to optimize.
-          opt: The dict of user options.
+          config: The dict of user options.
           metadata: An optional checkpoint metadata to load states from.
 
         Returns:
