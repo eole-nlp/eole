@@ -65,65 +65,84 @@ def transform_bucket(task, bucket, threshold=0):
 
 
 def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER, task=CorpusTask.INFER):
-    """ """
+    """
+    ENCODER_DECODER
+    Case NMT: most of the time <decoder_start_token> = <bos>
+    Training is like
+    src: stok1 stok2 stok3
+    tgt: <decoder_start_token> ttok1 ttok2 ttok3 ttok4 ttok5 <eos>
+    Inference
+    src: stok1 stok2 stok3
+    if tgt is None then <decoder_start_token> is set to start generation/translation
+    if tgt is not None (check tgt_prefix / tgt_file_preifx)
+
+    DECODER
+    most of the time <decoder_start_token> = <bos>, but sometimes it's empty or <eos>
+    Training is like
+    src: <decoder_start_token> stok1 stok2 stok3
+    if <decoder_start_token> is not ""
+        tgt: stok1 stok2 stok3 <eos>
+    else
+        tgt: stok2 stok3 <eos>
+
+    """
     decoder_start_token = vocabs["decoder_start_token"]
+    eos_token = vocabs["specials"].get("eos_token", "")
+    eos_token_id = vocabs["tgt"].tokens_to_ids[eos_token] if eos_token != "" else None
+
+    HF_tok = example.get("src_ids", None) is not None  # src already tokenized by HF
     numeric = example
 
     # In the case transform `tokenizer_id` is used ie hugging_face tokenizer
     # fields `src_ids` and potentially `tgt_ids` are already filled
-    numeric["src"]["src_ids"] = example.pop("src_ids", [])
-    maybe_tgt_ids = example.pop("tgt_ids", [])
+    if not HF_tok:
+        src_text = example["src"]["src"].split(" ")
+        numeric["src"]["src_ids"] = vocabs["src"](src_text)
+        if example.get("tgt", None) is not None:
+            tgt_text = example["tgt"]["tgt"].split(" ")
+            numeric["tgt"]["tgt_ids"] = vocabs["tgt"](tgt_text)
+    else:
+        numeric["src"]["src_ids"] = example.pop("src_ids", [])
+        if example.get("tgt", None) is not None:
+            numeric["tgt"]["tgt_ids"] = example.pop("tgt_ids", [])
 
     if model_type == ModelType.ENCODER_DECODER:
-        src_text = example["src"]["src"].split(" ")
-        if numeric["src"]["src_ids"] == []:
-            numeric["src"]["src_ids"] = vocabs["src"](src_text)
-        if example.get("tgt", None) is not None:
-            if maybe_tgt_ids != []:
-                # TODO: handle this better in HF tokenizer templates
-                if decoder_start_token != "":
-                    decoder_start_token_id = vocabs["tgt"].tokens_to_ids[decoder_start_token]
-                    if maybe_tgt_ids[0] != decoder_start_token_id:
-                        maybe_tgt_ids = [decoder_start_token_id] + maybe_tgt_ids
-                numeric["tgt"]["tgt_ids"] = maybe_tgt_ids
-            else:
-                tgt_text = example["tgt"]["tgt"].split(" ")
-                numeric["tgt"]["tgt_ids"] = vocabs["tgt"](
-                    [decoder_start_token] + tgt_text + [vocabs["specials"].get("eos_token", "")]
-                )
+        if example.get("tgt", None) is None:
+            if task in [CorpusTask.TRAIN, CorpusTask.VALID]:
+                # no target when training or valid
+                # must be a LM we need to copy src shifted by 1
+                numeric["tgt"] = {}
+                numeric["tgt"]["tgt_ids"] = numeric["src"]["src_ids"][1:] + [eos_token_id]
+        else:
+            # tgt not None,  NMT or prefixLM training or inference
+            decoder_start_token_id = (
+                vocabs["tgt"].tokens_to_ids[decoder_start_token] if decoder_start_token != "" else None
+            )
+            if decoder_start_token_id is not None and numeric["tgt"]["tgt_ids"][0] != decoder_start_token_id:
+                numeric["tgt"]["tgt_ids"] = [decoder_start_token_id] + numeric["tgt"]["tgt_ids"]
+            if eos_token_id is not None and numeric["tgt"]["tgt_ids"][-1] != eos_token_id:
+                # last token (eos) is removed at inference
+                numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"] + [eos_token_id]
 
     elif model_type == ModelType.DECODER:
-        if numeric["src"]["src_ids"] == []:
-            # tokenize_id not used, we add start_token and numericalize
-            src_text = example["src"]["src"].split(" ")
-            if decoder_start_token != "":
-                src_text = [decoder_start_token] + src_text
-            numeric["src"]["src_ids"] = vocabs["src"](src_text)
+        decoder_start_token_id = vocabs["src"].tokens_to_ids[decoder_start_token] if decoder_start_token != "" else None
+        if decoder_start_token_id is not None and numeric["src"]["src_ids"][0] != decoder_start_token_id:
+            numeric["src"]["src_ids"] = [decoder_start_token_id] + numeric["src"]["src_ids"]
         numeric["src"]["prefix_len"] = len(numeric["src"]["src_ids"])
-        if example["tgt"] is None:
-            # no path_tgt given need to use src, add eos if any and remove bos if any
+        if example.get("tgt", None) is None:
             if task in [CorpusTask.TRAIN, CorpusTask.VALID]:
-                example["tgt"] = {}
-                if maybe_tgt_ids != []:
-                    # tokenize_id in use
-                    numeric["tgt"]["tgt_ids"] = maybe_tgt_ids
-                else:
-                    tgt_text = example["src"]["src"].split(" ")
-                    numeric["tgt"]["tgt_ids"] = vocabs["tgt"](tgt_text + [vocabs["specials"].get("eos_token", "")])
-                if decoder_start_token == "" or len(numeric["tgt"]["tgt_ids"]) != len(numeric["src"]["src_ids"]):
-                    numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
+                # no target when training or valid
+                # must be a LM we need to copy src shifted by 1
+                numeric["tgt"] = {}
+                numeric["tgt"]["tgt_ids"] = numeric["src"]["src_ids"][1:] + [eos_token_id]
         else:
             # path_tgt given, prompt from path_src and answer from path_tgt
             # we concat both, add eos if any on tgt side and remove bos if any.
-            if maybe_tgt_ids != []:
-                numeric["tgt"]["tgt_ids"] = numeric["src"]["src_ids"] + maybe_tgt_ids
-                numeric["src"]["src_ids"] = numeric["src"]["src_ids"] + maybe_tgt_ids[:-1]
-            else:
-                tgt_text = example["tgt"]["tgt"].split(" ")
-                numeric["tgt"]["tgt_ids"] = vocabs["tgt"](tgt_text + [vocabs["specials"].get("eos_token", "")])
-                numeric["src"]["src_ids"] = numeric["src"]["src_ids"] + numeric["tgt"]["tgt_ids"]
-                numeric["tgt"]["tgt_ids"] = numeric["src"]["src_ids"]
-                numeric["src"]["src_ids"] = numeric["src"]["src_ids"][:-1]
+            if eos_token_id is not None and numeric["tgt"]["tgt_ids"][-1] != eos_token_id:
+                numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"] + [eos_token_id]
+            numeric["src"]["src_ids"] = numeric["src"]["src_ids"] + numeric["tgt"]["tgt_ids"]
+            numeric["tgt"]["tgt_ids"] = numeric["src"]["src_ids"]
+            numeric["src"]["src_ids"] = numeric["src"]["src_ids"][:-1]
             numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
 
     # TODO: support id tokenization

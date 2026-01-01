@@ -14,7 +14,7 @@ def average_models(model_paths, fp32=False):
     avg_model = None
 
     for i, model_path in enumerate(model_paths):
-        m = model_saver.load_checkpoint(model_path)
+        m = model_saver.get_metadata(model_path)
         model_weights = load_file(os.path.join(model_path, "model.00.safetensors"))
 
         if fp32:

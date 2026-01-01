@@ -113,7 +113,7 @@ class LossCompute(nn.Module):
         lm_prior_tau = config.training.lm_prior_tau
         if config.training.lm_prior_model:
             if config.training.lm_prior_model[-3:] == ".pt":
-                _, lm_prior_model, lm_model_config = DecoderModel.load_test_model(
+                _, lm_prior_model, lm_model_config = DecoderModel.load_model(
                     config, model_path=config.training.lm_prior_model
                 )  # lm_model_config does not seem used
                 # lm_prior_model.to(torch.device("cuda", config.training.gpu))

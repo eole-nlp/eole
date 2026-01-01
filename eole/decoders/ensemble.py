@@ -10,7 +10,7 @@ import torch.nn as nn
 import copy
 from eole.encoders.encoder import EncoderBase
 from eole.decoders.decoder import DecoderBase
-from eole.models.model import EncoderDecoderModel, BaseModel
+from eole.models.model import EncoderDecoderModel, get_model_class, get_metadata
 
 
 class EnsembleDecoderOutput(object):
@@ -175,24 +175,43 @@ class EnsembleModel(EncoderDecoderModel):
         self.generator = EnsembleGenerator([model.generator for model in models], raw_probs)
         self.models = nn.ModuleList(models)
 
+    @classmethod
+    def for_inference(cls, config, device_id=0):
+        """Create an ensemble model for inference.
 
-def load_test_model(config, device_id=0):
-    """Read in multiple models for ensemble."""
-    shared_vocabs = None
-    shared_model_config = None
-    models = []
-    config2 = copy.deepcopy(config)
-    for i, model_path in enumerate(config.model_path):
-        config2.model_path = [config.model_path[i]]
-        vocabs, model, model_config = BaseModel.load_test_model(config2, device_id, model_path=model_path)
-        if shared_vocabs is None:
-            shared_vocabs = vocabs
-        else:
-            assert (
-                shared_vocabs["src"].tokens_to_ids == vocabs["src"].tokens_to_ids
-            ), "Ensemble models must use the same vocabs "
-        models.append(model)
-        if shared_model_config is None:
-            shared_model_config = model_config
-    ensemble_model = EnsembleModel(models, config.avg_raw_probs)
-    return shared_vocabs, ensemble_model, shared_model_config
+        Args:
+            config: Inference configuration with multiple model_path entries
+            device_id: Device ID for inference
+
+        Returns:
+            tuple: (ensemble_model, vocabs, model_config)
+        """
+        shared_vocabs = None
+        shared_model_config = None
+        models = []
+        config2 = copy.deepcopy(config)
+
+        for i, model_path in enumerate(config.model_path):
+            config2.model_path = [model_path]
+
+            # Load metadata to get the correct model class
+            metadata = get_metadata(model_path)
+            model_class = get_model_class(metadata["config"].model)
+
+            # Load individual model
+            model, vocabs, model_config = model_class.for_inference(config2, device_id, model_path=model_path)
+
+            if shared_vocabs is None:
+                shared_vocabs = vocabs
+            else:
+                assert (
+                    shared_vocabs["src"].tokens_to_ids == vocabs["src"].tokens_to_ids
+                ), "Ensemble models must use the same vocabs"
+
+            models.append(model)
+
+            if shared_model_config is None:
+                shared_model_config = model_config
+
+        ensemble_model = cls(models, config.avg_raw_probs)
+        return ensemble_model, shared_vocabs, shared_model_config

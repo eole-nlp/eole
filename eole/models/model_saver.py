@@ -33,19 +33,17 @@ def build_model_saver(config, model, vocabs, optim, device_id, transforms):
     return model_saver
 
 
-def load_checkpoint(model_path):
+def get_metadata(model_path):
     """
-    Load checkpoint from `model_path` if any else return `None`.
-    TODO: we need to clarify this compared to eole.models.BaseModel.load_checkpoint
+    Load metadata from `model_path` if any else return `None`.
     """
-    checkpoint = None
+    metadata = None
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"{model_path} does not seem to exist.")
     elif os.path.isdir(model_path):
         os.environ["MODEL_PATH"] = model_path
-        logger.info("Loading checkpoint from %s" % model_path)
-        # checkpoint = torch.load(ckpt_path, map_location=torch.device("cpu"))
-        checkpoint = {}
+        logger.info("Loading metadata from %s" % model_path)
+        metadata = {}
         config_path = os.path.join(model_path, "config.json")
         if os.path.exists(config_path):
             with open(config_path) as f:
@@ -53,16 +51,16 @@ def load_checkpoint(model_path):
                 # drop data to prevent validation issues
                 config_dict["data"] = {}
                 _config = TrainConfig(**config_dict)
-                checkpoint["config"] = _config
+                metadata["config"] = _config
         else:
             raise FileNotFoundError(f"{model_path} does not contain config.json")
         vocab_path = os.path.join(model_path, "vocab.json")
         if os.path.exists(vocab_path):
             with open(vocab_path, encoding="utf-8") as f:
-                checkpoint["vocab"] = json.load(f)
+                metadata["vocab"] = json.load(f)
             # use default specials if not specified
-            if "specials" not in checkpoint["vocab"].keys():
-                checkpoint["vocab"]["specials"] = {
+            if "specials" not in metadata["vocab"].keys():
+                metadata["vocab"]["specials"] = {
                     "bos_token": DefaultTokens.BOS,
                     "pad_token": DefaultTokens.PAD,
                     "eos_token": DefaultTokens.EOS,
@@ -72,11 +70,11 @@ def load_checkpoint(model_path):
             raise FileNotFoundError(f"{model_path} does not contain vocab.json")
         optim_path = os.path.join(model_path, "optimizer.pt")
         if os.path.exists(optim_path):
-            checkpoint["optim"] = torch.load(optim_path, map_location=torch.device("cpu"), weights_only=True)
+            metadata["optim"] = torch.load(optim_path, map_location=torch.device("cpu"), weights_only=True)
     else:
         raise FileNotFoundError(f"{model_path} is not a directory.")
 
-    return checkpoint
+    return metadata
 
 
 class ModelSaverBase(object):
