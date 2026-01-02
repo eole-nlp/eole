@@ -309,12 +309,14 @@ class ParallelCorpusIterator(object):
 
     def _process(self, stream):
         for i, example in enumerate(stream):
+            example["src"] = example["src"].strip()
             line_number = i * self.stride + self.offset
             example["cid_line_number"] = line_number
             example["cid"] = self.cid
             if "align" in example:
                 example["align"] = example["align"].strip().split(" ")
             if example["tgt"] is not None:
+                example["tgt"] = example["tgt"].strip()
                 if (
                     len(example["src"]) == 0
                     or len(example["tgt"]) == 0

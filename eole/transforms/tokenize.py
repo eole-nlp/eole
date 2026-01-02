@@ -154,9 +154,9 @@ class TokenizerTransform(Transform):
 
     def _tokenize(self, sentence, side="src", is_train=False):
         """Tokenize a list of words."""
+        assert isinstance(sentence, str), "Tokenizers input need to be a string"
         # This method embeds a custom logic to correctly handle certain placeholders
         # in case the tokenizer doesn't preserve them.
-        # sentence = " ".join(tokens)
         # We need to split sentence on EOS and mapped_tokens
         # to make sure sentencepiece add a joiner just after special tokens
         if getattr(self, "mapped_tokens", None) is not None:

@@ -54,7 +54,8 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
         if self.huggingface_model is not None:
             from transformers import AutoTokenizer
 
-            self.tokenizer = AutoTokenizer.from_pretrained(self.huggingface_model, use_fast=True)  # legacy=False)
+            # self.tokenizer = AutoTokenizer.from_pretrained(self.huggingface_model, use_fast=True)
+            self.tokenizer = AutoTokenizer.from_pretrained(self.huggingface_model, legacy=False)
             # TODO: this needs to be tested and adapted for various models
             logger.info(f"Initialized tokenizers from HF model: {self.huggingface_model}")
         elif self.path is not None:
@@ -107,18 +108,11 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
         return tokens
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
-        if isinstance(example["src"], str):
-            src_tokens = self.tokenize_string(example["src"], side="src", is_train=is_train)
-        elif isinstance(example["src"], list):
-            src_tokens = self.tokenize_string(" ".join(example["src"]), side="src", is_train=is_train)
-        else:
-            raise ValueError(f"Unsupported src type: {type(example['src'])}")
+        assert isinstance(example["src"], str), "HuggingfaceTokenizer requires a string as input"
+        src_tokens = self.tokenize_string(example["src"], side="src", is_train=is_train)
         example["src_ids"] = src_tokens
         if example.get("tgt", None) is not None:
-            if isinstance(example["tgt"], str):
-                tgt_tokens = self.tokenize_string(example["tgt"], side="tgt", is_train=is_train)
-            elif isinstance(example["tgt"], list):
-                tgt_tokens = self.tokenize_string(" ".join(example["tgt"]), side="tgt", is_train=is_train)
+            tgt_tokens = self.tokenize_string(example["tgt"], side="tgt", is_train=is_train)
             example["tgt_ids"] = tgt_tokens
         return example
 
