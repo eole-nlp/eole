@@ -13,7 +13,7 @@ from eole.transforms import (
 from eole.inputters.inputter import vocabs_to_dict, build_vocab, dict_to_vocabs
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.inputters.text_corpus import save_transformed_sample
-from eole.models.model_saver import load_checkpoint
+from eole.models.model_saver import get_metadata
 from eole.utils.optimizers import Optimizer
 from eole.utils.misc import set_random_seed
 from eole.trainer import build_trainer
@@ -55,24 +55,24 @@ def _init_train(config):
     - resume training but vocab file has been modified
     """
     if config.training.train_from:
-        checkpoint = load_checkpoint(config.training.train_from)
+        metadata = get_metadata(config.training.train_from)
 
         # TODO: reinstate this?
         # the point is to outline the diff between config and ckpt config
         # if (
-        #     hasattr(checkpoint["config"], "_all_transform")
+        #     hasattr(metadata["config"], "_all_transform")
         #     and len(
         #         config._all_transform.symmetric_difference(
-        #             checkpoint["config"]._all_transform
+        #             metadata["config"]._all_transform
         #         )
         #     )
         #     != 0
         # ):
-        #     _msg = "configured transforms is different from checkpoint:"
+        #     _msg = "configured transforms is different from metadata:"
         #     new_transf = config._all_transform.difference(
-        #         checkpoint["config"]._all_transform
+        #         metadata["config"]._all_transform
         #     )
-        #     old_transf = checkpoint["config"]._all_transform.difference(
+        #     old_transf = metadata["config"]._all_transform.difference(
         #         config._all_transform
         #     )
         #     if len(new_transf) != 0:
@@ -81,23 +81,23 @@ def _init_train(config):
         #         _msg += f" -{old_transf}."
         #     logger.warning(_msg)
     else:
-        checkpoint = None
+        metadata = None
 
-    config = update_config_with_checkpoint(config, checkpoint=checkpoint)
-    # explicitly validate data_config after checkpoint update
+    config = update_config_with_metadata(config, metadata=metadata)
+    # explicitly validate data_config after metadata update
     config._validate_data_config()
     transforms_cls = get_transforms_cls(config._all_transform)
     vocabs, transforms = prepare_transforms_vocabs(config, transforms_cls)
     if config.training.train_from and not config.training.update_vocab:
-        logger.info("Keeping checkpoint vocabulary")
-        vocabs = dict_to_vocabs(checkpoint["vocab"])
+        logger.info("Keeping metadata vocabulary")
+        vocabs = dict_to_vocabs(metadata["vocab"])
     logger.info("The first 10 tokens of the vocabs are:" f"{vocabs_to_dict(vocabs)['src'][0:10]}")
     logger.info(f"The decoder start token is: {config.decoder_start_token}")
     logger.info(f"bos_token token is: {config.bos_token} id: {vocabs['src']([config.bos_token])}")
     logger.info(f"eos_token token is: {config.eos_token} id: {vocabs['src']([config.eos_token])}")
     logger.info(f"pad_token token is: {config.pad_token} id: {vocabs['src']([config.pad_token])}")
     logger.info(f"unk_token token is: {config.unk_token} id: {vocabs['src']([config.unk_token])}")
-    return checkpoint, vocabs, transforms, config
+    return metadata, vocabs, transforms, config
 
 
 def configure_process(config, device_id):
@@ -107,21 +107,19 @@ def configure_process(config, device_id):
     set_random_seed(config.seed, device_id >= 0)
 
 
-def update_config_with_checkpoint(config, checkpoint=None):
-    if checkpoint is not None:
-        defaults = TrainConfig.get_defaults(architecture=checkpoint["config"].model.architecture)
-        checkpoint_non_defaults = recursive_model_fields_set(checkpoint["config"])
+def update_config_with_metadata(config, metadata=None):
+    if metadata is not None:
+        defaults = TrainConfig.get_defaults(architecture=metadata["config"].model.architecture)
+        metadata_non_defaults = recursive_model_fields_set(metadata["config"])
         new_config = recursive_model_fields_set(config)
         # override data explicitly,
         # might change later if we want to finetune with implicit data config
-        checkpoint_non_defaults["data"] = new_config["data"]
-        if new_config.get("tensorboard_log_dir", None) == checkpoint_non_defaults.get(
+        metadata_non_defaults["data"] = new_config["data"]
+        if new_config.get("tensorboard_log_dir", None) == metadata_non_defaults.get(
             "tensorboard_log_dir", None
-        ) and hasattr(checkpoint_non_defaults, "tensorboard_log_dir_dated"):
-            # ensure tensorboard output is written in the directory
-            # of previous checkpoints
-            new_config.tensorboard_log_dir_dated = checkpoint_non_defaults["tensorboard_log_dir_dated"]
-        updated_config = recursive_update_dict(checkpoint_non_defaults, new_config, defaults)
+        ) and hasattr(metadata_non_defaults, "tensorboard_log_dir_dated"):
+            new_config.tensorboard_log_dir_dated = metadata_non_defaults["tensorboard_log_dir_dated"]
+        updated_config = recursive_update_dict(metadata_non_defaults, new_config, defaults)
         config = TrainConfig(**updated_config)
     return config
 
@@ -132,7 +130,7 @@ def main(config, device_id):
 
     configure_process(config, device_id)
     init_logger(config.log_file)
-    checkpoint, vocabs, transforms, config = _init_train(config)
+    metadata, vocabs, transforms, config = _init_train(config)
 
     # Allow only Memory Efficient path for sdpa
     torch.backends.cuda.enable_mem_efficient_sdp(True)
@@ -156,14 +154,12 @@ def main(config, device_id):
             config.transforms_configs.suffix.src_suffix = config.data.get("valid", {}).src_suffix
 
     # Build model.
-    # model = build_model(config, vocabs, checkpoint, device_id)
-    model, _, _ = get_model_class(config.model).from_config(
+    model = get_model_class(config.model).for_training(
         config.model,
         vocabs,
-        checkpoint,
-        device_id,
-        training=True,
-        running_config=config.training,
+        config.training,
+        metadata=metadata,
+        device_id=device_id,
     )
 
     if config.training.torch_compile:
@@ -175,8 +171,8 @@ def main(config, device_id):
     logger.info(" * tgt vocab size = %d" % len(vocabs["tgt"]))
 
     # Build optimizer.
-    optim = Optimizer.from_config(model, config, checkpoint=checkpoint)
-    del checkpoint
+    optim = Optimizer.from_config(model, config, metadata=metadata)
+    del metadata
 
     # Build model saver
     model_saver = build_model_saver(config, model, vocabs, optim, device_id, transforms)

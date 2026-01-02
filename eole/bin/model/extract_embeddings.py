@@ -1,6 +1,6 @@
 import torch
 from eole.models.model import get_model_class
-from eole.models.model_saver import load_checkpoint
+from eole.models.model_saver import get_metadata
 from eole.inputters.inputter import dict_to_vocabs
 
 from eole.utils.logging import logger
@@ -31,7 +31,7 @@ class ExtractEmbeddings(BaseBin):
             torch.cuda.set_device(args.gpu)
 
         # Add in default model arguments, possibly added since training.
-        checkpoint = load_checkpoint(args.model)
+        checkpoint = get_metadata(args.model)
 
         vocabs = dict_to_vocabs(checkpoint["vocab"])
         src_vocab = vocabs["src"]  # assumes src is text
@@ -39,7 +39,7 @@ class ExtractEmbeddings(BaseBin):
 
         model_config = checkpoint["config"].model
 
-        model = get_model_class(model_config).build_base_model(model_config, vocabs, running_config=None)
+        model = get_model_class(model_config).build(model_config, vocabs, running_config=None)
         model.load_safe_state_dict(args.model)
 
         encoder_embeddings = model.src_emb.embeddings.weight.data.tolist()

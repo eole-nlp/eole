@@ -75,7 +75,7 @@ class LMScoring(BaseBin):
         if len(config.gpu_ranks) > 1:
             logger.warning(f"gpu_ranks is {str(config.gpu_ranks)} but only the first one will be used.")
 
-        vocabs, model, model_opt = config.model.model_class.load_test_model(config)
+        vocabs, model, model_opt = config.model.model_class.load_model(config)
         pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
         padding_idx = vocabs["tgt"][pad_token]
         criterion = torch.nn.CrossEntropyLoss(ignore_index=padding_idx, reduction="none")

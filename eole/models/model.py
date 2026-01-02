@@ -3,6 +3,7 @@ import torch.nn as nn
 from glob import glob
 from collections import defaultdict
 import os
+import itertools
 
 from eole.utils.logging import logger
 
@@ -22,7 +23,7 @@ from eole.encoders import str2enc
 from eole.decoders import str2dec
 from eole.constants import DefaultTokens, LayerNormFP32
 from eole.modules.embeddings import Embeddings
-from eole.models.model_saver import load_checkpoint
+from eole.models.model_saver import get_metadata
 from eole.modules.estimator import FeedForward
 
 from eole.encoders.vision import str2adapter
@@ -139,9 +140,183 @@ class BaseModel(nn.Module):
         # TODO we might want to put the share_embeddings assert here (previous model_builder L228)
         raise NotImplementedError
 
+    def _setup_device_and_offset(self, running_config, device_id=None):
+        """Determine device and offset for tensor parallel or single device setup."""
+        if running_config.world_size > 1 and running_config.parallel_mode == "tensor_parallel":
+            device = torch.device("cuda", device_id) if device_id is not None else get_device()
+            offset = device_id if device_id is not None else 0
+        else:
+            if use_gpu(running_config):
+                device_id = running_config.gpu_ranks[0] if len(running_config.gpu_ranks) > 0 else device_id
+                device = get_device(device_id=device_id)
+            else:
+                device = torch.device("cpu")
+            offset = 0
+        return device, offset
+
+    def _apply_freezing(self, running_config):
+        """Apply encoder/decoder freezing based on config."""
+        if running_config.freeze_encoder:
+            self.encoder.requires_grad_(False)
+            if hasattr(self, "adapter"):
+                self.adapter.requires_grad_(False)
+
+        if running_config.freeze_decoder:
+            self.decoder.requires_grad_(False)
+            self.generator.requires_grad_(False)
+
+    def _initialize_weights_and_embeddings(self, running_config):
+        """Initialize model weights and load pretrained embeddings."""
+        self.init_weights(running_config)
+
+        if hasattr(self, "encoder") and hasattr(self.encoder, "embeddings"):
+            self.src_emb.load_pretrained_vectors(running_config.pre_word_vecs_enc)
+        if hasattr(self.decoder, "embeddings"):
+            self.tgt_emb.load_pretrained_vectors(running_config.pre_word_vecs_dec)
+
+    def _prepare_for_inference(self, running_config):
+        """Apply inference-specific transformations."""
+        if running_config.compute_dtype == torch.int8:
+            torch.quantization.quantize_dynamic(self, dtype=torch.qint8, inplace=True)
+
+        self.eval()
+        for name, module in self.named_modules():
+            if hasattr(module, "dropout_p"):
+                module.dropout_p = 0.0
+
+    def _prepare_for_training(self, running_config, vocabs, metadata, device, offset):
+        """Apply training-specific setup."""
+        should_load = metadata is not None
+        should_init = metadata is None or getattr(running_config, "update_vocab", False)
+
+        if should_init:
+            self._initialize_weights_and_embeddings(running_config)
+
+        if should_load:
+            strict = not getattr(running_config, "update_vocab", False)
+            self.load_safe_state_dict(
+                running_config.get_model_path(),
+                running_config=running_config,
+                vocabs=vocabs,
+                metadata=metadata,
+                device=device,
+                offset=offset,
+                strict=strict,
+            )
+        else:
+            self.to(running_config.storage_dtype)
+            self.to(device)
+
+        # Ensure LayerNormFP32 stays in float32
+        for name, module in self.named_modules():
+            if isinstance(module, LayerNormFP32):
+                module.to(torch.float32)
+
+        self._apply_freezing(running_config)
+
+    @classmethod
+    def build(cls, model_config, vocabs, running_config):
+        """Build a complete model with all components."""
+        logger.info("Building model...")
+
+        # Build core blocks
+        model = cls.build_blocks(model_config, vocabs, running_config=running_config)
+        model.share_decoder_embeddings = model_config.share_decoder_embeddings
+
+        # Build generator if needed
+        if model_config.decoder is not None:
+            model.build_generator(model_config, running_config, vocabs)
+        else:
+            model.generator = None
+
+        # Apply quantization and LoRA
+        model.maybe_quantize(running_config)
+        model.maybe_lora(running_config)
+
+        return model
+
+    @classmethod
+    def for_training(cls, model_config, vocabs, running_config, metadata=None, device_id=0):
+        """Create and configure a model for training.
+
+        Args:
+            model_config: Model architecture configuration
+            vocabs: Source and target vocabularies
+            running_config: Training configuration
+            metadata: Optional checkpoint metadata
+            device_id: Device ID for multi-GPU setup
+
+        Returns:
+            Configured model ready for training
+        """
+        # Build model
+        model = cls.build(model_config, vocabs, running_config)
+
+        # Setup device
+        device, offset = model._setup_device_and_offset(running_config, device_id)
+
+        # Prepare for training
+        model._prepare_for_training(running_config, vocabs, metadata, device, offset)
+
+        logger.info(model)
+        return model
+
+    @classmethod
+    def for_inference(cls, running_config, device_id=0, model_path=None):
+        """Create and configure a model for inference.
+
+        Args:
+            running_config: Inference configuration (PredictConfig)
+            device_id: Device ID for inference
+            model_path: Optional path to model checkpoint
+
+        Returns:
+            tuple: (model, vocabs, model_config)
+        """
+        # Load metadata and setup
+        if model_path is None:
+            model_path = running_config.model_path[0]
+
+        metadata = get_metadata(model_path)
+        model_config = metadata["config"].model
+
+        # Merge inference config with checkpoint config
+        update_dict = {"model": model_config}
+        if "quant_type" not in running_config.model_fields_set:
+            update_dict["quant_type"] = metadata["config"].training.quant_type
+        if "quant_layers" not in running_config.model_fields_set:
+            update_dict["quant_layers"] = metadata["config"].training.quant_layers
+        running_config.update(**update_dict)
+
+        # Build vocabs
+        vocabs = dict_to_vocabs(metadata["vocab"])
+
+        # Build model
+        model = cls.build(model_config, vocabs, running_config)
+
+        # Setup device
+        device, offset = model._setup_device_and_offset(running_config, device_id)
+
+        # Load weights
+        logger.info("Loading data into the model")
+        model.load_safe_state_dict(
+            model_path,
+            running_config=running_config,
+            vocabs=vocabs,
+            metadata=metadata,
+            device=device,
+            offset=offset,
+            strict=True,
+        )
+
+        # Apply inference-specific setup
+        model._prepare_for_inference(running_config)
+
+        del metadata
+        return model, vocabs, model_config
+
     def maybe_quantize(self, running_config):
-        # these are not supposed to be "model" opts, but rather "chekpoint" opts
-        # -> at some point we need to retrieve such opts from checkpoint
+        # -> at some point we need to retrieve such opts from metadata
         nonlora_to_quant = [
             layer
             for layer in getattr(running_config, "quant_layers", [])
@@ -236,132 +411,6 @@ class BaseModel(nn.Module):
             )
             mark_only_lora_as_trainable(self, bias="lora_only")
 
-    def load_checkpoint(
-        self,
-        running_config,
-        vocabs,
-        checkpoint,
-        device,
-        offset,
-        model_path=None,
-    ):
-        if model_path is None:
-            model_path = running_config.get_model_path()
-        # when using LoRa or updating the vocab (no more embeddings in ckpt)
-        # => strict=False when loading state_dict
-        strict = not getattr(running_config, "update_vocab", False)
-        self.load_safe_state_dict(
-            model_path,
-            running_config=running_config,
-            vocabs=vocabs,
-            checkpoint=checkpoint,
-            device=device,
-            offset=offset,
-            strict=strict,
-        )
-
-    # probably good to refactor in some way, but working for now
-    def training_logic(self, running_config, vocabs, checkpoint, device_id):
-        if running_config.world_size > 1 and running_config.parallel_mode == "tensor_parallel":
-            device = get_device()
-            offset = device_id
-        else:
-            if use_gpu(running_config):
-                device = get_device()
-            else:
-                device = torch.device("cpu")
-            offset = 0
-
-        if checkpoint is not None:
-            self.load_checkpoint(running_config, vocabs, checkpoint, device, offset)
-        else:
-            self.to(running_config.storage_dtype)
-            self.to(device)
-
-        for name, module in self.named_modules():
-            if isinstance(module, LayerNormFP32):
-                module.to(torch.float32)
-
-        # currently in TrainingConfig which makes more sense
-        if running_config.freeze_encoder:
-            self.encoder.requires_grad_(False)
-            if hasattr(self, "adapter"):
-                self.adapter.requires_grad_(False)
-
-        if running_config.freeze_decoder:
-            self.decoder.requires_grad_(False)
-            self.generator.requires_grad_(False)
-
-    @classmethod
-    def inference_logic(self, checkpoint, running_config, vocabs, device_id=None):
-        model_config = running_config.model  # loaded in PredictConfig validation
-        if running_config.world_size > 1 and running_config.parallel_mode == "tensor_parallel":
-            # same, probably not needed anymore
-            # training_config.world_size = running_config.world_size
-            # training_config.parallel_mode = running_config.parallel_mode
-            # training_config.gpu_ranks = running_config.gpu_ranks
-            device = torch.device("cuda", device_id)
-            offset = device_id
-        else:
-            if use_gpu(running_config):
-                if len(running_config.gpu_ranks) > 0:
-                    device_id = running_config.gpu_ranks[0]
-                device = get_device(device_id=device_id)
-            else:
-                device = torch.device("cpu")
-            offset = 0
-
-        vocabs = dict_to_vocabs(checkpoint["vocab"])
-
-        return (
-            model_config,
-            running_config,
-            vocabs,
-            device,
-            offset,
-        )
-
-    @classmethod
-    def build_base_model(cls, config, vocabs, running_config=None):
-        model = cls.build_blocks(config, vocabs, running_config=running_config)
-        model.maybe_quantize(running_config)
-        model.maybe_lora(running_config)
-        if config.decoder is not None:
-            model.build_generator(config, running_config, vocabs)
-        else:
-            model.generator = None
-        return model
-
-    @classmethod
-    def load_test_model(cls, config, device_id=0, model_path=None):
-        """
-        Moved from legacy model_builder.
-        We can probably refactor better this whole logic at some point.
-        """
-        if model_path is None:
-            model_path = config.model_path[0]
-        checkpoint = load_checkpoint(model_path)
-
-        checkpoint_model_config = checkpoint["config"].model
-        # we actually need to merge inference opts and config here
-        update_dict = {
-            "model": checkpoint_model_config,
-        }
-        # if not set in inference config, override with checkpoint (generalize to more fields?)
-        if "quant_type" not in config.model_fields_set:
-            update_dict["quant_type"] = checkpoint["config"].training.quant_type
-        if "quant_layers" not in config.model_fields_set:
-            update_dict["quant_layers"] = checkpoint["config"].training.quant_layers
-        config.update(**update_dict)
-        vocabs = None
-        # not super clean inheritance anti-pattern,
-        # might be enhanced if checkpoint loading is split from model instanciation
-        model, vocabs, model_config = get_model_class(config.model).from_config(
-            config, vocabs, checkpoint, device_id, running_config=config
-        )
-
-        return vocabs, model, model_config
-
     def init_weights(self, running_config):
         match running_config.param_init_method:
             case "normal":
@@ -382,85 +431,6 @@ class BaseModel(nn.Module):
                             xavier_uniform_(param)
                         elif param_name == "bias":
                             zeros_(param)
-
-    @classmethod
-    def from_config(
-        cls,
-        model_config,  # ModelConfig
-        vocabs,
-        checkpoint,
-        device_id,
-        training=False,
-        running_config=None,  # TrainingConfig / PredictConfig
-    ):
-        # shall we split in two classes InferenceModel/TrainingModel ?
-        # opt = running_config  # patch to make it work, need to diffuse change downstream
-        # patch for inference mode
-        # if hasattr(config, "model"):
-        #     model_opt = config.model
-        # else:
-        #     model_opt = opt
-        # model_opt = config
-        logger.info("Building model...")
-        # moving up in build_model chain, step by step
-        if not training:
-            (
-                model_config,
-                running_config,
-                vocabs,
-                device,
-                offset,
-            ) = cls.inference_logic(checkpoint, running_config, vocabs, device_id)
-        model = cls.build_blocks(
-            model_config, vocabs, running_config=running_config
-        )  # corresponds to build_task_specific_model
-        # TODO: handle this better at some point?
-        model.share_decoder_embeddings = model_config.share_decoder_embeddings
-        # generator -> shall it be called within build_blocks?
-        if model_config.decoder is not None:
-            model.build_generator(model_config, running_config, vocabs)
-        else:
-            model.generator = None
-        # 1 build_base_model
-        # quantization stuff
-        model.maybe_quantize(running_config)  # not sure about this one, as quantize opts are not in model_config
-        # -> it's not a model config we need here but a running config potentially updated with checkpoint stuff # noqa: E501
-        # lora stuff
-        model.maybe_lora(running_config)  # same
-        # 0 build_model # TODO
-        # init params & update vocab stuff
-        # If new training initialize the model params
-        # If update_vocab init also but checkpoint will overwrite old weights
-        if checkpoint is None or getattr(running_config, "update_vocab", False):
-            model.init_weights(running_config)
-
-            if hasattr(model, "encoder") and hasattr(model.encoder, "embeddings"):
-                model.src_emb.load_pretrained_vectors(running_config.pre_word_vecs_enc)
-            if hasattr(model.decoder, "embeddings"):
-                model.tgt_emb.load_pretrained_vectors(running_config.pre_word_vecs_dec)
-
-        if training:
-            model.training_logic(running_config, vocabs, checkpoint, device_id)
-            logger.info(model)
-        else:
-            # actually load state dict here
-            logger.info("Loading data into the model")
-            model.load_checkpoint(
-                running_config,
-                vocabs,
-                checkpoint,
-                device,
-                offset,
-            )
-            if running_config.compute_dtype == torch.int8:
-                torch.quantization.quantize_dynamic(model, dtype=torch.qint8, inplace=True)
-            del checkpoint
-            model.eval()
-            for name, module in model.named_modules():
-                if hasattr(module, "dropout_p"):
-                    module.dropout_p = 0.0
-
-        return model, vocabs, model_config
 
     def forward(self, src, tgt, src_len, with_align=False, **kwargs):
         """Forward propagate a `src` and `tgt` pair for training.
@@ -487,80 +457,197 @@ class BaseModel(nn.Module):
     def update_dropout(self, dropout, attention_dropout):
         raise NotImplementedError
 
-    def _load_param(self, name, module, param_name, param, buf_list, ckpt_t, offset):
-        if module.__class__.__name__ == "WQLinear_GEMM":
-            # ugly patch because in_feat and out_feat are reversed in WQLinear_GEMM
-            param.data = param.data.transpose(0, 1)
-            ckpt_t = ckpt_t.transpose(0, 1)
-        if name.split(".")[-1] in [
+    def _reset_lora_to_fp32(self):
+        """Reset LoRA parameters to FP32 after dtype conversion"""
+        for name, param in self.named_parameters():
+            if "lora" in name:
+                module_name, param_name = name.rsplit(".", 1)
+                module = self.get_submodule(module_name)
+                setattr(module, param_name, nn.Parameter(param.to(torch.float32)))
+
+    def _report_extra_keys(self, keys_shard, keyfound, buf_list):
+        """Report any extra keys found in checkpoint"""
+        for key in keys_shard:
+            if key not in keyfound and key not in buf_list:
+                logger.warning(f"Extra key in checkpoint: {key}")
+
+    def _get_tp_slices(self, param, base_name, offset):
+        """
+        Returns a tuple of size 2 or 4 depending on param
+        """
+        col_start, col_end = 0, param.size(0)
+        if base_name in {
             "linear_keys",
             "linear_values",
             "linear_query",
             "gate_up_proj",
             "up_proj",
-        ]:
-            col_slice_start = param.data.size(0) * offset
-            col_slice_end = param.data.size(0) * (offset + 1)
-        else:
-            col_slice_start = 0
-            col_slice_end = param.data.size(0)
-        if param.data.dim() == 2:
-            if name.split(".")[-1] in ["final_linear", "down_proj"]:
-                row_slice_start = param.data.size(1) * offset
-                row_slice_end = param.data.size(1) * (offset + 1)
-            else:
-                row_slice_start = 0
-                row_slice_end = param.data.size(1)
-            assert (
-                param.data.size()
-                == ckpt_t[
-                    col_slice_start:col_slice_end,
-                    row_slice_start:row_slice_end,
-                ].size()
-            ), (
+        }:
+            col_start = param.size(0) * offset
+            col_end = param.size(0) * (offset + 1)
+        if param.dim() == 2:
+            row_start, row_end = 0, param.size(1)
+            if base_name in {"final_linear", "down_proj"}:
+                row_start = param.size(1) * offset
+                row_end = param.size(1) * (offset + 1)
+            return col_start, col_end, row_start, row_end
+        return col_start, col_end
+
+    def _load_param(self, module_name, module, param_name, param, buf_list, ckpt_t, offset):
+        base_name = module_name.split(".")[-1]
+        is_buffer = f"{module_name}.{param_name}" in buf_list
+        is_wq = module.__class__.__name__ == "WQLinear_GEMM"
+
+        # WQLinear_GEMM fix MUST happen before slicing
+        if is_wq:
+            param.data = param.data.transpose(0, 1)
+            ckpt_t = ckpt_t.transpose(0, 1)
+
+        slices = self._get_tp_slices(param, base_name, offset)
+
+        if param.dim() == 2:
+            col_start, col_end, row_start, row_end = slices
+            sliced = ckpt_t[col_start:col_end, row_start:row_end]
+            assert param.size() == sliced.size(), (
                 "An error in model's partition and checkpoint's slice was detected, "
-                f"[{name}, {module}, {param_name}, {param.data.size()}, {ckpt_t.size()}]"
+                f"[{module_name}, {module}, {param_name}, {param.size()}, {ckpt_t.size()}]"
             )
-            if name + "." + param_name in buf_list:
-                if module.__class__.__name__ == "WQLinear_GEMM":
-                    module.register_buffer(
-                        param_name,
-                        ckpt_t[
-                            col_slice_start:col_slice_end,
-                            row_slice_start:row_slice_end,
-                        ]
-                        .transpose(0, 1)
-                        .contiguous(),
-                    )
+            if is_buffer:
+                if is_wq:
+                    module.register_buffer(param_name, sliced.transpose(0, 1).contiguous())
                 else:
-                    module.register_buffer(
-                        param_name,
-                        ckpt_t[
-                            col_slice_start:col_slice_end,
-                            row_slice_start:row_slice_end,
-                        ].contiguous(),
-                    )
+                    module.register_buffer(param_name, sliced.contiguous())
             else:
-                param.data = ckpt_t[
-                    col_slice_start:col_slice_end,
-                    row_slice_start:row_slice_end,
-                ].contiguous()
+                param.data = sliced.contiguous()
         else:
-            assert param.data.size() == ckpt_t[col_slice_start:col_slice_end].size(), (
+            col_start, col_end = slices
+            sliced = ckpt_t[col_start:col_end]
+            assert param.size() == sliced.size(), (
                 "An error in model's partition and checkpoint's slice was detected, "
-                f"[{name}, {module}, {param_name}, {param.data.size()}, {ckpt_t.size()}]"
+                f"[{module_name}, {module}, {param_name}, {param.size()}, {ckpt_t.size()}]"
             )
-            if name + "." + param_name in buf_list:
-                module.register_buffer(param_name, ckpt_t[col_slice_start:col_slice_end].contiguous())
+            if is_buffer:
+                module.register_buffer(param_name, sliced.contiguous())
             else:
-                param.data = ckpt_t[col_slice_start:col_slice_end].contiguous()
+                param.data = sliced.contiguous()
+
+    def _try_load_parameter(
+        self, module_name, module, param_name, param, f, keys_shard, updated_params, buf_list, keyfound, offset
+    ):
+        """Try to load a parameter from updated_params or keys_shard."""
+        # in the case of "adapter.new_line" adapter is not a module hence module_name is ""
+        full_name = f"{module_name}.{param_name}" if module_name else f"{param_name}"
+        ckpt_t = updated_params.get(full_name)
+        if ckpt_t is None and full_name in keys_shard:
+            ckpt_t = f[keys_shard[full_name]].get_tensor(full_name)
+        if ckpt_t is None:
+            return False
+        self._load_param(module_name, module, param_name, param, buf_list, ckpt_t, offset)
+        keyfound[full_name] = True
+        return True
+
+    def _maybe_warn_missing_parameter(self, module_name, param_name, module, buffers_list):
+        """Conditionally warn about a missing parameter with helpful context."""
+        full_name = f"{module_name}.{param_name}"
+        skip_patterns = ["lora", "slopes", "rope"]
+        if any(p in full_name or p in param_name for p in skip_patterns):
+            return
+        logger.info(f"Missing key in safetensors checkpoint: {full_name}")
+        if buffers_list and param_name in [n for n, _ in module.named_buffers()]:
+            logger.info("└─> Found in buffers, probably ok")
+        if full_name in ("generator.weight", "generator.bias") and self.share_decoder_embeddings:
+            logger.info("└─> Sharing from embeddings matrix since " "`share_decoder_embeddings` flag is enabled.")
+            self.generator.weight = self.tgt_emb.embeddings.weight
+
+    def _load_module_parameters(
+        self, module_name, module, f, keys_shard, updated_params, buf_list, keyfound, offset, strict
+    ):
+        """Load all parameters for a single module"""
+        buffers_list = list(module.named_buffers(recurse=False))
+        for param_name, param in itertools.chain(
+            module.named_buffers(recurse=False), module.named_parameters(recurse=False)
+        ):
+            loaded = self._try_load_parameter(
+                module_name, module, param_name, param, f, keys_shard, updated_params, buf_list, keyfound, offset
+            )
+            if not loaded and strict:
+                self._maybe_warn_missing_parameter(module_name, param_name, module, buffers_list)
+
+    def _load_parameters_by_module(
+        self, f, keys_shard, updated_params, buf_list, device, dtype, offset, strict, running_config
+    ):
+        """Load parameters module by module, moving to device as we go"""
+        keyfound = {}
+        # Load leaf modules
+        for module_name, module in self.named_modules():
+            has_children = any(module.children())
+            has_own_params = next(module.parameters(recurse=False), None) is not None
+            if not has_children or has_own_params:
+                self._load_module_parameters(
+                    module_name, module, f, keys_shard, updated_params, buf_list, keyfound, offset, strict
+                )
+                module.to(device=device, dtype=dtype)
+                if getattr(running_config, "compute_dtype", None) == torch.int8:
+                    torch.quantization.quantize_dynamic(module, inplace=True)
+        return keyfound
+
+    def _handle_vocab_updates(self, running_config, vocabs, metadata, f, keys_shard):
+        """Handle vocabulary updates when update_vocab flag is set"""
+        updated_params = {}
+        if not getattr(running_config, "update_vocab", False):
+            return updated_params
+        updated_params["generator.weight"] = self.generator.state_dict()["weight"]
+        updated_params["generator.bias"] = self.generator.state_dict()["bias"]
+        # Update embeddings for src and tgt
+        emb_names = {"src": "src_emb.embeddings.weight", "tgt": "tgt_emb.embeddings.weight"}
+        metadata_vocabs = dict_to_vocabs(metadata["vocab"])
+        for side, emb_name in emb_names.items():
+            if emb_name not in keys_shard:
+                continue
+            # Initialize embedding tensor
+            updated_params[emb_name] = self.state_dict()[emb_name]
+            new_tokens = []
+            checkpoint_emb = f[keys_shard[emb_name]].get_tensor(emb_name)
+            # Copy embeddings for existing tokens
+            for i, tok in enumerate(vocabs[side].ids_to_tokens):
+                if tok in metadata_vocabs[side]:
+                    old_i = metadata_vocabs[side].lookup_token(tok)
+                    updated_params[emb_name][i] = checkpoint_emb[old_i]
+                    # Update generator for target side
+                    if side == "tgt":
+                        generator_weight = f[keys_shard["generator.weight"]].get_tensor("generator.weight")
+                        updated_params["generator.weight"][i] = generator_weight[old_i]
+                        generator_bias = f[keys_shard["generator.bias"]].get_tensor("generator.bias")
+                        updated_params["generator.bias"][i] = generator_bias[old_i]
+                else:
+                    new_tokens.append(tok)
+            logger.info(f"{side}: {len(new_tokens)} new tokens")
+        return updated_params
+
+    def _load_safetensors_shards(self, model_path):
+        """Load all safetensors shards and build key->shard mapping"""
+        try:
+            import safetensors
+        except ImportError:
+            raise ImportError("run: pip install safetensors, to use safetensors")
+
+        shards = glob(os.path.join(model_path, "model.*.safetensors"))
+        if len(shards) == 0:
+            raise ValueError("No safetensors file found")
+        f = []
+        keys_shard = {}
+        for i, shard in enumerate(shards):
+            f.append(safetensors.safe_open(shard, framework="pt", device="cpu"))
+            for key in f[i].keys():
+                keys_shard[key] = i
+        return f, keys_shard
 
     def load_safe_state_dict(
         self,
         model_path,
         running_config=None,
         vocabs=None,
-        checkpoint=None,
+        metadata=None,
         device=torch.device("cpu"),
         offset=0,
         strict=False,
@@ -571,7 +658,7 @@ class BaseModel(nn.Module):
             model_path: Model path
             running_config: RunningConfig (either training or predict)
             vocabs: src/tgt vocabs
-            checkpoint: config/vocabs loaded from checkpoint
+            metadata: config/vocabs
             device: device to move parameters to
             offset: for tensor_parallel
             strict: stric loading of all parameters
@@ -579,103 +666,17 @@ class BaseModel(nn.Module):
         # bitsandbytes quantize weights when .cuda() is called
         # for huge models we need to save Ram
         # so we load the weights  module by module and transfer them to GPU for quantization
-        try:
-            import safetensors
-        except ImportError:
-            raise ImportError("run: pip install safetensors, to use safetensors")
-        enc_emb_name = "src_emb.embeddings.weight"
-        dec_emb_name = "tgt_emb.embeddings.weight"
-        keyfound = {}
-        shards = glob(os.path.join(model_path, "model.*.safetensors"))
-        if len(shards) == 0:
-            raise ValueError("No safetensors file found")
-        f = []
-        keys_shard = {}
-        for i, shard in enumerate(shards):
-            f.append(safetensors.safe_open(shard, framework="pt", device="cpu"))
-            for key in f[i].keys():
-                keys_shard[key] = i
+        dtype = getattr(running_config, "storage_dtype", torch.float32)
+        f, keys_shard = self._load_safetensors_shards(model_path)
         if device == torch.device("cpu"):
             offset = 0
-        buf_list = []
-        for buf_name, buf in self.named_buffers():
-            buf_list.append(buf_name)
-        # special handling for update_vocab
-        updated_params = {}
-        if getattr(running_config, "update_vocab", False):
-            updated_params["generator.weight"] = self.generator.state_dict()["weight"]
-            updated_params["generator.bias"] = self.generator.state_dict()["bias"]
-            for side, emb_name in [("src", enc_emb_name), ("tgt", dec_emb_name)]:
-                if emb_name not in keys_shard.keys():
-                    continue
-                else:
-                    # initialize
-                    updated_params[emb_name] = self.state_dict()[emb_name]
-                new_tokens = []
-                checkpoint_vocabs = dict_to_vocabs(checkpoint["vocab"])
-                for i, tok in enumerate(vocabs[side].ids_to_tokens):
-                    if tok in checkpoint_vocabs[side]:
-                        old_i = checkpoint_vocabs[side].lookup_token(tok)
-                        checkpoint_emb = f[keys_shard[emb_name]].get_tensor(emb_name)
-                        updated_params[emb_name][i] = checkpoint_emb[old_i]
-                        if side == "tgt":
-                            generator_weight = f[keys_shard["generator.weight"]].get_tensor("generator.weight")
-                            updated_params["generator.weight"][i] = generator_weight[old_i]
-                            generator_bias = f[keys_shard["generator.bias"]].get_tensor("generator.bias")
-                            updated_params["generator.bias"][i] = generator_bias[old_i]
-                    else:
-                        new_tokens.append(tok)
-                logger.info("%s: %d new tokens" % (side, len(new_tokens)))
-
-        for name, module in self.named_modules():
-            if len(name) == 0:
-                prefix = ""
-            else:
-                prefix = name + "."
-            buffers_list = list(module.named_buffers())
-            named_buf_and_param = buffers_list + list(module.named_parameters())
-            for param_name, param in named_buf_and_param:
-                # special handling for update vocab related stuff
-                # if param_name in [enc_emb_name, dec_emb_name, ]
-                if len(param_name.split(".")) == 1:  # only last key
-                    if prefix + param_name in updated_params.keys():
-                        ckpt_t = updated_params[prefix + param_name]
-                        self._load_param(name, module, param_name, param, buf_list, ckpt_t, offset)
-                        keyfound[prefix + param_name] = True
-                    elif prefix + param_name in keys_shard.keys():
-                        ckpt_t = f[keys_shard[prefix + param_name]].get_tensor(prefix + param_name)
-                        self._load_param(name, module, param_name, param, buf_list, ckpt_t, offset)
-                        keyfound[prefix + param_name] = True
-                    elif strict and ("lora" not in param_name and "slopes" not in param_name and "rope" not in name):
-                        # Let's warn instead of just passing
-                        logger.info("Missing key in safetensors checkpoint: %s" % (prefix + param_name))
-                        if len(buffers_list) > 0 and param_name in list(zip(*module.named_buffers()))[0]:
-                            logger.info("└─> Found in buffers, probably ok")
-                        if (
-                            f"{name}.{param_name}" in ["generator.weight", "generator.bias"]
-                            and self.share_decoder_embeddings
-                        ):
-                            logger.info(
-                                "└─> Sharing from embeddings matrix since "
-                                "`share_decoder_embeddings` flag is enabled."
-                            )
-                            self.generator.weight = self.tgt_emb.embeddings.weight  # Lora breaks the link
-                    if getattr(running_config, "compute_dtype", None) == torch.int8:
-                        torch.quantization.quantize_dynamic(module, inplace=True)
-                    else:
-                        module.to(getattr(running_config, "storage_dtype", torch.float32))
-                    param.to(device)  # cannot set full module on device because bnb will quantize
-        self.to(device)
-        for key in keys_shard.keys():
-            if key not in keyfound.keys() and key not in buf_list:
-                logger.warning("extra key in checkpoint %s" % key)
-        # We need to reset lora param to FP32 since the module.to() above converted everything
-        for name, param in self.named_parameters():
-            if "lora" in name:
-                # Split module name and parameter name
-                module_name, param_name = name.rsplit(".", 1)
-                module = self.get_submodule(module_name)  # Get the actual module
-                setattr(module, param_name, nn.Parameter(param.to(torch.float32)))  # Replace parameter
+        buf_list = [name for name, _ in self.named_buffers()]
+        updated_params = self._handle_vocab_updates(running_config, vocabs, metadata, f, keys_shard)
+        keyfound = self._load_parameters_by_module(
+            f, keys_shard, updated_params, buf_list, device, dtype, offset, strict, running_config
+        )
+        self._report_extra_keys(keys_shard, keyfound, buf_list)
+        self._reset_lora_to_fp32()
 
     def count_parameters(self, log=print):
         """Count number of parameters in model (& print with `log` callback).

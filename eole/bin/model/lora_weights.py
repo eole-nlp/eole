@@ -1,6 +1,6 @@
 import torch
 from eole.utils.logging import init_logger, logger
-from eole.models.model_saver import load_checkpoint
+from eole.models.model_saver import get_metadata
 from eole.inputters.inputter import dict_to_vocabs, vocabs_to_dict
 from eole.config import recursive_model_fields_set
 from safetensors import safe_open
@@ -51,8 +51,8 @@ class LoraWeights(BaseBin):
         with open(config_path) as f:
             config = json.load(f)
             inference_config = config.get("inference", None)
-        # base_checkpoint = load_checkpoint(args.base_model)
-        lora_checkpoint = load_checkpoint(args.lora_weights)
+        # base_checkpoint = get_metadata(args.base_model)
+        lora_checkpoint = get_metadata(args.lora_weights)
         vocabs = dict_to_vocabs(lora_checkpoint["vocab"])
         config = lora_checkpoint["config"]
         running_config = config.training

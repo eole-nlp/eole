@@ -296,14 +296,14 @@ class Optimizer(object):
         self._scaler = None
 
     @classmethod
-    def from_config(cls, model, config, checkpoint=None):
+    def from_config(cls, model, config, metadata=None):
         """Builds the optimizer from options.
 
         Args:
           cls: The ``Optimizer`` class to instantiate.
           model: The model to optimize.
-          opt: The dict of user options.
-          checkpoint: An optional checkpoint to load states from.
+          config: The dict of user options.
+          metadata: An optional checkpoint metadata to load states from.
 
         Returns:
           An ``Optimizer`` instance.
@@ -312,9 +312,9 @@ class Optimizer(object):
         running_config = config.training
         optim_state_dict = None
 
-        if running_config.train_from and checkpoint is not None and "optim" in checkpoint.keys():
-            optim = checkpoint["optim"]
-            ckpt_config = checkpoint["config"].training
+        if running_config.train_from and metadata is not None and "optim" in metadata.keys():
+            optim = metadata["optim"]
+            ckpt_config = metadata["config"].training
             ckpt_state_dict = {}
             if isinstance(optim, Optimizer):  # Backward compatibility.
                 ckpt_state_dict["training_step"] = optim._step + 1
@@ -325,7 +325,7 @@ class Optimizer(object):
 
             # we might be able to simplify this with the new general config update
             if running_config.reset_optim == "none":
-                # Load everything from the checkpoint.
+                # Load everything from the metadata.
                 running_config = ckpt_config
                 optim_state_dict = ckpt_state_dict
             elif running_config.reset_optim == "all":

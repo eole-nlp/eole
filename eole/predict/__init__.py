@@ -5,8 +5,8 @@ from eole.predict.generator import GeneratorLM
 from eole.predict.encoder import Encoder
 
 from eole.predict.beam_search import GNMTGlobalScorer
-from eole.decoders.ensemble import load_test_model as ensemble_load_test_model
-from eole.models.model import BaseModel
+from eole.decoders.ensemble import EnsembleModel
+from eole.models.model import get_model_class
 
 
 def get_infer_class(model_config):
@@ -24,9 +24,14 @@ def get_infer_class(model_config):
 def build_predictor(config, device_id=0, report_score=True, logger=None):
     # right now config is a full (non nested) PredictConfig
 
-    load_test_model = ensemble_load_test_model if len(config.model_path) > 1 else BaseModel.load_test_model
+    if len(config.model_path) > 1:
+        # Ensemble case
+        model, vocabs, model_config = EnsembleModel.for_inference(config, device_id)
+    else:
+        # Single model case
+        model_class = get_model_class(config.model)
+        model, vocabs, model_config = model_class.for_inference(config, device_id)
 
-    vocabs, model, model_config = load_test_model(config, device_id)
     config.update(model=model_config)
 
     scorer = GNMTGlobalScorer.from_config(config)
