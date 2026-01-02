@@ -216,8 +216,7 @@ class BaseModel(nn.Module):
 
     @classmethod
     def build(cls, model_config, vocabs, running_config):
-        """Build a complete model with all components.
-        """
+        """Build a complete model with all components."""
         logger.info("Building model...")
 
         # Build core blocks
@@ -474,7 +473,7 @@ class BaseModel(nn.Module):
 
     def _get_tp_slices(self, param, base_name, offset):
         """
-            Returns a tuple of size 2 or 4 depending on param
+        Returns a tuple of size 2 or 4 depending on param
         """
         col_start, col_end = 0, param.size(0)
         if base_name in {

@@ -7,7 +7,7 @@ from eole.inputters.text_corpus import get_corpora, build_corpora_iters
 from eole.inputters.text_utils import (
     text_sort_key,
     transform_bucket,
-    numericalize,
+    Numericalizer,
     tensorify,
 )
 from eole.config.data import Dataset
@@ -284,9 +284,10 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
     def _tuple_to_json_with_tokIDs(self, tuple_bucket):
         bucket = []
         tuple_bucket = transform_bucket(self.task, tuple_bucket, self.score_threshold)
+        numericalizer = Numericalizer(self.vocabs, model_type=self.model_type, task=self.task)
         for example in tuple_bucket:
             if example is not None:
-                bucket.append(numericalize(self.vocabs, example, model_type=self.model_type, task=self.task))
+                bucket.append(numericalizer(example))
 
         return bucket
 

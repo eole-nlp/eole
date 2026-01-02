@@ -1,4 +1,6 @@
 import torch
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 # import torch.nn.functional as F
 # import math
@@ -64,110 +66,193 @@ def transform_bucket(task, bucket, threshold=0):
         return None
 
 
-def numericalize(vocabs, example, model_type=ModelType.ENCODER_DECODER, task=CorpusTask.INFER):
-    """
-    ENCODER_DECODER
-    Case NMT: most of the time <decoder_start_token> = <bos>
-    Training is like
-    src: stok1 stok2 stok3
-    tgt: <decoder_start_token> ttok1 ttok2 ttok3 ttok4 ttok5 <eos>
-    Inference
-    src: stok1 stok2 stok3
-    if tgt is None then <decoder_start_token> is set to start generation/translation
-    if tgt is not None (check tgt_prefix / tgt_file_prefix)
+@dataclass
+class TokenIds:
+    """Helper class to manage special token IDs"""
 
-    DECODER
-    most of the time <decoder_start_token> = <bos>, but sometimes it's empty or <eos>
-    Training is like
-    src: <decoder_start_token> stok1 stok2 stok3
-    if <decoder_start_token> is not ""
-        tgt: stok1 stok2 stok3 <eos>
-    else
-        tgt: stok2 stok3 <eos>
+    decoder_start: Optional[int]
+    eos: Optional[int]
+    bos: Optional[int]
 
-    """
-    decoder_start_token = vocabs["decoder_start_token"]
-    eos_token = vocabs["specials"].get("eos_token", "")
-    eos_token_id = vocabs["tgt"].tokens_to_ids[eos_token] if eos_token != "" else None
+    @classmethod
+    def from_vocabs(cls, vocabs: Dict, model_type=ModelType.ENCODER_DECODER) -> "TokenIds":
+        """Extract token IDs from vocabulary"""
+        decoder_start_token = vocabs["decoder_start_token"]
+        eos_token = vocabs["specials"].get("eos_token", "")
+        bos_token = vocabs["specials"].get("bos_token", "")
 
-    HF_tok = example.get("src_ids", None) is not None  # src already tokenized by HF
-    numeric = example
+        side = "tgt" if model_type == ModelType.ENCODER_DECODER else "src"
+        return cls(
+            decoder_start=vocabs[side].tokens_to_ids.get(decoder_start_token) if decoder_start_token else None,
+            eos=vocabs["src"].tokens_to_ids.get(eos_token) if eos_token else None,
+            bos=vocabs["src"].tokens_to_ids.get(bos_token) if bos_token else None,
+        )
 
-    # In the case transform `tokenizer_id` is used ie hugging_face tokenizer
-    # fields `src_ids` and potentially `tgt_ids` are already filled
-    if not HF_tok:
+
+class Numericalizer:
+    """Handles conversion of text tokens to numeric IDs for different model architectures"""
+
+    def __init__(self, vocabs, model_type=ModelType.ENCODER_DECODER, task=CorpusTask.INFER):
+        self.vocabs = vocabs
+        self.token_ids = TokenIds.from_vocabs(vocabs, model_type)
+        self.is_hf_tokenized = False
+        self.model_type = model_type
+        self.task = task
+        if self.model_type == ModelType.ENCODER_DECODER:
+            self._handle = self._handle_encoder_decoder
+        elif self.model_type == ModelType.DECODER:
+            self._handle = self._handle_decoder
+        elif self.model_type == ModelType.ENCODER:
+            self._handle = self._handle_encoder
+        else:
+            raise ValueError(f"Unknown model_type: {model_type}")
+
+    def __call__(self, example: Dict) -> Dict:
+        """
+        Numericalize the (src / tgt) to (src_ids / tgt_ids)
+        """
+        self.is_hf_tokenized = "src_ids" in example
+
+        example["src"]["src_ids"] = self._get_src_ids(example)
+
+        example = self._handle(example)
+
+        return example
+
+    def _get_src_ids(self, example: Dict) -> List[int]:
+        """Extract or generate source token IDs"""
+        if self.is_hf_tokenized:
+            return example["src_ids"]
         src_text = example["src"]["src"].split(" ")
-        numeric["src"]["src_ids"] = vocabs["src"](src_text)
-        if example.get("tgt", None) is not None:
-            tgt_text = example["tgt"]["tgt"].split(" ")
-            numeric["tgt"]["tgt_ids"] = vocabs["tgt"](tgt_text)
-    else:
-        numeric["src"]["src_ids"] = example.pop("src_ids", [])
-        if example.get("tgt", None) is not None:
-            numeric["tgt"]["tgt_ids"] = example.pop("tgt_ids", [])
+        return self.vocabs["src"](src_text)
 
-    if model_type == ModelType.ENCODER_DECODER:
-        if example.get("tgt", None) is None:
-            if task in [CorpusTask.TRAIN, CorpusTask.VALID]:
-                # no target when training or valid
-                # must be a LM we need to copy src shifted by 1
-                numeric["tgt"] = {}
-                numeric["tgt"]["tgt_ids"] = numeric["src"]["src_ids"][1:] + [eos_token_id]
+    def _get_tgt_ids(self, example: Dict) -> List[int]:
+        """Extract or generate target token IDs"""
+        if self.is_hf_tokenized:
+            return example["tgt_ids"]
+
+        tgt_text = example["tgt"]["tgt"].split(" ")
+        return self.vocabs["tgt"](tgt_text)
+
+    def _add_decoder_start_token(self, ids: List[int]) -> List[int]:
+        """Prepend decoder start token if needed"""
+        if self.token_ids.decoder_start is None:
+            return ids
+        if ids and ids[0] == self.token_ids.decoder_start:
+            return ids
+        return [self.token_ids.decoder_start] + ids
+
+    def _add_eos_token(self, ids: List[int]) -> List[int]:
+        """Append EOS token if needed"""
+        if self.token_ids.eos is None:
+            return ids
+        if ids and ids[-1] == self.token_ids.eos:
+            return ids
+        return ids + [self.token_ids.eos]
+
+    def _create_lm_target(self, src_ids: List[int]) -> List[int]:
+        """Create language model target by shifting source"""
+        shifted = src_ids[1:]
+        return self._add_eos_token(shifted)
+
+    def _handle_encoder_decoder(self, example: Dict) -> Dict:
+        """
+        Handle encoder-decoder models (e.g., standard NMT).
+
+        Training format:
+            src: stok1 stok2 stok3
+            tgt: <decoder_start> ttok1 ttok2 ttok3 <eos>
+        """
+        has_target = example.get("tgt") is not None
+
+        if not has_target:
+            if self.task in [CorpusTask.TRAIN, CorpusTask.VALID]:
+                # Language model: use shifted source as target
+                example["tgt"] = {"tgt_ids": self._create_lm_target(example["src"]["src_ids"])}
+            # else: inference with no target - leave tgt as None
         else:
-            # tgt not None,  NMT or prefixLM training or inference
-            decoder_start_token_id = (
-                vocabs["tgt"].tokens_to_ids[decoder_start_token] if decoder_start_token != "" else None
-            )
-            if decoder_start_token_id is not None and numeric["tgt"]["tgt_ids"][0] != decoder_start_token_id:
-                numeric["tgt"]["tgt_ids"] = [decoder_start_token_id] + numeric["tgt"]["tgt_ids"]
-            if eos_token_id is not None and numeric["tgt"]["tgt_ids"][-1] != eos_token_id:
-                # last token (eos) is removed at inference
-                numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"] + [eos_token_id]
+            # NMT or prefix LM with explicit target
+            tgt_ids = self._get_tgt_ids(example)
+            tgt_ids = self._add_decoder_start_token(tgt_ids)
+            tgt_ids = self._add_eos_token(tgt_ids)
+            example["tgt"] = {"tgt_ids": tgt_ids}
 
-    elif model_type == ModelType.DECODER:
-        decoder_start_token_id = vocabs["src"].tokens_to_ids[decoder_start_token] if decoder_start_token != "" else None
-        if decoder_start_token_id is not None and numeric["src"]["src_ids"][0] != decoder_start_token_id:
-            numeric["src"]["src_ids"] = [decoder_start_token_id] + numeric["src"]["src_ids"]
-        numeric["src"]["prefix_len"] = len(numeric["src"]["src_ids"])
-        if example.get("tgt", None) is None:
-            if task in [CorpusTask.TRAIN, CorpusTask.VALID]:
-                # no target when training or valid
-                # must be a LM we need to copy src shifted by 1
-                numeric["tgt"] = {}
-                numeric["tgt"]["tgt_ids"] = numeric["src"]["src_ids"][1:] + [eos_token_id]
+        return example
+
+    def _handle_decoder(self, example: Dict) -> Dict:
+        """
+        Handle decoder-only models (e.g., GPT-style).
+
+        Training format:
+            src: <decoder_start> stok1 stok2 stok3
+            tgt: stok1 stok2 stok3 <eos>
+        """
+        # Add decoder start token to source
+        example["src"]["src_ids"] = self._add_decoder_start_token(example["src"]["src_ids"])
+        example["src"]["prefix_len"] = len(example["src"]["src_ids"])
+
+        has_target = example.get("tgt") is not None
+
+        if not has_target:
+            if self.task in [CorpusTask.TRAIN, CorpusTask.VALID]:
+                # Language model: use shifted source as target
+                example["tgt"] = {"tgt_ids": self._create_lm_target(example["src"]["src_ids"])}
+            # else: inference with no target - leave tgt as None
         else:
-            # path_tgt given, prompt from path_src and answer from path_tgt
-            # we concat both, add eos if any on tgt side and remove bos if any.
-            if eos_token_id is not None and numeric["tgt"]["tgt_ids"][-1] != eos_token_id:
-                numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"] + [eos_token_id]
-            numeric["src"]["src_ids"] = numeric["src"]["src_ids"] + numeric["tgt"]["tgt_ids"]
-            numeric["tgt"]["tgt_ids"] = numeric["src"]["src_ids"]
-            numeric["src"]["src_ids"] = numeric["src"]["src_ids"][:-1]
-            numeric["tgt"]["tgt_ids"] = numeric["tgt"]["tgt_ids"][1:]
+            # Prompt-response format: concatenate prompt and answer
+            tgt_ids = self._get_tgt_ids(example)
+            tgt_ids = self._add_eos_token(tgt_ids)
 
-    # TODO: support id tokenization
-    elif model_type == ModelType.ENCODER:
-        src_text = example["src"]["src"].split(" ")
-        if example["tgt"] is not None:  # TO BE DISCUSSED
-            tgt_text = example["tgt"]["tgt"].split(" ")
-            txt = (
-                [vocabs["specials"].get("bos_token", "")]
-                + tgt_text
-                + [vocabs["specials"].get("eos_token", "")]
-                + [vocabs["specials"].get("eos_token", "")]
-                + src_text
-                + [vocabs["specials"].get("eos_token", "")]
-            )
-            numeric["src"]["src_ids"] = vocabs["src"](txt)
-            numeric["tgt"]["tgt_ids"] = vocabs["src"](txt)
+            # Concatenate prompt (src) and response (tgt)
+            full_sequence = example["src"]["src_ids"] + tgt_ids
+
+            # For decoder-only: input is full_seq[:-1], target is full_seq[1:]
+            example["src"]["src_ids"] = full_sequence[:-1]
+            example["tgt"] = {"tgt_ids": full_sequence[1:]}
+
+        return example
+
+    def _add_bos_token(self, ids: List[int]) -> List[int]:
+        """Prepend BOS token if needed"""
+        if self.token_ids.bos is None:
+            return ids
+        if ids and ids[0] == self.token_ids.bos:
+            return ids
+        return [self.token_ids.bos] + ids
+
+    def _handle_encoder(self, example: Dict) -> Dict:
+        """
+        Handle encoder-only models (e.g., BERT-style).
+
+        Format: <bos> [tgt <eos> <eos>] src <eos>
+        Where tgt section is optional.
+          if there, then COMET format for training comet-like encoder
+          if not, regular encoder training
+        """
+        has_target = example.get("tgt") is not None
+
+        if has_target:
+            # Get tokenized target
+            tgt_ids = self._get_tgt_ids(example)
+            # Add double EOS after target
+            tgt_ids = self._add_eos_token(tgt_ids)
+            tgt_ids = tgt_ids + [self.token_ids.eos] if self.token_ids.eos is not None else tgt_ids
+
+            # Concatenate: tgt + src
+            combined_ids = tgt_ids + example["src"]["src_ids"]
+
+            # Add BOS at start and EOS at end
+            combined_ids = self._add_bos_token(combined_ids)
+            combined_ids = self._add_eos_token(combined_ids)
+
+            example["src"]["src_ids"] = combined_ids
+            example["tgt"]["tgt_ids"] = combined_ids[:]
         else:
-            txt = [vocabs["specials"].get("bos_token", "")] + src_text + [vocabs["specials"].get("eos_token", "")]
-            numeric["src"]["src_ids"] = vocabs["src"](txt)
+            # Just source: <bos> src <eos>
+            example["src"]["src_ids"] = self._add_bos_token(example["src"]["src_ids"])
+            example["src"]["src_ids"] = self._add_eos_token(example["src"]["src_ids"])
 
-    else:
-        raise ValueError(f"Something went wrong with model_type {model_type}")
-
-    return numeric
+        return example
 
 
 def parse_align_idx(align_pharaoh):

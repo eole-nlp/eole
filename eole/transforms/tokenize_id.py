@@ -54,7 +54,7 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
         if self.huggingface_model is not None:
             from transformers import AutoTokenizer
 
-            self.tokenizer = AutoTokenizer.from_pretrained(self.huggingface_model, legacy=False)
+            self.tokenizer = AutoTokenizer.from_pretrained(self.huggingface_model, use_fast=True)  # legacy=False)
             # TODO: this needs to be tested and adapted for various models
             logger.info(f"Initialized tokenizers from HF model: {self.huggingface_model}")
         elif self.path is not None:
