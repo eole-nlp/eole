@@ -177,6 +177,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         self.image_patch_size = image_patch_size
         self.image_size = image_size
         self.adapter = adapter
+        self.numericalizer = Numericalizer(self.vocabs, model_type=self.model_type, task=self.task)
 
     @classmethod
     def from_config(
@@ -281,122 +282,156 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             self.mixer = SequentialMixer(datasets_iterables, datasets_weights)
         self.init_iterators = True
 
-    def _tuple_to_json_with_tokIDs(self, tuple_bucket):
-        bucket = []
-        tuple_bucket = transform_bucket(self.task, tuple_bucket, self.score_threshold)
-        numericalizer = Numericalizer(self.vocabs, model_type=self.model_type, task=self.task)
-        for example in tuple_bucket:
-            if example is not None:
-                bucket.append(numericalizer(example))
+    def _numericalize_bucket(self, tuple_bucket):
+        """
+        Transform and numericalize a bucket of examples.
 
-        return bucket
+        Args:
+            tuple_bucket: Raw examples from corpus
 
-    def _add_indice(self, bucket):
-        indice = 0
-        indexed_bucket = []
-        for ex in bucket:
-            indexed_bucket.append((ex, indice))
-            indice += 1
-        return indexed_bucket
+        Returns:
+            List of numericalized examples
+        """
+        transformed_bucket = transform_bucket(self.task, tuple_bucket, self.score_threshold)
+
+        # Maybe we could put numericalization in the tokenize transform but we still need to handle special tokens
+        return [self.numericalizer(example) for example in transformed_bucket if example is not None]
 
     def _bucketing(self):
         """
-        Add up to bucket_size examples from the mixed corpora according
-        to the above strategy. example tuple is converted to json and
-        tokens numericalized.
+        Accumulate examples into buckets, numericalize, and yield with indices.
+
+        Yields:
+            Tuple of (bucket, bucket_idx) where bucket is list of numericalized examples
         """
         bucket = []
-        if self.bucket_size_init > 0:
-            _bucket_size = self.bucket_size_init
-        else:
-            _bucket_size = self.bucket_size
+        current_bucket_size = self.bucket_size_init if self.bucket_size_init > 0 else self.bucket_size
 
-        for ex in self.mixer:
-            bucket.append(ex)
-            if len(bucket) == _bucket_size:
-                yield (self._tuple_to_json_with_tokIDs(bucket), self.bucket_idx)
+        for example in self.mixer:
+            bucket.append(example)
+
+            if len(bucket) == current_bucket_size:
+                yield (self._numericalize_bucket(bucket), self.bucket_idx)
                 self.bucket_idx += 1
                 bucket = []
-                if _bucket_size < self.bucket_size:
-                    _bucket_size += self.bucket_size_increment
-                else:
-                    _bucket_size = self.bucket_size
+
+                # Increment bucket size if needed
+                if current_bucket_size < self.bucket_size:
+                    current_bucket_size = min(current_bucket_size + self.bucket_size_increment, self.bucket_size)
+
+        # Yield remaining examples
         if bucket:
-            yield (self._tuple_to_json_with_tokIDs(bucket), self.bucket_idx)
+            yield (self._numericalize_bucket(bucket), self.bucket_idx)
+
+    def _calculate_batch_size(self, num_sents, max_len):
+        """Calculate batch size based on batch_type."""
+        if self.batch_type == "sents":
+            return num_sents
+        elif self.batch_type == "tokens":
+            return num_sents * max_len
+        else:
+            raise ValueError(f"Invalid batch_type={self.batch_type}")
+
+    def _get_max_length(self, example):
+        """Get maximum sequence length between src and tgt."""
+        if example.get("tgt") is not None:
+            return max(len(example["src"]["src_ids"]), len(example["tgt"]["tgt_ids"]))
+        return len(example["src"]["src_ids"])
+
+    def _should_deduplicate(self, src_text, seen):
+        """Check if example should be included based on deduplication logic."""
+        if self.task == CorpusTask.TRAIN:
+            if src_text in seen:
+                return False
+            seen.add(src_text)
+        return True
 
     def batch_iter(self, data, batch_size, batch_type="sents", batch_size_multiple=1):
-        """Yield elements from data in chunks of batch_size,
-        where each chunk size is a multiple of batch_size_multiple.
         """
+        Yield batches from data, with each batch size a multiple of batch_size_multiple.
 
-        def batch_size_fn(nbsents, maxlen):
-            if batch_type == "sents":
-                return nbsents
-            elif batch_type == "tokens":
-                return nbsents * maxlen
-            else:
-                raise ValueError(f"Invalid argument batch_type={batch_type}")
+        Args:
+            data: Iterable of (example, index) tuples
+            batch_size: Target batch size
+            batch_type: "sents" or "tokens"
+            batch_size_multiple: Batch size must be multiple of this
 
-        def max_src_tgt(ex):
-            """return the max tokens btw src and tgt in the sequence."""
-            if ex.get("tgt", None) is not None:
-                return max(len(ex["src"]["src_ids"]), len(ex["tgt"]["tgt_ids"]))
-            return len(ex["src"]["src_ids"])
+        Yields:
+            List of (example, index) tuples forming a batch
+        """
+        minibatch = []
+        max_len = 0
+        seen = set()
 
-        minibatch, maxlen, size_so_far, seen = [], 0, 0, set()
-        for ex, indice in data:
-            src = ex["src"]["src"]
-            if src not in seen or (self.task != CorpusTask.TRAIN):
-                seen.add(src)
-                minibatch.append((ex, indice))
-                nbsents = len(minibatch)
-                maxlen = max(max_src_tgt(ex), maxlen)
-                size_so_far = batch_size_fn(nbsents, maxlen)
-                if size_so_far >= batch_size:
-                    overflowed = 1 if size_so_far > batch_size else 0
-                    if batch_size_multiple > 1:
-                        overflowed += (nbsents - overflowed) % batch_size_multiple
-                    if overflowed == 0:
-                        yield minibatch
-                        minibatch, maxlen, size_so_far, seen = [], 0, 0, set()
+        for example, index in data:
+            src_text = " ".join(example["src"]["src"])
+
+            # Skip duplicates during training
+            if not self._should_deduplicate(src_text, seen):
+                continue
+
+            minibatch.append((example, index))
+            max_len = max(self._get_max_length(example), max_len)
+            current_size = self._calculate_batch_size(len(minibatch), max_len)
+
+            if current_size >= batch_size:
+                # Calculate overflow
+                overflow_count = 1 if current_size > batch_size else 0
+                if batch_size_multiple > 1:
+                    overflow_count += (len(minibatch) - overflow_count) % batch_size_multiple
+
+                if overflow_count == 0:
+                    # Perfect fit
+                    yield minibatch
+                    minibatch, max_len, seen = [], 0, set()
+                else:
+                    # Handle overflow
+                    if overflow_count == len(minibatch):
+                        logger.warning(
+                            f"Batch will be filled to {batch_size_multiple}, " f"may exceed {batch_size} tokens"
+                        )
                     else:
-                        if overflowed == nbsents:
-                            logger.warning(
-                                "The batch will be filled until we reach"
-                                " %d, its size may exceed %d tokens" % (batch_size_multiple, batch_size)
-                            )
-                        else:
-                            yield minibatch[:-overflowed]
-                            minibatch = minibatch[-overflowed:]
-                            maxlen = max([max_src_tgt(ex) for ex, ind in minibatch])
-                            size_so_far = batch_size_fn(len(minibatch), maxlen)
-                            seen = set()
+                        # Yield batch without overflow items
+                        yield minibatch[:-overflow_count]
 
+                        # Keep overflow items for next batch
+                        minibatch = minibatch[-overflow_count:]
+                        max_len = max(self._get_max_length(ex) for ex, _ in minibatch)
+                        seen = set()
+
+        # Yield remaining examples
         if minibatch:
             yield minibatch
 
     def __iter__(self):
+        """Main iteration logic: bucket -> sort -> batch -> tensorify."""
         for bucket, bucket_idx in self._bucketing():
-            bucket = self._add_indice(bucket)
-            bucket = sorted(bucket, key=lambda x: self.sort_key(x[0]))
-            p_batch = list(
+            # Add indices and sort by length
+            # Keep order as (example, index) to match existing code expectations
+            indexed_bucket = [(ex, idx) for idx, ex in enumerate(bucket)]
+            indexed_bucket.sort(key=lambda x: self.sort_key(x[0]))
+
+            # Create batches
+            batches = list(
                 self.batch_iter(
-                    bucket,
+                    indexed_bucket,
                     self.batch_size,
                     batch_type=self.batch_type,
                     batch_size_multiple=self.batch_size_multiple,
                 )
             )
-            # For TRAIN we shuffle batches within the bucket
-            # otherwise sequential
+
+            # Shuffle batches during training
             if self.task == CorpusTask.TRAIN:
-                p_batch = self.random_shuffler(p_batch)
-            for i, minibatch in enumerate(p_batch):
-                # for specific case of rnn_packed need to be sorted
-                # within the batch
+                batches = self.random_shuffler(batches)
+
+            for batch in batches:
+                # Sort within batch for packed RNN (training only)
                 if self.task == CorpusTask.TRAIN:
-                    minibatch.sort(key=lambda x: self.sort_key(x[0]), reverse=True)
-                tensor_batch = tensorify(self.vocabs, minibatch, self.device, self.left_pad)
+                    batch.sort(key=lambda x: self.sort_key(x[0]), reverse=True)
+
+                # Convert to tensors
+                tensor_batch = tensorify(self.vocabs, batch, self.device, self.left_pad)
                 yield (tensor_batch, bucket_idx)
 
 

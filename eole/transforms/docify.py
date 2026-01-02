@@ -87,9 +87,7 @@ class DocifyTransform(Transform):
                     else:
                         # we cumulate cur ex to cur doc
                         doc["src"] += [DefaultTokens.SEP] + ex["src"]
-                        doc["src_original"] += [DefaultTokens.SEP] + ex["src_original"]
                         doc["tgt"] += [DefaultTokens.SEP] + ex["tgt"]
-                        doc["tgt_original"] += [DefaultTokens.SEP] + ex["tgt_original"]
                         nb_ctx = doc["src"].count(DefaultTokens.SEP)
                         if nb_ctx >= self.max_context:
                             trf_batch.append((doc, self, cid))
@@ -117,7 +115,6 @@ class DocifyTransform(Transform):
                         doc = copy.deepcopy(ex)
                     else:
                         doc["src"] += [DefaultTokens.SEP] + ex["src"]
-                        doc["src_original"] += [DefaultTokens.SEP] + ex["src_original"]
                         nb_ctx = doc["src"].count(DefaultTokens.SEP)
                         if nb_ctx >= self.max_context:
                             trf_batch.append((doc, self, cid))

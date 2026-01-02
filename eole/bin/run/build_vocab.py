@@ -142,8 +142,8 @@ def ingest_tokens(config, transforms, n_sample, learner, stride, offset):
             for ex in bucket:
                 if ex is not None:
                     src_line, tgt_line = (ex["src"]["src"], ex["tgt"]["tgt"])
-                    learner.ingest(src_line)
-                    learner.ingest(tgt_line)
+                    learner.ingest(src_line.strip().split(" "))
+                    learner.ingest(tgt_line.strip().split(" "))
 
     corpora = get_corpora(config, task=CorpusTask.TRAIN)
     datasets_iterables = build_corpora_iters(

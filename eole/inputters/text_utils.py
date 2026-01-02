@@ -9,61 +9,86 @@ from torch.nn.utils.rnn import pad_sequence
 from eole.utils.logging import logger
 
 
-def text_sort_key(ex):
-    """Sort using the number of tokens in the sequence."""
-    if ex.get("tgt", None) is not None:
-        return len(ex["src"]["src_ids"]), len(ex["tgt"]["tgt_ids"])
-    return len(ex["src"]["src_ids"])
+def text_sort_key(example):
+    """
+    Sort key based on sequence lengths.
+
+    Returns tuple of (src_len, tgt_len) if target exists, otherwise just src_len.
+    This allows sorting by source length primarily, then target length.
+    """
+    src_len = len(example["src"]["src_ids"])
+    if example.get("tgt") is not None:
+        tgt_len = len(example["tgt"]["tgt_ids"])
+        return (src_len, tgt_len)
+    return src_len
 
 
-def clean_example(maybe_example):
-    if isinstance(maybe_example["src"], list):
-        maybe_example["src"] = {"src": " ".join(maybe_example["src"])}
-    else:
-        maybe_example["src"] = {"src": maybe_example["src"]}
-    if maybe_example.get("tgt", None) is not None:
-        maybe_example["tgt"] = {"tgt": " ".join(maybe_example["tgt"])}
-    if "align" in maybe_example:
-        maybe_example["align"] = " ".join(maybe_example["align"])
-    if "sco" not in maybe_example:
-        maybe_example["sco"] = 1
-    return maybe_example
+def clean_example(example):
+    """
+    Normalize example structure to ensure consistent dict format.
+
+    Converts list representations to space-separated strings and wraps
+    src/tgt in proper dict structure. Ensures 'sco' field exists.
+
+    Args:
+        example: Raw example dict
+
+    Returns:
+        Cleaned example dict with standardized structure
+    """
+
+    example["src"] = {"src": example["src"]}
+    if example.get("tgt") is not None:
+        example["tgt"] = {"tgt": example["tgt"]}
+    if "align" in example:
+        example["align"] = " ".join(example["align"])
+    if "sco" not in example:
+        example["sco"] = 1
+
+    return example
 
 
 def transform_bucket(task, bucket, threshold=0):
-    """Returns valid transformed bucket from bucket."""
-    transform_cid_to_examples = {}
-    for example in bucket:
-        transform_cid = (example[1], example[2])
-        if transform_cid not in transform_cid_to_examples:
-            transform_cid_to_examples[transform_cid] = []
-        transform_cid_to_examples[transform_cid].append(example)
+    """
+    Apply transforms to bucket and filter by score threshold.
 
-    transformed_bucket = []
-    # careful below it will return a bucket sorted by corpora
-    # but we sort by length later and shuffle batches
-    for (transform, cid), sub_bucket in transform_cid_to_examples.items():
-        transf_bucket = transform.batch_apply(sub_bucket, is_train=(task == CorpusTask.TRAIN), corpus_name=cid)
-        for example, transform, cid in transf_bucket:
+    Groups examples by (transform, corpus_id), applies batch transforms,
+    then filters by score threshold and empty source.
+
+    Args:
+        task: CorpusTask enum value
+        bucket: List of (example, transform, cid) tuples
+        threshold: Minimum score threshold (default: 0)
+
+    Returns:
+        List of transformed and cleaned examples, or None if empty
+    """
+    # Group examples by their transform and corpus ID
+    transform_groups = {}
+    for example_tuple in bucket:
+        example, transform, cid = example_tuple
+        key = (transform, cid)
+        if key not in transform_groups:
+            transform_groups[key] = []
+        transform_groups[key].append(example_tuple)
+
+    # Apply transforms and collect results
+    transformed_examples = []
+    is_train = task == CorpusTask.TRAIN
+
+    for (transform, cid), examples_group in transform_groups.items():
+        # Apply batch transform
+        transformed_group = transform.batch_apply(examples_group, is_train=is_train, corpus_name=cid)
+
+        # Clean and filter each example
+        for example, _, _ in transformed_group:
             example = clean_example(example)
-            if len(example["src"]["src"]) > 0 and example.get("sco", 1) >= threshold:
-                transformed_bucket.append(example)
 
-        # at this point an example looks like:
-        # {'src': {'src': ..., 'feats': [....]},
-        #  'tgt': {'tgt': ...},
-        #  'src_original': ['tok1', ...'tokn'],
-        #  'tgt_original': ['tok1', ...'tokm'],
-        #  'cid': corpus id
-        #  'cid_line_number' : cid line number
-        #  'align': ...,
-        #  if tokenize_id is used then it will include:
-        #  'src_ids' and 'tgt_ids'
-        # }
-    if len(transformed_bucket) > 0:
-        return transformed_bucket
-    else:
-        return None
+            # Filter by non-empty source and score threshold
+            if len(example["src"]["src"]) > 0 and example.get("sco", 1) >= threshold:
+                transformed_examples.append(example)
+
+    return transformed_examples if transformed_examples else None
 
 
 @dataclass
@@ -123,16 +148,20 @@ class Numericalizer:
         """Extract or generate source token IDs"""
         if self.is_hf_tokenized:
             return example["src_ids"]
-        src_text = example["src"]["src"].split(" ")
-        return self.vocabs["src"](src_text)
+        src = example["src"]["src"]
+        if isinstance(src, list):
+            return self.vocabs["src"](src)
+        # original src already tokenized - not tokenize transform
+        return self.vocabs["src"](src.split(" "))
 
     def _get_tgt_ids(self, example: Dict) -> List[int]:
         """Extract or generate target token IDs"""
         if self.is_hf_tokenized:
             return example["tgt_ids"]
-
-        tgt_text = example["tgt"]["tgt"].split(" ")
-        return self.vocabs["tgt"](tgt_text)
+        tgt = example["tgt"]["tgt"]
+        if isinstance(tgt, list):
+            return self.vocabs["tgt"](tgt)
+        return self.vocabs["tgt"](tgt.split(" "))
 
     def _add_decoder_start_token(self, ids: List[int]) -> List[int]:
         """Prepend decoder start token if needed"""
@@ -257,163 +286,192 @@ class Numericalizer:
 
 def parse_align_idx(align_pharaoh):
     """
-    Parse Pharaoh alignment into [[<src>, <tgt>], ...]
+    Parse Pharaoh-format alignment string into list of [src_idx, tgt_idx] pairs.
+
+    Args:
+        align_pharaoh: Space-separated alignment string (e.g., "0-0 1-2 2-1")
+
+    Returns:
+        List of [src_idx, tgt_idx] integer pairs
+
+    Raises:
+        ValueError: If alignment format is invalid
     """
-    align_list = align_pharaoh.strip().split(" ")
-    flatten_align_idx = []
-    for align in align_list:
+    align_pairs = align_pharaoh.strip().split(" ")
+    parsed_alignments = []
+
+    for align_pair in align_pairs:
         try:
-            src_idx, tgt_idx = align.split("-")
+            src_idx, tgt_idx = align_pair.split("-")
+            parsed_alignments.append([int(src_idx), int(tgt_idx)])
         except ValueError:
-            logger.warning("{} in `{}`".format(align, align_pharaoh))
-            logger.warning("Bad alignement line exists. Please check file!")
+            logger.warning(f"Invalid alignment pair '{align_pair}' in '{align_pharaoh}'")
+            logger.warning("Bad alignment line exists. Please check file!")
             raise
-        flatten_align_idx.append([int(src_idx), int(tgt_idx)])
-    return flatten_align_idx
+
+    return parsed_alignments
+
+
+def _create_padded_tensor(sequences, pad_idx, device, left_pad=False):
+    """
+    Helper to create padded tensor from list of sequences.
+
+    Args:
+        sequences: List of token ID lists
+        pad_idx: Padding token index
+        device: Target device
+        left_pad: Whether to pad on the left side
+
+    Returns:
+        Padded tensor of shape [batch_size, max_seq_len]
+    """
+    # Convert to tensors, flip if left padding
+    if left_pad:
+        tensors = [torch.tensor(seq, dtype=torch.long, device=device).flip(dims=[0]) for seq in sequences]
+    else:
+        tensors = [torch.tensor(seq, dtype=torch.long, device=device) for seq in sequences]
+
+    # Pad sequences
+    padded = pad_sequence(tensors, batch_first=True, padding_value=pad_idx)
+
+    # Flip back if left padding
+    if left_pad:
+        padded = padded.flip(dims=[1])
+
+    return padded
 
 
 def tensorify(vocabs, minibatch, device, left_pad=False):
     """
-    This function transforms a batch of example in tensors
-    Each example looks like
-    {'src': {'src': ..., 'feats': [...], 'src_ids': ...},
-     'tgt': {'tgt': ..., 'tgt_ids': ...},
-     'src_original': ['tok1', ...'tokn'],
-     'tgt_original': ['tok1', ...'tokm'],
-     'cid': corpus id
-     'cid_line_number' : corpus id line number
-     'ind_in_bucket': index in bucket
-     'align': ...,
-    }
-    Returns  Dict of batch Tensors
-        {'src': [seqlen, batchsize, n_feats+1],
-         'tgt' : [seqlen, batchsize, n_feats=1],
-         'cid': [batchsize],
-         'cid_line_number' : [batchsize],
-         'ind_in_bucket': [batchsize],
-         'srclen': [batchsize],
-         'tgtlen': [batchsize],
-         'align': alignment sparse tensor
-        }
+    Transform a batch of examples into tensors.
+
+    Args:
+        vocabs: Vocabulary dictionaries
+        minibatch: List of (example, index) tuples
+        device: Target device for tensors
+        left_pad: Whether to pad sequences on the left
+
+    Returns:
+        Dictionary of batch tensors with keys:
+            - src: [batch_size, max_src_len] source sequences
+            - srclen: [batch_size] source lengths
+            - prefix_len: [batch_size] prefix lengths (if applicable)
+            - tgt: [batch_size, max_tgt_len] target sequences (if present)
+            - tgtlen: [batch_size] target lengths (if present)
+            - align: sparse alignment tensor (if present)
+            - src_map: [batch_size, max_src_len, vocab_size] (if present)
+            - alignment: [batch_size, max_tgt_len] (if present)
+            - images: list of image tensors (if present)
+            - ind_in_bucket: list of indices
+            - cid: list of corpus IDs
+            - cid_line_number: list of line numbers
+            - sco: [batch_size] scores (if not inference)
+            - left_pad: boolean flag
     """
     tensor_batch = {}
-    if left_pad:
-        tbatchsrc = [
-            torch.tensor(ex["src"]["src_ids"], dtype=torch.long, device=device).flip(dims=[0])
-            for ex, indice in minibatch
-        ]
-    else:
-        tbatchsrc = [torch.tensor(ex["src"]["src_ids"], dtype=torch.long, device=device) for ex, indice in minibatch]
-    padidx = vocabs["src"][vocabs["specials"].get("pad_token", DefaultTokens.PAD)]
-    tbatchsrc = pad_sequence(tbatchsrc, batch_first=True, padding_value=padidx)
-    """
-    This removes some recompiles in torch.dynamo, but slows down and make inference tricky
-    tbatchsrc = F.pad(
-        tbatchsrc,
-        (0, max(0, math.ceil(tbatchsrc.size(1) / 8) * 8 - tbatchsrc.size(1))),
-        value=padidx,
-    )
-    """
-    if left_pad:
-        tensor_batch["src"] = tbatchsrc.flip(dims=[1])
-    else:
-        tensor_batch["src"] = tbatchsrc
+    examples = [ex for ex, _ in minibatch]
+    indices = [idx for _, idx in minibatch]
 
+    # Process source sequences
+    pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
+    src_pad_idx = vocabs["src"][pad_token]
+    src_sequences = [ex["src"]["src_ids"] for ex in examples]
+
+    tensor_batch["src"] = _create_padded_tensor(src_sequences, src_pad_idx, device, left_pad)
     tensor_batch["srclen"] = torch.tensor(
-        [len(ex["src"]["src_ids"]) for ex, indice in minibatch],
+        [len(seq) for seq in src_sequences],
         dtype=torch.long,
         device=device,
     )
-    if "prefix_len" in minibatch[0][0]["src"].keys():
-        tensor_batch["prefix_len"] = torch.tensor(
-            [ex["src"]["prefix_len"] for ex, indice in minibatch],
+
+    # Handle prefix lengths for decoder-only models
+    if "prefix_len" in examples[0]["src"]:
+        prefix_lens = torch.tensor(
+            [ex["src"]["prefix_len"] for ex in examples],
             dtype=torch.long,
             device=device,
         )
+        # Adjust for left padding
         if left_pad:
-            tensor_batch["prefix_len"] += tbatchsrc.eq(padidx).sum(dim=1)
+            num_pads = tensor_batch["src"].eq(src_pad_idx).sum(dim=1)
+            prefix_lens += num_pads
+        tensor_batch["prefix_len"] = prefix_lens
     else:
         tensor_batch["prefix_len"] = None
 
-    if minibatch[0][0].get("tgt", None) is not None:
-        if left_pad:
-            tbatchtgt = [
-                torch.tensor(ex["tgt"]["tgt_ids"], dtype=torch.long, device=device).flip(dims=[0])
-                for ex, indice in minibatch
-            ]
-        else:
-            tbatchtgt = [
-                torch.tensor(ex["tgt"]["tgt_ids"], dtype=torch.long, device=device) for ex, indice in minibatch
-            ]
+    # Process target sequences if present
+    if examples[0].get("tgt") is not None:
+        tgt_pad_idx = vocabs["tgt"][pad_token]
+        tgt_sequences = [ex["tgt"]["tgt_ids"] for ex in examples]
 
-        padidx = vocabs["tgt"][vocabs["specials"].get("pad_token", DefaultTokens.PAD)]
-        tbatchtgt = pad_sequence(tbatchtgt, batch_first=True, padding_value=padidx)
-
-        tbatchtgtlen = torch.tensor(
-            [len(ex["tgt"]["tgt_ids"]) for ex, indice in minibatch],
+        tensor_batch["tgt"] = _create_padded_tensor(tgt_sequences, tgt_pad_idx, device, left_pad)
+        tensor_batch["tgtlen"] = torch.tensor(
+            [len(seq) for seq in tgt_sequences],
             dtype=torch.long,
             device=device,
         )
-        if left_pad:
-            tensor_batch["tgt"] = tbatchtgt.flip(dims=[1])
-        else:
-            tensor_batch["tgt"] = tbatchtgt
-        tensor_batch["tgtlen"] = tbatchtgtlen
 
-    if "align" in minibatch[0][0].keys() and minibatch[0][0]["align"] is not None:
-        sparse_idx = []
-        for i, (ex, indice) in enumerate(minibatch):
-            for src, tgt in parse_align_idx(ex["align"]):
-                sparse_idx.append([i, tgt + 1, src])
-        tbatchalign = torch.tensor(sparse_idx, dtype=torch.long, device=device)
-        tensor_batch["align"] = tbatchalign
+    # Process alignments if present
+    if "align" in examples[0] and examples[0]["align"] is not None:
+        sparse_indices = []
+        for batch_idx, ex in enumerate(examples):
+            for src_idx, tgt_idx in parse_align_idx(ex["align"]):
+                # Store as [batch_idx, tgt_idx+1, src_idx]
+                sparse_indices.append([batch_idx, tgt_idx + 1, src_idx])
 
-    if "src_map" in minibatch[0][0].keys():
-        src_vocab_size = max([max(ex["src_map"]) for ex, indice in minibatch]) + 1
+        tensor_batch["align"] = torch.tensor(sparse_indices, dtype=torch.long, device=device)
+
+    # Process source vocabulary mapping if present
+    if "src_map" in examples[0]:
+        max_vocab_idx = max(max(ex["src_map"]) for ex in examples)
+        src_vocab_size = max_vocab_idx + 1
+
         src_map = torch.zeros(
-            len(tensor_batch["srclen"]),
-            tbatchsrc.size(1),
+            len(examples),
+            tensor_batch["src"].size(1),
             src_vocab_size,
             device=device,
         )
-        for i, (ex, indice) in enumerate(minibatch):
-            for j, t in enumerate(ex["src_map"]):
-                src_map[i, j, t] = 1
+        for i, ex in enumerate(examples):
+            for j, token_idx in enumerate(ex["src_map"]):
+                src_map[i, j, token_idx] = 1
+
         tensor_batch["src_map"] = src_map
 
-    if "alignment" in minibatch[0][0].keys():
+    # Process word alignment if present
+    if "alignment" in examples[0]:
         alignment = torch.zeros(
-            len(tensor_batch["srclen"]),
-            tbatchtgt.size(1),
+            len(examples),
+            tensor_batch["tgt"].size(1),
             dtype=torch.long,
             device=device,
         )
-        for i, (ex, indice) in enumerate(minibatch):
-            alignment[i, : len(ex["alignment"])] = torch.tensor(ex["alignment"], dtype=torch.long, device=device)
+        for i, ex in enumerate(examples):
+            align_len = len(ex["alignment"])
+            alignment[i, :align_len] = torch.tensor(ex["alignment"], dtype=torch.long, device=device)
+
         tensor_batch["alignment"] = alignment
 
-    if "images" in minibatch[0][0].keys():
+    # Process images if present
+    if "images" in examples[0]:
+        # Flatten all images from all examples
+        # Note: Currently supports batch_size=1 for images
         tensor_batch["images"] = [
-            torch.tensor(v, device=device, dtype=torch.float32)
-            for ex, indice in minibatch
-            for k, v in ex["images"].items()
-            # BATCH > 1 not supported yet
-            # [
-            #     torch.tensor(v, device=device, dtype=torch.float32)
-            #     for k, v in ex["images"].items()
-            # ]
-            # for ex, indice in minibatch
+            torch.tensor(img_data, device=device, dtype=torch.float32)
+            for ex in examples
+            for img_data in ex["images"].values()
         ]
     else:
         tensor_batch["images"] = None
 
-    tensor_batch["ind_in_bucket"] = [indice for ex, indice in minibatch]
+    # Add metadata
+    tensor_batch["ind_in_bucket"] = indices
+    tensor_batch["cid"] = [ex["cid"] for ex in examples]
+    tensor_batch["cid_line_number"] = [ex["cid_line_number"] for ex in examples]
 
-    tensor_batch["cid"] = [ex["cid"] for ex, indice in minibatch]
-    tensor_batch["cid_line_number"] = [ex["cid_line_number"] for ex, indice in minibatch]
-
-    if minibatch[0][0]["cid"] != "infer":
-        tensor_batch["sco"] = torch.tensor([ex["sco"] for ex, indice in minibatch], device=device)
+    # Add scores if not inference
+    if examples[0]["cid"] != "infer":
+        tensor_batch["sco"] = torch.tensor([ex["sco"] for ex in examples], device=device)
 
     tensor_batch["left_pad"] = left_pad
 
