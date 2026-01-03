@@ -25,16 +25,14 @@ def text_sort_key(example):
 
 def clean_example(example):
     """
-    Normalize example structure to ensure consistent dict format.
-
-    Converts list representations to space-separated strings and wraps
-    src/tgt in proper dict structure. Ensures 'sco' field exists.
-
+    Normalize example structure to ensure a consistent dict-based format.
+    Wraps ``src`` and, if present, ``tgt`` values in a dict structure,
+    converts an ``align`` list (if any) to a space-separated string, and
+    ensures a ``sco`` field exists with a default value.
     Args:
         example: Raw example dict
-
     Returns:
-        Cleaned example dict with standardized structure
+        Cleaned example dict with standardized structure.
     """
 
     example["src"] = {"src": example["src"]}
@@ -151,7 +149,7 @@ class Numericalizer:
         src = example["src"]["src"]
         if isinstance(src, list):
             return self.vocabs["src"](src)
-        # original src already tokenized - not tokenize transform
+        # src is a space-separated string (no tokenizer transform applied)
         return self.vocabs["src"](src.split(" "))
 
     def _get_tgt_ids(self, example: Dict) -> List[int]:
@@ -306,7 +304,7 @@ def parse_align_idx(align_pharaoh):
             parsed_alignments.append([int(src_idx), int(tgt_idx)])
         except ValueError:
             logger.warning(f"Invalid alignment pair '{align_pair}' in '{align_pharaoh}'")
-            logger.warning("Bad alignment line exists. Please check file!")
+            logger.warning("Invalid alignment line found. Please check the file!")
             raise
 
     return parsed_alignments

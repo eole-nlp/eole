@@ -402,7 +402,9 @@ class BARTNoiseTransform(Transform):
     def apply(self, example, is_train=False, stats=None, **kwargs):
         """Apply BART noise to src side tokens."""
         if isinstance(example["src"], str):
-            raise ValueError("BART Noising needs tokens list as input set a tokenizer transform before")
+            raise ValueError(
+                "BART Noising requires a list of tokens as input; ensure a tokenizer transform is set before this one."
+            )
         if is_train:
             src = self.bart_noise.apply(example["src"])
             example["src"] = src

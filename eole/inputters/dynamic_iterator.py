@@ -364,6 +364,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         seen = set()
 
         for example, index in data:
+            # assert isinstance(example["src"]["src"], list), "Example is not tokenized"
             src_text = " ".join(example["src"]["src"])
 
             # Skip duplicates during training

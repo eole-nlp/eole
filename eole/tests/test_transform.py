@@ -153,8 +153,8 @@ class TestMiscTransform(unittest.TestCase):
         self.assertIn("trainset", prefix_transform.prefix_dict)
 
         ex_in = {
-            "src": ["Hello world ."],
-            "tgt": ["Bonjour le monde ."],
+            "src": ["Hello", "world", "."],
+            "tgt": ["Bonjour", "le", "monde", "."],
         }
         with self.assertRaises(ValueError):
             prefix_transform.apply(ex_in)
@@ -174,8 +174,8 @@ class TestMiscTransform(unittest.TestCase):
         filter_transform = filter_cls(opt)
         # filter_transform.warm_up()
         ex_in = {
-            "src": ["Hello world ."],
-            "tgt": ["Bonjour le monde ."],
+            "src": ["Hello", "world", "."],
+            "tgt": ["Bonjour", "le", "monde", "."],
         }
         ex_out = filter_transform.apply(ex_in)
         self.assertIs(ex_out, ex_in)
