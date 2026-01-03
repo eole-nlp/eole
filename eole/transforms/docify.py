@@ -60,6 +60,7 @@ class DocifyTransform(Transform):
         doc["cid_line_number"] = 0
 
         for ex, _, cid in batch:
+            assert isinstance(ex["src"], list), "Docify must be placed after Tokenization"
             if ex["tgt"] is not None:
                 cur_len = max(len(doc["src"] + ex["src"]), len(doc["tgt"] + ex["tgt"]))
 
