@@ -175,7 +175,7 @@ class TermMatcher(object):
             if not (len(tokenized_source) == len(lemmatized_source) == len(tokenized_source_with_terms)):
                 final_string = " ".join(tokenized_source)
                 fixed_punct = re.sub(r" ([^\w\s｟\-\–])", r"\1", final_string)
-                return fixed_punct.split(" "), not is_match
+                return fixed_punct, not is_match
 
             # Construct the final source from the lemmatized list
             # that contains the terms. We compare the tokens in the
@@ -199,11 +199,11 @@ class TermMatcher(object):
                 final_string = " ".join(completed_tokenized_source)
 
             fixed_punct = re.sub(r" ([^\w\s｟\-\–])", r"\1", final_string)
-            return fixed_punct.split(" "), is_match
+            return fixed_punct, is_match
         else:
             final_string = " ".join(tokenized_source)
             fixed_punct = re.sub(r" ([^\w\s｟\-\–])", r"\1", final_string)
-            return fixed_punct.split(" "), not is_match
+            return fixed_punct, not is_match
 
 
 @register_transform(name="terminology")
@@ -270,8 +270,6 @@ class TerminologyTransform(Transform):
 
     def apply(self, example, is_train=False, stats=None, **kwargs) -> tuple:
         """Add terms to source examples."""
-
-        example["src"], is_match = self.termmatcher._src_sentence_with_terms(
-            " ".join(example["src"]), " ".join(example["tgt"])
-        )
+        assert isinstance(example["src"], str), "TerminologyTransform must be placed before Tokenization"
+        example["src"], is_match = self.termmatcher._src_sentence_with_terms(example["src"], example["tgt"])
         return example, is_match

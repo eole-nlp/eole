@@ -208,11 +208,11 @@ class InlineTagger(object):
             tgt_with_tags.append(tgt_example[tgt_offset:])
 
             return (
-                "".join(src_with_tags).replace("∥", " ").split(" "),
-                "".join(tgt_with_tags).replace("∥", " ").split(" "),
+                "".join(src_with_tags).replace("∥", " "),
+                "".join(tgt_with_tags).replace("∥", " "),
             ), is_match
         else:
-            return (src_example.split(" "), tgt_example.split(" ")), is_match
+            return (src_example, tgt_example), is_match
 
 
 @register_transform(name="inlinetags")
@@ -299,8 +299,8 @@ class InlineTagsTransform(Transform):
 
     def apply(self, example, is_train=False, stats=None, **kwargs) -> tuple:
         """Add tags (placeholders) to source and target segments."""
-
-        src_tgt_pair, is_match = self.tagger._tagged_src_tgt(" ".join(example["src"]), " ".join(example["tgt"]))
+        assert isinstance(example["src"], str), "InlineTagsTransform must be placed before Tokenization"
+        src_tgt_pair, is_match = self.tagger._tagged_src_tgt(example["src"], example["tgt"])
         example["src"] = src_tgt_pair[0]
         example["tgt"] = src_tgt_pair[1]
 

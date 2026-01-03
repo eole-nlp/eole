@@ -158,19 +158,17 @@ class FuzzyMatchTransform(Transform):
     def batch_apply(self, batch, is_train=False, stats=None, **kwargs):
         src_segments = list()
         for ex, _, _ in batch:
+            assert isinstance(ex["src"], str), "FuzzyMatchTransform must be placed before Tokenize"
             # Apply a basic filtering to leave out very short or very long
             # sentences and speed up things a bit during fuzzy matching
-            if (
-                len(" ".join(ex["src"])) > self.fuzzymatch_min_length
-                and len(" ".join(ex["src"])) < self.fuzzymatch_max_length
-            ):
-                src_segments.append(" ".join(ex["src"]))
+            if len(ex["src"]) > self.fuzzymatch_min_length and len(ex["src"]) < self.fuzzymatch_max_length:
+                src_segments.append(ex["src"])
             else:
                 src_segments.append("")
         fuzzied_src = self.matcher._get_batch_matches(src_segments)
         assert len(src_segments) == len(fuzzied_src)
         for idx, (example, _, _) in enumerate(batch):
             if fuzzied_src[idx] != "":
-                example["src"] = fuzzied_src[idx].split(" ")
+                example["src"] = fuzzied_src[idx]
 
         return batch

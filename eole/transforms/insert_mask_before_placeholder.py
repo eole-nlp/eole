@@ -29,16 +29,17 @@ class InsertMaskBeforePlaceholdersTransform(Transform):
         self.response_patterns = self.config.response_patterns
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
-        _src = " ".join(example["src"])
+        assert isinstance(example["src"], str), "InsertMaskBeforePlaceholdersTransform must be placed before Tokenize"
+        _src = example["src"]
         response = None
         for _pattern in self.response_patterns:
             if len(_src.split(_pattern)) == 2:
                 prompt, response = _src.split(_pattern)
-                response = DefaultTokens.MASK_BEFORE.join([_pattern, response])
+                response = _pattern + DefaultTokens.MASK_BEFORE + response
         if response is not None:
-            _src = "".join([prompt, response])
-            example["src"] = _src.split(" ")
-            example["tgt"] = _src.split(" ")
+            _src = prompt + response
+            example["src"] = _src
+            example["tgt"] = _src
         else:
             logger.info("The mask_before could not be inserted")
             return example

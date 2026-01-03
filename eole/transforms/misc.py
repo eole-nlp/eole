@@ -65,6 +65,7 @@ class FilterTooShortTransform(Transform):
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
         """Return None if too short else return as is."""
+        assert isinstance(example["src"], list), "FilterTooShortTransform needs to be set after the Tokenizer"
         if len(example["src"]) < self.src_seq_length or (
             example["tgt"] is not None and len(example["tgt"]) < self.tgt_seq_length - 2
         ):
@@ -95,6 +96,7 @@ class FilterTooLongTransform(Transform):
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
         """Return None if too long else return as is."""
+        assert isinstance(example["src"], list), "FilterTooLongTransform needs to be set after the Tokenizer"
         if len(example["src"]) > self.src_seq_length or (
             example["tgt"] is not None and len(example["tgt"]) > self.tgt_seq_length - 2
         ):
@@ -188,6 +190,7 @@ class PrefixTransform(Transform):
 
         Should provide `corpus_name` to get correspond prefix.
         """
+        assert isinstance(example["src"], list), "PrefixTransform needs to be set after the Tokenizer"
         corpus_name = kwargs.get("corpus_name", None)
         if corpus_name is None:
             raise ValueError("corpus_name is required.")
@@ -287,6 +290,7 @@ class SuffixTransform(Transform):
 
         Should provide `corpus_name` to get correspond suffix.
         """
+        assert isinstance(example["src"], list), "SuffixTransform needs to be set after the Tokenizer"
         corpus_name = kwargs.get("corpus_name", None)
         if corpus_name is None:
             raise ValueError("corpus_name is required.")

@@ -215,8 +215,8 @@ class TestSubwordTransform(unittest.TestCase):
         bpe_transform = bpe_cls(opt)
         bpe_transform.warm_up()
         ex = {
-            "src": ["Hello", "world", "."],
-            "tgt": ["Bonjour", "le", "monde", "."],
+            "src": "Hello world .",
+            "tgt": "Bonjour le monde .",
         }
         bpe_transform.apply(ex, is_train=True)
         ex_gold = {
@@ -226,7 +226,7 @@ class TestSubwordTransform(unittest.TestCase):
         self.assertEqual(ex, ex_gold)
         # test BPE-dropout:
         bpe_transform.dropout["src"] = 1.0
-        tokens = ["Another", "world", "."]
+        tokens = "Another world ."
         gold_bpe = ["A@@", "no@@", "ther", "world", "."]
         gold_dropout = [
             "A@@",
@@ -272,8 +272,8 @@ class TestSubwordTransform(unittest.TestCase):
         sp_transform.warm_up()
 
         ex = {
-            "src": ["Hello", "world", "."],
-            "tgt": ["Bonjour", "le", "monde", "."],
+            "src": "Hello world .",
+            "tgt": "Bonjour le monde .",
         }
         sp_transform.apply(ex, is_train=True)
         ex_gold = {
@@ -284,7 +284,7 @@ class TestSubwordTransform(unittest.TestCase):
 
         # test SP regularization:
         sp_transform.src_subword_nbest = 4
-        tokens = ["Another", "world", "."]
+        tokens = "Another world ."
         gold_sp = ["▁An", "other", "▁world", "▁."]
         # 1. enable regularization for training example
         after_sp = sp_transform._tokenize(tokens, is_train=True)
@@ -298,7 +298,6 @@ class TestSubwordTransform(unittest.TestCase):
             "src": "### Instruction: ｟newline｠instruction｟newline｠｟newline｠" "### Response : ｟newline｠response",
             "tgt": "",
         }
-        ex["src"] = ex["src"].split(" ")
         ex_gold = {
             "src": [
                 "▁",
@@ -358,8 +357,8 @@ class TestSubwordTransform(unittest.TestCase):
         onmttok_transform = onmttok_cls(opt)
         onmttok_transform.warm_up()
         ex = {
-            "src": ["Hello", "world", "."],
-            "tgt": ["Bonjour", "le", "monde", "."],
+            "src": "Hello world .",
+            "tgt": "Bonjour le monde .",
         }
         onmttok_transform.apply(ex, is_train=True)
         ex_gold = {
@@ -375,7 +374,6 @@ class TestSubwordTransform(unittest.TestCase):
             ),
             "tgt": "",
         }
-        ex["src"] = ex["src"].split(" ")
         ex_gold = {
             "src": [
                 "#￭",
@@ -433,8 +431,8 @@ class TestSubwordTransform(unittest.TestCase):
         onmttok_transform = onmttok_cls(opt)
         onmttok_transform.warm_up()
         ex = {
-            "src": ["Hello", "world", "."],
-            "tgt": ["Bonjour", "le", "monde", "."],
+            "src": "Hello world .",
+            "tgt": "Bonjour le monde .",
         }
         onmttok_transform.apply(ex, is_train=True)
         ex_gold = {
@@ -450,7 +448,6 @@ class TestSubwordTransform(unittest.TestCase):
             ),
             "tgt": "",
         }
-        ex["src"] = ex["src"].split(" ")
         onmttok_transform.apply(ex, is_train=True)
         ex_gold = {
             "src": [

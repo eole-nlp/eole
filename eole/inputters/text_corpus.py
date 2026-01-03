@@ -61,8 +61,6 @@ class BlockwiseCorpus(object):
             example = {
                 "src": block_content,
                 "tgt": block_content,
-                "src_original": block_content,
-                "tgt_original": block_content,
             }
             return example
 
@@ -138,13 +136,13 @@ class ImageTextCorpus(object):
 class ParallelCorpus(object):
     """A parallel corpus file pair that can be loaded to iterate."""
 
-    def __init__(self, name, src, tgt, sco=None, align=None):
+    def __init__(self, name, path_src, path_tgt, path_sco=None, path_align=None):
         """Initialize src & tgt side file path."""
         self.id = name
-        self.src = src
-        self.tgt = tgt
-        self.sco = sco
-        self.align = align
+        self.src = path_src
+        self.tgt = path_tgt
+        self.sco = path_sco
+        self.align = path_align
 
     def _load_hf_dataset(self, hf_string):
         """
@@ -177,14 +175,10 @@ class ParallelCorpus(object):
         """
 
         def make_ex(sline, tline, scoline, align):
-            # 'src_original' and 'tgt_original' store the
-            # original line before tokenization.
             example = {
                 "src": sline,
                 "tgt": tline,
                 "sco": scoline,
-                "src_original": sline,
-                "tgt_original": tline,
             }
             if align is not None:
                 example["align"] = align
@@ -315,16 +309,14 @@ class ParallelCorpusIterator(object):
 
     def _process(self, stream):
         for i, example in enumerate(stream):
-            example["src"] = example["src"].strip().split(" ")
-            example["src_original"] = example["src_original"].strip().split(" ")
+            example["src"] = example["src"].strip()
             line_number = i * self.stride + self.offset
             example["cid_line_number"] = line_number
             example["cid"] = self.cid
             if "align" in example:
                 example["align"] = example["align"].strip().split(" ")
             if example["tgt"] is not None:
-                example["tgt"] = example["tgt"].strip().split(" ")
-                example["tgt_original"] = example["tgt_original"].strip().split(" ")
+                example["tgt"] = example["tgt"].strip()
                 if (
                     len(example["src"]) == 0
                     or len(example["tgt"]) == 0

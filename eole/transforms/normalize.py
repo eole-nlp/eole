@@ -284,12 +284,13 @@ class NormalizeTransform(Transform):
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
         """Normalize source and target examples."""
+        assert isinstance(example["src"], str), "NormalizeTransform needs to be set before the Tokenizer"
         corpus_name = kwargs.get("corpus_name", None)
         if corpus_name is None:
             raise ValueError("corpus_name is required.")
 
         src_str = self.mpn.normalize(
-            " ".join(example["src"]),
+            example["src"],
             self.src_lang_dict[corpus_name],
             self.penn_dict[corpus_name],
             self.norm_quote_commas_dict[corpus_name],
@@ -297,11 +298,11 @@ class NormalizeTransform(Transform):
             self.pre_dict[corpus_name],
             self.post_dict[corpus_name],
         )
-        example["src"] = src_str.split(" ")
+        example["src"] = src_str
 
         if example["tgt"] is not None:
             tgt_str = self.mpn.normalize(
-                " ".join(example["tgt"]),
+                example["tgt"],
                 self.tgt_lang_dict[corpus_name],
                 self.penn_dict[corpus_name],
                 self.norm_quote_commas_dict[corpus_name],
@@ -309,6 +310,6 @@ class NormalizeTransform(Transform):
                 self.pre_dict[corpus_name],
                 self.post_dict[corpus_name],
             )
-            example["tgt"] = tgt_str.split(" ")
+            example["tgt"] = tgt_str
 
         return example

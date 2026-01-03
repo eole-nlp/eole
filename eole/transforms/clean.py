@@ -107,75 +107,78 @@ class CleanTransform(Transform):
         trf_batch = []
 
         for ex, _, cid in batch:
+            assert isinstance(ex["src"], str), "Clean must be placed before Tokenize"
             if self.scripts_ok_dict[cid]:
                 ok_regex = "[^" + "".join(r"\p{%s}" % sc for sc in self.scripts_ok_dict[cid]) + "]"
 
             if self.scripts_nok_dict[cid]:
                 nok_regex = "[" + "".join(r"\p{%s}" % sc for sc in self.scripts_nok_dict[cid]) + "]"
 
-            src_str = " ".join(ex["src"])
-            if len(src_str) == 0:
+            _src = ex["src"]
+            _src_words = ex["src"].split(" ")
+            if len(_src) == 0:
                 # print("src empty")
                 continue
-            if self.same_char_dict[cid] and re.search(r"([^0-9])\1{3}", src_str):
+            if self.same_char_dict[cid] and re.search(r"([^0-9])\1{3}", _src):
                 # print("too many same char in src")
                 continue
-            if self.same_word_dict[cid] and re.search(r"(\ .*|.*\ )\1{2}", src_str):
+            if self.same_word_dict[cid] and re.search(r"(\ .*|.*\ )\1{2}", _src):
                 # print("too many same word in src")
                 continue
-            if len(src_str) / len(ex["src"]) < self.avg_tok_min_dict[cid]:
-                # print("avg token min", len(src_str) / len(ex['src']))
+            if len(_src) / len(_src_words) < self.avg_tok_min_dict[cid]:
+                # print("avg word min", len(_src) / len(_src_words)
                 continue
-            if len(src_str) / len(ex["src"]) > self.avg_tok_max_dict[cid]:
-                # print("avg token max", len(src_str) / len(ex['src']))
+            if len(_src) / len(_src_words) > self.avg_tok_max_dict[cid]:
+                # print("avg token max", len(_src) / len(_src_words))
                 continue
 
-            if self.scripts_ok_dict[cid] and re.search(ok_regex, src_str):
+            if self.scripts_ok_dict[cid] and re.search(ok_regex, _src):
                 # print("text does not fully belong to wanted script")
                 continue
-            if self.scripts_nok_dict[cid] and re.search(nok_regex, src_str):
+            if self.scripts_nok_dict[cid] and re.search(nok_regex, _src):
                 # print("Some text belong to unwanted scripts")
                 continue
 
-            if self.langid_dict[cid] != [] and _id(src_str) not in self.langid_dict[cid]:
-                # print("langid does not match", _id(src_str))
+            if self.langid_dict[cid] != [] and _id(_src) not in self.langid_dict[cid]:
+                # print("langid does not match", _id(_src))
                 continue
 
             if ex["tgt"] is not None:
-                tgt_str = " ".join(ex["tgt"])
-                if self.src_eq_tgt_dict[cid] and src_str == tgt_str:
+                _tgt = ex["tgt"]
+                _tgt_words = ex["tgt"].split(" ")
+                if self.src_eq_tgt_dict[cid] and _src == _tgt:
                     # print("src = tgt")
                     continue
-                if len(tgt_str) == 0:
+                if len(_tgt) == 0:
                     # print("tgt empty")
                     continue
-                if (len(ex["src"]) + 1) / (len(ex["tgt"]) + 1) > self.src_tgt_ratio_dict[cid] or (
-                    len(ex["src"]) + 1
-                ) / (len(ex["tgt"]) + 1) < (1 / self.src_tgt_ratio_dict[cid]):
-                    # print("src / tgt ratio ", len(src_str) / len(tgt_str))
+                if (len(_src_words) + 1) / (len(_tgt_words) + 1) > self.src_tgt_ratio_dict[cid] or (
+                    len(_src_words) + 1
+                ) / (len(_tgt_words) + 1) < (1 / self.src_tgt_ratio_dict[cid]):
+                    # print("src / tgt ratio ", len(_src) / len(_tgt))
                     continue
-                if self.same_char_dict[cid] and re.search(r"([^0-9])\1{3}", tgt_str):
+                if self.same_char_dict[cid] and re.search(r"([^0-9])\1{3}", _tgt):
                     # print("too many same char in tgt")
                     continue
-                if self.same_word_dict[cid] and re.search(r"(\ .*|.*\ )\1{2}", tgt_str):
+                if self.same_word_dict[cid] and re.search(r"(\ .*|.*\ )\1{2}", _tgt):
                     # print("too many same word in tgt")
                     continue
-                if len(tgt_str) / len(ex["tgt"]) < self.avg_tok_min_dict[cid]:
-                    # print("avg token min", len(tgt_str) / len(ex['tgt']))
+                if len(_tgt) / len(_tgt_words) < self.avg_tok_min_dict[cid]:
+                    # print("avg token min", len(_tgt) / len(ex['tgt']))
                     continue
-                if len(tgt_str) / len(ex["tgt"]) > self.avg_tok_max_dict[cid]:
-                    # print("avg token max", len(tgt_str) / len(ex['tgt']))
+                if len(_tgt) / len(_tgt_words) > self.avg_tok_max_dict[cid]:
+                    # print("avg token max", len(_tgt) / len(ex['tgt']))
                     continue
 
-                if self.scripts_ok_dict[cid] and re.search(ok_regex, tgt_str):
+                if self.scripts_ok_dict[cid] and re.search(ok_regex, _tgt):
                     # print("text does not fully belong to wanted script")
                     continue
-                if self.scripts_nok_dict[cid] and re.search(nok_regex, tgt_str):
+                if self.scripts_nok_dict[cid] and re.search(nok_regex, _tgt):
                     # print("Some text belong to unwanted scripts")
                     continue
 
-                if self.langid_dict[cid] != [] and _id(tgt_str) not in self.langid_dict[cid]:
-                    # print("langid does not match", _id(tgt_str))
+                if self.langid_dict[cid] != [] and _id(_tgt) not in self.langid_dict[cid]:
+                    # print("langid does not match", _id(_tgt))
                     continue
 
             trf_batch.append((ex, self, cid))

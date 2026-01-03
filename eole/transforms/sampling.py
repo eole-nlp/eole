@@ -111,6 +111,11 @@ class SwitchOutTransform(HammingDistanceSamplingTransform):
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
         """Apply switchout to both src and tgt side tokens."""
+        if isinstance(example["src"], str):
+            raise ValueError(
+                "SwitchOutTransform needs a list of tokens as input",
+                "ensure a tokenizer transform is set before this one.",
+            )
         if is_train:
             example["src"] = self._switchout(example["src"], self.vocabs["src"].ids_to_tokens, stats)
             example["tgt"] = self._switchout(example["tgt"], self.vocabs["tgt"].ids_to_tokens, stats)
@@ -161,6 +166,11 @@ class TokenDropTransform(HammingDistanceSamplingTransform):
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
         """Apply token drop to both src and tgt side tokens."""
+        if isinstance(example["src"], str):
+            raise ValueError(
+                "TokenDropTransform requires a list of tokens as input",
+                "ensure a tokenizer transform is set before this one.",
+            )
         if is_train:
             example["src"] = self._token_drop(example["src"], stats)
             example["tgt"] = self._token_drop(example["tgt"], stats)
@@ -218,6 +228,11 @@ class TokenMaskTransform(HammingDistanceSamplingTransform):
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
         """Apply word drop to both src and tgt side tokens."""
+        if isinstance(example["src"], str):
+            raise ValueError(
+                "TokenMaskTransform needs a list of tokens as input",
+                "ensure a tokenizer transform is set before this one.",
+            )
         if is_train:
             example["src"] = self._token_mask(example["src"], stats)
         return example
