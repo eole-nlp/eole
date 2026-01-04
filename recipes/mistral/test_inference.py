@@ -91,8 +91,5 @@ _, _, preds = engine.infer_list(test_input)
 for i in range(len(test_input)):
     print(f'{"#" * 40} example {i} {"#" * 40}')
     print(
-        preds[i][0]
-        .replace("[THINK]", "\[THINK]\n\n")
-        .replace("[/THINK]", "\[/THINK]\n\n")
-        .replace("｟newline｠", "\n")
+        preds[i][0].replace("[THINK]", "\[THINK]\n\n").replace("[/THINK]", "\[/THINK]\n\n").replace("｟newline｠", "\n")
     )
