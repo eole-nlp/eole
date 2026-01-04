@@ -29,13 +29,8 @@ config = PredictConfig(
     fuse_kvq=True,
 )
 
-# print(config)
-
 config.data_type = "image"
 engine = InferenceEnginePY(config)
-
-# print(engine.predictor.model)
-# engine.predictor.model.count_parameters()
 
 test_input = [
     {
@@ -83,9 +78,8 @@ test_input = [
     # },
 ]
 
-pred = engine.infer_list(test_input)
+_, _, preds = engine.infer_list(test_input)
 
-print(pred)
 for i in range(len(test_input)):
-    print(pred[2][i][0].replace("｟newline｠", "\n"))
-    print("\n\n")
+    print(f'{"#" * 40} example {i} {"#" * 40}')
+    print(preds[i][0].replace("｟newline｠", "\n"))

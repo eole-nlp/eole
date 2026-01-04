@@ -1,0 +1,140 @@
+seed: 1234
+share_vocab: true
+save_data: "${EOLE_MODEL_DIR}/llama3.1-8b"
+src_vocab: "${EOLE_MODEL_DIR}/llama3.1-8b/vocab.txt" # size
+#overwrite: true
+report_every: 10
+n_sample: 0
+
+tensorboard: true
+tensorboard_log_dir: "${EOLE_MODEL_DIR}/llama3.1-8b/logs/"
+
+data:
+    #cc-matrix:
+    #    path_src: "/mnt/InternalCrucial4/data/en-de/cc-matrix/cc-matrix-ende.original.clean.prompted"
+    #    weight: 10
+    #news-commentary:
+    #    path_src: "/mnt/InternalCrucial4/data/en-de/news-commentary/news-commentary-v18.de-en.prompted"
+    #    path_sco: "/mnt/InternalCrucial4/data/en-de/news-commentary/news-commentary-v18.de-en.cometkiwi22.sco"
+    #    weight: 2
+    #europarl:
+    #    path_src: "/mnt/InternalCrucial4/data/en-de/europarl/europarl-v10.de-en.prompted"
+    #    weight: 1
+    #paracrawl:
+    #    path_src: "/mnt/InternalCrucial4/data/en-de/paracrawl/paracrawlv9.en-de.original.prompted.TowerchatML"
+    #    path_sco: "/mnt/InternalCrucial4/data/en-de/paracrawl/paracrawlv9.en-de.original.cometkiwi22.sco"
+    #    weight: 2
+    #paracrawl:
+    #    path_src: "/mnt/InternalCrucial4/data/en-de/paracrawl/paracrawlv9.en-de.9M.prompted.TowerchatML"
+    #    path_sco: "/mnt/InternalCrucial4/data/en-de/paracrawl/paracrawlv9.en-de.9M.cometkiwiXL.sco"
+    #    weight: 1
+    #wikipedia:
+    #    path_src: "/mnt/InternalCrucial4/data/en-de/bt_fromde/wikipedia/wikipedia-de.txt.clean.ppl13.prompted"
+    #    weight: 1
+    #news2021:
+    #    path_src: "/mnt/InternalCrucial4/data/en-de/bt_fromde/news2021/news.2021.de.btfromde.ppl13.prompted"
+    #    weight: 1
+    #newstest22:
+    #    path_src: "/mnt/InternalCrucial4/data/en-de/testsets/newstest2022.prompted"
+    #    weight: 1
+    #newstest14-21:
+    #     path_src: "/mnt/InternalCrucial4/data/en-de/testsets/newstest14-21-origlang-en.prompted.TowerchatML"
+    #     path_sco: "/mnt/InternalCrucial4/data/en-de/testsets/newstest14-21-origlang-en.cometkiwi22.sco"
+    #     weight: 1
+    #newstest14-21:
+    #     path_src: "/mnt/InternalCrucial4/data/en-de/testsets/newstest14-21-origlang-en.prompted.TowerchatML"
+    #     path_sco: "/mnt/InternalCrucial4/data/en-de/testsets/newstest14-21-origlang-en.cometkiwiXL.sco"
+    #     weight: 1
+    #TowerBlocks-ende:
+    #     path_src: "/mnt/InternalCrucial4/LLM_work/Towerblocks-llama3.txt"
+    #     weight: 1
+    TowerBlocks-mt:
+         #path_src: "/mnt/InternalCrucial4/LLM_work/tower_blocks/all_mt_shuf_144650ex.txt"
+         path_src: "/mnt/InternalCrucial4/LLM_work/tower_blocks/all_mt_shuf_MLchat.txt"
+         weight: 1
+    TowerBlocks-ultrachat:
+         #path_src: "/mnt/InternalCrucial4/LLM_work/tower_blocks/chat_en_167566ex_firstturn_ultrachatfiltered.txt"
+         path_src: "/mnt/InternalCrucial4/LLM_work/tower_blocks/chat_en_167566ex_multiturn_ultrachatfiltered_MLchat.txt"
+         weight: 2
+    #TowerBlocks-glaivecode:
+    #     path_src: "/mnt/InternalCrucial4/LLM_work/tower_blocks/chat_mixed_100982ex_glaivecodeassistantfiltered.txt"
+    #     weight: 1
+    #1720-da-ende:
+    #     path_src: "/mnt/InternalCrucial4/data/en-de/1720-da-mlqe/1720-da.mlqe.en-de.llamachat.src"
+    #     path_sco: "/mnt/InternalCrucial4/data/en-de/1720-da-mlqe/1720-da.mlqe.en-de.sco"
+    #     weight: 1
+    #newstest14-22:
+    #    path_src: "/mnt/InternalCrucial4/data/en-de/testsets/newstest14-22-origlang-en.prompted"
+    #    path_sco: "/mnt/InternalCrucial4/data/en-de/testsets/newstest14-22-origlang-en.cometkiwi22.sco"
+    #    weight: 1
+    valid:
+        #path_src: "/mnt/InternalCrucial4/data/en-de/testsets/newstest2022.prompted.llamachat"
+        path_src: "/mnt/InternalCrucial4/data/en-de/testsets/newstest2022.prompted.TowerchatML"
+
+skip_empty_level: silent # silently ignore empty lines in the data
+
+training:
+    world_size: 1
+    gpu_ranks: [0]
+    parallel_mode: "tensor_parallel"
+    timeout: 30
+    #zero_out_prompt_loss: true
+
+    train_steps: 10000
+    valid_steps: 100
+
+    dropout_steps: [0]
+    dropout: [0.0]
+    attention_dropout: [0.0]
+    bucket_size: 10000
+    num_workers: 4
+    batch_type: "sents"
+    batch_size: 1
+    valid_batch_size: 1
+    batch_size_multiple: 1
+
+    compute_dtype: bf16
+    self_attn_backend: "flash"
+    optim: "adamw"
+    use_amp: False
+    learning_rate: 2e-4
+    warmup_steps: 500
+    decay_method: "cosine"
+    #start_decay_steps: 100
+    #decay_steps: 10
+    #learning_rate_decay: 0.95
+
+    adam_beta2: 0.999
+    accum_count: [8]
+    accum_steps: [0]
+    max_grad_norm: 5
+    label_smoothing: 0.0
+    param_init: 0
+    param_init_method: "xavier_uniform"
+    normalization: "tokens"
+
+    train_from: "${EOLE_MODEL_DIR}/llama3.1-8b" #/base_estim/step_2000"
+    model_path: "${EOLE_MODEL_DIR}/llama3.1-8b/sft"
+    keep_checkpoint: 30
+
+    save_checkpoint_steps: 100
+    
+    #quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear'] 
+    #quant_type: "bnb_NF4"
+
+    lora_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
+    #lora_layers: ['linear_values', 'linear_query', 'linear_keys', 'final_linear']
+    lora_rank: 16 #5 #2
+    lora_dropout: 0.0 #0.05
+    lora_alpha: 16
+    lora_embedding: true
+    freeze_decoder: false
+    
+    estim_loss_lambda_steps: [0]
+    estim_loss_lambda: [1.0]
+    score_threshold: 0.0 #0.79
+
+model:
+    add_estimator: false
+    embeddings:
+        freeze_word_vecs_dec: false
