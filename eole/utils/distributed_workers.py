@@ -6,19 +6,9 @@ from typing import Optional, Tuple, Any
 from datetime import timedelta
 from eole.predict import build_predictor
 from eole.transforms import get_transforms_cls, make_transforms
-from eole.constants import CorpusTask
+from eole.constants import CorpusTask, InferenceConstants
 from eole.utils.logging import init_logger, logger
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
-
-
-class CommandType:
-    """Command types for distributed inference workers."""
-
-    STOP = "stop"
-    INFER_LIST = "infer_list"
-    INFER_FILE = "infer_file"
-    SCORE_LIST = "score_list"
-    SCORE_FILE = "score_file"
 
 
 def is_master(config, device_id: int) -> bool:
@@ -277,10 +267,10 @@ def spawned_infer(
 
         # Command handler mapping
         command_handlers = {
-            CommandType.INFER_LIST: worker.handle_infer_list,
-            CommandType.INFER_FILE: worker.handle_infer_file,
-            CommandType.SCORE_LIST: worker.handle_score_list,
-            CommandType.SCORE_FILE: worker.handle_score_file,
+            InferenceConstants.INFER_LIST: worker.handle_infer_list,
+            InferenceConstants.INFER_FILE: worker.handle_infer_file,
+            InferenceConstants.SCORE_LIST: worker.handle_score_list,
+            InferenceConstants.SCORE_FILE: worker.handle_score_file,
         }
 
         # Main worker loop
@@ -291,7 +281,7 @@ def spawned_infer(
             cmd = instruction[0] if isinstance(instruction, (list, tuple)) else instruction
 
             # Handle stop command
-            if cmd == CommandType.STOP:
+            if cmd == InferenceConstants.STOP:
                 _drain_result_queue(queue_result)
                 break
 

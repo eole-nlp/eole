@@ -17,7 +17,7 @@ from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.inputters.text_corpus import save_transformed_sample
 from eole.models.model_saver import get_metadata
 from eole.utils.optimizers import Optimizer
-from eole.utils.misc import set_random_seed
+from eole.utils.misc import set_random_seed, configure_cuda_backends
 from eole.trainer import build_trainer
 from eole.models.model_saver import build_model_saver
 from eole.models.model import get_model_class
@@ -165,14 +165,6 @@ def configure_process(config: TrainConfig, device_id: int):
     if device_id >= 0 and torch.cuda.is_available():
         torch.cuda.set_device(device_id)
     set_random_seed(config.seed, device_id >= 0)
-
-
-def configure_cuda_backends():
-    """Configure CUDA backend optimizations."""
-    torch.backends.cuda.enable_mem_efficient_sdp(True)
-    torch.backends.cuda.enable_flash_sdp(False)
-    torch.backends.cuda.enable_math_sdp(False)
-    torch.backends.cuda.enable_cudnn_sdp(False)
 
 
 def main(config: TrainConfig, device_id: int):

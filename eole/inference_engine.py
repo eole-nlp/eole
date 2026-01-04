@@ -4,23 +4,13 @@ import os
 import codecs
 from typing import List, Tuple, Optional, Dict, Any
 from time import time
-from eole.constants import CorpusTask, DefaultTokens, ModelType
+from eole.constants import CorpusTask, DefaultTokens, ModelType, InferenceConstants
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.utils.distributed import ErrorHandler
 from eole.utils.distributed_workers import spawned_infer
 from eole.utils.logging import init_logger
-from eole.utils.misc import get_device_type
+from eole.utils.misc import get_device_type, configure_cuda_backends
 from eole.transforms import get_transforms_cls, make_transforms, TransformPipe
-
-
-class InferenceConstants:
-    """Constants used across inference engines."""
-
-    DEFAULT_ESTIM_VALUE = 1.0
-    CT2_DIR = "ctranslate2"
-    OUTPUT_DELIMITER = "\t"
-    STOP_COMMAND = "stop"
-    DEFAULT_DEVICE_ID = -1  # CPU
 
 
 class InferenceEngine:
@@ -33,14 +23,7 @@ class InferenceEngine:
     def __init__(self, config):
         self.config = config
         self.model_type = None
-        self._configure_cuda_backends()
-
-    def _configure_cuda_backends(self):
-        """Configure CUDA memory and computation backends."""
-        torch.backends.cuda.enable_mem_efficient_sdp(True)
-        torch.backends.cuda.enable_flash_sdp(False)
-        torch.backends.cuda.enable_math_sdp(False)
-        torch.backends.cuda.enable_cudnn_sdp(False)
+        configure_cuda_backends()
 
     def predict_batch(self, batch):
         """Predict a single batch. To be implemented by subclasses."""
@@ -377,7 +360,7 @@ class InferenceEnginePY(InferenceEngine):
 
         # Ask workers to stop
         for device_id in range(self.config.world_size):
-            self.queue_instruct[device_id].put((InferenceConstants.STOP_COMMAND, ""))
+            self.queue_instruct[device_id].put((InferenceConstants.STOP, ""))
 
         # Join workers
         for proc in self.procs:

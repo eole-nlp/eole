@@ -63,6 +63,20 @@ class PositionEncodingType(str, Enum):
     Alibi = "Alibi"
 
 
+class InferenceConstants:
+    """Constants used across inference engines."""
+
+    DEFAULT_ESTIM_VALUE = 1.0
+    CT2_DIR = "ctranslate2"
+    OUTPUT_DELIMITER = "\t"
+    STOP = "stop"
+    INFER_LIST = "infer_list"
+    INFER_FILE = "infer_file"
+    SCORE_LIST = "score_list"
+    SCORE_FILE = "score_file"
+    DEFAULT_DEVICE_ID = -1  # CPU
+
+
 def fused_gated_gelu(x):
     assert _vllm_available, "Fused Gate requires vllm installed"
     d = x.shape[-1] // 2
