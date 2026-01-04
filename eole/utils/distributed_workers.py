@@ -28,12 +28,21 @@ def multi_init(config, device_id):
         world_size=dist_world_size,
         rank=config.gpu_ranks[device_id],
         timeout=timedelta(seconds=config.timeout),
+        device_id=device_id,
     )
     gpu_rank = torch.distributed.get_rank()
     if not is_master(config, device_id):
         logger.disabled = True
 
     return gpu_rank
+
+
+def cleanup_distributed():
+    import torch.distributed as dist
+
+    if dist.is_initialized():
+        dist.barrier()  # optional but recommended
+        dist.destroy_process_group()
 
 
 def spawned_train(process_fn, config, device_id, error_queue):  # noqa: E501
@@ -54,31 +63,53 @@ def spawned_train(process_fn, config, device_id, error_queue):  # noqa: E501
         import traceback
 
         error_queue.put((config.training.gpu_ranks[device_id], traceback.format_exc()))
+    finally:
+        cleanup_distributed()
 
 
 def spawned_infer(config, device_id, error_queue, queue_instruct, queue_result, queue_settings=None):
     """Run various functions for prediction in spawned process on `device_id`."""
     try:
-        running_config = config  # will probably switch to config.inference at some point
+        running_config = config
         gpu_rank = multi_init(running_config, device_id)
         if gpu_rank != running_config.gpu_ranks[device_id]:
-            raise AssertionError(
-                "An error occurred in \
-                  Distributed initialization"
-            )
+            raise AssertionError("An error occurred in Distributed initialization")
+
         torch.cuda.set_device(device_id)
         init_logger(config.log_file)
         predictor = build_predictor(config, device_id, logger=logger, report_score=True)
         transforms_cls = get_transforms_cls(config._all_transform)
         transforms = make_transforms(config, transforms_cls, predictor.vocabs)
+
+        if config.parallel_mode == "data_parallel":
+            # same model on all GPU - stride = nb of gpu
+            offset = max(0, device_id)
+            stride = max(1, len(config.gpu_ranks))
+        else:
+            offset = 0
+            stride = 1
+
         while True:
             instruction = queue_instruct.get()
-            if queue_settings is not None:
-                settings = queue_settings.get()
-                predictor.update_settings(**settings)
-            if instruction[0] == "stop":
+            # handle string or tuple commands
+            cmd = instruction[0] if isinstance(instruction, (list, tuple)) else instruction
+            if cmd == "stop":
+                # Drain result queue to release any remaining CUDA tensors
+                if not queue_result.empty():
+                    try:
+                        while True:
+                            _ = queue_result.get_nowait()
+                    except Exception:
+                        pass
                 break
-            elif instruction[0] == "infer_list":
+
+            # update settings if present
+            if queue_settings is not None and not queue_settings.empty():
+                settings = queue_settings.get()
+                if settings:
+                    predictor.update_settings(**settings)
+
+            if cmd == "infer_list":
                 src = instruction[1]
                 infer_iter = build_dynamic_dataset_iter(
                     config,
@@ -87,6 +118,8 @@ def spawned_infer(config, device_id, error_queue, queue_instruct, queue_result, 
                     task=CorpusTask.INFER,
                     src=src,
                     device_id=device_id,
+                    offset=offset,
+                    stride=stride,
                 )
                 scores, estims, preds = predictor._predict(
                     infer_iter,
@@ -97,7 +130,8 @@ def spawned_infer(config, device_id, error_queue, queue_instruct, queue_result, 
                 queue_result.put(scores)
                 queue_result.put(estims)
                 queue_result.put(preds)
-            elif instruction[0] == "infer_file":
+
+            elif cmd == "infer_file":
                 config.src = instruction[1].src
                 infer_iter = build_dynamic_dataset_iter(
                     config,
@@ -115,7 +149,8 @@ def spawned_infer(config, device_id, error_queue, queue_instruct, queue_result, 
                 queue_result.put(scores)
                 queue_result.put(estims)
                 queue_result.put(preds)
-            elif instruction[0] == "score_list":
+
+            elif cmd == "score_list":
                 tgt = instruction[1]
                 infer_iter = build_dynamic_dataset_iter(
                     config,
@@ -128,7 +163,8 @@ def spawned_infer(config, device_id, error_queue, queue_instruct, queue_result, 
                 )
                 score_results = predictor._score(infer_iter)
                 queue_result.put(score_results)
-            elif instruction[0] == "score_file":
+
+            elif cmd == "score_file":
                 config.src = instruction[1].src
                 config.tgt = instruction[1].src
                 infer_iter = build_dynamic_dataset_iter(
@@ -142,9 +178,10 @@ def spawned_infer(config, device_id, error_queue, queue_instruct, queue_result, 
                 queue_result.put(score_results)
 
     except KeyboardInterrupt:
-        pass  # killed by parent, do nothing
+        pass  # killed by parent
     except Exception:
-        # propagate exception to parent process, keeping original traceback
         import traceback
 
         error_queue.put((running_config.gpu_ranks[device_id], traceback.format_exc()))
+    finally:
+        cleanup_distributed()

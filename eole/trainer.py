@@ -1,18 +1,14 @@
 """
-This is the loadable seq2seq trainer library that is
-in charge of training details, loss compute, and statistics.
-See train.py for a use case of this library.
-
-Note: To make this a general library, we implement *only*
-      mechanism things here(i.e. what to do), and leave the strategy
-      things to users(i.e. how to do it). Also see train.py(one of the
-      users of this library) for the strategy things we do.
+trainer library.
 """
 
 import time
 import sys
 import torch
 import traceback
+from dataclasses import dataclass
+from typing import List, Optional, Tuple, Dict, Any
+
 import eole.utils
 from eole.utils.distributed import all_gather_list, all_reduce_and_rescale_tensors
 from eole.utils.loss import LossCompute
@@ -22,130 +18,170 @@ from eole.utils.scoring_utils import ScoringPreparator
 from eole.scorers import get_scorers_cls, build_scorers
 
 
-def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
-    """
-    Simplify `Trainer` creation based on user `opt`s*
+@dataclass
+class TrainerConfig:
+    """Configuration for trainer initialization."""
 
-    Args:
-        opt (:obj:`Namespace`): user options (usually from argument parsing)
-        model (:obj:`eole.models.BaseModel`): the model to train
-        fields (dict): dict of fields
-        optim (:obj:`eole.utils.Optimizer`): optimizer used during training
-        data_type (str): string describing the type of data
-            e.g. "text"
-        model_saver(:obj:`eole.models.ModelSaverBase`): the utility object
-            used to save the model
-    """
+    norm_method: str = "sents"
+    accum_count: List[int] = None
+    accum_steps: List[int] = None
+    n_gpu: int = 1
+    gpu_rank: int = 1
+    parallel_mode: str = "data_parallel"
+    with_align: bool = False
+    average_decay: float = 0
+    average_every: int = 1
+    dropout: List[float] = None
+    attention_dropout: List[float] = None
+    dropout_steps: List[int] = None
+    zero_out_prompt_loss: bool = False
+    estim_loss_lambda: List[float] = None
+    estim_loss_lambda_steps: List[int] = None
 
-    train_loss = LossCompute.from_config(config, model, vocabs)
-    valid_loss = LossCompute.from_config(config, model, vocabs, train=False)
-    estim_loss_lambda = config.training.estim_loss_lambda
-    estim_loss_lambda_steps = config.training.estim_loss_lambda_steps
+    def __post_init__(self):
+        self.accum_count = self.accum_count or [1]
+        self.accum_steps = self.accum_steps or [0]
+        self.dropout = self.dropout or [0.3]
+        self.attention_dropout = self.attention_dropout or [0.1]
+        self.dropout_steps = self.dropout_steps or [0]
+        self.estim_loss_lambda = self.estim_loss_lambda or [1.0]
+        self.estim_loss_lambda_steps = self.estim_loss_lambda_steps or [0]
 
-    scoring_preparator = ScoringPreparator(vocabs, config)
-    validset_transforms = getattr(config.data.get("valid", None), "transforms", None)
-    if validset_transforms:
-        scoring_preparator.warm_up(validset_transforms)
-    scorers_cls = get_scorers_cls(config.valid_metrics)
-    valid_scorers = build_scorers(config, scorers_cls)
-    running_config = config.training
-    norm_method = running_config.normalization
-    accum_count = running_config.accum_count
-    accum_steps = running_config.accum_steps
-    n_gpu = running_config.world_size
-    parallel_mode = running_config.parallel_mode
-    average_decay = running_config.average_decay
-    average_every = running_config.average_every
-    dropout = running_config.dropout
-    attention_dropout = running_config.attention_dropout
-    dropout_steps = running_config.dropout_steps
-    zero_out_prompt_loss = running_config.zero_out_prompt_loss
-    if device_id >= 0:
-        gpu_rank = running_config.gpu_ranks[device_id]
-    else:
-        gpu_rank = -1
-        n_gpu = 0
 
-    earlystopper = (
-        eole.utils.EarlyStopping(
-            running_config.early_stopping,
-            scorers=eole.utils.scorers_from_config(running_config),
-        )
-        if running_config.early_stopping > 0
-        else None
-    )
+class ScheduledParameter:
+    """Manages parameters that change on a schedule."""
 
-    report_manager = eole.utils.build_report_manager(config, gpu_rank)
+    def __init__(self, values: List[float], steps: List[int], name: str):
+        self.values = values
+        self.steps = steps
+        self.name = name
+        self.current_value = values[0]
 
-    trainer = Trainer(
+    def update(self, step: int) -> bool:
+        """Update parameter if step matches schedule. Returns True if updated."""
+        for i, threshold in enumerate(self.steps):
+            if step > 1 and step == threshold + 1:
+                self.current_value = self.values[i]
+                logger.info(f"Updated {self.name} to {self.current_value} at step {step}")
+                return True
+        return False
+
+
+class BatchProcessor:
+    """Handles batch processing and gradient accumulation."""
+
+    def __init__(
+        self,
         model,
         train_loss,
-        valid_loss,
-        scoring_preparator,
-        valid_scorers,
         optim,
-        norm_method,
-        accum_count,
-        accum_steps,
-        n_gpu,
-        gpu_rank,
-        parallel_mode,
-        report_manager,
-        with_align=(
-            True if getattr(config.model.decoder, "lambda_align", 0.0) > 0 else False
-        ),  # patch to support non transformer configs
-        model_saver=model_saver,
-        average_decay=average_decay,
-        average_every=average_every,
-        earlystopper=earlystopper,
-        dropout=dropout,
-        attention_dropout=attention_dropout,
-        dropout_steps=dropout_steps,
-        zero_out_prompt_loss=zero_out_prompt_loss,
-        estim_loss_lambda=estim_loss_lambda,
-        estim_loss_lambda_steps=estim_loss_lambda_steps,
-    )
-    return trainer
+        n_gpu: int,
+        parallel_mode: str,
+        with_align: bool,
+        zero_out_prompt_loss: bool,
+        estim_loss_lambda: float,
+        accum_count: int,
+    ):
+        self.model = model
+        self.train_loss = train_loss
+        self.optim = optim
+        self.n_gpu = n_gpu
+        self.parallel_mode = parallel_mode
+        self.with_align = with_align
+        self.zero_out_prompt_loss = zero_out_prompt_loss
+        self.estim_loss_lambda = estim_loss_lambda
+        self.accum_count = accum_count
+
+    def process_batch(
+        self,
+        batch: Dict[str, Any],
+        normalization: int,
+        accum_count: int,
+        total_stats: eole.utils.Statistics,
+        report_stats: eole.utils.Statistics,
+    ) -> bool:
+        """Process a single batch. Returns False if batch should be skipped."""
+        src = batch["src"]
+        src_len = batch["srclen"]
+        tgt = batch["tgt"]
+
+        # Update token counts
+        n_tokens = src_len.sum().item()
+        report_stats.n_src_tokens += n_tokens
+        total_stats.n_src_tokens += n_tokens
+
+        kwargs = {"images": batch["images"], "prefix_len": batch["prefix_len"]}
+
+        try:
+            loss, batch_stats = self._compute_loss(src, tgt, src_len, batch, normalization, accum_count, kwargs)
+
+            if loss is not None:
+                self.optim.backward(loss)
+
+            total_stats.update(batch_stats)
+            report_stats.update(batch_stats)
+            return True
+
+        except Exception as exc:
+            return self._handle_training_error(exc)
+
+    def _compute_loss(
+        self, src, tgt, src_len, batch: Dict[str, Any], normalization: int, accum_count: int, kwargs: Dict[str, Any]
+    ) -> Tuple[Optional[torch.Tensor], eole.utils.Statistics]:
+        """Compute loss for a batch."""
+        with get_autocast(enabled=self.optim.amp):
+            model_out, attns, estim = self.model(src, tgt, src_len, with_align=self.with_align, **kwargs)
+
+            if self.zero_out_prompt_loss:
+                batch = self.train_loss.ignore_prompt(batch)
+
+            loss, batch_stats, auxloss = self.train_loss(batch, model_out, attns, estim=estim)
+
+        if loss is not None:
+            loss = loss / normalization
+            auxloss = auxloss / (accum_count * src_len.size(0))
+            loss = loss + auxloss * self.estim_loss_lambda
+
+        return loss, batch_stats
+
+    def _handle_training_error(self, exc: Exception) -> bool:
+        """Handle training errors. Returns False if batch should be skipped."""
+        trace_content = traceback.format_exc()
+
+        if "CUDA out of memory" in trace_content:
+            logger.info(
+                "Step %d, cuda OOM - batch removed",
+                self.optim.training_step,
+            )
+            clear_gpu_cache()
+
+            if self.n_gpu > 1 and self.parallel_mode == "tensor_parallel":
+                torch.distributed.destroy_process_group()
+                sys.exit()
+
+            return False  # Skip this batch
+        else:
+            traceback.print_exc()
+            raise exc
 
 
-class Trainer(object):
-    """Class that controls the training process.
+class GradientSynchronizer:
+    """Handles gradient synchronization for distributed training."""
 
-    Args:
-        model(:py:class:`eole.models.model.BaseModel`): model to train
-        train_loss(:obj:`eole.utils.loss.LossComputeBase`):
-          training loss computation
-        valid_loss(:obj:`eole.utils.loss.LossComputeBase`):
-          training loss computation
-        scoring_preparator(:obj:`eole.predict.utils.ScoringPreparator`):
-          preparator for the calculation of metrics via the
-          _eval_handler method
-        valid_scorers (dict): keeps in memory the current values
-          of the validation metrics
-        optim(:obj:`eole.utils.optimizers.Optimizer`):
-          the optimizer responsible for update
-        accum_count(list): accumulate gradients this many times.
-        accum_steps(list): steps for accum gradients changes.
-        n_gpu (int): number of gpu.
-        gpu_rank (int): ordinal rank of the gpu in the list.
-        report_manager(:obj:`eole.utils.ReportMgrBase`):
-          the object that creates reports, or None
-        with_align (bool): whether to jointly lear alignment
-          (Transformer)
-        model_saver(:obj:`eole.models.ModelSaverBase`): the saver is
-          used to save a checkpoint.
-          Thus nothing will be saved if this parameter is None.
-        average_decay (float): cf opt.average_decay
-        average_every (int): average model every x steps.
-        earlystopper (:obj:`eole.utils.EarlyStopping`): add early
-          stopping mecanism
-        dropout (float): dropout value in RNN or FF layers.
-        attention_dropout (float): dropaout in attention layers.
-        dropout_steps (list): dropout values scheduling in steps.
-        zero_out_prompt_loss (bool): whether to zero-out the prompt loss
-            (mostly for LLM finetuning).
-        estim_loss_lambda (List[float]): weight applied to estimator loss
-        estim_loss_lambda_steps (List[int]): steps to apply to estimator values"""
+    def __init__(self, model, n_gpu: int, parallel_mode: str):
+        self.model = model
+        self.n_gpu = n_gpu
+        self.parallel_mode = parallel_mode
+
+    def synchronize(self):
+        """Synchronize gradients across GPUs if needed."""
+        if self.n_gpu > 1 and self.parallel_mode == "data_parallel":
+            grads = [p.grad.data for p in self.model.parameters() if p.requires_grad and p.grad is not None]
+            all_reduce_and_rescale_tensors(grads, float(self.n_gpu))
+
+
+class Trainer:
+    """Refactored trainer with improved separation of concerns."""
 
     def __init__(
         self,
@@ -155,182 +191,100 @@ class Trainer(object):
         scoring_preparator,
         valid_scorers,
         optim,
-        norm_method="sents",
-        accum_count=[1],
-        accum_steps=[0],
-        n_gpu=1,
-        gpu_rank=1,
-        parallel_mode="data_parallel",
+        config: TrainerConfig,
         report_manager=None,
-        with_align=False,
         model_saver=None,
-        average_decay=0,
-        average_every=1,
         earlystopper=None,
-        dropout=[0.3],
-        attention_dropout=[0.1],
-        dropout_steps=[0],
-        zero_out_prompt_loss=False,
-        estim_loss_lambda=[1.0],
-        estim_loss_lambda_steps=[0],
     ):
-        # Basic attributes.
-
         self.model = model
         self.train_loss = train_loss
-        self.estim_loss_lambda_l = estim_loss_lambda
-        self.estim_loss_lambda = estim_loss_lambda[0]
-        self.estim_loss_lambda_steps = estim_loss_lambda_steps
         self.valid_loss = valid_loss
         self.scoring_preparator = scoring_preparator
         self.valid_scorers = valid_scorers
         self.optim = optim
-        self.norm_method = norm_method
-        self.accum_count_l = accum_count
-        self.accum_count = accum_count[0]
-        self.accum_steps = accum_steps
-        self.n_gpu = n_gpu
-        self.gpu_rank = gpu_rank
-        self.parallel_mode = parallel_mode
+        self.config = config
         self.report_manager = report_manager
-        self.with_align = with_align
         self.model_saver = model_saver
-        self.average_decay = average_decay
-        self.moving_average = None
-        self.average_every = average_every
         self.earlystopper = earlystopper
-        self.dropout = dropout
-        self.attention_dropout = attention_dropout
-        self.dropout_steps = dropout_steps
-        self.zero_out_prompt_loss = zero_out_prompt_loss
+        self.moving_average = None
 
-        for i in range(len(self.accum_count_l)):
-            assert self.accum_count_l[i] > 0
+        # Initialize scheduled parameters
+        self.dropout_scheduler = ScheduledParameter(config.dropout, config.dropout_steps, "dropout/attention_dropout")
+        self.estim_lambda_scheduler = ScheduledParameter(
+            config.estim_loss_lambda, config.estim_loss_lambda_steps, "estimator lambda"
+        )
+        self.accum_count_scheduler = ScheduledParameter(config.accum_count, config.accum_steps, "accumulation count")
 
-        # Set model in training mode.
+        # Initialize helper classes
+        self.batch_processor = BatchProcessor(
+            model=model,
+            train_loss=train_loss,
+            optim=optim,
+            n_gpu=config.n_gpu,
+            parallel_mode=config.parallel_mode,
+            with_align=config.with_align,
+            zero_out_prompt_loss=config.zero_out_prompt_loss,
+            estim_loss_lambda=self.estim_lambda_scheduler.current_value,
+            accum_count=int(self.accum_count_scheduler.current_value),
+        )
+
+        self.gradient_synchronizer = GradientSynchronizer(
+            model=model, n_gpu=config.n_gpu, parallel_mode=config.parallel_mode
+        )
+
         self.model.train()
-
-    def _eval_handler(self, scorer, preds, texts_ref):
-        """Trigger metrics calculations
-
-        Args:
-            scorer (:obj:``eole.scorer.Scorer``): scorer.
-            preds, texts_ref: outputs of the scorer's `translate` method.
-
-        Returns:
-            The metric calculated by the scorer."""
-
-        return scorer.compute_score(preds, texts_ref)
-
-    def _accum_count(self, step):
-        for i in range(len(self.accum_steps)):
-            if step > self.accum_steps[i]:
-                _accum = self.accum_count_l[i]
-        return _accum
-
-    def _maybe_update_dropout(self, step):
-        for i in range(len(self.dropout_steps)):
-            if step > 1 and step == self.dropout_steps[i] + 1:
-                self.model.update_dropout(self.dropout[i], self.attention_dropout[i])
-                logger.info(
-                    "Updated dropout/attn dropout to %f %f at step %d"
-                    % (self.dropout[i], self.attention_dropout[i], step)
-                )
-
-    def _maybe_update_estim_lambda(self, step):
-        for i in range(len(self.estim_loss_lambda_steps)):
-            if step > 1 and step == self.estim_loss_lambda_steps[i] + 1:
-                self.estim_loss_lambda = self.estim_loss_lambda_l[i]
-                logger.info("Updated estimator lambda to %f at step %d" % (self.estim_loss_lambda_l[i], step))
-
-    def _accum_batches(self, iterator):
-        batches = []
-        normalization = 0
-        self.accum_count = self._accum_count(self.optim.training_step)
-        for batch, bucket_idx in iterator:
-            batches.append(batch)
-            if self.norm_method == "tokens":
-                num_tokens = batch["tgt"][:, 1:].ne(self.train_loss.padding_idx).sum()
-                normalization += num_tokens.item()
-                normalization -= len(batch["tgt"])  # don't count for EOS
-            else:
-                normalization += len(batch["tgt"])
-            if len(batches) == self.accum_count:
-                yield batches, normalization
-                self.accum_count = self._accum_count(self.optim.training_step)
-                batches = []
-                normalization = 0
-        if batches:
-            yield batches, normalization
-
-    def _update_average(self, step):
-        if self.moving_average is None:
-            copy_params = [params.detach() for params in self.model.parameters()]
-            self.moving_average = copy_params
-        else:
-            average_decay = max(self.average_decay, 1 - (step + 1) / (step + 10))
-            for (i, avg), cpt in zip(enumerate(self.moving_average), self.model.parameters()):
-                self.moving_average[i] = (1 - average_decay) * avg + cpt.detach() * average_decay
 
     def train(
         self,
         train_iter,
-        train_steps,
-        save_checkpoint_steps=5000,
+        train_steps: int,
+        save_checkpoint_steps: int = 5000,
         valid_iter=None,
-        valid_steps=10000,
+        valid_steps: int = 10000,
     ):
-        """The main training loop by iterating over ``train_iter`` and possibly
-        running validation on ``valid_iter``.
-
-        Args:
-            train_iter: An iterator that returns the next training batch.
-            train_steps: Run training for this many iterations.
-            save_checkpoint_steps: Save a checkpoint every this many
-              iterations.
-            valid_iter: A generator that returns the next validation batch.
-            valid_steps: Run evaluation every this many iterations.
-
-        Returns:
-            :obj:``nmt.Statistics``: training loss statistics"""
-
+        """Main training loop."""
         if valid_iter is None:
             logger.info("Start training loop without validation...")
-            valid_stats = None
         else:
             logger.info("Start training loop and validate every %d steps...", valid_steps)
-        logger.info("Scoring with: {}".format(self.scoring_preparator.transforms))
+
+        logger.info(f"Scoring with: {self.scoring_preparator.transforms}")
 
         total_stats = eole.utils.Statistics()
         report_stats = eole.utils.Statistics()
         self._start_report_manager(start_time=total_stats.start_time)
-        # Let's clean the GPUs before training loop
         clear_gpu_cache()
 
         for i, (batches, normalization) in enumerate(self._accum_batches(train_iter)):
-
             step = self.optim.training_step
-            # UPDATE DROPOUT
-            self._maybe_update_dropout(step)
-            self._maybe_update_estim_lambda(step)
 
-            if self.n_gpu > 1 and self.parallel_mode == "data_parallel":
+            # Update scheduled parameters
+            self._update_scheduled_params(step)
+
+            # Synchronize normalization across GPUs
+            if self.config.n_gpu > 1 and self.config.parallel_mode == "data_parallel":
                 normalization = sum(all_gather_list(normalization))
 
-            self._gradient_accumulation(batches, normalization, total_stats, report_stats)
+            # Process batches
+            self._process_accumulated_batches(batches, normalization, total_stats, report_stats)
 
-            if self.average_decay > 0 and i % self.average_every == 0:
+            # Update moving average
+            if self.config.average_decay > 0 and i % self.config.average_every == 0:
                 self._update_average(step)
 
+            # Report training progress
             report_stats = self._maybe_report_training(
                 step, train_steps, self.optim.learning_rate(step=step), report_stats
             )
 
+            # Validation
+            valid_stats = None
             if valid_iter is not None and step % valid_steps == 0:
-                if self.parallel_mode == "tensor_parallel" or self.gpu_rank <= 0:
+                if self.config.parallel_mode == "tensor_parallel" or self.config.gpu_rank <= 0:
                     valid_stats = self.validate(valid_iter, moving_average=self.moving_average)
 
-            if step % valid_steps == 0 and self.gpu_rank <= 0:
+            # Report step
+            if step % valid_steps == 0 and self.config.gpu_rank <= 0:
                 self._report_step(
                     self.optim.learning_rate(),
                     step,
@@ -338,33 +292,105 @@ class Trainer(object):
                     train_stats=total_stats,
                 )
 
-                # Run patience mechanism
-                if self.earlystopper is not None:
-                    self.earlystopper(valid_stats, step)
-                    # If the patience has reached the limit, stop training
-                    if self.earlystopper.has_stopped():
-                        logger.info("earlystopper has_stopped!")
-                        break
+                # Check early stopping
+                if self._should_stop_early(valid_stats, step):
+                    break
 
-            if self.model_saver is not None and (save_checkpoint_steps != 0 and step % save_checkpoint_steps == 0):
+            # Save checkpoint
+            if self.model_saver is not None and save_checkpoint_steps != 0 and step % save_checkpoint_steps == 0:
                 self.model_saver.save(step, moving_average=self.moving_average)
 
+            # Check if training is complete
             if train_steps > 0 and step >= train_steps:
                 break
 
+        # Final checkpoint
         if self.model_saver is not None:
             self.model_saver.save(step, moving_average=self.moving_average)
+
         return total_stats
 
+    def _update_scheduled_params(self, step: int):
+        """Update all scheduled parameters."""
+        if self.dropout_scheduler.update(step):
+            self.model.update_dropout(
+                self.dropout_scheduler.current_value,
+                self.config.attention_dropout[self.config.dropout_steps.index(step - 1)],
+            )
+
+        if self.estim_lambda_scheduler.update(step):
+            self.batch_processor.estim_loss_lambda = self.estim_lambda_scheduler.current_value
+
+        if self.accum_count_scheduler.update(step):
+            self.batch_processor.accum_count = int(self.accum_count_scheduler.current_value)
+
+    def _process_accumulated_batches(
+        self,
+        batches: List[Dict[str, Any]],
+        normalization: int,
+        total_stats: eole.utils.Statistics,
+        report_stats: eole.utils.Statistics,
+    ):
+        """Process accumulated batches and update gradients."""
+        self.optim.zero_grad(set_to_none=True)
+
+        accum_count = int(self.accum_count_scheduler.current_value)
+
+        for batch in batches:
+            success = self.batch_processor.process_batch(batch, normalization, accum_count, total_stats, report_stats)
+            if not success:
+                continue  # Skip failed batch
+
+        self.gradient_synchronizer.synchronize()
+        self.optim.step()
+
+    def _should_stop_early(self, valid_stats: Optional[eole.utils.Statistics], step: int) -> bool:
+        """Check if training should stop early."""
+        if self.earlystopper is None:
+            return False
+
+        self.earlystopper(valid_stats, step)
+        if self.earlystopper.has_stopped():
+            logger.info("earlystopper has_stopped!")
+            return True
+        return False
+
+    def _accum_batches(self, iterator):
+        """Accumulate batches for gradient accumulation."""
+        batches = []
+        normalization = 0
+        accum_count = int(self.accum_count_scheduler.current_value)
+
+        for batch, bucket_idx in iterator:
+            batches.append(batch)
+
+            if self.config.norm_method == "tokens":
+                num_tokens = batch["tgt"][:, 1:].ne(self.train_loss.padding_idx).sum()
+                normalization += num_tokens.item()
+                normalization -= len(batch["tgt"])
+            else:
+                normalization += len(batch["tgt"])
+
+            if len(batches) == accum_count:
+                yield batches, normalization
+                accum_count = int(self.accum_count_scheduler.current_value)
+                batches = []
+                normalization = 0
+
+        if batches:
+            yield batches, normalization
+
+    def _update_average(self, step: int):
+        """Update exponential moving average of parameters."""
+        if self.moving_average is None:
+            self.moving_average = [params.detach() for params in self.model.parameters()]
+        else:
+            average_decay = max(self.config.average_decay, 1 - (step + 1) / (step + 10))
+            for i, (avg, param) in enumerate(zip(self.moving_average, self.model.parameters())):
+                self.moving_average[i] = (1 - average_decay) * avg + param.detach() * average_decay
+
     def validate(self, valid_iter, moving_average=None):
-        """Validate model.
-
-        Args:
-            valid_iter: validate data iterator
-
-        Returns:
-            :obj:``nmt.Statistics``: validation loss statistics"""
-
+        """Validate model."""
         valid_model = self.model
         if moving_average:
             # swap model params w/ moving average
@@ -387,10 +413,10 @@ class Trainer(object):
 
                 with get_autocast(enabled=self.optim.amp):
                     # F-prop through the model.
-                    model_out, attns, estim = valid_model(src, tgt, src_len, with_align=self.with_align)
+                    model_out, attns, estim = valid_model(src, tgt, src_len, with_align=self.config.with_align)
 
                     # Compute loss.
-                    if self.zero_out_prompt_loss:
+                    if self.config.zero_out_prompt_loss:
                         batch = self.valid_loss.ignore_prompt(batch)
                     _, batch_stats, _ = self.valid_loss(batch, model_out, attns, estim=estim)
 
@@ -409,7 +435,7 @@ class Trainer(object):
                 with get_autocast(enabled=self.optim.amp):
                     preds, texts_ref = self.scoring_preparator.translate(
                         model=self.model,
-                        gpu_rank=self.gpu_rank,
+                        gpu_rank=self.config.gpu_rank,
                         step=self.optim.training_step,
                     )
                 logger.info(
@@ -443,70 +469,20 @@ class Trainer(object):
 
         return stats
 
-    def _gradient_accumulation(self, true_batches, normalization, total_stats, report_stats):
-        """Function that iterates over big batches = ``true_batches``
+    def _eval_handler(self, scorer, preds, texts_ref):
+        """Trigger metrics calculations
 
-        Perform a backward on the loss of each sub_batch and
-        finally update the params at the end of the big batch."""
+        Args:
+            scorer (:obj:``eole.scorer.Scorer``): scorer.
+            preds, texts_ref: outputs of the scorer's `translate` method.
 
-        self.optim.zero_grad(set_to_none=True)
+        Returns:
+            The metric calculated by the scorer."""
 
-        for k, batch in enumerate(true_batches):
-
-            src = batch["src"]
-            src_len = batch["srclen"]
-            report_stats.n_src_tokens += src_len.sum().item()
-            total_stats.n_src_tokens += src_len.sum().item()
-            tgt = batch["tgt"]
-            kwargs = {"images": batch["images"], "prefix_len": batch["prefix_len"]}
-
-            try:
-                with get_autocast(enabled=self.optim.amp):
-                    model_out, attns, estim = self.model(src, tgt, src_len, with_align=self.with_align, **kwargs)
-                    if self.zero_out_prompt_loss:
-                        # The loss of the prompt will be set to zero.
-                        batch = self.train_loss.ignore_prompt(batch)
-                    loss, batch_stats, auxloss = self.train_loss(
-                        batch,
-                        model_out,
-                        attns,
-                        estim=estim,
-                    )
-                if loss is not None:
-                    loss /= normalization
-                    auxloss /= self.accum_count * src_len.size(0)
-                    loss = loss + auxloss * self.estim_loss_lambda
-                    self.optim.backward(loss)
-
-                total_stats.update(batch_stats)
-                report_stats.update(batch_stats)
-
-            except Exception as exc:
-                trace_content = traceback.format_exc()
-                if "CUDA out of memory" in trace_content:
-                    logger.info(
-                        "Step %d, cuda OOM - batch removed",
-                        self.optim.training_step,
-                    )
-                    clear_gpu_cache()
-                    if self.n_gpu > 1 and self.parallel_mode == "tensor_parallel":
-                        torch.distributed.destroy_process_group()
-                        sys.exit()
-                else:
-                    traceback.print_exc()
-                    raise exc
-
-        # in case of multi step gradient accumulation,
-        # update only after accum batches
-        if self.n_gpu > 1 and self.parallel_mode == "data_parallel":
-            grads = [p.grad.data for p in self.model.parameters() if p.requires_grad and p.grad is not None]
-            all_reduce_and_rescale_tensors(grads, float(self.n_gpu))
-
-        self.optim.step()
+        return scorer.compute_score(preds, texts_ref)
 
     def _start_report_manager(self, start_time=None):
-        """Simple function to start report manager (if any)"""
-
+        """Start report manager."""
         if self.report_manager is not None:
             if start_time is None:
                 self.report_manager.start()
@@ -514,28 +490,89 @@ class Trainer(object):
                 self.report_manager.start_time = start_time
 
     def _maybe_report_training(self, step, num_steps, learning_rate, report_stats):
-        """Simple function to report training stats (if report_manager is set)
-        see ``eole.utils.ReportManagerBase.report_training`` for doc"""
-
+        """Report training stats if manager is set."""
         if self.report_manager is not None:
             return self.report_manager.report_training(
                 step,
                 num_steps,
                 learning_rate,
-                None if self.earlystopper is None else self.earlystopper.current_tolerance,
+                (None if self.earlystopper is None else self.earlystopper.current_tolerance),
                 report_stats,
-                multigpu=self.n_gpu > 1 and self.parallel_mode == "data_parallel",
+                multigpu=(self.config.n_gpu > 1 and self.config.parallel_mode == "data_parallel"),
             )
 
     def _report_step(self, learning_rate, step, valid_stats=None, train_stats=None):
-        """Simple function to report stats (if report_manager is set)
-        see ``eole.utils.ReportManagerBase.report_step`` for doc"""
-
+        """Report step stats."""
         if self.report_manager is not None:
             return self.report_manager.report_step(
                 learning_rate,
-                None if self.earlystopper is None else self.earlystopper.current_tolerance,
+                (None if self.earlystopper is None else self.earlystopper.current_tolerance),
                 step,
                 valid_stats=valid_stats,
                 train_stats=train_stats,
             )
+
+
+def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
+    """Build trainer from configuration."""
+    train_loss = LossCompute.from_config(config, model, vocabs)
+    valid_loss = LossCompute.from_config(config, model, vocabs, train=False)
+
+    scoring_preparator = ScoringPreparator(vocabs, config)
+    validset_transforms = getattr(config.data.get("valid", None), "transforms", None)
+    if validset_transforms:
+        scoring_preparator.warm_up(validset_transforms)
+
+    scorers_cls = get_scorers_cls(config.valid_metrics)
+    valid_scorers = build_scorers(config, scorers_cls)
+
+    running_config = config.training
+
+    if device_id >= 0:
+        gpu_rank = running_config.gpu_ranks[device_id]
+        n_gpu = running_config.world_size
+    else:
+        gpu_rank = -1
+        n_gpu = 0
+
+    earlystopper = (
+        eole.utils.EarlyStopping(
+            running_config.early_stopping,
+            scorers=eole.utils.scorers_from_config(running_config),
+        )
+        if running_config.early_stopping > 0
+        else None
+    )
+
+    report_manager = eole.utils.build_report_manager(config, gpu_rank)
+
+    trainer_config = TrainerConfig(
+        norm_method=running_config.normalization,
+        accum_count=running_config.accum_count,
+        accum_steps=running_config.accum_steps,
+        n_gpu=n_gpu,
+        gpu_rank=gpu_rank,
+        parallel_mode=running_config.parallel_mode,
+        with_align=(True if getattr(config.model.decoder, "lambda_align", 0.0) > 0 else False),
+        average_decay=running_config.average_decay,
+        average_every=running_config.average_every,
+        dropout=running_config.dropout,
+        attention_dropout=running_config.attention_dropout,
+        dropout_steps=running_config.dropout_steps,
+        zero_out_prompt_loss=running_config.zero_out_prompt_loss,
+        estim_loss_lambda=running_config.estim_loss_lambda,
+        estim_loss_lambda_steps=running_config.estim_loss_lambda_steps,
+    )
+
+    return Trainer(
+        model=model,
+        train_loss=train_loss,
+        valid_loss=valid_loss,
+        scoring_preparator=scoring_preparator,
+        valid_scorers=valid_scorers,
+        optim=optim,
+        config=trainer_config,
+        report_manager=report_manager,
+        model_saver=model_saver,
+        earlystopper=earlystopper,
+    )

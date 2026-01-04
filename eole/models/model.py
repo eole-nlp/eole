@@ -15,7 +15,7 @@ from eole.modules.lora import (
 )
 from torch.nn.utils import skip_init
 from torch.nn.init import xavier_uniform_, zeros_, uniform_, normal_
-from eole.utils.misc import use_gpu, get_device
+from eole.utils.misc import get_device
 from eole.inputters.inputter import dict_to_vocabs
 
 # copied from model_builder to facilitate tests, but should not live there in the end
@@ -142,17 +142,12 @@ class BaseModel(nn.Module):
 
     def _setup_device_and_offset(self, running_config, device_id=None):
         """Determine device and offset for tensor parallel or single device setup."""
+        device = get_device(device_id=device_id)
         if running_config.world_size > 1 and running_config.parallel_mode == "tensor_parallel":
-            device = torch.device("cuda", device_id) if device_id is not None else get_device()
-            offset = device_id if device_id is not None else 0
+            tp_offset = device_id if device_id is not None else 0
         else:
-            if use_gpu(running_config):
-                device_id = running_config.gpu_ranks[0] if len(running_config.gpu_ranks) > 0 else device_id
-                device = get_device(device_id=device_id)
-            else:
-                device = torch.device("cpu")
-            offset = 0
-        return device, offset
+            tp_offset = 0
+        return device, tp_offset
 
     def _apply_freezing(self, running_config):
         """Apply encoder/decoder freezing based on config."""
@@ -184,7 +179,7 @@ class BaseModel(nn.Module):
             if hasattr(module, "dropout_p"):
                 module.dropout_p = 0.0
 
-    def _prepare_for_training(self, running_config, vocabs, metadata, device, offset):
+    def _prepare_for_training(self, running_config, vocabs, metadata, device, tp_offset):
         """Apply training-specific setup."""
         should_load = metadata is not None
         should_init = metadata is None or getattr(running_config, "update_vocab", False)
@@ -200,7 +195,7 @@ class BaseModel(nn.Module):
                 vocabs=vocabs,
                 metadata=metadata,
                 device=device,
-                offset=offset,
+                tp_offset=tp_offset,
                 strict=strict,
             )
         else:
@@ -253,10 +248,10 @@ class BaseModel(nn.Module):
         model = cls.build(model_config, vocabs, running_config)
 
         # Setup device
-        device, offset = model._setup_device_and_offset(running_config, device_id)
+        device, tp_offset = model._setup_device_and_offset(running_config, device_id)
 
         # Prepare for training
-        model._prepare_for_training(running_config, vocabs, metadata, device, offset)
+        model._prepare_for_training(running_config, vocabs, metadata, device, tp_offset)
 
         logger.info(model)
         return model
@@ -295,7 +290,7 @@ class BaseModel(nn.Module):
         model = cls.build(model_config, vocabs, running_config)
 
         # Setup device
-        device, offset = model._setup_device_and_offset(running_config, device_id)
+        device, tp_offset = model._setup_device_and_offset(running_config, device_id)
 
         # Load weights
         logger.info("Loading data into the model")
@@ -305,7 +300,7 @@ class BaseModel(nn.Module):
             vocabs=vocabs,
             metadata=metadata,
             device=device,
-            offset=offset,
+            tp_offset=tp_offset,
             strict=True,
         )
 
@@ -471,7 +466,7 @@ class BaseModel(nn.Module):
             if key not in keyfound and key not in buf_list:
                 logger.warning(f"Extra key in checkpoint: {key}")
 
-    def _get_tp_slices(self, param, base_name, offset):
+    def _get_tp_slices(self, param, base_name, tp_offset):
         """
         Returns a tuple of size 2 or 4 depending on param
         """
@@ -483,17 +478,17 @@ class BaseModel(nn.Module):
             "gate_up_proj",
             "up_proj",
         }:
-            col_start = param.size(0) * offset
-            col_end = param.size(0) * (offset + 1)
+            col_start = param.size(0) * tp_offset
+            col_end = param.size(0) * (tp_offset + 1)
         if param.dim() == 2:
             row_start, row_end = 0, param.size(1)
             if base_name in {"final_linear", "down_proj"}:
-                row_start = param.size(1) * offset
-                row_end = param.size(1) * (offset + 1)
+                row_start = param.size(1) * tp_offset
+                row_end = param.size(1) * (tp_offset + 1)
             return col_start, col_end, row_start, row_end
         return col_start, col_end
 
-    def _load_param(self, module_name, module, param_name, param, buf_list, ckpt_t, offset):
+    def _load_param(self, module_name, module, param_name, param, buf_list, ckpt_t, tp_offset):
         base_name = module_name.split(".")[-1]
         is_buffer = f"{module_name}.{param_name}" in buf_list
         is_wq = module.__class__.__name__ == "WQLinear_GEMM"
@@ -503,7 +498,7 @@ class BaseModel(nn.Module):
             param.data = param.data.transpose(0, 1)
             ckpt_t = ckpt_t.transpose(0, 1)
 
-        slices = self._get_tp_slices(param, base_name, offset)
+        slices = self._get_tp_slices(param, base_name, tp_offset)
 
         if param.dim() == 2:
             col_start, col_end, row_start, row_end = slices
@@ -532,7 +527,7 @@ class BaseModel(nn.Module):
                 param.data = sliced.contiguous()
 
     def _try_load_parameter(
-        self, module_name, module, param_name, param, f, keys_shard, updated_params, buf_list, keyfound, offset
+        self, module_name, module, param_name, param, f, keys_shard, updated_params, buf_list, keyfound, tp_offset
     ):
         """Try to load a parameter from updated_params or keys_shard."""
         # in the case of "adapter.new_line" adapter is not a module hence module_name is ""
@@ -542,7 +537,7 @@ class BaseModel(nn.Module):
             ckpt_t = f[keys_shard[full_name]].get_tensor(full_name)
         if ckpt_t is None:
             return False
-        self._load_param(module_name, module, param_name, param, buf_list, ckpt_t, offset)
+        self._load_param(module_name, module, param_name, param, buf_list, ckpt_t, tp_offset)
         keyfound[full_name] = True
         return True
 
@@ -560,7 +555,7 @@ class BaseModel(nn.Module):
             self.generator.weight = self.tgt_emb.embeddings.weight
 
     def _load_module_parameters(
-        self, module_name, module, f, keys_shard, updated_params, buf_list, keyfound, offset, strict
+        self, module_name, module, f, keys_shard, updated_params, buf_list, keyfound, tp_offset, strict
     ):
         """Load all parameters for a single module"""
         buffers_list = list(module.named_buffers(recurse=False))
@@ -568,13 +563,13 @@ class BaseModel(nn.Module):
             module.named_buffers(recurse=False), module.named_parameters(recurse=False)
         ):
             loaded = self._try_load_parameter(
-                module_name, module, param_name, param, f, keys_shard, updated_params, buf_list, keyfound, offset
+                module_name, module, param_name, param, f, keys_shard, updated_params, buf_list, keyfound, tp_offset
             )
             if not loaded and strict:
                 self._maybe_warn_missing_parameter(module_name, param_name, module, buffers_list)
 
     def _load_parameters_by_module(
-        self, f, keys_shard, updated_params, buf_list, device, dtype, offset, strict, running_config
+        self, f, keys_shard, updated_params, buf_list, device, dtype, tp_offset, strict, running_config
     ):
         """Load parameters module by module, moving to device as we go"""
         keyfound = {}
@@ -584,7 +579,7 @@ class BaseModel(nn.Module):
             has_own_params = next(module.parameters(recurse=False), None) is not None
             if not has_children or has_own_params:
                 self._load_module_parameters(
-                    module_name, module, f, keys_shard, updated_params, buf_list, keyfound, offset, strict
+                    module_name, module, f, keys_shard, updated_params, buf_list, keyfound, tp_offset, strict
                 )
                 module.to(device=device, dtype=dtype)
                 if getattr(running_config, "compute_dtype", None) == torch.int8:
@@ -649,7 +644,7 @@ class BaseModel(nn.Module):
         vocabs=None,
         metadata=None,
         device=torch.device("cpu"),
-        offset=0,
+        tp_offset=0,
         strict=False,
     ):
         """Custom state_dict loading to enable moving module on device as they are loaded
@@ -660,8 +655,8 @@ class BaseModel(nn.Module):
             vocabs: src/tgt vocabs
             metadata: config/vocabs
             device: device to move parameters to
-            offset: for tensor_parallel
-            strict: stric loading of all parameters
+            tp_offset: for tensor_parallel
+            strict: strict loading of all parameters
         """
         # bitsandbytes quantize weights when .cuda() is called
         # for huge models we need to save Ram
@@ -669,11 +664,11 @@ class BaseModel(nn.Module):
         dtype = getattr(running_config, "storage_dtype", torch.float32)
         f, keys_shard = self._load_safetensors_shards(model_path)
         if device == torch.device("cpu"):
-            offset = 0
+            tp_offset = 0
         buf_list = [name for name, _ in self.named_buffers()]
         updated_params = self._handle_vocab_updates(running_config, vocabs, metadata, f, keys_shard)
         keyfound = self._load_parameters_by_module(
-            f, keys_shard, updated_params, buf_list, device, dtype, offset, strict, running_config
+            f, keys_shard, updated_params, buf_list, device, dtype, tp_offset, strict, running_config
         )
         self._report_extra_keys(keys_shard, keyfound, buf_list)
         self._reset_lora_to_fp32()

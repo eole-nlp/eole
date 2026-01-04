@@ -1,14 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
 import copy
 import unittest
 import glob
 import os
-
-from eole.train_single import prepare_transforms_vocabs
+from eole.train_single import TrainingInitializer
 from eole.constants import CorpusName
-
 
 SAVE_DATA_PREFIX = "eole/tests/data/test_data_prepare"
 
@@ -23,10 +20,21 @@ def get_default_opts():
         "data": data_config,
         "src_vocab": "eole/tests/data/vocab-train.src",
         "tgt_vocab": "eole/tests/data/vocab-train.tgt",
+        # Add minimal model config
+        "model": {
+            "architecture": "transformer",
+            "layers": 2,
+            "hidden_size": 512,
+        },
+        # Add minimal training config for the refactored code
+        "training": {
+            "train_from": None,
+            "update_vocab": False,
+        },
     }
-    from eole.config.data import DataConfig
+    from eole.config.run import TrainConfig
 
-    opt = DataConfig(**default_opts)
+    opt = TrainConfig(**default_opts)
     opt._validate_data_config()
     # Inject some dummy training options that may needed when build fields
     return opt
@@ -42,7 +50,11 @@ class TestData(unittest.TestCase):
 
     def dataset_build(self, opt):
         try:
-            prepare_transforms_vocabs(opt, {})
+            # Old: prepare_transforms_vocabs(opt, {})
+            # New: use TrainingInitializer
+            initializer = TrainingInitializer(opt)
+            transforms_cls = {}  # Empty dict as before
+            vocabs, transforms = initializer._prepare_vocabs_and_transforms(opt, transforms_cls, metadata=None)
         except SystemExit as err:
             print(err)
         except IOError as err:
@@ -66,7 +78,6 @@ class TestData(unittest.TestCase):
 def _add_test(param_setting, methodname):
     """
     Adds a Test to TestData according to settings
-
     Args:
         param_setting: list of tuples of (param, setting)
         methodname: name of the method that gets called

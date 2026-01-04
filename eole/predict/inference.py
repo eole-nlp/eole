@@ -535,7 +535,7 @@ class Inference(object):
 
         end_time = time()
 
-        if self.report_score:
+        if self.report_score and src_tokens > 0:
             msg = self._report_score("PRED", pred_score_total, len(all_scores))
             self._log(msg)
             msg = self._report_score("ESTIM", estim_total, len(all_estim))
@@ -548,12 +548,14 @@ class Inference(object):
             total_time = end_time - start_time
             step0 = sum(self.step0_time)
             decoding_time = total_time - step0
-            self._log("Step 0 time (s): %.2f" % step0)
-            self._log("Enc/Step 0 tokens / sec: %.1f" % (src_tokens / step0))
-            self._log("Subsequent prediction time including all (s): %.2f" % decoding_time)
-            self._log("Average prediction time (ms): %.1f" % (decoding_time / len(all_predictions) * 1000))
-            self._log("Tokens per second: %.1f" % (pred_words_total / decoding_time))
-            self._log("pred_words_total: %.1f" % (pred_words_total))
+            if step0 != 0:
+                self._log("Step 0 time (s): %.2f" % step0)
+                self._log("Enc/Step 0 tokens / sec: %.1f" % (src_tokens / step0))
+            if len(all_predictions) > 0:
+                self._log("Subsequent prediction time including all (s): %.2f" % decoding_time)
+                self._log("Average prediction time (ms): %.1f" % (decoding_time / len(all_predictions) * 1000))
+                self._log("Tokens per second: %.1f" % (pred_words_total / decoding_time))
+                self._log("pred_words_total: %.1f" % (pred_words_total))
 
         if self.dump_beam:
             import json
