@@ -107,9 +107,7 @@ def all_gather_list(data: Any, max_size: int = DEFAULT_MAX_GATHER_SIZE) -> List[
     # Encode size using 2 bytes (supports up to ~65k)
     in_buffer[0] = enc_size // ENCODING_BASE
     in_buffer[1] = enc_size % ENCODING_BASE
-    in_buffer[2 : enc_size + 2].copy_(
-        torch.frombuffer(bytearray(enc), dtype=torch.uint8)
-    )
+    in_buffer[2 : enc_size + 2].copy_(torch.frombuffer(bytearray(enc), dtype=torch.uint8))
 
     # All-gather buffers
     torch.distributed.all_gather(out_buffers, in_buffer)

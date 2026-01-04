@@ -52,18 +52,19 @@ class SequentialMixer(MixingStrategy):
 class WeightedMixer(MixingStrategy):
     """A mixing strategy that mix data weightedly and iterate infinitely."""
 
-    def __init__(self, iterables, weights):
+    def __init__(self, iterables, weights, worker_id=None):
         super().__init__(iterables, weights)
         self._iterators = {}
         self._counts = {}
+        if worker_id == 0:
+            logger = init_logger()
+            logger.info("logging dataloader worker 0")
         for ds_name in self.iterables.keys():
             self._reset_iter(ds_name)
 
     def _logging(self):
         """Report corpora loading statistics."""
         msgs = []
-        # patch to log stdout spawned processes of dataloader
-        logger = init_logger()
         for ds_name, ds_count in self._counts.items():
             msgs.append(f"\t\t\t* {ds_name}: {ds_count}")
         logger.info("Weighted corpora loaded so far:\n" + "\n".join(msgs))
@@ -277,7 +278,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         )
         datasets_weights = {ds_name: int(self.corpora_info[ds_name].weight) for ds_name in datasets_iterables.keys()}
         if self.task == CorpusTask.TRAIN:
-            self.mixer = WeightedMixer(datasets_iterables, datasets_weights)
+            self.mixer = WeightedMixer(datasets_iterables, datasets_weights, worker_id=worker_id)
         else:
             self.mixer = SequentialMixer(datasets_iterables, datasets_weights)
         self.init_iterators = True

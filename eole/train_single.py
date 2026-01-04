@@ -170,7 +170,12 @@ def configure_process(config: TrainConfig, device_id: int):
 def main(config: TrainConfig, device_id: int):
     """Start training on `device_id`."""
     configure_process(config, device_id)
-    init_logger(config.log_file)
+    if device_id == 0:
+        init_logger(config.log_file)
+    else:
+        import logging
+
+        init_logger(config.log_file, log_level=logging.WARNING)
 
     # Initialize training components
     initializer = TrainingInitializer(config)

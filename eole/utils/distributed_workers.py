@@ -3,6 +3,7 @@
 
 import torch
 import torch.distributed
+import logging
 from typing import Optional, Tuple, Any
 from datetime import timedelta
 from eole.predict import build_predictor
@@ -44,7 +45,8 @@ def multi_init(config, device_id: int) -> int:
     gpu_rank = torch.distributed.get_rank()
 
     if not is_master(config, device_id):
-        logger.disabled = True
+        logger.setLevel(logging.WARNING)
+        # logger.disabled = True
 
     return gpu_rank
 
