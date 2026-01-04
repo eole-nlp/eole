@@ -395,8 +395,6 @@ class InferenceEngineCT2(InferenceEngine):
         """Validate configuration for CT2 inference."""
         if self.config.world_size > 1:
             raise ValueError("CT2 inference does not support world_size > 1")
-        if self.config.world_size < 1:
-            raise ValueError("world_size must be at least 1")
 
     def _setup_device(self):
         """Setup device configuration."""
