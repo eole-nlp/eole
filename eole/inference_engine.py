@@ -192,7 +192,7 @@ class InferenceEnginePY(InferenceEngine):
             self.vocabs = self.predictor.vocabs
             self.transforms = make_transforms(config, self.transforms_cls, self.vocabs)
             self.transform_pipe = TransformPipe.build_from(self.transforms.values())
-            self.logger.info("Build and loading model took %.2f sec." % (time() - t0))
+        self.logger.info("Build and loading model took %.2f sec." % (time() - t0))
 
     @torch.inference_mode()
     def _predict(self, infer_iter, settings={}):
@@ -228,6 +228,7 @@ class InferenceEnginePY(InferenceEngine):
             score_results.append(self.queue_result[device_id].get())
         if self.config.parallel_mode == "data_parallel":
             score_results = [item for worker_scores in score_results for item in worker_scores]
+            return score_results
         else:
             return score_results[0]
 

@@ -1,5 +1,5 @@
 """
-Trainer library.
+trainer library.
 """
 
 import time
@@ -80,6 +80,7 @@ class BatchProcessor:
         with_align: bool,
         zero_out_prompt_loss: bool,
         estim_loss_lambda: float,
+        accum_count: int,
     ):
         self.model = model
         self.train_loss = train_loss
@@ -89,11 +90,13 @@ class BatchProcessor:
         self.with_align = with_align
         self.zero_out_prompt_loss = zero_out_prompt_loss
         self.estim_loss_lambda = estim_loss_lambda
+        self.accum_count = accum_count
 
     def process_batch(
         self,
         batch: Dict[str, Any],
         normalization: int,
+        accum_count: int,
         total_stats: eole.utils.Statistics,
         report_stats: eole.utils.Statistics,
     ) -> bool:
@@ -110,7 +113,7 @@ class BatchProcessor:
         kwargs = {"images": batch["images"], "prefix_len": batch["prefix_len"]}
 
         try:
-            loss, batch_stats = self._compute_loss(src, tgt, src_len, batch, normalization, kwargs)
+            loss, batch_stats = self._compute_loss(src, tgt, src_len, batch, normalization, accum_count, kwargs)
 
             if loss is not None:
                 self.optim.backward(loss)
@@ -123,7 +126,7 @@ class BatchProcessor:
             return self._handle_training_error(exc)
 
     def _compute_loss(
-        self, src, tgt, src_len, batch: Dict[str, Any], normalization: int, kwargs: Dict[str, Any]
+        self, src, tgt, src_len, batch: Dict[str, Any], normalization: int, accum_count: int, kwargs: Dict[str, Any]
     ) -> Tuple[Optional[torch.Tensor], eole.utils.Statistics]:
         """Compute loss for a batch."""
         with get_autocast(enabled=self.optim.amp):
@@ -136,7 +139,7 @@ class BatchProcessor:
 
         if loss is not None:
             loss = loss / normalization
-            auxloss = auxloss / (len(src) * src_len.size(0))
+            auxloss = auxloss / (accum_count * src_len.size(0))
             loss = loss + auxloss * self.estim_loss_lambda
 
         return loss, batch_stats
@@ -222,6 +225,7 @@ class Trainer:
             with_align=config.with_align,
             zero_out_prompt_loss=config.zero_out_prompt_loss,
             estim_loss_lambda=self.estim_lambda_scheduler.current_value,
+            accum_count=int(self.accum_count_scheduler.current_value),
         )
 
         self.gradient_synchronizer = GradientSynchronizer(
@@ -317,7 +321,8 @@ class Trainer:
         if self.estim_lambda_scheduler.update(step):
             self.batch_processor.estim_loss_lambda = self.estim_lambda_scheduler.current_value
 
-        self.accum_count_scheduler.update(step)
+        if self.accum_count_scheduler.update(step):
+            self.batch_processor.accum_count = int(self.accum_count_scheduler.current_value)
 
     def _process_accumulated_batches(
         self,
@@ -329,8 +334,10 @@ class Trainer:
         """Process accumulated batches and update gradients."""
         self.optim.zero_grad(set_to_none=True)
 
+        accum_count = int(self.accum_count_scheduler.current_value)
+
         for batch in batches:
-            success = self.batch_processor.process_batch(batch, normalization, total_stats, report_stats)
+            success = self.batch_processor.process_batch(batch, normalization, accum_count, total_stats, report_stats)
             if not success:
                 continue  # Skip failed batch
 

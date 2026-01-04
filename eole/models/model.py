@@ -656,7 +656,7 @@ class BaseModel(nn.Module):
             metadata: config/vocabs
             device: device to move parameters to
             tp_offset: for tensor_parallel
-            strict: stric loading of all parameters
+            strict: strict loading of all parameters
         """
         # bitsandbytes quantize weights when .cuda() is called
         # for huge models we need to save Ram

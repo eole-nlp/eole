@@ -98,8 +98,7 @@ def spawned_infer(config, device_id, error_queue, queue_instruct, queue_result, 
                 if not queue_result.empty():
                     try:
                         while True:
-                            item = queue_result.get_nowait()
-                            item = item.cpu()
+                            _ = queue_result.get_nowait()
                     except Exception:
                         pass
                 break
