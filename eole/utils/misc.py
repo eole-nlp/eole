@@ -89,15 +89,16 @@ def get_device_type():
 
 
 def get_device(device_id=None):
-    if torch.cuda.is_available():
-        if device_id is not None:
-            return torch.device(f"cuda:{device_id}")
-        else:
-            return torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        return torch.device("mps")
-    else:
+    if device_id == -1:
         return torch.device("cpu")
+
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = f"cuda:{device_id}" if device_id is not None else "cuda"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+
+    return torch.device(device)
 
 
 def get_autocast(enabled=True, device_type="auto"):
