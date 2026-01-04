@@ -25,7 +25,7 @@ class InferenceEngine:
         self.model_type = None
         configure_cuda_backends()
 
-    def predict_batch(self, batch):
+    def predict_batch(self, batch, config):
         """Predict a single batch. To be implemented by subclasses."""
         raise NotImplementedError
 
@@ -241,9 +241,11 @@ class InferenceEnginePY(InferenceEngine):
     def _score(self, infer_iter, settings: Optional[Dict[str, Any]] = None):
         """Run scoring on inference iterator."""
         settings = settings or {}
+        self.predictor.update_settings(**settings)
+
         self.predictor.with_scores = True
         self.predictor.return_gold_log_probs = True
-        # Apply settings if needed in the future
+
         return self.predictor._score(infer_iter)
 
     def _distribute_parallel_task(self, task_name: str, task_arg: Any, settings: Optional[Dict[str, Any]] = None):
@@ -319,19 +321,19 @@ class InferenceEnginePY(InferenceEngine):
 
     def score_list_parallel(self, src: List[str], settings: Optional[Dict[str, Any]] = None):
         """Score a list of strings in parallel."""
-        self._distribute_parallel_task("score_list", src, settings)
+        self._distribute_parallel_task(InferenceConstants.SCORE_LIST, src, settings)
         results = self._collect_parallel_results(num_results_per_worker=1)
-        return results
+        return self._aggregate_score_results(results)
 
     def score_file_parallel(self, settings: Optional[Dict[str, Any]] = None):
         """Score a file in parallel."""
-        self._distribute_parallel_task("score_file", self.config, settings)
+        self._distribute_parallel_task(InferenceConstants.SCORE_FILE, self.config, settings)
         results = self._collect_parallel_results(num_results_per_worker=1)
         return self._aggregate_score_results(results)
 
     def infer_file_parallel(self, settings: Optional[Dict[str, Any]] = None):
         """Infer from file in parallel."""
-        self._distribute_parallel_task("infer_file", self.config, settings)
+        self._distribute_parallel_task(InferenceConstants.INFER_FILE, self.config, settings)
         results = self._collect_parallel_results(num_results_per_worker=3)
 
         # Unpack results (each worker returns 3 items: scores, estims, preds)
@@ -343,7 +345,7 @@ class InferenceEnginePY(InferenceEngine):
 
     def infer_list_parallel(self, src: List[str], settings: Optional[Dict[str, Any]] = None):
         """Infer from list in parallel."""
-        self._distribute_parallel_task("infer_list", src, settings)
+        self._distribute_parallel_task(InferenceConstants.INFER_LIST, src, settings)
         results = self._collect_parallel_results(num_results_per_worker=3)
 
         # Unpack results (each worker returns 3 items: scores, estims, preds)
@@ -393,10 +395,12 @@ class InferenceEngineCT2(InferenceEngine):
         """Validate configuration for CT2 inference."""
         if self.config.world_size > 1:
             raise ValueError("CT2 inference does not support world_size > 1")
+        if self.config.world_size < 1:
+            raise ValueError("world_size must be at least 1")
 
     def _setup_device(self):
         """Setup device configuration."""
-        if self.config.world_size == 1:
+        if len(self.config.gpu_ranks) > 0:
             self.device_id = self.config.gpu_ranks[0]
             self.device_index = self.config.gpu_ranks
             self.device = get_device_type()
@@ -496,7 +500,7 @@ class InferenceEngineCT2(InferenceEngine):
             )
         else:
             return ctranslate2.Translator(
-                self.config.get_model_path(),
+                self.ct2_model_path,
                 device=self.device,
                 device_index=self.device_index,
             )
@@ -536,12 +540,19 @@ class InferenceEngineCT2(InferenceEngine):
             "sampling_temperature": config.temperature,
         }
 
-    def _apply_reverse_transforms(self, sequences: List[List[str]]) -> List[str]:
-        """Apply reverse transforms to predicted sequences."""
+    def _apply_reverse_transform(self, sequence: List[str]) -> str:
+        """Apply reverse transform to a single predicted sequence.
+
+        Args:
+            sequence: Single sequence of tokens
+
+        Returns:
+            Transformed string
+        """
         if self.transforms:
-            return [self.transforms_pipe.apply_reverse(seq) for seq in sequences]
+            return self.transforms_pipe.apply_reverse(sequence)
         else:
-            return [" ".join(seq) for seq in sequences]
+            return " ".join(sequence)
 
     def _predict_decoder(self, input_tokens: List[List[str]], config) -> Tuple:
         """Run prediction for decoder-only models."""
@@ -551,7 +562,7 @@ class InferenceEngineCT2(InferenceEngine):
 
         predicted_batch = self.predictor.generate_batch(start_tokens=input_tokens, **params)
 
-        preds = [[self._apply_reverse_transforms([nbest])[0] for nbest in ex.sequences] for ex in predicted_batch]
+        preds = [[self._apply_reverse_transform(nbest) for nbest in ex.sequences] for ex in predicted_batch]
         scores = [[nbest for nbest in ex.scores] for ex in predicted_batch]
 
         return scores, None, preds
@@ -563,7 +574,7 @@ class InferenceEngineCT2(InferenceEngine):
 
         predicted_batch = self.predictor.translate_batch(input_tokens, **params)
 
-        preds = [[self._apply_reverse_transforms([nbest])[0] for nbest in ex.hypotheses] for ex in predicted_batch]
+        preds = [[self._apply_reverse_transform(nbest) for nbest in ex.hypotheses] for ex in predicted_batch]
         scores = [[nbest for nbest in ex.scores] for ex in predicted_batch]
 
         return scores, None, preds
@@ -609,6 +620,6 @@ class InferenceEngineCT2(InferenceEngine):
 
         return sorted_predictions["scores"], None, sorted_predictions["preds"]
 
-    def _score(self, infer_iter):
+    def _score(self, infer_iter, settings: Optional[Dict[str, Any]] = None):
         """Scoring is not implemented for CT2."""
         raise NotImplementedError("The scoring with InferenceEngineCT2 is not implemented.")

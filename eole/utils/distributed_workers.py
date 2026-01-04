@@ -1,6 +1,7 @@
 """Pytorch Distributed utils
 """
 
+import torch
 import torch.distributed
 from typing import Optional, Tuple, Any
 from datetime import timedelta
