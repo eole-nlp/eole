@@ -192,7 +192,7 @@ class InferenceEnginePY(InferenceEngine):
             self.vocabs = self.predictor.vocabs
             self.transforms = make_transforms(config, self.transforms_cls, self.vocabs)
             self.transform_pipe = TransformPipe.build_from(self.transforms.values())
-        self.logger.info("Build and loading model took %.2f sec." % (time() - t0))
+            self.logger.info("Build and loading model took %.2f sec." % (time() - t0))
 
     @torch.inference_mode()
     def _predict(self, infer_iter, settings={}):
@@ -226,7 +226,10 @@ class InferenceEnginePY(InferenceEngine):
         score_results = []
         for device_id in range(self.config.world_size):
             score_results.append(self.queue_result[device_id].get())
-        return score_results[0]
+        if self.config.parallel_mode == "data_parallel":
+            score_results = [item for worker_scores in score_results for item in worker_scores]
+        else:
+            return score_results[0]
 
     def infer_file_parallel(self, settings={}):
         assert self.config.world_size > 1, "World size must be greater than 1."
@@ -239,7 +242,15 @@ class InferenceEnginePY(InferenceEngine):
             scores.append(self.queue_result[device_id].get())
             estims.append(self.queue_result[device_id].get())
             preds.append(self.queue_result[device_id].get())
-        return scores[0], estims[0], preds[0]
+        if self.config.parallel_mode == "data_parallel":
+            # flatten lists
+            scores = [item for worker_scores in scores for item in worker_scores]
+            estims = [item for worker_estims in estims for item in worker_estims]
+            preds = [item for worker_preds in preds for item in worker_preds]
+            return scores, estims, preds
+        else:
+            # tensor_parallel just take worker 0
+            return scores[0], estims[0], preds[0]
 
     def infer_list_parallel(self, src, settings={}):
         assert self.config.world_size > 1, "World size must be greater than 1."
@@ -251,13 +262,27 @@ class InferenceEnginePY(InferenceEngine):
             scores.append(self.queue_result[device_id].get())
             estims.append(self.queue_result[device_id].get())
             preds.append(self.queue_result[device_id].get())
-        return scores[0], estims[0], preds[0]
+        if self.config.parallel_mode == "data_parallel":
+            # flatten lists
+            scores = [item for worker_scores in scores for item in worker_scores]
+            estims = [item for worker_estims in estims for item in worker_estims]
+            preds = [item for worker_preds in preds for item in worker_preds]
+            return scores, estims, preds
+        else:
+            # tensor_parallel just take worker 0
+            return scores[0], estims[0], preds[0]
 
     def terminate(self):
-        if self.config.world_size > 1:
-            for device_id in range(self.config.world_size):
-                self.queue_instruct[device_id].put(("stop"))
-                self.procs[device_id].terminate()
+        if self.config.world_size <= 1:
+            return
+
+        # 1. Ask workers to stop
+        for device_id in range(self.config.world_size):
+            self.queue_instruct[device_id].put(("stop", ""))
+
+        # 2. Join workers
+        for proc in self.procs:
+            proc.join()
 
 
 class InferenceEngineCT2(InferenceEngine):

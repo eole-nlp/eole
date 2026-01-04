@@ -285,7 +285,7 @@ class TrainingModelSaver(ModelSaverBase):
         else:
             world_size = 1
 
-        if world_size > 1:
+        if world_size > 1 and self.config.training.parallel_mode == "tensor_parallel":
             # gather model split across GPUs for tensor parallelism
             model_state_dict = self._tensor_parallel_state_dict(model_state_dict, world_size)
 

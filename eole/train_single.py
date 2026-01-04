@@ -260,9 +260,12 @@ def main(config: TrainConfig, device_id: int):
 def _calculate_parallel_params(device_id: int, training_config: Any) -> Tuple[int, int]:
     """Calculate offset and stride for data parallel training."""
     if training_config.parallel_mode == "data_parallel":
+        # same model on all GPU - stride = nb of gpu
         offset = max(0, device_id)
         stride = max(1, len(training_config.gpu_ranks))
     else:
+        # single GPU or
+        # multi GPU but model is split on all GPUs (tensor parallel)
         offset = 0
         stride = 1
     return offset, stride
