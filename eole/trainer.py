@@ -123,7 +123,28 @@ class BatchProcessor:
             return True
 
         except Exception as exc:
-            return self._handle_training_error(exc)
+            # <-- Inline error handling instead of calling method
+            trace_content = traceback.format_exc()
+
+            if "CUDA out of memory" in trace_content:
+                logger.warning(
+                    "Step %d, CUDA OOM - batch removed (src shape: %s, tgt shape: %s)",
+                    self.optim.training_step,
+                    src.shape if hasattr(src, "shape") else "unknown",
+                    tgt.shape if hasattr(tgt, "shape") else "unknown",
+                )
+                clear_gpu_cache()
+
+                if self.n_gpu > 1 and self.parallel_mode == "tensor_parallel":
+                    logger.error("OOM in tensor parallel mode - terminating all processes")
+                    torch.distributed.destroy_process_group()
+                    sys.exit(1)
+
+                return False  # OOM occurred
+            else:
+                logger.error("Training error at step %d: %s", self.optim.training_step, str(exc))
+                traceback.print_exc()
+                raise exc
 
     def _compute_loss(
         self, src, tgt, src_len, batch: Dict[str, Any], normalization: int, accum_count: int, kwargs: Dict[str, Any]
@@ -144,26 +165,6 @@ class BatchProcessor:
 
         return loss, batch_stats
 
-    def _handle_training_error(self, exc: Exception) -> bool:
-        """Handle training errors. Returns False if batch should be skipped."""
-        trace_content = traceback.format_exc()
-
-        if "CUDA out of memory" in trace_content:
-            logger.info(
-                "Step %d, cuda OOM - batch removed",
-                self.optim.training_step,
-            )
-            clear_gpu_cache()
-
-            if self.n_gpu > 1 and self.parallel_mode == "tensor_parallel":
-                torch.distributed.destroy_process_group()
-                sys.exit()
-
-            return False  # Skip this batch
-        else:
-            traceback.print_exc()
-            raise exc
-
 
 class GradientSynchronizer:
     """Handles gradient synchronization for distributed training."""
@@ -177,7 +178,8 @@ class GradientSynchronizer:
         """Synchronize gradients across GPUs if needed."""
         if self.n_gpu > 1 and self.parallel_mode == "data_parallel":
             grads = [p.grad.data for p in self.model.parameters() if p.requires_grad and p.grad is not None]
-            all_reduce_and_rescale_tensors(grads, float(self.n_gpu))
+            if grads:
+                all_reduce_and_rescale_tensors(grads, float(self.n_gpu))
 
 
 class Trainer:
@@ -336,11 +338,30 @@ class Trainer:
 
         accum_count = int(self.accum_count_scheduler.current_value)
 
-        for batch in batches:
+        oom_occurred = False
+
+        for k, batch in enumerate(batches):
             success = self.batch_processor.process_batch(batch, normalization, accum_count, total_stats, report_stats)
             if not success:
-                continue  # Skip failed batch
+                oom_occurred = True
 
+        # In multi-GPU data parallel, synchronize OOM status across ranks
+        if self.config.n_gpu > 1 and self.config.parallel_mode == "data_parallel":
+            import torch.distributed as dist
+
+            oom_tensor = torch.tensor([1 if oom_occurred else 0], dtype=torch.int32, device=torch.cuda.current_device())
+            dist.all_reduce(oom_tensor, op=dist.ReduceOp.MAX)
+            any_rank_oom = oom_tensor.item() > 0
+
+            if any_rank_oom:
+                logger.warning("OOM detected on at least one rank - skipping gradient update for this step")
+                self.optim.zero_grad(set_to_none=True)
+                return
+        elif oom_occurred:
+            logger.warning("OOM occurred - skipping gradient update")
+            return
+
+        # CRITICAL: Always synchronize and step if no OOM
         self.gradient_synchronizer.synchronize()
         self.optim.step()
 
@@ -500,6 +521,7 @@ class Trainer:
                 report_stats,
                 multigpu=(self.config.n_gpu > 1 and self.config.parallel_mode == "data_parallel"),
             )
+        return report_stats  # Return unchanged if no manager
 
     def _report_step(self, learning_rate, step, valid_stats=None, train_stats=None):
         """Report step stats."""

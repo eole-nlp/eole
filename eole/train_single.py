@@ -17,7 +17,7 @@ from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.inputters.text_corpus import save_transformed_sample
 from eole.models.model_saver import get_metadata
 from eole.utils.optimizers import Optimizer
-from eole.utils.misc import set_random_seed
+from eole.utils.misc import set_random_seed, configure_cuda_backends
 from eole.trainer import build_trainer
 from eole.models.model_saver import build_model_saver
 from eole.models.model import get_model_class
@@ -167,18 +167,15 @@ def configure_process(config: TrainConfig, device_id: int):
     set_random_seed(config.seed, device_id >= 0)
 
 
-def configure_cuda_backends():
-    """Configure CUDA backend optimizations."""
-    torch.backends.cuda.enable_mem_efficient_sdp(True)
-    torch.backends.cuda.enable_flash_sdp(False)
-    torch.backends.cuda.enable_math_sdp(False)
-    torch.backends.cuda.enable_cudnn_sdp(False)
-
-
 def main(config: TrainConfig, device_id: int):
     """Start training on `device_id`."""
     configure_process(config, device_id)
-    init_logger(config.log_file)
+    if device_id == -1 or config.training.gpu_ranks[device_id] == 0:
+        init_logger(config.log_file)
+    else:
+        import logging
+
+        init_logger(config.log_file, log_level=logging.WARNING)
 
     # Initialize training components
     initializer = TrainingInitializer(config)
