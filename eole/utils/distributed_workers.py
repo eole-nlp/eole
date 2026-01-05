@@ -297,6 +297,9 @@ def spawned_infer(
                 handler(instruction, queue_result)
             else:
                 logger.warning(f"Unknown command: {cmd}")
+                # Raise an exception so it is reported via error_queue and
+                # callers do not wait indefinitely for a missing result.
+                raise RuntimeError(f"Unknown inference command received by worker: {cmd}")
 
     except KeyboardInterrupt:
         pass  # killed by parent

@@ -25,7 +25,7 @@ class InferenceEngine:
         self.model_type = None
         configure_cuda_backends()
 
-    def predict_batch(self, batch, config):
+    def predict_batch(self, batch):
         """Predict a single batch. To be implemented by subclasses."""
         raise NotImplementedError
 
@@ -416,16 +416,15 @@ class InferenceEngineCT2(InferenceEngine):
         """Get the ctranslate2 model path."""
         return os.path.join(self.config.get_model_path(), InferenceConstants.CT2_DIR)
 
-    def _load_json(self, *path_parts) -> Dict:
+    def _load_json(self, filename) -> Dict:
         """Load JSON file from path components."""
-        file_path = os.path.join(*path_parts)
+        file_path = os.path.join(self.ct2_model_path, filename)
         with open(file_path, "r") as f:
             return json.load(f)
 
     def _load_config_json(self) -> Dict:
         """Load CT2 config JSON."""
-        config_path = os.path.join(self.ct2_model_path, "config.json")
-        return self._load_json(config_path)
+        return self._load_json("config.json")
 
     def _build_vocab_specials(self, ct2_json: Dict) -> Dict:
         """Build special tokens vocabulary from CT2 config."""
@@ -440,7 +439,7 @@ class InferenceEngineCT2(InferenceEngine):
         """Load vocabularies for decoder-only models."""
         import pyonmttok
 
-        vocab = self._load_json(self.ct2_model_path, "vocabulary.json")
+        vocab = self._load_json("vocabulary.json")
         src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
 
         self.config.share_vocab = True
@@ -454,17 +453,15 @@ class InferenceEngineCT2(InferenceEngine):
 
         vocabs["decoder_start_token"] = ct2_json["decoder_start_token"]
 
-        shared_vocab_path = os.path.join(self.ct2_model_path, "shared_vocabulary.json")
-
-        if os.path.exists(shared_vocab_path):
-            vocab = self._load_json(shared_vocab_path)
+        if os.path.exists(os.path.join(self.ct2_model_path, "shared_vocabulary.json")):
+            vocab = self._load_json("shared_vocabulary.json")
             src_vocab = pyonmttok.build_vocab_from_tokens(vocab)
             self.config.share_vocab = True
             vocabs["src"] = src_vocab
             vocabs["tgt"] = src_vocab
         else:
-            vocab_src = self._load_json(self.ct2_model_path, "source_vocabulary.json")
-            vocab_tgt = self._load_json(self.ct2_model_path, "target_vocabulary.json")
+            vocab_src = self._load_json("source_vocabulary.json")
+            vocab_tgt = self._load_json("target_vocabulary.json")
 
             src_vocab = pyonmttok.build_vocab_from_tokens(vocab_src)
             tgt_vocab = pyonmttok.build_vocab_from_tokens(vocab_tgt)
@@ -577,14 +574,14 @@ class InferenceEngineCT2(InferenceEngine):
 
         return scores, None, preds
 
-    def predict_batch(self, batch, config) -> Tuple:
+    def predict_batch(self, batch) -> Tuple:
         """Predict a single batch using CT2."""
         input_tokens = self._prepare_input_tokens(batch)
 
         if self.model_type == ModelType.DECODER:
-            return self._predict_decoder(input_tokens, config)
+            return self._predict_decoder(input_tokens, self.config)
         elif self.model_type == ModelType.ENCODER_DECODER:
-            return self._predict_encoder_decoder(input_tokens, config)
+            return self._predict_encoder_decoder(input_tokens, self.config)
         else:
             raise ValueError(f"Unsupported model type: {self.model_type}")
 
@@ -596,7 +593,7 @@ class InferenceEngineCT2(InferenceEngine):
         predictions = {"scores": [], "preds": [], "cid_line_number": []}
 
         for batch, bucket_idx in infer_iter:
-            scores, _, preds = self.predict_batch(batch, self.config)
+            scores, _, preds = self.predict_batch(batch)
             predictions["scores"].extend(scores)
             predictions["preds"].extend(preds)
             predictions["cid_line_number"].extend(batch["cid_line_number"])

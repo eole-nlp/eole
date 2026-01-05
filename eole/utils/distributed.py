@@ -102,7 +102,7 @@ def all_gather_list(data: Any, max_size: int = DEFAULT_MAX_GATHER_SIZE) -> List[
     if enc_size + 2 > max_size:
         raise ValueError(f"encoded data exceeds max_size: {enc_size + 2}")
 
-    assert max_size < ENCODING_BASE * ENCODING_MODULO, f"max_size must be < {ENCODING_BASE * ENCODING_MODULO}"
+    assert max_size < ENCODING_BASE * ENCODING_MODULO, "max_size must be < ENCODING_BASE * ENCODING_MODULO"
 
     # Encode size using 2 bytes (supports up to ~65k)
     in_buffer[0] = enc_size // ENCODING_BASE

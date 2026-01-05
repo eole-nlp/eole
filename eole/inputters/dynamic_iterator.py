@@ -56,9 +56,8 @@ class WeightedMixer(MixingStrategy):
         super().__init__(iterables, weights)
         self._iterators = {}
         self._counts = {}
-        if worker_id == 0:
-            logger = init_logger()
-            logger.info("logging dataloader worker 0")
+        if worker_id == 0:  # first worker of dataloader
+            init_logger()
         for ds_name in self.iterables.keys():
             self._reset_iter(ds_name)
 

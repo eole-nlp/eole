@@ -170,7 +170,7 @@ def configure_process(config: TrainConfig, device_id: int):
 def main(config: TrainConfig, device_id: int):
     """Start training on `device_id`."""
     configure_process(config, device_id)
-    if device_id == 0:
+    if config.gpu_ranks[device_id] == 0:
         init_logger(config.log_file)
     else:
         import logging

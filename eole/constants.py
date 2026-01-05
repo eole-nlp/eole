@@ -67,6 +67,9 @@ class InferenceConstants:
     """Constants used across inference engines."""
 
     DEFAULT_ESTIM_VALUE = 1.0
+    # Standard directory name used by CTranslate2 model exports.
+    # Do not change this value without carefully considering compatibility
+    # with existing model paths and exported models.
     CT2_DIR = "ctranslate2"
     OUTPUT_DELIMITER = "\t"
     STOP = "stop"
