@@ -204,11 +204,3 @@ class HunYuanVisionPatchMerger(nn.Module):
         return cls(
             model_config,
         )
-
-
-str2adapter = {
-    "llava": VisionLanguageAdapter,
-    "gemma3": Gemma3MultiModalProjector,
-    "deepseekocr": DeepSeekOCRProjector,
-    "hunyuanocr": HunYuanVisionPatchMerger,
-}

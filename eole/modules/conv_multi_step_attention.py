@@ -9,55 +9,47 @@ SCALE_WEIGHT = 0.5**0.5
 
 
 def seq_linear(linear, x):
-    """linear transform for 3-d tensor"""
-    batch, hidden_size, length, _ = x.size()
-    h = linear(torch.transpose(x, 1, 2).contiguous().view(batch * length, hidden_size))
-    return torch.transpose(h.view(batch, length, hidden_size, 1), 1, 2)
+    """
+    Apply linear to Conv1d-style tensor (B, C, T)
+    Returns same shape (B, C, T)
+    """
+    batch, channels, length = x.size()
+    # transpose to (B, T, C) to apply linear
+    h = linear(x.transpose(1, 2).contiguous().view(batch * length, channels))
+    h = h.view(batch, length, channels).transpose(1, 2)  # back to (B, C, T)
+    return h
 
 
 class ConvMultiStepAttention(nn.Module):
-    """
-    Conv attention takes a key matrix, a value matrix and a query vector.
-    Attention weight is calculated by key matrix with the query vector
-    and sum on the value matrix. And the same operation is applied
-    in each decode conv layer.
-    """
-
     def __init__(self, input_size):
-        super(ConvMultiStepAttention, self).__init__()
+        super().__init__()
         self.linear_in = nn.Linear(input_size, input_size)
         self.mask = None
 
     def apply_mask(self, mask):
-        """Apply mask"""
         self.mask = mask
 
     def forward(self, base_target_emb, input_from_dec, encoder_out_top, encoder_out_combine):
         """
-        Args:
-            base_target_emb: target emb tensor
-                ``(batch, channel, height, width)``
-            input_from_dec: output of dec conv
-                ``(batch, channel, height, width)``
-            encoder_out_top: the key matrix for calc of attention weight,
-                which is the top output of encode conv
-            encoder_out_combine:
-                the value matrix for the attention-weighted sum,
-                which is the combination of base emb and top output of encode
+        base_target_emb: (B, C, T)
+        input_from_dec: (B, C, T)
+        encoder_out_top: (B, T_enc, C)
+        encoder_out_combine: (B, T_enc, C)
         """
+        # linear over channels
+        preatt = seq_linear(self.linear_in, input_from_dec)  # (B, C, T)
+        target = (base_target_emb + preatt) * SCALE_WEIGHT  # (B, C, T)
 
-        preatt = seq_linear(self.linear_in, input_from_dec)
-        target = (base_target_emb + preatt) * SCALE_WEIGHT
-        target = torch.squeeze(target, 3)
-        target = torch.transpose(target, 1, 2)
-
-        pre_attn = torch.bmm(target, encoder_out_top)
+        # compute attention: (B, T_dec, C) x (B, C, T_enc) -> (B, T_dec, T_enc)
+        target_t = target.transpose(1, 2)  # (B, T_dec, C)
+        pre_attn = torch.bmm(target_t, encoder_out_top.transpose(1, 2))  # (B, T_dec, T_enc)
 
         if self.mask is not None:
             pre_attn.data.masked_fill_(self.mask, -float("inf"))
 
-        attn = F.softmax(pre_attn, dim=2)
+        attn = F.softmax(pre_attn, dim=2)  # (B, T_dec, T_enc)
 
-        context_output = torch.bmm(attn, torch.transpose(encoder_out_combine, 1, 2))
-        context_output = torch.transpose(torch.unsqueeze(context_output, 3), 1, 2)
+        # compute context: weighted sum of encoder outputs
+        context_output = torch.bmm(attn, encoder_out_combine)  # (B, T_dec, C)
+        context_output = context_output.transpose(1, 2)  # back to (B, C, T_dec)
         return context_output, attn

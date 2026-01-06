@@ -10,11 +10,6 @@ from eole.modules.weight_norm import WeightNormConv1d
 SCALE_WEIGHT = 0.5**0.5
 
 
-def shape_transform(x):
-    """Tranform the size of the tensors to fit for conv input."""
-    return torch.unsqueeze(torch.transpose(x, 1, 2), 3)
-
-
 class GatedConv(nn.Module):
     def __init__(self, hidden_size, kernel_width=3, dropout=0.2):
         super().__init__()
