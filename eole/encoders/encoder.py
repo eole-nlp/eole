@@ -1,7 +1,7 @@
 """Base class for encoders."""
 
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any, Union
 import torch
 import torch.nn as nn
 
@@ -17,15 +17,17 @@ class EncoderBase(nn.Module, ABC):
 
     @abstractmethod
     def forward(
-        self, emb: torch.Tensor, pad_mask: Optional[torch.Tensor] = None, **kwargs
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        self, emb: Union[torch.Tensor, list], pad_mask: Optional[torch.Tensor] = None, **kwargs
+    ) -> Tuple[torch.Tensor, Optional[Any]]:
         """
-        Encode input embeddings.
+        Encode input embeddings or images.
 
         Args:
-            emb: Input embeddings of shape (batch, src_len, dim)
-            pad_mask: Padding mask of shape (batch, src_len).
+            emb: Input embeddings (batch, src_len, dim) for text encoders,
+                 or list of images for vision encoders
+            pad_mask: Padding mask (batch, src_len) for text encoders.
                      False for actual values, True for padding.
+                     May be None for vision encoders.
             **kwargs: Additional encoder-specific arguments
 
         Returns:
@@ -34,7 +36,7 @@ class EncoderBase(nn.Module, ABC):
                 - enc_final_hs: Final hidden state or None
                   For RNN: (num_layers * directions, batch, hidden_size)
                   For LSTM: tuple of (hidden, cell)
-                  For Transformer/CNN: None
+                  For Transformer/CNN/Vision: None
         """
         raise NotImplementedError
 
