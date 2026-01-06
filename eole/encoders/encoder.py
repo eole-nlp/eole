@@ -1,38 +1,50 @@
-"""Base class for encoders and generic multi encoders."""
+"""Base class for encoders."""
 
+from abc import ABC, abstractmethod
+from typing import Optional, Tuple, Any
+import torch
 import torch.nn as nn
 
 
-class EncoderBase(nn.Module):
+class EncoderBase(nn.Module, ABC):
     """
-    Base encoder class. Specifies the interface used by different encoder types
-    and required by :class:
-    `eole.Models.EncoderDecoderModel`
-    `eole.Models.EncoderModel`
+    Abstract base encoder class defining the interface for all encoders.
 
+    Used by:
+        - eole.Models.EncoderDecoderModel
+        - eole.Models.EncoderModel
     """
 
-    @classmethod
-    def from_config(cls, encoder_config, running_config=None):
-        raise NotImplementedError
-
-    def forward(self, emb, **kwargs):
+    @abstractmethod
+    def forward(
+        self, emb: torch.Tensor, pad_mask: Optional[torch.Tensor] = None, **kwargs
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
+        Encode input embeddings.
+
         Args:
-            emb (FloatTensor):
-               embeddings ``(batch, src_len, dim)``
-            **kwargs
-               pad_mask (BoolTensor):
-                  pad_mask ``(batch, maxlen)`` False when value, True when pad
+            emb: Input embeddings of shape (batch, src_len, dim)
+            pad_mask: Padding mask of shape (batch, src_len).
+                     False for actual values, True for padding.
+            **kwargs: Additional encoder-specific arguments
+
         Returns:
-            (FloatTensor, FloatTensor, FloatTensor):
-
-            * enc_out (encoder output used for attention),
-              ``(batch, src_len, hidden_size)``
-              for bidirectional rnn last dimension is 2x hidden_size
-            * enc_final_hs: encoder final hidden state
-              ``(num_layers x dir, batch, hidden_size)``
-              In the case of LSTM this is a tuple.
+            Tuple containing:
+                - enc_out: Encoder output for attention (batch, src_len, hidden_size)
+                - enc_final_hs: Final hidden state or None
+                  For RNN: (num_layers * directions, batch, hidden_size)
+                  For LSTM: tuple of (hidden, cell)
+                  For Transformer/CNN: None
         """
-
         raise NotImplementedError
+
+    def update_dropout(self, dropout: float, attention_dropout: Optional[float] = None) -> None:
+        """
+        Update dropout rates dynamically.
+
+        Args:
+            dropout: General dropout rate
+            attention_dropout: Attention-specific dropout rate (if applicable)
+        """
+        # Default implementation - subclasses override as needed
+        pass
