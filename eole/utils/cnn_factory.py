@@ -4,9 +4,8 @@ Implementation of "Convolutional Sequence to Sequence Learning"
 
 import torch
 import torch.nn as nn
-import torch.nn.init as init
 
-from eole.modules.weight_norm import WeightNormConv2d
+from eole.modules.weight_norm import WeightNormConv1d
 
 SCALE_WEIGHT = 0.5**0.5
 
@@ -17,42 +16,31 @@ def shape_transform(x):
 
 
 class GatedConv(nn.Module):
-    """Gated convolution for CNN class"""
-
-    def __init__(self, input_size, width=3, dropout=0.2, nopad=False):
-        super(GatedConv, self).__init__()
-        self.conv = WeightNormConv2d(
-            input_size,
-            2 * input_size,
-            kernel_size=(width, 1),
-            stride=(1, 1),
-            padding=(width // 2 * (1 - nopad), 0),
+    def __init__(self, hidden_size, kernel_width=3, dropout=0.2):
+        super().__init__()
+        self.conv = WeightNormConv1d(
+            hidden_size,
+            2 * hidden_size,
+            kernel_size=kernel_width,
+            padding=kernel_width // 2,
         )
-        # this param init is overridden by model_builder, useless then.
-        init.xavier_uniform_(self.conv.weight, gain=(4 * (1 - dropout)) ** 0.5)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x_var):
-        x_var = self.dropout(x_var)
-        x_var = self.conv(x_var)
-        out, gate = x_var.split(int(x_var.size(1) / 2), 1)
-        out = out * torch.sigmoid(gate)
-        return out
+    def forward(self, x):
+        # x: (batch, hidden, src_len)
+        x = self.dropout(x)
+        x = self.conv(x)
+        out, gate = x.chunk(2, dim=1)
+        return out * torch.sigmoid(gate)
 
 
 class StackedCNN(nn.Module):
-    """Stacked CNN class"""
-
-    def __init__(self, num_layers, input_size, cnn_kernel_width=3, dropout=0.2):
-        super(StackedCNN, self).__init__()
-        self.dropout = dropout
-        self.num_layers = num_layers
-        self.layers = nn.ModuleList()
-        for _ in range(num_layers):
-            self.layers.append(GatedConv(input_size, cnn_kernel_width, dropout))
+    def __init__(self, num_layers, hidden_size, kernel_width=3, dropout=0.2):
+        super().__init__()
+        self.layers = nn.ModuleList(GatedConv(hidden_size, kernel_width, dropout) for _ in range(num_layers))
 
     def forward(self, x):
+        # x: (batch, hidden, src_len)
         for conv in self.layers:
-            x = x + conv(x)
-            x *= SCALE_WEIGHT
+            x = SCALE_WEIGHT * (x + conv(x))
         return x

@@ -105,13 +105,14 @@ class TransformerEncoder(EncoderBase):
         )
         self.layer_norm = LayerNorm[encoder_config.layer_norm](encoder_config.hidden_size, eps=encoder_config.norm_eps)
 
+    """
     @classmethod
     def from_config(cls, encoder_config, running_config=None):
-        """Alternate constructor."""
         return cls(
             encoder_config,
             running_config,
         )
+    """
 
     def forward(
         self, emb: torch.Tensor, pad_mask: Optional[torch.Tensor] = None, **kwargs
@@ -139,11 +140,10 @@ class TransformerEncoder(EncoderBase):
         position_embeddings = self.rope.update(emb.size(1), step=None)
         # Expand to (batch, 1, 1, maxlen) for broadcasting in attention
         pad_mask = pad_mask.unsqueeze(1)
-
-        attn_mask = ~pad_mask if pad_mask is not None else None
+        attn_mask = ~pad_mask
 
         for layer in self.transformer_layers:
-            emb = layer(emb, pad_mask, position_embeddings=position_embeddings)
+            emb = layer(emb, attn_mask, position_embeddings=position_embeddings)
 
         output = self.layer_norm(emb)
         return output, None

@@ -37,7 +37,7 @@ def build_encoder(model_config, running_config=None):
         opt: the option in current environment.
     """
     enc_type = model_config.encoder.encoder_type
-    return str2enc[enc_type].from_config(model_config.encoder, running_config=running_config)  # full config for now
+    return str2enc[enc_type](model_config.encoder, running_config=running_config)
 
 
 def build_adapter(model_config, running_config=None):

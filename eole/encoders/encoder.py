@@ -1,7 +1,7 @@
 """Base class for encoders."""
 
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
