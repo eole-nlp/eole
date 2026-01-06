@@ -11,28 +11,85 @@ from eole.modules.rope import build_rope
 from eole.constants import PositionEncodingType, LayerNorm
 
 
-def position_ids_in_meshgrid(patch_embeds_list, max_width):
-    positions = []
+def position_ids_in_meshgrid(
+    patch_embeds_list: List[torch.Tensor],
+    max_width: int,
+) -> List[torch.Tensor]:
+    """
+    Compute flattened 2D position indices for patch grids.
+
+    For each image's patch embedding tensor of shape (D, H, W), this function:
+    - creates a 2D meshgrid of (row, column) indices
+    - flattens the grid in row-major (raster) order
+    - converts 2D coordinates into 1D position IDs using:
+        position_id = row * max_width + column
+
+    This produces position indices compatible with learned absolute
+    positional embeddings and block-diagonal attention masks, even for
+    variable-sized images.
+
+    Args:
+        patch_embeds_list:
+            List of patch embedding tensors, one per image.
+            Each tensor has shape (hidden_dim, height, width).
+        max_width:
+            Maximum number of patches per row, used to compute unique
+            linearized position IDs across images.
+
+    Returns:
+        List[torch.Tensor]:
+            A list of 1D tensors, one per image.
+            Each tensor has shape (height * width,) and contains integer
+            position IDs corresponding to flattened patch locations.
+    """
+    positions: List[torch.Tensor] = []
+
     for patch in patch_embeds_list:
         height, width = patch.shape[-2:]
-        mesh = torch.meshgrid(torch.arange(height), torch.arange(width), indexing="ij")
-        h_grid, v_grid = torch.stack(mesh, dim=-1).reshape(-1, 2).chunk(2, -1)
-        ids = h_grid * max_width + v_grid
-        positions.append(ids[:, 0])
+
+        h, w = torch.meshgrid(
+            torch.arange(height, device=patch.device),
+            torch.arange(width, device=patch.device),
+            indexing="ij",
+        )
+
+        pos_ids = (h * max_width + w).reshape(-1)
+        positions.append(pos_ids)
+
     return positions
 
 
-def create_block_diagonal_mask(lengths, device):
+def create_block_diagonal_mask(
+    lengths: List[int],
+    device: torch.device,
+) -> torch.Tensor:
     """
-    Create a block diagonal mask based on sequence lengths.
+    Create a block-diagonal attention mask for concatenated sequences.
+
+    The mask is a 2D boolean tensor where each diagonal block corresponds
+    to a contiguous subsequence and is marked as `True`, while all
+    off-diagonal positions are `False`.
+
+    This is typically used to prevent attention across different images
+    or segments when multiple sequences are concatenated along the
+    sequence dimension.
+
     Args:
-        lengths (list of int): List of lengths for each block.
+        lengths:
+            List of sequence lengths for each block (e.g., number of
+            patches per image).
+        device:
+            Device on which to allocate the mask tensor.
+
     Returns:
-        torch.Tensor: A 2D boolean tensor with False in the
-            block diagonal regions and True elsewhere.
+        torch.Tensor:
+            A boolean tensor of shape (total_length, total_length),
+            where `total_length = sum(lengths)`.
+            Positions within the same block are `True` and positions
+            across different blocks are `False`.
     """
     total_length = sum(lengths)
-    mask = torch.zeros((total_length, total_length), dtype=torch.bool)
+    mask = torch.zeros((total_length, total_length), dtype=torch.bool, device=device)
 
     start = 0
     for length in lengths:
@@ -40,35 +97,70 @@ def create_block_diagonal_mask(lengths, device):
         mask[start:end, start:end] = True
         start = end
 
-    return mask.to(device)
+    return mask
 
 
-def get_abs_pos(abs_pos, tgt_size):
+def get_abs_pos(
+    abs_pos: torch.Tensor,
+    tgt_size: int,
+) -> torch.Tensor:
+    """
+    Resize absolute positional embeddings for a new target grid size.
+
+    This function adapts learned ViT-style absolute positional embeddings
+    when the number of image patches changes (e.g., due to different image
+    resolutions at inference time).
+
+    The input embedding is expected to contain a leading [CLS] token
+    followed by flattened 2D patch embeddings. Patch embeddings are
+    reshaped into a square grid, resized via bicubic interpolation,
+    and then flattened back.
+
+    Args:
+        abs_pos:
+            Absolute positional embeddings of shape (1, N + 1, D),
+            where N is the number of patch positions and D is the
+            embedding dimension. The first position corresponds to
+            the [CLS] token.
+        tgt_size:
+            Target number of patch positions (excluding the [CLS] token).
+            Must be a perfect square.
+
+    Returns:
+        torch.Tensor:
+            Resized absolute positional embeddings of shape
+            (1, tgt_size + 1, D), including the [CLS] token.
+            If the source and target grid sizes match, the input
+            tensor is returned unchanged.
+    """
     dim = abs_pos.size(-1)
-    abs_pos_new = abs_pos.squeeze(0)
-    cls_token, old_pos_embed = abs_pos_new[:1], abs_pos_new[1:]
 
-    src_size = int(math.sqrt(abs_pos_new.shape[0] - 1))
+    abs_pos = abs_pos.squeeze(0)
+    cls_token, patch_pos = abs_pos[:1], abs_pos[1:]
+
+    src_size = int(math.sqrt(patch_pos.size(0)))
     tgt_size = int(math.sqrt(tgt_size))
     dtype = abs_pos.dtype
 
-    if src_size != tgt_size:
-        old_pos_embed = old_pos_embed.view(1, src_size, src_size, dim).permute(0, 3, 1, 2).contiguous()
-        old_pos_embed = old_pos_embed.to(torch.float32)
-        new_pos_embed = F.interpolate(
-            old_pos_embed,
-            size=(tgt_size, tgt_size),
-            mode="bicubic",
-            antialias=True,
-            align_corners=False,
-        ).to(dtype)
-        new_pos_embed = new_pos_embed.permute(0, 2, 3, 1)
-        new_pos_embed = new_pos_embed.view(tgt_size * tgt_size, dim)
-        vision_pos_embed = torch.cat([cls_token, new_pos_embed], dim=0)
-        vision_pos_embed = vision_pos_embed.view(1, tgt_size * tgt_size + 1, dim)
-        return vision_pos_embed
-    else:
-        return abs_pos
+    if src_size == tgt_size:
+        return abs_pos.unsqueeze(0)
+
+    # Reshape to (1, D, H, W) for interpolation
+    patch_pos = patch_pos.view(1, src_size, src_size, dim).permute(0, 3, 1, 2)
+    patch_pos = patch_pos.to(torch.float32)
+
+    patch_pos = F.interpolate(
+        patch_pos,
+        size=(tgt_size, tgt_size),
+        mode="bicubic",
+        align_corners=False,
+        antialias=True,
+    ).to(dtype)
+
+    patch_pos = patch_pos.permute(0, 2, 3, 1).reshape(tgt_size * tgt_size, dim)
+
+    out = torch.cat([cls_token, patch_pos], dim=0)
+    return out.unsqueeze(0)
 
 
 class VisionEncoder(EncoderBase):
@@ -144,6 +236,10 @@ class VisionEncoder(EncoderBase):
     def device(self):
         return next(self.parameters()).device
 
+    @property
+    def dtype(self):
+        return next(self.parameters()).dtype
+
     def forward(
         self,
         emb: List[torch.Tensor],  # List of images for vision
@@ -165,7 +261,6 @@ class VisionEncoder(EncoderBase):
                 - Encoded image features (N_img, total_tokens, hidden_size)
                 - None (vision encoders don't return hidden states)
         """
-        dtype = next(self.parameters()).dtype
         mask = None
         position_embeddings = None
 
@@ -173,7 +268,7 @@ class VisionEncoder(EncoderBase):
             patch_embeds = self._process_sam_patches(sam_patches)
         else:
             images = emb  # Rename for clarity in vision context
-            patch_embeds, mask, position_embeddings = self._process_images(images, dtype)
+            patch_embeds, mask, position_embeddings = self._process_images(images, self.dtype)
 
         # Apply transformer layers
         out = patch_embeds
@@ -214,7 +309,7 @@ class VisionEncoder(EncoderBase):
             Tuple of (patch_embeds, mask, position_embeddings)
         """
         # Extract patches from all images
-        patch_embeds_list = [self.patch_conv(img.to(dtype)) for img in images]
+        patch_embeds_list = [self.patch_conv(img.to(self.dtype)) for img in images]
         positions = position_ids_in_meshgrid(
             patch_embeds_list,
             max_width=self.encoder_config.image_size // self.encoder_config.patch_size,
@@ -265,7 +360,7 @@ class VisionEncoder(EncoderBase):
             h_scale = (H + 0.1) / self.max_patch_per_side
             w_scale = (W + 0.1) / self.max_patch_per_side
 
-            patch_pos_embed = nn.functional.interpolate(
+            patch_pos_embed = F.interpolate(
                 patch_pos_embed, scale_factor=(h_scale, w_scale), mode=self.interpolate_mode, align_corners=False
             )
 
