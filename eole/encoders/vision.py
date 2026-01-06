@@ -183,9 +183,9 @@ class VisionEncoder(EncoderBase):
         self.encoder_config = encoder_config
 
         if encoder_config.encoder_sam:
-            from eole.encoders.deepseek_sam import build_sam_vit_b
+            from eole.encoders.deepseek_sam import ImageEncoderViT
 
-            self.sam = build_sam_vit_b()
+            self.sam = ImageEncoderViT()
         else:
             self.sam = None
 
