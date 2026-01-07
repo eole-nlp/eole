@@ -26,7 +26,7 @@ class RNNEncoder(EncoderBase):
 
         if encoder_config.hidden_size % num_directions != 0:
             raise ValueError(
-                f"hidden_size ({encoder_config.hidden_size}) must be divisible " f"by num_directions ({num_directions})"
+                f"hidden_size ({encoder_config.hidden_size}) must be divisible by num_directions ({num_directions})"
             )
 
         hidden_size = encoder_config.hidden_size // num_directions

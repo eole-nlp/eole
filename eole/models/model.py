@@ -1019,7 +1019,7 @@ class VisionEncoderDecoderModel(BaseModel):
         image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
 
         if self.encoder.sam is not None:
-            sam_patches, _ = self.encoder.sam(torch.stack(images, dim=0))  # tensor B C H W
+            sam_patches, _ = self.encoder.sam(images)  # tensor B C H W
             encoded_images, _ = self.encoder(images, sam_patches=sam_patches)
             global_features = torch.cat((encoded_images[:, 1:], sam_patches.flatten(2).permute(0, 2, 1)), dim=-1)
             image_features = self.adapter(global_features, image_sizes=image_sizes)

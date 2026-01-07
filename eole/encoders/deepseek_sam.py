@@ -4,7 +4,7 @@ DeepSeek SAM (Segment Anything Model) Vision Encoder.
 Based on Meta's SAM ViT architecture with modifications for DeepSeek integration.
 """
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -503,13 +503,13 @@ class ImageEncoderViT(EncoderBase):
         return next(self.parameters()).dtype
 
     def forward(
-        self, emb: torch.Tensor, pad_mask: Optional[torch.Tensor] = None, **kwargs
+        self, emb: Union[torch.Tensor, list], pad_mask: Optional[torch.Tensor] = None, **kwargs
     ) -> Tuple[torch.Tensor, None]:
         """
         Process images through SAM encoder.
 
         Args:
-            emb: Input images (batch, channels, height, width)
+            emb: List of N images of variable sizes, each (C, H, W)
             pad_mask: Not used for SAM (for EncoderBase compatibility)
             **kwargs: Additional arguments (ignored)
 
@@ -518,13 +518,14 @@ class ImageEncoderViT(EncoderBase):
                 - Multi-scale features (batch, 1024, height/4, width/4)
                 - None (SAM doesn't return hidden states)
         """
-        x = emb  # Rename for clarity
+        
+        x = torch.stack(emb, dim=0)
 
         # Patch embedding
         x = self.patch_embed(x.to(self.dtype))
 
         # Add positional embedding
-        x = x + interpolate_abs_pos(self.pos_embed, x.size(1))
+        x = x + interpolate_abs_pos(self.pos_embed, x.size(1) * x.size(2))
 
         # Apply transformer blocks
         for block in self.blocks:

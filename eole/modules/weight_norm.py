@@ -76,6 +76,7 @@ class WeightNormConv1d(nn.Conv1d):
 
         self.V = self.weight
         self.g = nn.Parameter(torch.Tensor(out_channels))
+        nn.init.ones_(self.g)
         self.b = self.bias
 
         self.register_buffer("V_avg", torch.zeros_like(self.V))
