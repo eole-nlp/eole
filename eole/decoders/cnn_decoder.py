@@ -1,13 +1,12 @@
-"""Implementation of the CNN Decoder part of
-"Convolutional Sequence to Sequence Learning"
-"""
+"""CNN Decoder implementation from 'Convolutional Sequence to Sequence Learning'."""
 
+from typing import Optional, Tuple, Dict
 import torch
 import torch.nn as nn
 
+from eole.decoders.decoder import DecoderBase
 from eole.modules.conv_multi_step_attention import ConvMultiStepAttention
 from eole.utils.cnn_factory import GatedConv
-from eole.decoders.decoder import DecoderBase
 
 SCALE_WEIGHT = 0.5**0.5
 
@@ -18,6 +17,7 @@ class CNNDecoder(DecoderBase):
     def __init__(self, decoder_config, running_config=None, with_cross_attn=False):
         super().__init__()
 
+        self.cnn_kernel_width = decoder_config.cnn_kernel_width
         hidden_size = decoder_config.hidden_size
         dropout = getattr(running_config, "dropout", [0.0])[0] if running_config else 0.0
 
@@ -27,7 +27,7 @@ class CNNDecoder(DecoderBase):
         # Stacked CNN layers
         self.conv_layers = nn.ModuleList(
             [
-                GatedConv(hidden_size, kernel_width=decoder_config.cnn_kernel_width, dropout=dropout)
+                GatedConv(hidden_size, kernel_width=decoder_config.cnn_kernel_width, dropout=dropout, nopad=True)
                 for _ in range(decoder_config.layers)
             ]
         )
@@ -62,44 +62,87 @@ class CNNDecoder(DecoderBase):
     def detach_state(self):
         self.state["previous_input"] = self.state["previous_input"].detach()
 
-    def forward(self, emb, enc_out, step=None, **kwargs):
+    def forward(
+        self, emb: torch.Tensor, enc_out: torch.Tensor, step: Optional[int] = None, **kwargs
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
-        emb: (batch, tgt_len, hidden)
-        enc_out: (batch, src_len, hidden)
+        Decode target embeddings with attention over encoder outputs.
+
+        Args:
+            emb: Target embeddings (batch, tgt_len, hidden_size)
+            enc_out: Encoder output (batch, src_len, hidden_size)
+            step: Current decoding step (optional, for incremental decoding)
+            **kwargs: Additional arguments
+
+        Returns:
+            Tuple of:
+                - Decoder outputs (batch, tgt_len, hidden_size)
+                - Attention weights dict
         """
+        # Concatenate with previous input for context
         if self.state["previous_input"] is not None:
-            emb = torch.cat([self.state["previous_input"], emb], dim=1)
+            emb = torch.cat([self.state["previous_input"], emb], 1)
 
-        batch, tgt_len, hidden = emb.size()
+        attns = {"std": []}
 
-        # Linear projection
-        x = self.linear(emb.view(batch * tgt_len, hidden))
-        x = x.view(batch, tgt_len, hidden)
+        assert emb.dim() == 3, f"Expected 3D input, got {emb.dim()}D"
 
-        # Transpose for Conv1d: (B, hidden, T)
+        # Encoder outputs
+        enc_out_t = enc_out  # Encoder output (for attention)
+        enc_out_c = self.state["src"]  # Combined encoder output + embeddings
+
+        # Project input embeddings
+        batch_size, tgt_len, _ = emb.shape
+        projected = self.linear(emb.view(batch_size * tgt_len, -1))
+        x = projected.view(batch_size, tgt_len, -1)
+
+        # Convert to Conv1d format: (batch, hidden, tgt_len)
         x = x.transpose(1, 2)
-        base_target_emb = x.clone()
+        base_target_emb = x
 
-        # Residual convolution + attention
-        enc_out_c = self.state["src"]
-        enc_out_t = enc_out
-        for conv, attn in zip(self.conv_layers, self.attn_layers):
-            out = conv(x)
-            c, a = attn(base_target_emb, out, enc_out_t, enc_out_c)
-            x = SCALE_WEIGHT * (x + SCALE_WEIGHT * (out + c))
+        # Create causal padding (left-pad only, no future information)
+        # Shape: (batch, hidden, kernel_width - 1)
+        pad = torch.zeros(
+            x.size(0),
+            x.size(1),
+            self.cnn_kernel_width - 1,
+            dtype=x.dtype,
+            device=x.device,
+        )
 
-        # Transpose back: (B, T, hidden)
-        dec_outs = x.transpose(1, 2)  # (B, T, hidden)
+        # Apply convolutional layers with attention
+        for conv, attention in zip(self.conv_layers, self.attn_layers):
+            # Add causal padding: only past context, no future
+            new_target_input = torch.cat([pad, x], dim=2)
+
+            # Apply gated convolution
+            out = conv(new_target_input)
+
+            # Apply attention
+            c, attn = attention(base_target_emb, out, enc_out_t, enc_out_c)
+
+            # Residual connection with double scaling
+            x = (x + (c + out) * SCALE_WEIGHT) * SCALE_WEIGHT
+
+        # Convert back to (batch, tgt_len, hidden)
+        dec_outs = x.transpose(1, 2)
+
+        # If using cached previous input, only return new outputs
         if self.state["previous_input"] is not None:
-            dec_outs = dec_outs[:, self.state["previous_input"].size(1) :, :]
-            attn = attn[:, self.state["previous_input"].size(1) :].squeeze()
+            prev_len = self.state["previous_input"].size(1)
+            dec_outs = dec_outs[:, prev_len:, :]
+            attn = attn[:, prev_len:].squeeze()
             attn = torch.stack([attn])
 
-        attns = {"std": attn}
+        attns["std"] = attn
+
+        # Update state for next step
         self.state["previous_input"] = emb
 
         return dec_outs, attns
 
-    def update_dropout(self, dropout, attention_dropout=None):
+    def update_dropout(self, dropout: float, attention_dropout: Optional[float] = None) -> None:
+        """Update dropout rates for all convolutional layers."""
         for layer in self.conv_layers:
-            layer.dropout.p = dropout
+            if hasattr(layer, "dropout"):
+                layer.dropout.p = dropout

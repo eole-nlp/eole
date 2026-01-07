@@ -536,4 +536,4 @@ class ImageEncoderViT(EncoderBase):
         x = self.net_2(x)
         x = self.net_3(x)
 
-        return x
+        return x, None

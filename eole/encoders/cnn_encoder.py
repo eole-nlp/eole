@@ -32,7 +32,7 @@ class CNNEncoder(EncoderBase):
         self.cnn = StackedCNN(
             encoder_config.layers,
             encoder_config.hidden_size,
-            # kernel_width=encoder_config.cnn_kernel_width,
+            kernel_width=encoder_config.cnn_kernel_width,
             dropout=dropout,
         )
 
@@ -66,4 +66,9 @@ class CNNEncoder(EncoderBase):
 
     def update_dropout(self, dropout: float, attention_dropout: Optional[float] = None) -> None:
         """Update CNN dropout rate."""
-        self.cnn.dropout.p = dropout
+        # StackedCNN does not expose a single dropout module; its layers (e.g. GatedConv)
+        # each own their own dropout. Update all of them.
+        if hasattr(self.cnn, "layers"):
+            for layer in self.cnn.layers:
+                if hasattr(layer, "dropout") and hasattr(layer.dropout, "p"):
+                    layer.dropout.p = dropout

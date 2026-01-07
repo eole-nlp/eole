@@ -279,7 +279,7 @@ class VisionEncoder(EncoderBase):
         if self.post_layernorm is not None:
             out = self.post_layernorm(out)
 
-        return out
+        return out, None
 
     def _process_sam_patches(self, sam_patches: torch.Tensor) -> torch.Tensor:
         """Process pre-computed SAM patches."""

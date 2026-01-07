@@ -28,6 +28,29 @@ def get_vars_maybe_avg(namespace, var_names, training, polyak_decay):
 
 
 class WeightNormConv1d(nn.Conv1d):
+    """1D convolution layer with weight normalization and Polyak averaging.
+    This module re-parameterizes the convolutional weight ``w`` as
+    ``w = g * V / ||V||`` where ``V`` is an unconstrained weight tensor and
+    ``g`` is a learned per-output-channel scale. The bias term ``b`` is kept
+    separate. During the forward pass, the effective weight is reconstructed
+    from ``V`` and ``g`` before applying a standard 1D convolution.
+    In addition, the layer maintains Polyak-averaged copies of the parameters
+    (``V_avg``, ``g_avg``, ``b_avg``) controlled by ``polyak_decay``. The
+    helper :func:`get_vars_maybe_avg` returns either the current parameters
+    (in training mode) or their moving averages (in evaluation mode), which
+    can improve stability at test time.
+    Args:
+        in_channels: Number of channels in the input signal.
+        out_channels: Number of channels produced by the convolution.
+        kernel_size: Size of the convolving kernel.
+        stride: Stride of the convolution.
+        padding: Zero-padding added to both sides of the input.
+        dilation: Spacing between kernel elements.
+        groups: Number of blocked connections from input channels to output channels.
+        init_scale: Initial scaling factor applied via ``g`` (kept for API completeness).
+        polyak_decay: Decay factor (close to 1) for Polyak averaging of parameters.
+    """
+
     def __init__(
         self,
         in_channels,

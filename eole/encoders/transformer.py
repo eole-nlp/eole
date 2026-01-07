@@ -52,7 +52,7 @@ class TransformerEncoderLayer(nn.Module):
 
         Args:
             layer_in: Input tensor (batch_size, src_len, model_dim)
-            pad_mask: Padding mask (batch_size, 1, src_len)
+            attn_mask: Attention mask (batch_size, 1, src_len)
             position_embeddings: Rotary position encodings (optional)
 
         Returns:
@@ -104,15 +104,6 @@ class TransformerEncoder(EncoderBase):
             [TransformerEncoderLayer(encoder_config, running_config) for _ in range(encoder_config.layers)]
         )
         self.layer_norm = LayerNorm[encoder_config.layer_norm](encoder_config.hidden_size, eps=encoder_config.norm_eps)
-
-    """
-    @classmethod
-    def from_config(cls, encoder_config, running_config=None):
-        return cls(
-            encoder_config,
-            running_config,
-        )
-    """
 
     def forward(
         self, emb: torch.Tensor, pad_mask: Optional[torch.Tensor] = None, **kwargs
