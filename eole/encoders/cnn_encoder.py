@@ -1,52 +1,74 @@
-"""
-Implementation of "Convolutional Sequence to Sequence Learning"
-"""
+"""Convolutional encoder implementation."""
 
+from typing import Optional, Tuple
+import torch
 import torch.nn as nn
 
 from eole.encoders.encoder import EncoderBase
-from eole.utils.cnn_factory import shape_transform, StackedCNN
-
-SCALE_WEIGHT = 0.5**0.5
+from eole.utils.cnn_factory import StackedCNN
 
 
 class CNNEncoder(EncoderBase):
-    """Encoder based on "Convolutional Sequence to Sequence Learning"
-    :cite:`DBLP:journals/corr/GehringAGYD17`.
+    """
+    Convolutional sequence-to-sequence encoder.
+
+    Based on "Convolutional Sequence to Sequence Learning" (Gehring et al., 2017)
+    Reference: https://arxiv.org/abs/1705.03122
+
+    Args:
+        encoder_config: Encoder configuration
+        running_config: Runtime configuration (optional)
     """
 
-    def __init__(self, model_config, running_config=None):
-        super(CNNEncoder, self).__init__()
+    def __init__(self, encoder_config, running_config=None):
+        super().__init__()
 
-        input_size = model_config.hidden_size  # we need embeddings.src_word_vec_size instead
-        self.linear = nn.Linear(input_size, model_config.hidden_size)
+        # Input projection to hidden dimension
+        input_size = encoder_config.hidden_size
+        self.linear = nn.Linear(input_size, encoder_config.hidden_size)
+
+        # Stacked CNN layers
+        dropout = getattr(running_config, "dropout", [0.0])[0] if running_config else 0.0
         self.cnn = StackedCNN(
-            model_config.layers,
-            model_config.hidden_size,
-            model_config.cnn_kernel_width,
-            getattr(running_config, "dropout", [0.0])[0],
+            encoder_config.layers,
+            encoder_config.hidden_size,
+            kernel_width=encoder_config.cnn_kernel_width,
+            dropout=dropout,
         )
 
-    @classmethod
-    def from_config(cls, model_config, running_config=None):
-        """Alternate constructor."""
-        # config = opt.model.encoder  # CnnEncoderConfig
-        return cls(
-            model_config,  # CnnEncoderConfig
-            running_config,  # might be better to set this out of the model building logic (update_dropout call sometime in training) # noqa: E501
-        )
+    def forward(
+        self, emb: torch.Tensor, pad_mask: Optional[torch.Tensor] = None, **kwargs
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Encode input embeddings through CNN layers.
 
-    def forward(self, emb, **kwargs):
-        """See :func:`EncoderBase.forward()`"""
-        # batch x len x dim
+        Args:
+            emb: Input embeddings (batch, src_len, dim)
+            pad_mask: Padding mask (optional, not used)
+            **kwargs: Additional arguments
 
-        emb_reshape = emb.view(emb.size(0) * emb.size(1), -1)
-        emb_remap = self.linear(emb_reshape)
-        emb_remap = emb_remap.view(emb.size(0), emb.size(1), -1)
-        emb_remap = shape_transform(emb_remap)
-        out = self.cnn(emb_remap)
+        Returns:
+            Tuple of:
+                - CNN output (batch, src_len, hidden_size)
+                - Projected embeddings (batch, src_len, hidden_size)
+        """
+        projected = self.linear(emb)
 
-        return out.squeeze(3), emb_remap.squeeze(3)
+        # Conv1d expects (batch, hidden, src_len)
+        x = projected.transpose(1, 2)
 
-    def update_dropout(self, dropout, attention_dropout=None):
-        self.cnn.dropout.p = dropout
+        x = self.cnn(x)
+
+        # Back to encoder format
+        x = x.transpose(1, 2)
+
+        return x, projected
+
+    def update_dropout(self, dropout: float, attention_dropout: Optional[float] = None) -> None:
+        """Update CNN dropout rate."""
+        # StackedCNN does not expose a single dropout module; its layers (e.g. GatedConv)
+        # each own their own dropout. Update all of them.
+        if hasattr(self.cnn, "layers"):
+            for layer in self.cnn.layers:
+                if hasattr(layer, "dropout") and hasattr(layer.dropout, "p"):
+                    layer.dropout.p = dropout

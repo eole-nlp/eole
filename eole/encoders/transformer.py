@@ -1,7 +1,7 @@
-"""
-Implementation of "Attention is All You Need" Transformer Encoder
-"""
+"""Implementation of Transformer Encoder from 'Attention is All You Need'"""
 
+from typing import Optional, Tuple
+import torch
 import torch.nn as nn
 
 from eole.encoders.encoder import EncoderBase
@@ -13,23 +13,20 @@ from eole.constants import LayerNorm
 
 class TransformerEncoderLayer(nn.Module):
     """
-    A single layer of the transformer encoder.
+    Single transformer encoder layer with self-attention and feed-forward network.
 
     Args:
-        encoder_config (eole.config.TransformerEncoderConfig): full encoder config
-        running_config
+        encoder_config: Encoder configuration
+        running_config: Runtime configuration (optional)
     """
 
-    def __init__(
-        self,
-        encoder_config,
-        running_config=None,
-    ):
-        super(TransformerEncoderLayer, self).__init__()
-        self.parallel_residual = encoder_config.parallel_residual
-        self.dropout_p = getattr(running_config, "dropout", [0.0])[0]
+    def __init__(self, encoder_config, running_config=None):
+        super().__init__()
 
-        # order of layers corresponds to forward flow of tensors
+        self.parallel_residual = encoder_config.parallel_residual
+        self.dropout_p = getattr(running_config, "dropout", [0.0])[0] if running_config else 0.0
+
+        # Layer components
         self.input_layernorm = LayerNorm[encoder_config.layer_norm](
             encoder_config.hidden_size, eps=encoder_config.norm_eps
         )
@@ -42,102 +39,107 @@ class TransformerEncoderLayer(nn.Module):
         self.post_attention_layernorm = LayerNorm[encoder_config.layer_norm](
             encoder_config.hidden_size, eps=encoder_config.norm_eps
         )
-        self.mlp = MLP(
-            encoder_config,
-            running_config=running_config,
-        )
+        self.mlp = MLP(encoder_config, running_config=running_config)
 
-    def forward(self, layer_in, pad_mask, position_embeddings=None):
+    def forward(
+        self,
+        layer_in: torch.Tensor,
+        attn_mask: Optional[torch.Tensor],
+        position_embeddings: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """
+        Forward pass through encoder layer.
+
         Args:
-            layer_in (FloatTensor): ``(batch_size, src_len, model_dim)``
-            pad_mask (LongTensor): ``(batch_size, 1, src_len)``
-            position_embeddings (FloatTensor): rotary position encodings, if any
+            layer_in: Input tensor (batch_size, src_len, model_dim)
+            attn_mask: Attention mask (batch_size, 1, src_len)
+            position_embeddings: Rotary position encodings (optional)
 
         Returns:
-            (FloatTensor):
-            * layer_out ``(batch_size, src_len, model_dim)``
+            Output tensor (batch_size, src_len, model_dim)
         """
         norm_layer_in = self.input_layernorm(layer_in)
-        context, _ = self.self_attn(
+        self_attn, _ = self.self_attn(
             norm_layer_in,
-            attn_mask=~pad_mask if pad_mask is not None else None,
+            attn_mask=attn_mask,
             position_embeddings=position_embeddings,
         )
         if self.dropout_p > 0:
-            context = self.dropout(context)
+            self_attn = self.dropout(self_attn)
 
-        context.add_(layer_in)
-        ff_in = self.post_attention_layernorm(context) if not self.parallel_residual else norm_layer_in
-        # apply post attention norm and add residual after mlp
-        return context + self.mlp(ff_in)
+        # apply residual
+        self_attn.add_(layer_in)
 
-    def update_dropout(self, dropout, attention_dropout):
+        # prepare feed-forward input
+        ff_in = self.post_attention_layernorm(self_attn) if not self.parallel_residual else norm_layer_in
+
+        # add residual after mlp
+        return self_attn + self.mlp(ff_in)
+
+    def update_dropout(self, dropout: float, attention_dropout: float) -> None:
+        """Update dropout rates across all sub-modules."""
+        self.dropout_p = dropout
+        self.dropout.p = dropout
         self.self_attn.update_dropout(attention_dropout)
         self.mlp.update_dropout(dropout)
-        self.dropout.p = dropout
 
 
 class TransformerEncoder(EncoderBase):
-    """The Transformer encoder from "Attention is All You Need"
-    :cite:`DBLP:journals/corr/VaswaniSPUJGKP17`
+    """
+    Transformer encoder from 'Attention is All You Need'.
+
+    Reference:
+        Vaswani et al. (2017) https://arxiv.org/abs/1706.03762
 
     Args:
-        encoder_config (eole.config.TransformerEncoderConfig): full encoder config
-        running_config (TrainingConfig / InferenceConfig)
+        encoder_config: Complete encoder configuration
+        running_config: Runtime configuration (optional)
     """
 
-    def __init__(
-        self,
-        encoder_config,
-        running_config=None,
-    ):
-        super(TransformerEncoder, self).__init__()
+    def __init__(self, encoder_config, running_config=None):
+        super().__init__()
+
         self.rope = build_rope(encoder_config)
         self.transformer_layers = nn.ModuleList(
-            [
-                TransformerEncoderLayer(
-                    encoder_config,
-                    running_config=running_config,
-                )
-                for i in range(encoder_config.layers)
-            ]
+            [TransformerEncoderLayer(encoder_config, running_config) for _ in range(encoder_config.layers)]
         )
         self.layer_norm = LayerNorm[encoder_config.layer_norm](encoder_config.hidden_size, eps=encoder_config.norm_eps)
 
-    @classmethod
-    def from_config(cls, encoder_config, running_config=None):
-        """Alternate constructor."""
-        return cls(
-            encoder_config,
-            running_config,
-        )
-
-    def forward(self, emb, **kwargs):
-        """See :func:`EncoderBase.forward()`
+    def forward(
+        self, emb: torch.Tensor, pad_mask: Optional[torch.Tensor] = None, **kwargs
+    ) -> Tuple[torch.Tensor, None]:
+        """
+        Encode input embeddings.
 
         Args:
-            emb (eole.modules.Embeddings):
-                embeddings to use, should have positional encodings
-            **kwargs
-                pad_mask: ``(batch, maxlen)`` False when value, True when pad
+            emb: Input embeddings with positional encodings
+                 Shape: (batch_size, src_len, model_dim)
+            pad_mask: Padding mask (batch, src_len)
+                     False for values, True for padding
+            **kwargs: Additional arguments (ignored)
 
         Returns:
-            (torch.FloatTensor, torch.FloatTensor):
-        * enc_out ``(batch_size, src_len, model_dim)``
-        * encoder final state: None in the case of Transformer
+            Tuple of:
+                - Encoded output (batch_size, src_len, model_dim)
+                - None (transformers don't return final state)
+
+        Raises:
+            ValueError: If pad_mask is not provided
         """
-        pad_mask = kwargs.pop("pad_mask", None)
-        assert pad_mask is not None, "TransformerEncoder requires a src pad mask"
+        assert pad_mask is not None, "TransformerEncoder requires pad_mask"
+
         position_embeddings = self.rope.update(emb.size(1), step=None)
-        pad_mask = pad_mask.unsqueeze(1)  # batch x 1 x 1 x maxlen
-        # dim 1 (heads) and 2 (src_len) will be broadcasted automatically in MHA
+        # Expand to (batch, 1, 1, maxlen) for broadcasting in attention
+        pad_mask = pad_mask.unsqueeze(1)
+        attn_mask = ~pad_mask
 
         for layer in self.transformer_layers:
-            emb = layer(emb, pad_mask, position_embeddings=position_embeddings)
-        emb = self.layer_norm(emb)
-        return emb, None
+            emb = layer(emb, attn_mask, position_embeddings=position_embeddings)
 
-    def update_dropout(self, dropout, attention_dropout):
+        output = self.layer_norm(emb)
+        return output, None
+
+    def update_dropout(self, dropout: float, attention_dropout: float) -> None:
+        """Update dropout rates for all transformer layers."""
         for layer in self.transformer_layers:
             layer.update_dropout(dropout, attention_dropout)

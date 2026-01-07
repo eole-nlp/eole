@@ -21,12 +21,12 @@ from eole.inputters.inputter import dict_to_vocabs
 # copied from model_builder to facilitate tests, but should not live there in the end
 from eole.encoders import str2enc
 from eole.decoders import str2dec
+from eole.adapters import str2adapter
 from eole.constants import DefaultTokens, LayerNormFP32
 from eole.modules.embeddings import Embeddings
 from eole.models.model_saver import get_metadata
 from eole.modules.estimator import FeedForward
 
-from eole.encoders.vision import str2adapter
 from eole.encoders.vision import VisionEncoder
 
 
@@ -37,7 +37,7 @@ def build_encoder(model_config, running_config=None):
         opt: the option in current environment.
     """
     enc_type = model_config.encoder.encoder_type
-    return str2enc[enc_type].from_config(model_config.encoder, running_config=running_config)  # full config for now
+    return str2enc[enc_type](model_config.encoder, running_config=running_config)
 
 
 def build_adapter(model_config, running_config=None):
@@ -1019,8 +1019,8 @@ class VisionEncoderDecoderModel(BaseModel):
         image_sizes = torch.tensor([[images[i].size(1), images[i].size(2)] for i in range(len(images))])
 
         if self.encoder.sam is not None:
-            sam_patches = self.encoder.sam(torch.stack(images, dim=0))  # tensor B C H W
-            encoded_images = self.encoder(images, sam_patches)
+            sam_patches, _ = self.encoder.sam(images)  # tensor B C H W
+            encoded_images, _ = self.encoder(images, sam_patches=sam_patches)
             global_features = torch.cat((encoded_images[:, 1:], sam_patches.flatten(2).permute(0, 2, 1)), dim=-1)
             image_features = self.adapter(global_features, image_sizes=image_sizes)
             b, hw, n_dim = image_features.shape
@@ -1034,7 +1034,7 @@ class VisionEncoderDecoderModel(BaseModel):
             separator = self.view_separator.view(1, 1, n_dim).expand(b, 1, n_dim)
             image_features = torch.cat([image_features, separator], dim=1)
         else:
-            encoded_images = self.encoder(images)
+            encoded_images, _ = self.encoder(images)
             image_features = self.adapter(encoded_images, image_sizes=image_sizes)
 
         N_img, tokperimg, D_img = image_features.shape
