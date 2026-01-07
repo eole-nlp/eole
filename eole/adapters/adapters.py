@@ -6,201 +6,346 @@ import torch.nn as nn
 from eole.constants import LayerNorm
 
 
-class PatchMerger(nn.Module):
+class BaseVisionAdapter(nn.Module):
     """
-    Learned merging of spatial_merge_size ** 2 patches
+    Base class for all vision-to-language adapters.
+
+    Adapters take visual token embeddings produced by a vision encoder and
+    transform them into a sequence of embeddings consumable by a language
+    model decoder.
+
+    All subclasses must implement:
+        forward(x, image_sizes)
+
+    Expected input format:
+        x: Tensor of shape (B, N, D) or (1, sum_i N_i, D)
+        image_sizes: Tensor of shape (B, 2), containing (height_px, width_px)
+                     for each image in the batch.
     """
-
-    def __init__(self, model_config):
-        super().__init__()
-        self.config = model_config
-        hidden_size = model_config.encoder.hidden_size
-        self.spatial_merge_size = model_config.spatial_merge_size
-        self.patch_size = model_config.encoder.patch_size
-        self.merging_layer = nn.Linear(hidden_size * self.spatial_merge_size**2, hidden_size, bias=False)
-
-    def forward(self, image_features: torch.Tensor, image_sizes: torch.Tensor) -> torch.Tensor:
-        image_sizes = [
-            (image_size[0] // self.patch_size, image_size[1] // self.patch_size) for image_size in image_sizes
-        ]
-        tokens_per_image = [h * w for h, w in image_sizes]
-        d = image_features.shape[-1]
-
-        flattened_features = image_features.view(-1, d)
-        permuted_tensor = []
-        for image_index, image_tokens in enumerate(flattened_features.split(tokens_per_image)):
-            # Reshape image_tokens into a 2D grid
-            h, w = image_sizes[image_index]
-            image_grid = image_tokens.view(h, w, d).permute(2, 0, 1).unsqueeze(0)
-            grid = torch.nn.functional.unfold(
-                image_grid, kernel_size=self.spatial_merge_size, stride=self.spatial_merge_size
-            )
-            grid = grid.view(d * self.spatial_merge_size**2, -1).t()
-            permuted_tensor.append(grid)
-
-        image_features = torch.cat(permuted_tensor, dim=0)
-        image_features = self.merging_layer(image_features.unsqueeze(0))
-
-        return image_features
-
-
-# TODO refactor the 3 projectors below for unique code path
-# Multi-Modal Projector
-class VisionLanguageAdapter(nn.Module):
-    def __init__(self, model_config):
-        super(VisionLanguageAdapter, self).__init__()
-        in_dim = model_config.encoder.hidden_size
-        out_dim = model_config.decoder.hidden_size
-        bias = getattr(model_config, "adapter_bias", False)
-        self.has_patch = False
-        if model_config.spatial_merge_size > 1:
-            self.has_patch = True
-            self.layernorm = LayerNorm[model_config.encoder.layer_norm](in_dim, eps=1e-5)
-            self.patch_merger = PatchMerger(model_config)
-        self.w_in = nn.Linear(in_dim, out_dim, bias=bias)
-        self.gelu = nn.GELU()
-        self.w_out = nn.Linear(out_dim, out_dim, bias=bias)
 
     def forward(self, x, image_sizes=None):
+        raise NotImplementedError
+
+
+def compute_patch_grid(image_sizes, patch_size):
+    """
+    Compute patch grid dimensions for each image.
+
+    Args:
+        image_sizes: Iterable of (height_px, width_px).
+        patch_size: Size of one vision patch in pixels.
+
+    Returns:
+        List of (height_in_patches, width_in_patches).
+    """
+    grids = []
+    for h, w in image_sizes:
+        if h % patch_size != 0 or w % patch_size != 0:
+            raise ValueError(f"Image size ({h}, {w}) not divisible by patch_size {patch_size}")
+        grids.append((h // patch_size, w // patch_size))
+    return grids
+
+
+def split_by_image(x, image_sizes, patch_size):
+    """
+    Split a concatenated patch sequence into per-image tensors.
+
+    Args:
+        x: Tensor of shape (sum_i N_i, D).
+        image_sizes: Tensor of shape (B, 2).
+        patch_size: Vision patch size in pixels.
+
+    Returns:
+        xs: Tuple of tensors, one per image.
+        grids: List of (height, width) patch grids.
+    """
+    grids = compute_patch_grid(image_sizes, patch_size)
+    counts = [h * w for h, w in grids]
+    return x.split(counts), grids
+
+
+class LinearPatchMerger(nn.Module):
+    """
+    Spatial patch merger using learned linear projection.
+
+    This module merges non-overlapping spatial blocks of size
+    (spatial_merge_size x spatial_merge_size) from a vision encoder's
+    patch grid into a single token.
+
+    The merging is performed per image, but the final linear projection
+    is applied once globally, matching the behavior of the original
+    PatchMerger implementation.
+
+    Input:
+        image_features: Tensor of shape (1, sum_i N_i, D)
+            Concatenated patch embeddings for a batch of images.
+
+        image_sizes: Tensor of shape (B, 2)
+            Image sizes in pixels as (height, width).
+
+    Output:
+        Tensor of shape (1, sum_i (N_i / spatial_merge_size^2), D)
+    """
+
+    def __init__(self, hidden_size, patch_size, spatial_merge_size):
+        """
+        Args:
+            hidden_size: Dimensionality of vision encoder embeddings (D).
+            patch_size: Size of a single vision patch in pixels.
+            spatial_merge_size: Number of patches to merge per spatial dimension.
+        """
+        super().__init__()
+        self.patch_size = patch_size
+        self.spatial_merge_size = spatial_merge_size
+        self.merging_layer = nn.Linear(
+            hidden_size * spatial_merge_size**2,
+            hidden_size,
+            bias=False,
+        )
+
+    def forward(self, image_features: torch.Tensor, image_sizes: torch.Tensor):
+        """
+        Merge spatial patches into larger visual tokens.
+
+        Args:
+            image_features: (1, sum_i N_i, D)
+            image_sizes: (B, 2), image sizes in pixels
+
+        Returns:
+            Tensor of shape (1, sum_i L_i, D), where
+            L_i = (H_i / S) * (W_i / S)
+        """
+        D = image_features.shape[-1]
+        xs, grids = split_by_image(image_features.squeeze(0), image_sizes, self.patch_size)
+
+        outputs = []
+        for xi, (h, w) in zip(xs, grids):
+            # (N_i, D) → (1, D, h, w)
+            xi = xi.view(h, w, D).permute(2, 0, 1).unsqueeze(0)
+
+            # unfold → (1, D*S*S, L)
+            xi = torch.nn.functional.unfold(
+                xi,
+                kernel_size=self.spatial_merge_size,
+                stride=self.spatial_merge_size,
+            )
+
+            # (L, D*S*S)
+            xi = xi.view(D * self.spatial_merge_size**2, -1).t()
+            outputs.append(xi)
+
+        # Concatenate all images on token axis
+        merged = torch.cat(outputs, dim=0)  # (sum L_i, D*S*S)
+
+        # Single projection, identical to original
+        merged = self.merging_layer(merged).unsqueeze(0)  # (1, sum L_i, D)
+        return merged
+
+
+class VisionLanguageAdapter(BaseVisionAdapter):
+    """
+    Generic vision-language adapter used by LLaVA-style architectures.
+
+    This adapter optionally performs spatial patch merging followed by
+    a two-layer MLP projection into the decoder embedding space.
+
+    When spatial merging is disabled, the adapter reduces to a simple
+    MLP projector.
+    """
+
+    def __init__(self, model_config, running_config=None):
+        """
+        Args:
+            model_config: Model configuration object containing encoder and
+                          decoder parameters.
+            running_config: Optional runtime configuration (unused).
+        """
+        super().__init__()
+        enc, dec = model_config.encoder, model_config.decoder
+        self.has_patch = model_config.spatial_merge_size > 1
+
+        if self.has_patch:
+            self.layernorm = LayerNorm[enc.layer_norm](enc.hidden_size, eps=1e-5)
+            self.patch_merger = LinearPatchMerger(
+                enc.hidden_size,
+                enc.patch_size,
+                model_config.spatial_merge_size,
+            )
+        bias = getattr(model_config, "adapter_bias", False)
+        self.w_in = nn.Linear(enc.hidden_size, dec.hidden_size, bias=bias)
+        self.gelu = nn.GELU()
+        self.w_out = nn.Linear(dec.hidden_size, dec.hidden_size, bias=bias)
+
+    def forward(self, x, image_sizes=None):
+        """
+        Args:
+            x: Vision encoder outputs of shape (1, N, D).
+            image_sizes: Tensor of shape (B, 2) containing image sizes.
+
+        Returns:
+            Projected visual tokens of shape (1, M, decoder_hidden_size).
+        """
         if self.has_patch:
             x = self.layernorm(x)
             x = self.patch_merger(x, image_sizes)
         return self.w_out(self.gelu(self.w_in(x)))
 
-    @classmethod
-    def from_config(cls, model_config, running_config=None):
-        return cls(
-            model_config,
-        )
 
+class Gemma3MultiModalProjector(BaseVisionAdapter):
+    """
+    Multi-modal projector used in Gemma 3 models.
 
-# Multi-Modal Projector
-class Gemma3MultiModalProjector(nn.Module):
-    # https://github.com/huggingface/transformers/blob/071a161d3e38f56dbda2743b979f0afeed2cd4f1/src/transformers/models/gemma3/modular_gemma3.py#L717
-    def __init__(self, in_dim, out_dim, image_size, patch_size, mm_tokens_per_image):
-        super(Gemma3MultiModalProjector, self).__init__()
+    This projector downsamples the vision encoder patch grid using
+    average pooling to a fixed number of tokens per image, followed by
+    RMS normalization and linear projection.
+    """
+
+    def __init__(self, model_config, running_config=None):
+        """
+        Args:
+            model_config: Model configuration containing encoder and decoder
+                          parameters, including mm_tokens_per_image.
+            running_config: Optional runtime configuration (unused).
+        """
+        super().__init__()
+        in_dim = model_config.encoder.hidden_size
+        out_dim = model_config.decoder.hidden_size
+        image_size = model_config.encoder.image_size
+        patch_size = model_config.encoder.patch_size
+        mm_tokens = model_config.encoder.mm_tokens_per_image
+
         self.w_in = nn.Linear(in_dim, out_dim, bias=False)
         self.norm = LayerNorm["gemma-rms"](in_dim)  # forced because no value in config file
-        self.patches_per_image = int(image_size / patch_size)
-        self.tokens_per_side = int(mm_tokens_per_image**0.5)
-        self.kernel_size = self.patches_per_image // self.tokens_per_side
-        self.avg_pool = nn.AvgPool2d(kernel_size=self.kernel_size, stride=self.kernel_size)
 
-    def forward(self, x, image_sizes):
-        batch_size, _, hidden_size = x.size()
-        reshaped = (
-            x.transpose(1, 2)
-            .reshape(batch_size, hidden_size, self.patches_per_image, self.patches_per_image)
-            .contiguous()
-        )
-        pooled = self.avg_pool(reshaped).flatten(2).transpose(1, 2)
-        normed = self.norm(pooled)
-        projected = self.w_in(normed)
-        return projected.type_as(x)
-
-    @classmethod
-    def from_config(cls, model_config, running_config=None):
-        return cls(
-            in_dim=model_config.encoder.hidden_size,
-            out_dim=model_config.decoder.hidden_size,
-            image_size=model_config.encoder.image_size,
-            patch_size=model_config.encoder.patch_size,
-            mm_tokens_per_image=model_config.encoder.mm_tokens_per_image,
-        )
-
-
-# Multi-Modal Projector
-class DeepSeekOCRProjector(nn.Module):
-    def __init__(self, model_config):
-        super(DeepSeekOCRProjector, self).__init__()
-        bias = getattr(model_config, "adapter_bias", False)
-        self.w_in = nn.Linear(model_config.encoder.hidden_size * 2, model_config.decoder.hidden_size, bias=bias)
+        patches = image_size // patch_size
+        tokens_side = int(mm_tokens**0.5)
+        kernel = patches // tokens_side
+        self.pool = nn.AvgPool2d(kernel, stride=kernel)
 
     def forward(self, x, image_sizes=None):
-        return self.w_in(x)
+        """
+        Args:
+            x: Vision encoder output of shape (B, N, D), where N is assumed
+               to form a square grid.
+            image_sizes: Unused (kept for interface compatibility).
 
-    @classmethod
-    def from_config(cls, model_config, running_config=None):
-        return cls(
-            model_config,
+        Returns:
+            Tensor of shape (B, mm_tokens_per_image, decoder_hidden_size).
+        """
+        b, n, d = x.shape
+        h = int(n**0.5)
+        x = x.transpose(1, 2).reshape(b, d, h, h)
+        x = self.pool(x).flatten(2).transpose(1, 2)
+        return self.w_in(self.norm(x)).type_as(x)
+
+
+class DeepSeekOCRProjector(BaseVisionAdapter):
+    """
+    Projector used in DeepSeek OCR models.
+
+    Expects concatenated visual features (e.g., multi-branch encoder
+    outputs) and applies a single linear projection to decoder space.
+    """
+
+    def __init__(self, model_config, running_config=None):
+        """
+        Args:
+            model_config: Model configuration object.
+            running_config: Optional runtime configuration (unused).
+        """
+        super().__init__()
+        self.w_in = nn.Linear(
+            model_config.encoder.hidden_size * 2,
+            model_config.decoder.hidden_size,
+            bias=getattr(model_config, "adapter_bias", False),
         )
 
+    def forward(self, x, image_sizes=None):
+        """
+        Args:
+            x: Tensor of shape (..., 2 * encoder_hidden_size).
+            image_sizes: Unused.
 
-# Multi-Modal Projector + Patch merger
-class HunYuanVisionPatchMerger(nn.Module):
-    def __init__(
-        self,
-        model_config,
-    ):
+        Returns:
+            Tensor projected to decoder hidden size.
+        """
+        return self.w_in(x)
+
+
+class HunYuanVisionPatchMerger(BaseVisionAdapter):
+    """
+    Vision adapter used by HunYuan-style multimodal models.
+
+    This adapter:
+    - processes each image independently
+    - applies convolutional spatial merging
+    - injects special image tokens (begin, end, newline)
+    - projects features into the decoder embedding space
+    """
+
+    def __init__(self, model_config, running_config=None):
+        """
+        Args:
+            model_config: Model configuration containing encoder, decoder,
+                          and spatial merge parameters.
+            running_config: Optional runtime configuration (unused).
+        """
         super().__init__()
-        in_channels = model_config.encoder.hidden_size
-        out_channels = model_config.decoder.hidden_size
+
+        enc, dec = model_config.encoder, model_config.decoder
+        self.patch_size = enc.patch_size
+        spatial_merge_size = model_config.spatial_merge_size
         rms_norm_eps = getattr(model_config.encoder, "norm_eps", 1e-5)
-        self.patch_size = model_config.encoder.patch_size
-        self.spatial_merge_size = model_config.spatial_merge_size
-        embed_std = out_channels**-0.5
+
+        scale = dec.hidden_size**-0.5
 
         self.proj = nn.Sequential(
             nn.Conv2d(
-                in_channels,
-                in_channels * 2,
-                kernel_size=self.spatial_merge_size,
-                stride=self.spatial_merge_size,
+                enc.hidden_size,
+                enc.hidden_size * 2,
+                kernel_size=spatial_merge_size,
+                stride=spatial_merge_size,
             ),
             nn.GELU(),
-            nn.Conv2d(in_channels * 2, in_channels * 4, kernel_size=1),
+            nn.Conv2d(enc.hidden_size * 2, enc.hidden_size * 4, kernel_size=1),
         )
-        self.mlp = nn.Linear(in_channels * 4, out_channels)
+        self.mlp = nn.Linear(enc.hidden_size * 4, dec.hidden_size)
 
-        self.image_newline = nn.Parameter(torch.randn(in_channels * 4) * embed_std)
-        self.image_begin = nn.Parameter(torch.randn(out_channels) * embed_std)
-        self.image_end = nn.Parameter(torch.randn(out_channels) * embed_std)
-        self.image_sep = nn.Parameter(torch.randn(out_channels) * embed_std)
+        self.image_newline = nn.Parameter(torch.randn(enc.hidden_size * 4) * scale)
+        self.image_begin = nn.Parameter(torch.randn(dec.hidden_size) * scale)
+        self.image_end = nn.Parameter(torch.randn(dec.hidden_size) * scale)
+        self.image_sep = nn.Parameter(torch.randn(dec.hidden_size) * scale)
 
-        self.before_rms = LayerNorm["rms"](in_channels, eps=rms_norm_eps)
-        self.after_rms = LayerNorm["rms"](out_channels, eps=rms_norm_eps)
+        self.before_rms = LayerNorm["rms"](enc.hidden_size, eps=rms_norm_eps)
+        self.after_rms = LayerNorm["rms"](dec.hidden_size, eps=rms_norm_eps)
 
     def forward(self, x, image_sizes):
         """
-        x: Tensor (1, sum_i N_i, D)
-        image_sizes: (B, 2) = (height_px, width_px) for each image
+        Args:
+            x: Tensor of shape (1, sum_i N_i, encoder_hidden_size).
+            image_sizes: Tensor of shape (B, 2) with image sizes in pixels.
+
+        Returns:
+            Tensor of shape (1, sum_i L_i, decoder_hidden_size), where each
+            image contributes its own begin/end tokens.
         """
         x = x.squeeze(0)
-        patch_h = image_sizes[:, 0] // self.patch_size
-        patch_w = image_sizes[:, 1] // self.patch_size
-        patch_counts = (patch_h * patch_w).tolist()
-
-        xs = x.split(patch_counts)
+        xs, grids = split_by_image(x, image_sizes, self.patch_size)
         outputs = []
 
-        # ---- 2) Process each image independently ----
-        for i, xi in enumerate(xs):
-            h, w = int(patch_h[i]), int(patch_w[i])
-            xi = self.before_rms(xi)  # (N_i, D)
-            # (N_i, D) -> (1, D, h, w)
-            xi = xi.reshape(h, w, -1).permute(2, 0, 1).unsqueeze(0)
-            # Convolution / projection
-            xi = self.proj(xi)  # (1, C, h, w)
-            _, c, h, w = xi.shape
-            # Add image_newline
-            newline = self.image_newline.reshape(1, c, 1, 1).to(xi.dtype)
-            xi = torch.cat([xi, newline.expand(1, c, h, 1)], dim=-1)  # (1, C, h, w+1)
-            # Flatten back to sequence
-            xi = xi.flatten(2).permute(0, 2, 1)  # (1, L_i, C)
-            # MLP
-            xi = self.mlp(xi)  # (1, L_i, C)
-            # Add begin / end tokens
-            begin = self.image_begin.reshape(1, 1, -1).to(xi.dtype)
-            end = self.image_end.reshape(1, 1, -1).to(xi.dtype)
-            xi = torch.cat([begin, xi, end], dim=1)  # (1, L_i+2, C)
-            xi = self.after_rms(xi)  # (1, L_i+2, C)
-            outputs.append(xi.squeeze(0))  # (L_i+2, C)
+        for xi, (h, w) in zip(xs, grids):
+            xi = self.before_rms(xi)
+            xi = xi.view(h, w, -1).permute(2, 0, 1).unsqueeze(0)
+            xi = self.proj(xi)
 
-        # ---- 3) Return concatenation over patch dimension ----
-        return torch.cat(outputs, dim=0).unsqueeze(0)  # (1, sum_i (L_i+2), C)
+            newline = self.image_newline.view(1, -1, 1, 1)
+            xi = torch.cat([xi, newline.expand(1, -1, xi.shape[2], 1)], dim=-1)
 
-    @classmethod
-    def from_config(cls, model_config, running_config=None):
-        return cls(
-            model_config,
-        )
+            xi = xi.flatten(2).transpose(1, 2)
+            xi = self.mlp(xi)
+
+            xi = torch.cat([self.image_begin[None, None, :], xi, self.image_end[None, None, :]], dim=1)
+
+            outputs.append(self.after_rms(xi).squeeze(0))
+
+        return torch.cat(outputs, dim=0).unsqueeze(0)

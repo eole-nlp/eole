@@ -45,7 +45,7 @@ def build_adapter(model_config, running_config=None):
     Various adapter dispatcher function.
     """
     adapter_type = model_config.adapter
-    return str2adapter[adapter_type].from_config(model_config, running_config=running_config)
+    return str2adapter[adapter_type](model_config, running_config=running_config)
 
 
 def build_decoder(model_config, running_config=None, with_cross_attn=False):
