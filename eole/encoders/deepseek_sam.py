@@ -518,7 +518,7 @@ class ImageEncoderViT(EncoderBase):
                 - Multi-scale features (batch, 1024, height/4, width/4)
                 - None (SAM doesn't return hidden states)
         """
-        
+
         x = torch.stack(emb, dim=0)
 
         # Patch embedding
