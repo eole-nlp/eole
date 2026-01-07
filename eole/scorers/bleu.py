@@ -3,7 +3,7 @@ from eole.scorers import register_scorer
 from sacrebleu import corpus_bleu
 
 
-@register_scorer(metric="BLEU")
+@register_scorer(metric="BLEU_en")
 class BleuScorer(Scorer):
     """BLEU scorer class."""
 
