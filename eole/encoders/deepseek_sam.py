@@ -525,7 +525,7 @@ class ImageEncoderViT(EncoderBase):
         x = self.patch_embed(x.to(self.dtype))
 
         # Add positional embedding
-        x = x + interpolate_abs_pos(self.pos_embed, x.size(1) * x.size(2))
+        x = x + interpolate_abs_pos(self.pos_embed, x.size(1))
 
         # Apply transformer blocks
         for block in self.blocks:
