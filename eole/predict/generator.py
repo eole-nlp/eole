@@ -115,7 +115,7 @@ class GeneratorLM(Inference):
             src, src_len, target_prefix = self.split_src_to_prevent_padding(src, src_len)
 
         # (2) init decoder
-        self.model.decoder.init_state(src=src)
+        self.model.decoder.init_state()
         gold_score, gold_log_probs = self._gold_score(batch, None, src_len, None, batch_size, src)
 
         # (3) prep decode_strategy. Possibly repeat src objects.

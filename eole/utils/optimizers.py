@@ -500,7 +500,7 @@ class AdaFactor(torch.optim.Optimizer):
             return False, False
 
     def _rms(self, x):
-        return sqrt(torch.mean(x.pow(2)))
+        return torch.mean(x.pow(2)).sqrt().item()
 
     def step(self, closure=None):
         loss = None

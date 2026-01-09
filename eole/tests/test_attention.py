@@ -26,7 +26,7 @@ class TestAttention(unittest.TestCase):
 
         attn = eole.modules.global_attention.GlobalAttention(dim)
 
-        _, alignments = attn(enc_final_hs, enc_out, src_len=src_len)
+        _, alignments = attn(enc_final_hs, enc_out)
         # TODO: fix for pytorch 0.3
         # illegal_weights = alignments.masked_select(illegal_weights_mask)
 
