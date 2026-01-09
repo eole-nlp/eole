@@ -141,7 +141,7 @@ class StackedGRU(StackedRNNBase):
 
     def forward(
         self, input_feed: torch.Tensor, hidden: Tuple[torch.Tensor]
-    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor]]:
+    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, ...]]:
         """
         Forward pass through stacked GRU layers.
 

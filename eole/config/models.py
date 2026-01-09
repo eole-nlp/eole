@@ -87,7 +87,7 @@ class DecoderConfig(Config):
     # where input size to the rnn is different to the hidden size
     tgt_word_vec_size: int = Field(default=512, description="Word embedding size for tgt.")
     coverage_attn: bool = Field(default=False, description="Train a coverage attention layer.")
-    with_cross_attn: bool = Field(default=False, description="Decoder is used with the output of an Encoder Attention.")
+    with_cross_attn: bool = Field(default=False, description="Decoder uses cross-attention with encoder outputs.")
     lambda_coverage: float = Field(default=0.0, description="Lambda value for coverage loss of See et al (2017)")
     global_attention: Literal["dot", "general", "mlp", None] = Field(
         default="general",
