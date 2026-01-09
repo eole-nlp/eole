@@ -112,7 +112,7 @@ class EnsembleDecoder(DecoderBase):
             result[key] = torch.stack([attn[key] for attn in attns if attn[key] is not None]).mean(0)
         return result
 
-    def init_state(self, enc_out=None, src=None, enc_final_hs=None):
+    def init_state(self, enc_out=None, src=None, src_len=None, enc_final_hs=None):
         """See :obj:`RNNDecoderBase.init_state()`"""
         for i, model_decoder in enumerate(self.model_decoders):
             if enc_out is not None:
@@ -123,7 +123,7 @@ class EnsembleDecoder(DecoderBase):
                 enc_final_hs_i = enc_final_hs[i]
             else:
                 enc_final_hs_i = None
-            model_decoder.init_state(src=src, enc_out=enc_out_i, enc_final_hs=enc_final_hs_i)
+            model_decoder.init_state(src=src, src_len=src_len, enc_out=enc_out_i, enc_final_hs=enc_final_hs_i)
 
     def map_state(self, fn):
         for model_decoder in self.model_decoders:

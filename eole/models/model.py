@@ -48,7 +48,7 @@ def build_adapter(model_config, running_config=None):
     return str2adapter[adapter_type](model_config, running_config=running_config)
 
 
-def build_decoder(model_config, running_config=None, with_cross_attn=False):
+def build_decoder(model_config, running_config=None):
     """
     Various decoder dispatcher function.
     Args:
@@ -59,10 +59,9 @@ def build_decoder(model_config, running_config=None, with_cross_attn=False):
         if model_config.decoder.decoder_type == "rnn" and model_config.input_feed
         else model_config.decoder.decoder_type
     )
-    return str2dec[dec_type].from_config(
+    return str2dec[dec_type](
         model_config.decoder,
         running_config=running_config,
-        with_cross_attn=with_cross_attn,
     )
 
 
@@ -736,7 +735,9 @@ class EncoderDecoderModel(BaseModel):
             share_embeddings=model_config.share_embeddings,
             src_emb=src_emb,
         )
-        decoder = build_decoder(model_config, running_config=running_config, with_cross_attn=True)
+        # Not sure if there is a better way to handle this
+        model_config.decoder.with_cross_attn = True
+        decoder = build_decoder(model_config, running_config=running_config)
         return cls(
             encoder=encoder,
             decoder=decoder,
@@ -815,7 +816,7 @@ class DecoderModel(BaseModel):
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         tgt_emb = build_tgt_emb(model_config, vocabs, running_config=running_config)
-        decoder = build_decoder(model_config, running_config=running_config, with_cross_attn=False)
+        decoder = build_decoder(model_config, running_config=running_config)
         return cls(
             decoder=decoder,
             tgt_emb=tgt_emb,

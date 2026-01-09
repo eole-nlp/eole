@@ -87,6 +87,7 @@ class DecoderConfig(Config):
     # where input size to the rnn is different to the hidden size
     tgt_word_vec_size: int = Field(default=512, description="Word embedding size for tgt.")
     coverage_attn: bool = Field(default=False, description="Train a coverage attention layer.")
+    with_cross_attn: bool = Field(default=False, description="Decoder is used with the output of an Encoder Attention.")
     lambda_coverage: float = Field(default=0.0, description="Lambda value for coverage loss of See et al (2017)")
     global_attention: Literal["dot", "general", "mlp", None] = Field(
         default="general",
@@ -555,6 +556,7 @@ class BaseModelConfig(Config):
         else:
             rope_config = None
         """
+
         if self.embeddings is not None and self.embeddings.word_vec_size > 0:
             update_dict["embeddings"] = {
                 "src_word_vec_size": self.embeddings.word_vec_size,
@@ -564,7 +566,9 @@ class BaseModelConfig(Config):
             self.embeddings.update(**update_dict.pop("embeddings"))
 
         if getattr(self.encoder, "encoder_type", None) == "brnn" and self.decoder.decoder_type == "rnn":
-            update_dict["decoder"] = {"bidirectional_encoder": True}
+            if "decoder" not in update_dict:
+                update_dict["decoder"] = {}
+            update_dict["decoder"]["bidirectional_encoder"] = True
 
         if self.encoder is not None and hasattr(self.encoder, "src_word_vec_size"):
             update_dict["encoder"] = {"src_word_vec_size": self.embeddings.src_word_vec_size}
@@ -581,7 +585,9 @@ class BaseModelConfig(Config):
             self.encoder.update(**update_dict.pop("encoder"))
 
         if self.decoder is not None:
-            update_dict["decoder"] = {"tgt_word_vec_size": self.embeddings.tgt_word_vec_size}
+            if "decoder" not in update_dict:
+                update_dict["decoder"] = {}
+            update_dict["decoder"]["tgt_word_vec_size"] = self.embeddings.tgt_word_vec_size
             if getattr(self.decoder, "decoder_type", None) == "transformer":
                 update_dict["decoder"].update(
                     {
@@ -591,6 +597,7 @@ class BaseModelConfig(Config):
                     }
                 )
                 update_dict["position_encoding_type"] = self.embeddings.position_encoding_type
+
         if self.decoder is not None and "decoder" in update_dict.keys():
             self.decoder.update(**update_dict.pop("decoder"))
 

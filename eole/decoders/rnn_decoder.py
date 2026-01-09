@@ -1,28 +1,30 @@
+from typing import Optional, Tuple, Dict
 import torch
 import torch.nn as nn
 
 from eole.decoders.decoder import DecoderBase
 from eole.modules.stacked_rnn import StackedLSTM, StackedGRU
-from eole.modules.gate import context_gate_factory
+from eole.modules.contextgate import context_gate_factory
 from eole.modules.global_attention import GlobalAttention
 
 
 class RNNDecoderBase(DecoderBase):
-    """Base recurrent attention-based decoder class.
+    """
+    Base class for recurrent neural network decoders.
 
-    Specifies the interface used by different decoder types
-    and required by :class:`~eole.models.BaseModel`.
+    Implements common logic for:
+    - state initialization and mapping
+    - incremental decoding
+    - attention handling
+    - output and attention normalization
 
-    Args:
-        decoder_config (eole.config.DecoderConfig): full decoder config
-        running_config (TrainingConfig / InferenceConfig)
+    Subclasses must implement `_run_forward_pass`.
     """
 
     def __init__(
         self,
         decoder_config,
         running_config=None,
-        with_cross_attn=False,
     ):
         super(RNNDecoderBase, self).__init__(
             attentional=decoder_config.global_attention != "none" and decoder_config.global_attention is not None
@@ -66,16 +68,6 @@ class RNNDecoderBase(DecoderBase):
                 attn_func=decoder_config.global_attention_function,
             )
 
-    @classmethod
-    def from_config(cls, decoder_config, running_config=None, with_cross_attn=False):
-        """Alternate constructor."""
-        # config = opt.model.decoder  # RnnDecoderConfig
-        return cls(
-            decoder_config,
-            running_config=running_config,
-            with_cross_attn=False,
-        )
-
     def init_state(self, **kwargs):
         """Initialize decoder state with last state of the encoder."""
         enc_final_hs = kwargs.pop("enc_final_hs", None)
@@ -108,52 +100,68 @@ class RNNDecoderBase(DecoderBase):
         if self._coverage and self.state["coverage"] is not None:
             self.state["coverage"] = fn(self.state["coverage"].transpose(0, 1)).transpose(0, 1)
 
-    def detach_state(self):
-        self.state["hidden"] = tuple(h.detach() for h in self.state["hidden"])
-        self.state["input_feed"] = self.state["input_feed"].detach()
-        if self._coverage and self.state["coverage"] is not None:
-            self.state["coverage"] = self.state["coverage"].detach()
-
-    def forward(self, emb, enc_out, src_len=None, step=None, **kwargs):
+    def forward(
+        self,
+        emb: torch.Tensor,
+        enc_out: Optional[torch.Tensor] = None,
+        step: Optional[int] = None,
+        **kwargs,
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
+        Decode a full sequence or a single incremental step.
+
         Args:
-            emb (FloatTensor): input embeddings
-                 ``(batch, tgt_len, dim)``.
-            enc_out (FloatTensor): vectors from the encoder
-                 ``(batch, src_len, hidden)``.
-            src_len (LongTensor): the padded source lengths
-                ``(batch,)``.
+            emb (Tensor):
+                Target embeddings of shape
+                ``(batch_size, tgt_len, hidden_size)``.
+
+            enc_out (Tensor):
+                Encoder outputs of shape
+                ``(batch_size, src_len, hidden_size)``.
+
+            step (int, optional):
+                Decoding step for incremental decoding.
+
+            **kwargs:
+                Additional decoder-specific arguments.
 
         Returns:
-            (FloatTensor, dict[str, FloatTensor]):
+            (Tensor, Dict[str, Tensor]):
 
-            * dec_outs: output from the decoder (after attn)
-              ``(batch, tgt_len, hidden)``.
-            * attns: distribution over src at each tgt
-              ``(batch, tgt_len, src_len)``.
+            * dec_outs:
+                Decoder outputs of shape
+                ``(batch_size, tgt_len, hidden_size)``.
+
+            * attns:
+                Dictionary of attention tensors.
+
+                - ``attns["std"]``:
+                  Attention weights of shape
+                  ``(batch_size, tgt_len, src_len)``.
         """
-        dec_state, dec_outs, attns = self._run_forward_pass(emb, enc_out, src_len=src_len)
+        if self.attentional and enc_out is None:
+            raise ValueError("enc_out required when attentional=True")
 
-        # Update the state with the result.
+        src_pad_mask = kwargs.pop("src_pad_mask", None)
+
+        dec_state, dec_outs, attns = self._run_forward_pass(emb, enc_out, src_pad_mask=src_pad_mask)
+
         if not isinstance(dec_state, tuple):
             dec_state = (dec_state,)
         self.state["hidden"] = dec_state
 
-        # Concatenates sequence of tensors along a new dimension.
-        # NOTE: v0.3 to 0.4: dec_outs / attns[*] may not be list
-        #       since stack(Variable) was allowed.
         if isinstance(dec_outs, list):
             dec_outs = torch.stack(dec_outs, dim=1)
             for k in attns:
                 if isinstance(attns[k], list):
-                    attns[k] = torch.stack(attns[k])
+                    attns[k] = torch.stack(attns[k], dim=1)
 
-        self.state["input_feed"] = dec_outs[:, -1, :].unsqueeze(0)
-        self.state["coverage"] = None
-        if "coverage" in attns:
-            self.state["coverage"] = attns["coverage"][-1, :, :].unsqueeze(0)
+        self.state["input_feed"] = dec_outs[:, -1].unsqueeze(0)
 
-        return dec_outs, attns
+        if self._coverage:
+            self.state["coverage"] = attns["coverage"][:, -1].unsqueeze(0) if "coverage" in attns else None
+
+        return dec_outs, attns if self.attentional else {}
 
     def update_dropout(self, dropout, attention_dropout=None):
         self.dropout.p = dropout
@@ -178,13 +186,12 @@ class StdRNNDecoder(RNNDecoderBase):
         self,
         decoder_config,
         running_config=None,
-        with_cross_attn=False,
     ):
         self.hidden_size = decoder_config.hidden_size
         self._input_size = decoder_config.tgt_word_vec_size
         super(StdRNNDecoder, self).__init__(decoder_config, running_config)
 
-    def _run_forward_pass(self, emb, enc_out, src_len=None):
+    def _run_forward_pass(self, emb, enc_out, src_pad_mask=None):
         """
         Private helper for running the specific RNN forward pass.
         Must be overriden by all subclasses.
@@ -194,17 +201,12 @@ class StdRNNDecoder(RNNDecoderBase):
                 ``(batch, tgt_len, dim)``.
             enc_out (FloatTensor): output(tensor sequence) from the
                 encoder RNN of size ``(batch, src_len, hidden_size)``.
-            src_len (LongTensor): the source enc_out lengths.
+            src_pad_mask (LongTensor): the source pad mask.
 
         Returns:
-            (Tensor, List[FloatTensor], Dict[str, List[FloatTensor]):
-
-            * dec_state: final hidden state from the decoder.
-            * dec_outs: an array of output of every time
-              step from the decoder.
-            * attns: a dictionary of different
-              type of attention Tensor array of every time
-              step from the decoder.
+            dec_state: tuple[Tensor]
+            dec_outs: Tensor (batch, tgt_len, hidden)
+            attns["std"]: Tensor (batch, tgt_len, src_len)
         """
 
         assert not self._coverage  # TODO, no support yet.
@@ -222,7 +224,7 @@ class StdRNNDecoder(RNNDecoderBase):
         if not self.attentional:
             dec_outs = rnn_out
         else:
-            dec_outs, p_attn = self.attn(rnn_out, enc_out, src_len=src_len)
+            dec_outs, p_attn = self.attn(rnn_out, enc_out, src_pad_mask=src_pad_mask)
             attns["std"] = p_attn
 
         # Calculate the context gate.
@@ -258,13 +260,12 @@ class InputFeedRNNDecoder(RNNDecoderBase):
         self,
         decoder_config,
         running_config=None,
-        with_cross_attn=False,
     ):
         self.hidden_size = decoder_config.hidden_size
         self._input_size = decoder_config.tgt_word_vec_size + self.hidden_size
         super(InputFeedRNNDecoder, self).__init__(decoder_config, running_config)
 
-    def _run_forward_pass(self, emb, enc_out, src_len=None):
+    def _run_forward_pass(self, emb, enc_out, src_pad_mask=None):
         """
         See StdRNNDecoder._run_forward_pass() for description
         of arguments and return values.
@@ -291,7 +292,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
             dec_in = torch.cat([emb_t.squeeze(1), input_feed], 1)
             rnn_out, dec_state = self.rnn(dec_in, dec_state)
             if self.attentional:
-                dec_out, p_attn = self.attn(rnn_out, enc_out, src_len=src_len)
+                dec_out, p_attn = self.attn(rnn_out, enc_out, src_pad_mask=src_pad_mask)
                 attns["std"].append(p_attn)
             else:
                 dec_out = rnn_out

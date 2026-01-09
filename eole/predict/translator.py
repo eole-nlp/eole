@@ -52,7 +52,7 @@ class Translator(Inference):
         src_len = tile(src_len, n_best)  # ``(batch * n_best,)``
 
         # (3) Init decoder with n_best src,
-        self.model.decoder.init_state(src=src, enc_out=enc_out, enc_states=enc_states)
+        self.model.decoder.init_state(enc_out=enc_out, enc_states=enc_states)
 
         # (4) reshape and apply pad masking in the target sequence
         tgt = batch_tgt_idxs.view(-1, batch_tgt_idxs.size(-1))
@@ -164,7 +164,7 @@ class Translator(Inference):
             torch.cuda.synchronize()
             beg_time = time()
         src, enc_final_hs, enc_out, src_len = self._run_encoder(batch)
-        self.model.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
+        self.model.decoder.init_state(enc_out=enc_out, enc_final_hs=enc_final_hs)
 
         gold_score, gold_log_probs = self._gold_score(
             batch,
@@ -203,7 +203,6 @@ class Translator(Inference):
                 step=step,
                 return_attn=decode_strategy.return_attention,
             )
-
             decode_strategy.advance(log_probs, attn)
             any_finished = any([any(sublist) for sublist in decode_strategy.is_finished_list])
             if any_finished:

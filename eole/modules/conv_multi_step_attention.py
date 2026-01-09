@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-SCALE_WEIGHT = 0.5**0.5
+SCALE_WEIGHT = 1.0  # 0.5**0.5
 
 
 def seq_linear(linear, x):
@@ -21,15 +21,14 @@ def seq_linear(linear, x):
 
 
 class ConvMultiStepAttention(nn.Module):
-    def __init__(self, input_size):
+    def __init__(self, input_size, dropout=0.0):
         super().__init__()
         self.linear_in = nn.Linear(input_size, input_size)
-        self.mask = None
 
-    def apply_mask(self, mask):
-        self.mask = mask
+        # make this ready but experiments show it hurts training for now
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else None
 
-    def forward(self, base_target_emb, input_from_dec, encoder_out_top, encoder_out_combine):
+    def forward(self, base_target_emb, input_from_dec, encoder_out_top, encoder_out_combine, mask=None):
         """
         base_target_emb: (B, C, T)
         input_from_dec: (B, C, T)
@@ -44,8 +43,8 @@ class ConvMultiStepAttention(nn.Module):
         target_t = target.transpose(1, 2)  # (B, T_dec, C)
         pre_attn = torch.bmm(target_t, encoder_out_top.transpose(1, 2))  # (B, T_dec, T_enc)
 
-        if self.mask is not None:
-            pre_attn.data.masked_fill_(self.mask, -float("inf"))
+        if mask is not None:
+            pre_attn.masked_fill_(mask, -float("inf"))
 
         attn = F.softmax(pre_attn, dim=2)  # (B, T_dec, T_enc)
 

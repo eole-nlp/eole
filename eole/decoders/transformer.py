@@ -16,12 +16,11 @@ class TransformerDecoderLayer(nn.Module):
     """Single layer of a transformer decoder
 
     Args:
-        decoder_config (eole.config.TransformerEncoderConfig): full encoder config
+        decoder_config (eole.config.TransformerDecoderConfig): full decoder config
         running_config (TrainingConfig / InferenceConfig)
-        with_cross_attn (True when used with an encoder)
     """
 
-    def __init__(self, decoder_config, idx: int, running_config=None, with_cross_attn=False):
+    def __init__(self, decoder_config, idx: int, running_config=None):
         super(TransformerDecoderLayer, self).__init__()
         self.parallel_residual = decoder_config.parallel_residual
         self.shared_layer_norm = decoder_config.shared_layer_norm
@@ -39,7 +38,7 @@ class TransformerDecoderLayer(nn.Module):
             running_config=running_config,
         )
         self.dropout = nn.Dropout(self.dropout_p)
-        if with_cross_attn:
+        if decoder_config.with_cross_attn:
             self.precontext_layernorm = LayerNorm[decoder_config.layer_norm](
                 decoder_config.hidden_size, eps=decoder_config.norm_eps
             )
@@ -92,19 +91,33 @@ class TransformerDecoderLayer(nn.Module):
     def forward(self, layer_in, **kwargs):
         """
         Args:
-            layer_in (FloatTensor): ``(batch_size, tgt_len, model_dim)``
-            **kwargs
-                enc_out: (only when using encoder/decoder)
-                src_pad_mask: (only when using encoder/decoder)
-                attn_mask (BoolTensor): ``(batch_size, 1, src/tgt_len, tgt_len)``
-                step: int
-                return_attention: bool
-                position_embeddings (FloatTensor): rotary position encodings, if any
+            layer_in (Tensor):
+                Input hidden states of shape
+                ``(batch_size, tgt_len, hidden_size)``.
+
+            **kwargs:
+                enc_out (Tensor, optional):
+                    Encoder outputs.
+                src_pad_mask (Tensor, optional):
+                    Source padding mask.
+                attn_mask (Tensor, optional):
+                    Attention mask.
+                step (int, optional):
+                    Decoding step.
+                return_attn (bool):
+                    Whether to return attention weights.
 
         Returns:
-            (FloatTensor, FloatTensor):
-            * layer_out ``(batch_size, tgt_len, model_dim)``
-            * attns
+            (Tensor, Tensor):
+
+            * layer_out:
+                Output hidden states of shape
+                ``(batch_size, tgt_len, hidden_size)``.
+
+            * attns:
+                Attention weights of shape
+                ``(batch_size, num_heads, tgt_len, src_len)``,
+                or ``None``.
         """
 
         enc_out = kwargs.pop("enc_out", None)
@@ -200,18 +213,16 @@ class TransformerDecoder(DecoderBase):
     Args:
         decoder_config (eole.config.TransformerEncoderConfig): full encoder config
         running_config (TrainingConfig / InferenceConfig)
-        with_cross_attn (True when used with an encoder)
     """
 
     def __init__(
         self,
         decoder_config,
         running_config=None,
-        with_cross_attn=False,
     ):
         super(TransformerDecoder, self).__init__()
         self.alignment_layer = decoder_config.alignment_layer
-        self.with_cross_attn = with_cross_attn
+        self.with_cross_attn = decoder_config.with_cross_attn
         self.sliding_window = decoder_config.sliding_window
         self.rope = build_rope(decoder_config)
         if hasattr(decoder_config, "rope_config") and getattr(decoder_config.rope_config, "interleave_local", 0) > 0:
@@ -224,7 +235,6 @@ class TransformerDecoder(DecoderBase):
                 TransformerDecoderLayer(
                     decoder_config,
                     running_config=running_config,
-                    with_cross_attn=with_cross_attn,
                     idx=i,
                 )
                 for i in range(decoder_config.layers)
@@ -233,15 +243,6 @@ class TransformerDecoder(DecoderBase):
         self.layer_norm = LayerNorm[decoder_config.layer_norm](decoder_config.hidden_size, eps=decoder_config.norm_eps)
         self.LM_type = getattr(decoder_config, "LM_type", "causal")
         self._disable_cache()
-
-    @classmethod
-    def from_config(cls, decoder_config, running_config=None, with_cross_attn=False):
-        """Alternate constructor."""
-        return cls(
-            decoder_config,
-            running_config=running_config,
-            with_cross_attn=with_cross_attn,
-        )
 
     def init_state(self, **kwargs):
         """Initialize decoder state."""
@@ -295,24 +296,42 @@ class TransformerDecoder(DecoderBase):
         return attn_mask
 
     def forward(self, emb, **kwargs):
-        """Decode, possibly stepwise.
+        """
+        Decode a sequence using transformer layers.
 
         Args:
-            emb (FloatTensor): ``(batch_size, tgt_len, model_dim)``
-            **kwargs
-                enc_out: (only when using encoder/decoder)
-                src_pad_mask: (only when using encoder/decoder)
-                tgt_pad_mask (BoolTensor): ``(batch_size, tgt_len)``
-                    used to build the attention mask
-                step: int
-                with_aligh: bool
-                return_attention: bool, set by `attn_debug`
-                position_embeddings (FloatTensor): rotary position encodings, if any
+            emb (Tensor):
+                Target embeddings of shape
+                ``(batch_size, tgt_len, hidden_size)``.
+
+            **kwargs:
+                enc_out (Tensor, optional):
+                    Encoder outputs.
+                tgt_pad_mask (Tensor):
+                    Target padding mask.
+                src_pad_mask (Tensor, optional):
+                    Source padding mask.
+                step (int, optional):
+                    Decoding step.
+                with_align (bool, optional):
+                    Whether to return alignment attention.
 
         Returns:
-            (FloatTensor, FloatTensor):
-            * emb: decoder_out ``(batch_size, tgt_len, model_dim)``
-            * attns: standard and align if set
+            (Tensor, Dict[str, Tensor]):
+
+            * dec_outs:
+                Decoder outputs of shape
+                ``(batch_size, tgt_len, hidden_size)``.
+
+            * attns:
+                Dictionary of attention tensors.
+
+                - ``attns["std"]``:
+                  Standard attention of shape
+                  ``(batch_size, tgt_len, src_len)``.
+                - ``attns["align"]`` (optional):
+                  Alignment attention of shape
+                  ``(batch_size, tgt_len, src_len)``.
         """
         assert emb.dim() == 3  # batch x len x embedding_dim
         enc_out = kwargs.pop("enc_out", None)
