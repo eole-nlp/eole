@@ -2,6 +2,18 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.4.4
+
+* refactor use of vLLM ops - optimize tensor shapes for Rope by @vince62s in https://github.com/eole-nlp/eole/pull/289
+* Refactor model class by @vince62s in https://github.com/eole-nlp/eole/pull/290
+* Refactor dynamic iterator and tokenization workflow by @vince62s in https://github.com/eole-nlp/eole/pull/291
+* Refactor train / train_single / trainer workflow for better readability - small fixes to distributed ops by @vince62s in https://github.com/eole-nlp/eole/pull/292
+* Cleanrecipe by @vince62s in https://github.com/eole-nlp/eole/pull/293
+* refactor inference_engine class and adjust distributed classes by @vince62s in https://github.com/eole-nlp/eole/pull/294
+* Refactor encoders (more pythonic)   by @vince62s in https://github.com/eole-nlp/eole/pull/296
+* refactor and clean adapters classes by @vince62s in https://github.com/eole-nlp/eole/pull/298
+* Refactor decoder classes - cross attention / other implications by @vince62s in https://github.com/eole-nlp/eole/pull/299
+
 ## 0.4.3
 
 * Dynamic batching server / OpenAI like API (on top of the proprietary one) / load test tool by @vince62s in https://github.com/eole-nlp/eole/pull/283
