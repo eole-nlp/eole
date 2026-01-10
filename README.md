@@ -4,6 +4,8 @@
 
 Open language modeling toolkit based on [PyTorch](https://pytorch.org) initially spun-off of OpenNMT-py
 
+New January 2026: Almost full refactor of the code: Encoders, Decoders, Adapters, Model classes, Trainer, Distributed training / Inference.
+
 We aim to maintain the **research-friendly** approach of the original project while including latest architectures (LLMs) and various other techniques.
 Our goal is to provide a comprehensive yet compact and modular codebase for experimenting with various types of language models (encoder, decoder, seq2seq).
 
@@ -58,7 +60,6 @@ We have made significant progress in several areas:
 
 There are still several exciting avenues to explore:
 
-- **Further Simplification and Refactoring**: Continue enhancing the codebase for clarity and efficiency.
 - **Documentation**: Enhance and expand the documentation for better user guidance.
 - **Test Coverage**: Improve testing to ensure code reliability and performance.
 - **Logging Enhancements**: Implement more sophisticated logging mechanisms.

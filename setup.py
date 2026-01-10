@@ -11,7 +11,7 @@ setup(
     description="Open language modeling toolkit based on PyTorch",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    version="0.4.3",
+    version="0.4.4",
     packages=find_packages(),
     project_urls={
         "Source": "https://github.com/eole-nlp/eole/",
@@ -28,7 +28,7 @@ setup(
         "pandas",
         "protobuf==3.20.1",
         "pyahocorasick",
-        "pyonmttok>=1.37,<2",
+        "pyonmttok>=1.38.1,<2",
         "pyyaml",
         "rapidfuzz",
         "rich",
