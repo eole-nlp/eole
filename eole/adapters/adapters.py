@@ -234,8 +234,8 @@ class Gemma3MultiModalProjector(BaseVisionAdapter):
         """
         b, n, d = x.shape
         h = int(n**0.5)
-        x = x.transpose(1, 2).reshape(b, d, h, h)
-        x = self.pool(x).flatten(2).transpose(1, 2)
+        x = x.transpose(1, 2).view(b, d, h, h)
+        x = self.pool(x).flatten(2).transpose(1, 2).contiguous()
         return self.w_in(self.norm(x)).type_as(x)
 
 

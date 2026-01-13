@@ -498,13 +498,11 @@ def build_config_dict(hf):
 
     # Update model_config based on architecture
     if arch in KEY_MAPS:
-        for key, value in KEY_MAPS[arch].get("config", {}).items():
-            if isinstance(value, dict):
-                # Update nested dictionaries
-                model_config[key] = {**model_config.get(key, {}), **value}
-            else:
-                # Update regular keys
-                model_config[key] = value
+        arch_config = KEY_MAPS[arch].get("config", {})
+        if arch_config:
+            from eole.config import recursive_update_dict
+
+            model_config = recursive_update_dict(model_config, arch_config, {})
 
     return model_config, training_config, params
 

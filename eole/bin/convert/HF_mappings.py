@@ -285,6 +285,32 @@ MODEL_OVERRIDES = {
             },
         },
     },
+    "Gemma3ForCausalLM": {
+        "decoder": {
+            ".self_attn.q_norm.": ".self_attn.q_norm.",
+            ".self_attn.k_norm.": ".self_attn.k_norm.",
+            ".pre_feedforward_layernorm.": ".pre_feedforward_layernorm.",
+            ".post_feedforward_layernorm.": ".post_feedforward_layernorm.",
+        },
+        "config": {
+            "share_decoder_embeddings": True,
+            "ffn_layernorm": True,
+            "embeddings": {
+                "normalize": True,
+            },
+            "decoder": {
+                "query_norm": True,
+                "key_norm": True,
+                "rope_config": {
+                    "rotary_theta": 1000000,
+                    "rotary_theta_local": 10000,
+                    "interleave_local": 6,
+                    "tmax_index": 1,
+                    "rotary_interleave": False,
+                },
+            },
+        },
+    },
     "Gemma3ForConditionalGeneration": {
         "decoder_layer_prefix": "language_model.model.layers.",
         "tgt_emb.embeddings.weight": "language_model.model.embed_tokens.weight",
@@ -333,6 +359,7 @@ MODEL_OVERRIDES = {
                     "rotary_theta_local": 10000,
                     "interleave_local": 6,
                     "tmax_index": 1,
+                    "rotary_interleave": False,
                 },
             },
             "encoder": {
@@ -552,6 +579,7 @@ LN_TABLE = defaultdict(
         "GPT2LMHeadModel": "standard",
         "XLMRobertaXLForMaskedLM": "standard",
         "Gemma2ForCausalLM": "gemma-rms",
+        "Gemma3ForCausalLM": "gemma-rms",
         "M2M100ForConditionalGeneration": "standard",
         "Gemma3ForConditionalGeneration": "gemma-rms",
     },
@@ -565,6 +593,7 @@ ACT_TABLE = defaultdict(
         "GPT2LMHeadModel": "gelu",
         "XLMRobertaXLForMaskedLM": "gelu",
         "Gemma2ForCausalLM": "gated-gelu",
+        "Gemma3ForCausalLM": "gated-gelu-tanh",
         "Gemma3ForConditionalGeneration": "gated-gelu-tanh",
         "M2M100ForConditionalGeneration": "relu",
     },
@@ -589,6 +618,7 @@ ARCH_TABLE = defaultdict(
         "M2M100ForConditionalGeneration": TransformerModelConfig,
         "DeepseekOCRForCausalLM": VisionTransformerLMModelConfig,
         "HunYuanVLForConditionalGeneration": VisionTransformerLMModelConfig,
+        "Qwen3VLForConditionalGeneration": VisionTransformerLMModelConfig,
     },
 )
 
