@@ -75,8 +75,8 @@ def build_sub_vocab(corpora, transforms, config, n_sample, stride, offset):
                 maybe_example["src"]["src"],
                 maybe_example["tgt"]["tgt"],
             )
-            sub_counter_src.update(src_line.split(" "))
-            sub_counter_tgt.update(tgt_line.split(" "))
+            sub_counter_src.update(src_line)
+            sub_counter_tgt.update(tgt_line)
 
             if config.dump_samples:
                 src_pretty_line = src_line

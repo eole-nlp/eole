@@ -35,9 +35,16 @@ def clean_example(example):
         Cleaned example dict with standardized structure.
     """
 
-    example["src"] = {"src": example["src"]}
+    src = example["src"]
+    if not isinstance(src, list):
+        src = src.split(" ")
+    example["src"] = {"src": src}
+
     if example.get("tgt") is not None:
-        example["tgt"] = {"tgt": example["tgt"]}
+        tgt = example["tgt"]
+        if not isinstance(tgt, list):
+            tgt = tgt.split(" ")
+        example["tgt"] = {"tgt": tgt}
     if "align" in example:
         example["align"] = " ".join(example["align"])
     if "sco" not in example:
@@ -78,7 +85,7 @@ def transform_bucket(task, bucket, threshold=0):
         # Apply batch transform
         transformed_group = transform.batch_apply(examples_group, is_train=is_train, corpus_name=cid)
 
-        # Clean and filter each example
+        # Clean and filter each example and space tokenize ["src/tgt"] in case no tokenizer was set
         for example, _, _ in transformed_group:
             example = clean_example(example)
 
@@ -146,20 +153,13 @@ class Numericalizer:
         """Extract or generate source token IDs"""
         if self.is_hf_tokenized:
             return example["src_ids"]
-        src = example["src"]["src"]
-        if isinstance(src, list):
-            return self.vocabs["src"](src)
-        # src is a space-separated string (no tokenizer transform applied)
-        return self.vocabs["src"](src.split(" "))
+        return self.vocabs["src"](example["src"]["src"])
 
     def _get_tgt_ids(self, example: Dict) -> List[int]:
         """Extract or generate target token IDs"""
         if self.is_hf_tokenized:
             return example["tgt_ids"]
-        tgt = example["tgt"]["tgt"]
-        if isinstance(tgt, list):
-            return self.vocabs["tgt"](tgt)
-        return self.vocabs["tgt"](tgt.split(" "))
+        return self.vocabs["tgt"](example["tgt"]["tgt"])
 
     def _add_decoder_start_token(self, ids: List[int]) -> List[int]:
         """Prepend decoder start token if needed"""

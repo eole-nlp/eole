@@ -214,14 +214,14 @@ class ParallelCorpus(object):
                 for i, (sline, tline, scoline, align) in enumerate(zip(fs, ft, fsco, fa)):
                     if (i // stride) % stride == offset:
                         if tline is not None:
-                            tline = tline.decode("utf-8")
+                            tline = tline.strip().decode("utf-8")
                         if scoline is not None:
-                            scoline = float(scoline.decode("utf-8"))
+                            scoline = float(scoline.strip().decode("utf-8"))
                         else:
                             scoline = 1.0
                         if align is not None:
-                            align = align.decode("utf-8")
-                        yield make_ex(sline.decode("utf-8"), tline, scoline, align)
+                            align = align.strip().decode("utf-8")
+                        yield make_ex(sline.strip().decode("utf-8"), tline, scoline, align)
 
     def __str__(self):
         cls_name = type(self).__name__
@@ -309,14 +309,14 @@ class ParallelCorpusIterator(object):
 
     def _process(self, stream):
         for i, example in enumerate(stream):
-            example["src"] = example["src"].strip()
+            example["src"] = example["src"]
             line_number = i * self.stride + self.offset
             example["cid_line_number"] = line_number
             example["cid"] = self.cid
             if "align" in example:
-                example["align"] = example["align"].strip().split(" ")
+                example["align"] = example["align"].split(" ")
             if example["tgt"] is not None:
-                example["tgt"] = example["tgt"].strip()
+                example["tgt"] = example["tgt"]
                 if (
                     len(example["src"]) == 0
                     or len(example["tgt"]) == 0
@@ -481,5 +481,5 @@ def save_transformed_sample(config, transforms, n_sample=3):
                             maybe_example["tgt"]["tgt"],
                         )
 
-                        f_src.write(src_line + "\n")
-                        f_tgt.write(tgt_line + "\n")
+                        f_src.write(" ".join(src_line) + "\n")
+                        f_tgt.write(" ".join(tgt_line) + "\n")
