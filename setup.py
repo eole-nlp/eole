@@ -8,6 +8,7 @@ with open(path.join(this_directory, "README.md"), encoding="utf-8") as f:
 
 
 def get_cuda_arch_flags(torch):
+    import torch
     flags = []
     try:
         if torch.cuda.is_available():
@@ -27,7 +28,6 @@ def get_cuda_arch_flags(torch):
 
 
 if __name__ == "__main__":
-    import torch
     from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
     cuda_arch_flags = get_cuda_arch_flags(torch)
