@@ -7,41 +7,33 @@ with open(path.join(this_directory, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
 
-def get_cuda_arch_flags(torch):
-    import torch
-    flags = []
+def get_ext_modules_and_cmdclass():
+    """Return (ext_modules, cmdclass) if torch is installed, else empty lists/dicts."""
     try:
-        if torch.cuda.is_available():
-            major, minor = torch.cuda.get_device_capability()
-            arch = major * 10 + minor
-            flags.append(f"-gencode=arch=compute_{arch},code=sm_{arch}")
-            flags.append(f"-gencode=arch=compute_{arch},code=compute_{arch}")
+        import torch
+        from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+
+        def get_cuda_arch_flags():
+            flags = []
+            try:
+                if torch.cuda.is_available():
+                    major, minor = torch.cuda.get_device_capability()
+                    arch = major * 10 + minor
+                    flags.append(f"-gencode=arch=compute_{arch},code=sm_{arch}")
+                    flags.append(f"-gencode=arch=compute_{arch},code=compute_{arch}")
+            except Exception:
+                # fallback if CUDA not available
+                flags = [
+                    "-gencode=arch=compute_80,code=sm_80",
+                    "-gencode=arch=compute_80,code=compute_80",
+                ]
             return flags
-    except (RuntimeError, AssertionError):
-        pass
 
-    # Conservative fallback
-    return [
-        "-gencode=arch=compute_80,code=sm_80",
-        "-gencode=arch=compute_80,code=compute_80",
-    ]
+        cuda_arch_flags = get_cuda_arch_flags()
 
-
-if __name__ == "__main__":
-    from torch.utils.cpp_extension import BuildExtension, CUDAExtension
-
-    cuda_arch_flags = get_cuda_arch_flags(torch)
-
-    setup(
-        name="eole",
-        description="Open language modeling toolkit based on PyTorch",
-        long_description=long_description,
-        long_description_content_type="text/markdown",
-        version="0.4.4",
-        packages=find_packages(),
-        ext_modules=[
+        ext_modules = [
             CUDAExtension(
-                name="eole.ops",  # This will be accessible as eole.ops
+                name="eole.ops",
                 sources=[
                     "csrc/rms_norm.cu",
                     "csrc/rotary_embedding.cu",
@@ -59,38 +51,55 @@ if __name__ == "__main__":
                     ] + cuda_arch_flags,
                 },
             )
-        ],
-        cmdclass={"build_ext": BuildExtension},
-        project_urls={"Source": "https://github.com/eole-nlp/eole/"},
-        python_requires=">=3.10",
-        install_requires=[
-            "configargparse",
-            "ctranslate2>=4,<5",
-            "fastapi",
-            "fasttext-wheel",
-            "huggingface_hub",
-            "datasets",
-            "numpy>=2.0",
-            "pandas",
-            "protobuf==3.20.1",
-            "pyahocorasick",
-            "pyonmttok>=1.38.1,<2",
-            "pyyaml",
-            "rapidfuzz",
-            "rich",
-            "sacrebleu",
-            "safetensors",
-            "sentencepiece>=0.1.94,<0.1.98",
-            "six",
-            "spacy",
-            "subword-nmt>=0.3.7",
-            "tensorboard>=2.18.0",
-            "torch>=2.8,<2.10",
-            "torch-optimi",
-            "uvicorn",
-            "waitress",
-            "pydantic",
-        ],
-        entry_points={"console_scripts": ["eole=eole.bin.main:main"]},
-    )
+        ]
+        cmdclass = {"build_ext": BuildExtension}
+        return ext_modules, cmdclass
+    except ImportError:
+        # Torch not installed yet (build dependency)
+        return [], {}
+
+
+ext_modules, cmdclass = get_ext_modules_and_cmdclass()
+
+setup(
+    name="eole",
+    description="Open language modeling toolkit based on PyTorch",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    version="0.4.4",
+    packages=find_packages(),
+    ext_modules=ext_modules,
+    cmdclass=cmdclass,
+    project_urls={"Source": "https://github.com/eole-nlp/eole/"},
+    python_requires=">=3.10",
+    install_requires=[
+        "configargparse",
+        "ctranslate2>=4,<5",
+        "fastapi",
+        "fasttext-wheel",
+        "huggingface_hub",
+        "datasets",
+        "numpy>=2.0",
+        "pandas",
+        "protobuf==3.20.1",
+        "pyahocorasick",
+        "pyonmttok>=1.38.1,<2",
+        "pyyaml",
+        "rapidfuzz",
+        "rich",
+        "sacrebleu",
+        "safetensors",
+        "sentencepiece>=0.1.94,<0.1.98",
+        "six",
+        "spacy",
+        "subword-nmt>=0.3.7",
+        "tensorboard>=2.18.0",
+        "torch>=2.8,<2.10",
+        "torch-optimi",
+        "uvicorn",
+        "waitress",
+        "pydantic",
+    ],
+    entry_points={"console_scripts": ["eole=eole.bin.main:main"]},
+)
 
