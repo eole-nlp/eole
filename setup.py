@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from setuptools import setup, find_packages
 from os import path
+import os
 
 this_directory = path.abspath(path.dirname(__file__))
 with open(path.join(this_directory, "README.md"), encoding="utf-8") as f:
@@ -8,28 +9,36 @@ with open(path.join(this_directory, "README.md"), encoding="utf-8") as f:
 
 
 def get_ext_modules_and_cmdclass():
-    """Return (ext_modules, cmdclass) if torch is installed, else empty lists/dicts."""
+    """Return (ext_modules, cmdclass) only if torch + CUDA is available."""
     try:
         import torch
+    except ImportError:
+        # Torch not installed yet
+        return [], {}
+
+    # Only attempt to import CUDAExtension if CUDA is available
+    if torch.cuda.is_available():
         from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-        def get_cuda_arch_flags():
-            flags = []
-            try:
-                if torch.cuda.is_available():
-                    major, minor = torch.cuda.get_device_capability()
-                    arch = major * 10 + minor
-                    flags.append(f"-gencode=arch=compute_{arch},code=sm_{arch}")
-                    flags.append(f"-gencode=arch=compute_{arch},code=compute_{arch}")
-            except Exception:
-                # fallback if CUDA not available
-                flags = [
+        # compute CUDA arch flags
+        flags = []
+        try:
+            major, minor = torch.cuda.get_device_capability()
+            arch = major * 10 + minor
+            flags.extend(
+                [
+                    f"-gencode=arch=compute_{arch},code=sm_{arch}",
+                    f"-gencode=arch=compute_{arch},code=compute_{arch}",
+                ]
+            )
+        except Exception:
+            # fallback
+            flags.extend(
+                [
                     "-gencode=arch=compute_80,code=sm_80",
                     "-gencode=arch=compute_80,code=compute_80",
                 ]
-            return flags
-
-        cuda_arch_flags = get_cuda_arch_flags()
+            )
 
         ext_modules = [
             CUDAExtension(
@@ -48,15 +57,16 @@ def get_ext_modules_and_cmdclass():
                         "-std=c++17",
                         "--expt-relaxed-constexpr",
                         "--expt-extended-lambda",
-                    ] + cuda_arch_flags,
+                    ]
+                    + flags,
                 },
             )
         ]
         cmdclass = {"build_ext": BuildExtension}
         return ext_modules, cmdclass
-    except ImportError:
-        # Torch not installed yet (build dependency)
-        return [], {}
+
+    # CUDA not available, skip extension
+    return [], {}
 
 
 ext_modules, cmdclass = get_ext_modules_and_cmdclass()
