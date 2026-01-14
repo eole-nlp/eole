@@ -15,7 +15,8 @@ jobs:
       with:
         node-version: 20
     - name: Install Eole
-      run: pip install .
+      run: |
+        pip install --no-cache-dir -e .
     - name: Install pandoc (bibtex to markdown)
       run: |
         wget https://github.com/jgm/pandoc/releases/download/3.2.1/pandoc-3.2.1-1-amd64.deb;
@@ -25,7 +26,7 @@ jobs:
         cd docs/docusaurus_tsx && npm install
     - name: Build docs
       run: |
-        cd docs && pip install -r requirements.txt && ./build_docs.sh
+        cd docs && pip cache purge && pip install -r requirements.txt && ./build_docs.sh
     - name: Deploy to Github Pages
       uses: JamesIves/github-pages-deploy-action@v4
       with:

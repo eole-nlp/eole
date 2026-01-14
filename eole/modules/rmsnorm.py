@@ -2,7 +2,10 @@
 
 import torch
 import torch.nn as nn
-from eole.constants import _vllm_available
+from eole.constants import _eole_ops
+
+if _eole_ops:
+    import eole.ops
 
 
 class RMSNorm(torch.nn.Module):
@@ -26,12 +29,11 @@ class RMSNorm(torch.nn.Module):
         return hidden_states.to(inp_dtype) * self.weight
 
     def forward(self, hidden_states):
-        if self.training or not _vllm_available:
+        if self.training or not _eole_ops:
             return self.compute_rms(hidden_states)
-        else:
-            out = torch.empty_like(hidden_states)
-            torch.ops._C.rms_norm(out, hidden_states, self.weight, self.eps)
-            return out
+        out = torch.empty_like(hidden_states)
+        eole.ops.rms_norm(out, hidden_states, self.weight, self.eps)
+        return out
 
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.eps}"
@@ -51,7 +53,11 @@ class GemmaRMSNorm(RMSNorm):
         return hidden_states.to(dtype)
 
     def forward(self, hidden_states):
-        return self.compute_rms(hidden_states)
+        if self.training or not _eole_ops:
+            return self.compute_rms(hidden_states)
+        out = torch.empty_like(hidden_states)
+        eole.ops.rms_norm(out, hidden_states, self.weight, self.eps, gemma=True)
+        return out
 
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.eps}"
