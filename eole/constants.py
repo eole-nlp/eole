@@ -6,11 +6,11 @@ import torch.nn.functional as F
 from functools import partial
 
 try:
-    from vllm import _custom_ops  # noqa: F401
+    import eole.ops
 
-    _vllm_available = True
+    _eole_ops = True
 except ImportError:
-    _vllm_available = False
+    _eole_ops = False
 
 
 class DefaultTokens(object):
@@ -81,30 +81,30 @@ class InferenceConstants:
 
 
 def fused_gated_gelu(x):
-    assert _vllm_available, "Fused Gate requires vllm installed"
+    assert _eole_ops, "Fused Gate requires eole_ops installed"
     d = x.shape[-1] // 2
     output_shape = x.shape[:-1] + (d,)
     out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-    torch.ops._C.gelu_and_mul(out, x)
+    eole.ops.gelu_and_mul(out, x)
     return out
 
 
 def fused_gated_silu(x):
-    assert _vllm_available, "Fused Gate requires vllm installed"
+    assert _eole_ops, "Fused Gate requires eole_ops installed"
     d = x.shape[-1] // 2
     # basically doing return F.silu(x[..., :d]) * x[..., d:]
     output_shape = x.shape[:-1] + (d,)
     out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-    torch.ops._C.silu_and_mul(out, x)
+    eole.ops.silu_and_mul(out, x)
     return out
 
 
 def fused_gated_gelu_tanh(x):
-    assert _vllm_available, "Fused Gate requires vllm installed"
+    assert _eole_ops, "Fused Gate requires eole_ops installed"
     d = x.shape[-1] // 2
     output_shape = x.shape[:-1] + (d,)
     out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-    torch.ops._C.gelu_tanh_and_mul(out, x)
+    eole.ops.gelu_tanh_and_mul(out, x)
     return out
 
 

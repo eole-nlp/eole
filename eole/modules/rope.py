@@ -3,7 +3,10 @@ import torch.nn as nn
 import math
 from torch import Tensor
 from typing import Tuple, List
-from eole.constants import PositionEncodingType, _vllm_available
+from eole.constants import PositionEncodingType, _eole_ops
+
+if _eole_ops:
+    import eole.ops
 
 
 class NoOpPosition:
@@ -14,7 +17,7 @@ class NoOpPosition:
 
 
 def build_rope(model_config, mode="1d", variant="global"):
-    """Build RoPE with optional vLLM acceleration."""
+    """Build RoPE with optional cuda acceleration."""
     if model_config.position_encoding_type == PositionEncodingType.Rotary:
         return RotaryPosition(model_config, mode=mode, variant=variant)
     else:
@@ -28,6 +31,7 @@ def apply_rotary_pos_emb_xdrope(
     position_ids: Tensor,
     xdrope_section: List[int],
 ) -> Tuple[Tensor, Tensor]:
+    # Note: We did not implement a Cuda version since it is typically called once
 
     bs, seqlen, heads, rot_dim = query.size()
 
@@ -76,14 +80,14 @@ def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bo
 
     B, S, H, D = query.shape
 
-    if _vllm_available and query.device.type == "cuda":
+    if _eole_ops and query.device.type == "cuda":
         num_tok = B * S
-        query_vllm = query.view(num_tok, -1, D)
-        key_vllm = key.view(num_tok, -1, D)
+        query_ = query.view(num_tok, -1, D)
+        key_ = key.view(num_tok, -1, D)
         positions = torch.arange(S, device=query.device).repeat(B)
-        # vllm ops change query key in-place
-        torch.ops._C.rotary_embedding(positions, query_vllm, key_vllm, D, cos_sin, not interleave)
-        return query_vllm.view(B, S, -1, D), key_vllm.view(B, S, -1, D)
+        # cuda ops change query key in-place
+        eole.ops.rotary_embedding(positions, query_, key_, D, cos_sin, not interleave)
+        return query_.view(B, S, -1, D), key_.view(B, S, -1, D)
 
     else:
         Rd = cos_sin.size(1)
