@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 from setuptools import setup, find_packages
 from os import path
-import os
 
 this_directory = path.abspath(path.dirname(__file__))
 with open(path.join(this_directory, "README.md"), encoding="utf-8") as f:
@@ -112,4 +111,3 @@ setup(
     ],
     entry_points={"console_scripts": ["eole=eole.bin.main:main"]},
 )
-
