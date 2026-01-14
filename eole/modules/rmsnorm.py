@@ -20,7 +20,7 @@ class RMSNorm(torch.nn.Module):
         self.eps = eps
         self.weight = nn.Parameter(torch.empty(hidden_size))
 
-    # @torch.compile(dynamic=True)
+    @torch.compile(dynamic=True)
     def compute_rms(self, hidden_states):
         inp_dtype = hidden_states.dtype
         hidden_states = hidden_states.to(torch.float32)

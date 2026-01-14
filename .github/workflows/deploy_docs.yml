@@ -15,6 +15,7 @@ jobs:
       with:
         node-version: 20
     - name: Install Eole
+      run: |
         pip install --no-cache-dir -e .
     - name: Install pandoc (bibtex to markdown)
       run: |
