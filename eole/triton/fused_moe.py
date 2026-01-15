@@ -259,7 +259,6 @@ def fused_experts_impl(
     w2: torch.Tensor,
     topk_weights: torch.Tensor,
     topk_ids: torch.Tensor,
-    inplace=True,
     activation="silu",
     use_sorted: bool = False,
     fuse_w1_activation: bool = True,
@@ -268,15 +267,32 @@ def fused_experts_impl(
     MoE implementation with flexible options.
 
     Args:
+        hidden_states: Input hidden states of shape (M, H), where M is the number
+            of tokens and H is the hidden dimension.
+        w1: First-layer expert weights of shape (E, 2 * I, H), where E is the
+            number of experts and I is the intermediate dimension (per expert).
+        w2: Second-layer expert weights of shape (E, H, I) or a compatible layout
+            expected by the fused kernels.
+        topk_weights: Routing weights for the selected experts per token, typically
+            of shape (M, K), where K is the number of experts selected per token.
+        topk_ids: Indices of the selected experts per token, typically of shape
+            (M, K), aligned with ``topk_weights``.
+        activation: "silu", "gelu", or "relu" (only used when fuse_w1_activation=False;
+                     ignored when fuse_w1_activation=True, where SiLU is always used)
         use_sorted: If True, sort tokens by expert (better for large models).
                    If False, process in original order (better for small models).
-        fuse_w1_activation: If True, fuse W1+activation in one kernel (faster).
-                           If False, separate kernels (more flexible).
-        activation: "silu", "gelu", or "relu" (only used when fuse_w1_activation=False)
+        fuse_w1_activation: If True, fuse W1+activation in one Triton kernel (faster),
+                           always using SiLU in the fused path.
+                           If False, use separate kernels (more flexible) and apply the
+                           activation in Python.
+
+    Returns:
+        torch.Tensor: The combined MoE output tensor of shape (M, H), containing
+        the expert-transformed hidden states for each input token.
     """
     M, H = hidden_states.shape
-    E, double_I, _ = w1.shape
-    I = double_I // 2  # noqaE741
+    _, double_I, _ = w1.shape
+    I = double_I // 2  # noqa: E741
     K = topk_ids.shape[1]
     device = hidden_states.device
     dtype = hidden_states.dtype
@@ -353,7 +369,7 @@ def fused_experts_impl(
         )
 
         # Activation kernel
-        activation_type = {"silu": 0, "gelu": 1, "relu": 2}.get(activation.lower(), 0)
+        activation_type = {"silu": 0, "gelu": 1, "relu": 2}.get((activation or "silu").lower(), 0)
         grid_act = (num_pairs, triton.cdiv(I, BLOCK_N))
         gated_activation_kernel[grid_act](
             gate_up,
