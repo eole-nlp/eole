@@ -5,13 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from eole.modules.transformer_mlp import MLP
 from torch.distributed import all_reduce
-
-try:
-    from vllm.model_executor.layers.fused_moe.fused_moe import fused_experts_impl
-
-    _vllm_available = True
-except ImportError:
-    _vllm_available = False
+from eole.triton.fused_moe import fused_experts_impl
 
 
 def naive_moe(x, topk_weights, topk_ids, K, experts):
@@ -167,7 +161,7 @@ class MoE(nn.Module):
 
     def forward(self, x):
 
-        if not self.training and _vllm_available:
+        if not self.training:
             self._maybe_fused_moe_weights(x.device, x.dtype)
         else:
             self._maybe_fuse_gates()
@@ -192,14 +186,13 @@ class MoE(nn.Module):
         if self.moe_softmax_after:
             expert_weights = expert_weights.softmax(dim=-1)
 
-        if not self.training and _vllm_available:
+        if not self.training:
             y = fused_experts_impl(
                 hidden_states=x_flat,
                 w1=self._w1,
                 w2=self._w2,
                 topk_weights=expert_weights,
                 topk_ids=expert_indices,
-                inplace=True,
                 activation=self.activation_function,
             ).view(B, T, C)
         else:
