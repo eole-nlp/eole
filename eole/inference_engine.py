@@ -1,16 +1,15 @@
-import torch
-import json
 import os
-import codecs
+import json
 from typing import List, Tuple, Optional, Dict, Any
 from time import time
+import torch
+
 from eole.constants import CorpusTask, DefaultTokens, ModelType, InferenceConstants
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
-from eole.utils.distributed import ErrorHandler
-from eole.utils.distributed_workers import spawned_infer
 from eole.utils.logging import init_logger
 from eole.utils.misc import get_device_type, configure_cuda_backends
 from eole.transforms import get_transforms_cls, make_transforms, TransformPipe
+from eole.predict import build_predictor  # lazy importing this makes things slower
 
 
 class InferenceEngine:
@@ -49,6 +48,8 @@ class InferenceEngine:
 
     def _write_predictions_to_file(self, scores: List[float], estims: List[float], preds: List[str], output_path: str):
         """Write predictions to output file with optional scores."""
+        import codecs
+
         with codecs.open(output_path, "w+", "utf-8") as out_file:
             if self.config.with_score:
                 if len(scores) > 0:
@@ -161,15 +162,18 @@ class InferenceEnginePY(InferenceEngine):
         t0 = time()
 
         if config.world_size > 1:
+            self.logger.info("Init multi-process mode")
             self._initialize_multiprocessing()
         else:
+            self.logger.info("Init single process mode")
             self._initialize_single_process()
 
         self.logger.info("Build and loading model took %.2f sec." % (time() - t0))
 
     def _initialize_multiprocessing(self):
         """Initialize multiprocessing components for parallel inference."""
-        import torch
+        from eole.utils.distributed import ErrorHandler
+        from eole.utils.distributed_workers import spawned_infer
 
         mp = torch.multiprocessing.get_context("spawn")
 
@@ -205,9 +209,7 @@ class InferenceEnginePY(InferenceEngine):
 
     def _initialize_single_process(self):
         """Initialize components for single-process inference."""
-        from eole.predict import build_predictor
 
-        # Set device
         if len(self.config.gpu_ranks) > 0:
             self.device_id = self.config.gpu_ranks[0]
         else:

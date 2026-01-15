@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict  # , Enum
+from pydantic import BaseModel, ConfigDict
 
 
 def get_config_dict():
