@@ -1,6 +1,23 @@
+# flake8: noqa
 import torch
 import eole.modules.rmsnorm as rmsnorm_module
 from eole.modules.rmsnorm import RMSNorm, GemmaRMSNorm
+
+
+"""
+Expected results
+
+[ Results in Milliseconds (ms) | Seq: 1024 | torch.bfloat16 ]
+
+           |                                    RMSNorm                                     |                                  GemmaRMSNorm                                 
+Hidden     |          BS: 1           |          BS: 8           |          BS: 16          |          BS: 1           |          BS: 8           |          BS: 16          | 
+Size       |   Eager Compile Eole_ops |   Eager Compile Eole_ops |   Eager Compile Eole_ops |   Eager Compile Eole_ops |   Eager Compile Eole_ops |   Eager Compile Eole_ops | 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+512        |   0.062   0.061   0.015  |   0.062   0.068   0.016  |   0.101   0.068   0.021  |   0.076   0.061   0.015  |   0.075   0.067   0.015  |   0.093   0.068   0.021  | 
+1024       |   0.063   0.062   0.015  |   0.099   0.066   0.025  |   0.238   0.068   0.045  |   0.076   0.062   0.015  |   0.093   0.068   0.025  |   0.287   0.067   0.045  | 
+4096       |   0.063   0.061   0.017  |   0.749   0.073   0.093  |   1.581   0.179   0.179  |   0.076   0.058   0.022  |   0.863   0.075   0.139  |   1.768   0.179   0.274  | 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+"""
 
 
 def get_avg_ms(model_instance, input_tensor, n_warmup=25, n_iter=100):

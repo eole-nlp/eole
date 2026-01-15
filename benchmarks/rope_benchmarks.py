@@ -1,6 +1,23 @@
+# flake8: noqa
 import torch
 import eole.modules.rope as rope_module
 from eole.modules.rope import apply_rotary_emb
+
+"""
+Expected results
+[ apply_rotary_emb Benchmark (ms) | torch.bfloat16 | heads=32 | D=128 | Rd=64 ]
+
+             |                                Rotary Embedding                               
+SeqLen       |          BS: 1           |          BS: 8           |          BS: 16          | 
+             |   Eager Compile Eole_ops |   Eager Compile Eole_ops |   Eager Compile Eole_ops | 
+------------------------------------------------------------------------------------------------
+1            |   0.114   0.060   0.029  |   0.114   0.076   0.028  |   0.115   0.076   0.025  | 
+128          |   0.114   0.070   0.029  |   0.112   0.080   0.027  |   0.157   0.079   0.028  | 
+256          |   0.116   0.069   0.029  |   0.155   0.079   0.027  |   0.279   0.084   0.026  | 
+512          |   0.117   0.070   0.029  |   0.276   0.082   0.027  |   0.576   0.178   0.041  | 
+1024         |   0.113   0.069   0.031  |   0.573   0.177   0.041  |   1.305   0.359   0.174  | 
+------------------------------------------------------------------------------------------------
+"""
 
 
 def get_avg_ms(fn, n_warmup=25, n_iter=100):
