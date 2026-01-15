@@ -55,7 +55,14 @@ class OptimizerConfig(Config):
         "a value of 0.98 for beta2, this parameter may not work well "
         "for normal models / default baselines.",
     )
+    adafactor_beta2: float = Field(
+        default=-0.8, description="Beta2_decay parameter used by Adafactor - see Pytorch documentation. "
+    )
     adam_eps: float = Field(default=1e-8, description="Adam epsilon to forward to torch Optimizer.")
+    adafactor_eps: tuple = Field(default=(None, 0.001), description="Adafactor epsilon to forward to torch Optimizer.")
+    adafactor_d: float = Field(
+        default=1.0, description="clipping threshold, used to avoid larger-than-desired updates."
+    )
     weight_decay: float = Field(default=0.0, description="Weight decay to forward to torch Optimizer.")
     use_amp: bool = Field(default=True, description="Use torch mixed precision when compute_dtype is 16-bit.")
     learning_rate: float = Field(
