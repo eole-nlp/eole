@@ -10,7 +10,7 @@ if _eole_ops:
 
 class RMSNormFunc(torch.autograd.Function):
     """Custom autograd Function implementing RMSNorm with a manual backward pass.
-    
+
     This wraps the low-level ``eole.ops.rms_norm`` kernel in the forward pass and
     defines the corresponding gradient computation in :meth:`backward` so that
     RMSNorm can be used efficiently during training.
