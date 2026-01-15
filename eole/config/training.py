@@ -59,7 +59,7 @@ class OptimizerConfig(Config):
         default=-0.8, description="Beta2_decay parameter used by Adafactor - see Pytorch documentation. "
     )
     adam_eps: float = Field(default=1e-8, description="Adam epsilon to forward to torch Optimizer.")
-    adafactor_eps: tuple = Field(default=(None, 0.001), description="Adafactor epsilon to forward to torch Optimizer.")
+    adafactor_eps: tuple[float | None, float] = Field(default=(None, 0.001), description="Adafactor epsilon to forward to torch Optimizer.")
     adafactor_d: float = Field(
         default=1.0, description="clipping threshold, used to avoid larger-than-desired updates."
     )

@@ -1,4 +1,4 @@
-"""Optimizers class"""
+"""Optimizers class - Modernized for PyTorch 2.x"""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def build_torch_optimizer(model: Module, config: Any) -> TorchOptimizer:
             weight_decay=config.weight_decay,
         ),
         "adadelta": lambda: torch.optim.Adadelta(params, lr=config.learning_rate, weight_decay=config.weight_decay),
-        "adafactor": lambda: torch.optim.Adafactor(
+        "adafactor": lambda: optim_module.Adafactor(
             params,
             lr=config.learning_rate,
             beta2_decay=config.adafactor_beta2,
@@ -368,18 +368,8 @@ class Optimizer:
         Returns:
             Tuple of (optim_state_dict, config_to_use)
         """
-        optim = metadata["optim"]
+        ckpt_state_dict = metadata["optim"]
         ckpt_config = metadata["config"].training
-
-        # Handle legacy format
-        if isinstance(optim, Optimizer):
-            ckpt_state_dict = {
-                "training_step": optim._step + 1,
-                "decay_step": optim._step + 1,
-                "optimizer": optim.optimizer.state_dict(),
-            }
-        else:
-            ckpt_state_dict = optim
 
         # Handle reset options
         reset_option = running_config.reset_optim
@@ -391,12 +381,13 @@ class Optimizer:
             # Build from scratch with new config
             return None, running_config
         elif reset_option == "states":
-            # Reset optimizer, but keep options from checkpoint
+            # Reset optimizer, but keep options and step counters from checkpoint
             result = ckpt_state_dict.copy()
             result.pop("optimizer", None)
             return result, ckpt_config
         elif reset_option == "keep_states":
-            # Reset options, keep optimizer state
+            # Reset options (use new config), keep optimizer state only
+            # Step counters are intentionally reset for new learning rate schedule
             return {"optimizer": ckpt_state_dict.get("optimizer")}, running_config
 
         return None, running_config
