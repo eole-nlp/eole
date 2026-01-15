@@ -22,6 +22,8 @@ def get_avg_ms(model_instance, input_tensor, n_warmup=25, n_iter=100):
 
 
 if __name__ == "__main__":
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA not available")
     DEVICE = "cuda"
     DTYPE = torch.bfloat16
     BATCH_SIZES = [1, 8, 16]
@@ -31,7 +33,7 @@ if __name__ == "__main__":
     # Define column widths for perfect alignment
     label_w = 10
     val_w = 7  # Width for "0.000"
-    block_inner_w = (val_w * 3) + 2  # width of "Eag Cmp Eol"
+    block_inner_w = (val_w * 3) + 3  # width of "Eag Cmp Eol"
     sep = " | "
 
     print(f"\n[ Results in Milliseconds (ms) | Seq: {SEQ_LEN} | {DTYPE} ]\n")
@@ -50,7 +52,7 @@ if __name__ == "__main__":
     # 3. Method Header
     meth_row = f"{'Size':<{label_w}}{sep}"
     for _ in range(6):  # 3 batch sizes * 2 models
-        meth_row += f"{'Eag':>{val_w}} {'Cmp':>{val_w}} {'Eol':>{val_w}}{sep}"
+        meth_row += f"{'Eager':>{val_w}} {'Compile':>{val_w}} {'Eole_ops':>{val_w}}{sep}"
     print(meth_row)
     print("-" * len(meth_row))
 
@@ -63,19 +65,19 @@ if __name__ == "__main__":
 
                 # Baseline Eager
                 rmsnorm_module._eole_ops = False
-                m_eager = model_cls(h, eps=1e-6).to(DEVICE, DTYPE).train()
+                m_eager = model_cls(h, eps=1e-6).to(DEVICE, DTYPE)
                 t_eager = get_avg_ms(m_eager, x)
 
                 # Compile
-                m_comp = torch.compile(model_cls(h, eps=1e-6).to(DEVICE, DTYPE).train())
+                m_comp = torch.compile(model_cls(h, eps=1e-6).to(DEVICE, DTYPE))
                 t_comp = get_avg_ms(m_comp, x)
 
                 # Eole
                 rmsnorm_module._eole_ops = True
-                m_eole = model_cls(h, eps=1e-6).to(DEVICE, DTYPE).eval()
+                m_eole = model_cls(h, eps=1e-6).to(DEVICE, DTYPE)
                 t_eole = get_avg_ms(m_eole, x)
 
-                row += f"{t_eager:>{val_w}.3f} {t_comp:>{val_w}.3f} {t_eole:>{val_w}.3f}{sep}"
+                row += f"{t_eager:>{val_w}.3f} {t_comp:>{val_w}.3f} {t_eole:>{val_w}.3f} {sep}"
         print(row)
 
     print("-" * len(meth_row))

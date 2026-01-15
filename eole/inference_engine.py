@@ -9,7 +9,7 @@ from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.utils.logging import init_logger
 from eole.utils.misc import get_device_type, configure_cuda_backends
 from eole.transforms import get_transforms_cls, make_transforms, TransformPipe
-from eole.predict import build_predictor  # lazy importing this makes things slower
+from eole.predict import build_predictor  # moved to top-level (faster)
 
 
 class InferenceEngine:

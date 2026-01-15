@@ -9,8 +9,33 @@ if _eole_ops:
 
 
 class RMSNormFunc(torch.autograd.Function):
+    """Custom autograd Function implementing RMSNorm with a manual backward pass.
+    
+    This wraps the low-level ``eole.ops.rms_norm`` kernel in the forward pass and
+    defines the corresponding gradient computation in :meth:`backward` so that
+    RMSNorm can be used efficiently during training.
+    """
+
     @staticmethod
     def forward(ctx, hidden_states, weight, eps, gemma=False):
+        """Apply RMS normalization using the fused ``eole.ops.rms_norm`` kernel.
+
+        Args:
+            ctx: Autograd context used to stash tensors for the backward pass.
+            hidden_states (torch.Tensor): Input activations of shape
+                ``(..., hidden_size)`` to be normalized along the last dimension.
+            weight (torch.Tensor): Learnable scaling weights of shape
+                ``(hidden_size,)`` applied after normalization.
+            eps (float): Small epsilon value added to the variance for numerical
+                stability before taking the reciprocal square root.
+            gemma (bool, optional): If ``True``, use Gemma-style RMSNorm where
+                the effective weight is ``(1.0 + weight)`` instead of ``weight``.
+                Defaults to ``False``.
+
+        Returns:
+            torch.Tensor: The RMS-normalized tensor with the same shape and dtype
+            as ``hidden_states``.
+        """
         # Save these for the manual backward pass
         ctx.save_for_backward(hidden_states, weight)
         ctx.eps = eps
