@@ -36,6 +36,3 @@ Optimizer
 
 .. autoclass:: eole.utils.Optimizer
     :members:
-
-.. autoclass:: eole.utils.AdaFactor
-    :members:

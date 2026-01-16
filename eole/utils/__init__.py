@@ -4,7 +4,7 @@ from eole.utils.misc import use_gpu, set_random_seed
 from eole.utils.alignment import make_batch_align_matrix
 from eole.utils.report_manager import ReportMgr, build_report_manager
 from eole.utils.statistics import Statistics
-from eole.utils.optimizers import MultipleOptimizer, Optimizer, AdaFactor
+from eole.utils.optimizers import MultipleOptimizer, Optimizer
 from eole.utils.attention_entropy import (
     compute_attention_entropy,
     compute_attention_entropy_from_dict,
@@ -21,7 +21,6 @@ __all__ = [
     "Statistics",
     "MultipleOptimizer",
     "Optimizer",
-    "AdaFactor",
     "EarlyStopping",
     "scorers_from_config",
     "make_batch_align_matrix",

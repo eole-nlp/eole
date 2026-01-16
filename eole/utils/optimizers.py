@@ -1,189 +1,203 @@
-""" Optimizers class """
+"""Optimizers class - Modernized for PyTorch 2.x"""
+
+from __future__ import annotations
+
+import functools
+import os
+from math import cos, pi, sqrt
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import torch
 from torch.amp import GradScaler
 from torch.nn.utils import clip_grad_norm_
-import operator
-import functools
-from copy import copy
-from math import sqrt, cos, pi
-import os
+
+if TYPE_CHECKING:
+    from torch.nn import Module
+    from torch.optim import Optimizer as TorchOptimizer
 
 try:
     import optimi
 
-    optimi_available = True
+    OPTIMI_AVAILABLE = True
 except ImportError:
-    optimi_available = False
-    pass
+    OPTIMI_AVAILABLE = False
 
 
-def build_torch_optimizer(model, config):
+def build_torch_optimizer(model: Module, config: Any) -> TorchOptimizer:
     """Builds the PyTorch optimizer.
 
     We use the default parameters for Adam that are suggested by
     the original paper https://arxiv.org/pdf/1412.6980.pdf
-    These values are also used by other established implementations,
-    e.g. https://www.tensorflow.org/api_docs/python/tf/train/AdamOptimizer
-    https://keras.io/optimizers/
-    Recently there are slightly different values used in the paper
-    "Attention is all you need"
-    https://arxiv.org/pdf/1706.03762.pdf, particularly the value beta2=0.98
-    was used there however, beta2=0.999 is still arguably the more
-    established value, so we use that here as well
 
     Args:
-      model: The model to optimize.
-      opt. The dictionary of options.
+        model: The model to optimize.
+        config: The configuration object with optimizer settings.
 
     Returns:
-      A ``torch.optim.Optimizer`` instance.
+        A torch.optim.Optimizer instance.
     """
     params = [p for p in model.parameters() if p.requires_grad]
-    betas = [config.adam_beta1, config.adam_beta2]
+    betas = (config.adam_beta1, config.adam_beta2)  # Use tuple instead of list
 
-    if config.use_amp or not optimi_available:
-        optim = torch.optim
-    else:
-        optim = optimi
-    # optimi supports only sgd / adam / adamw for us
-    # hence we use directly torch.optim for others
-    if config.optim == "sgd":
-        optimizer = optim.SGD(params, lr=config.learning_rate, weight_decay=config.weight_decay)
-    elif config.optim == "adagrad":
-        optimizer = torch.optim.Adagrad(
+    # Use optimi if available and not using AMP (optimi doesn't support AMP well)
+    optim_module = torch.optim if (config.use_amp or not OPTIMI_AVAILABLE) else optimi
+
+    # Dictionary mapping optimizer names to their configurations
+    optimizer_configs = {
+        "sgd": lambda: optim_module.SGD(params, lr=config.learning_rate, weight_decay=config.weight_decay),
+        "adagrad": lambda: torch.optim.Adagrad(
             params,
             lr=config.learning_rate,
             initial_accumulator_value=config.adagrad_accumulator_init,
             weight_decay=config.weight_decay,
-        )
-    elif config.optim == "adadelta":
-        optimizer = torch.optim.Adadelta(params, lr=config.learning_rate, weight_decay=config.weight_decay)
-    elif config.optim == "adafactor":
-        optimizer = AdaFactor(
+        ),
+        "adadelta": lambda: torch.optim.Adadelta(params, lr=config.learning_rate, weight_decay=config.weight_decay),
+        "adafactor": lambda: optim_module.Adafactor(
             params,
-            non_constant_decay=True,
-            enable_factorization=True,
+            lr=config.learning_rate,
+            beta2_decay=config.adafactor_beta2,
+            eps=config.adafactor_eps,
+            d=config.adafactor_d,
             weight_decay=config.weight_decay,
-        )
-    elif config.optim == "adam":
-        optimizer = optim.Adam(
+        ),
+        "adam": lambda: optim_module.Adam(
             params,
             lr=config.learning_rate,
             betas=betas,
             eps=config.adam_eps,
             weight_decay=config.weight_decay,
-        )
-    elif config.optim == "adamw":
-        optimizer = optim.AdamW(
+        ),
+        "adamw": lambda: optim_module.AdamW(
             params,
             lr=config.learning_rate,
             betas=betas,
             eps=config.adam_eps,
             weight_decay=config.weight_decay,
-            foreach=False,
-        )
-    elif config.optim == "sparseadam":
-        dense = []
-        sparse = []
-        for name, param in model.named_parameters():
-            if not param.requires_grad:
-                continue
-            # TODO: Find a better way to check for sparse gradients.
-            if "embed" in name:
-                sparse.append(param)
-            else:
-                dense.append(param)
-        optimizer = MultipleOptimizer(
-            [
-                optim.Adam(dense, lr=config.learning_rate, betas=betas, eps=config.adam_eps),
-                torch.optim.SparseAdam(sparse, lr=config.learning_rate, betas=betas, eps=config.adam_eps),
-            ]
-        )
+            foreach=False,  # Can be True for potential speedup
+        ),
+    }
+
+    # Handle special optimizers
+    if config.optim == "sparseadam":
+        return _build_sparse_adam_optimizer(model, config, betas, optim_module)
     elif config.optim in ["adamw8bit", "pagedadamw8bit", "pagedadamw32bit"]:
-        try:
-            os.environ["BITSANDBYTES_NOWELCOME"] = "1"
-            import bitsandbytes as bnb
-        except ImportError:
-            raise ImportError("Install bitsandbytes to use bnb optimizers")
-        if config.optim == "adamw8bit":
-            optimizer = bnb.optim.AdamW8bit(
-                params,
-                lr=config.learning_rate,
-                betas=betas,
-                eps=config.adam_eps,
-                weight_decay=config.weight_decay,
-                amsgrad=False,
-                optim_bits=8,
-                args=None,
-                min_8bit_size=1024,
-                percentile_clipping=100,
-                block_wise=True,
-                is_paged=False,
-            )
-        elif config.optim == "pagedadamw8bit":
-            optimizer = bnb.optim.PagedAdamW8bit(
-                params,
-                lr=config.learning_rate,
-                betas=betas,
-                eps=config.adam_eps,
-                weight_decay=config.weight_decay,
-                amsgrad=False,
-                optim_bits=8,
-                args=None,
-                min_8bit_size=4096,
-                percentile_clipping=100,
-                block_wise=True,
-            )
-        elif config.optim == "pagedadamw32bit":
-            optimizer = bnb.optim.PagedAdamW32bit(
-                params,
-                lr=config.learning_rate,
-                betas=betas,
-                eps=config.adam_eps,
-                weight_decay=config.weight_decay,
-                amsgrad=False,
-                optim_bits=32,
-                args=None,
-                min_8bit_size=4096,
-                percentile_clipping=100,
-                block_wise=True,
-            )
-        else:
-            raise ValueError("Invalid optimizer type: " + config.optim)
+        return _build_bnb_optimizer(params, config, betas)
+    elif config.optim in optimizer_configs:
+        return optimizer_configs[config.optim]()
     else:
-        raise ValueError("Invalid optimizer type: " + config.optim)
-
-    return optimizer
+        raise ValueError(f"Invalid optimizer type: {config.optim}")
 
 
-def make_learning_rate_decay_fn(config):
-    """Returns the learning decay function from options."""
+def _build_sparse_adam_optimizer(
+    model: Module, config: Any, betas: tuple[float, float], optim_module: Any
+) -> MultipleOptimizer:
+    """Build sparse Adam optimizer for embeddings."""
+    dense_params = []
+    sparse_params = []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        # TODO: Find a better way to check for sparse gradients
+        if "embed" in name:
+            sparse_params.append(param)
+        else:
+            dense_params.append(param)
+
+    return MultipleOptimizer(
+        [
+            optim_module.Adam(dense_params, lr=config.learning_rate, betas=betas, eps=config.adam_eps),
+            torch.optim.SparseAdam(sparse_params, lr=config.learning_rate, betas=betas, eps=config.adam_eps),
+        ]
+    )
+
+
+def _build_bnb_optimizer(params: list, config: Any, betas: tuple[float, float]) -> Any:
+    """Build bitsandbytes optimizer."""
+    try:
+        os.environ["BITSANDBYTES_NOWELCOME"] = "1"
+        import bitsandbytes as bnb
+    except ImportError as e:
+        raise ImportError("Install bitsandbytes to use bnb optimizers: " "pip install bitsandbytes") from e
+
+    optimizer_map = {
+        "adamw8bit": bnb.optim.AdamW8bit,
+        "pagedadamw8bit": bnb.optim.PagedAdamW8bit,
+        "pagedadamw32bit": bnb.optim.PagedAdamW32bit,
+    }
+
+    optimizer_class = optimizer_map.get(config.optim)
+    if optimizer_class is None:
+        raise ValueError(f"Invalid optimizer type: {config.optim}")
+
+    # Common arguments for all bnb optimizers
+    common_args = {
+        "lr": config.learning_rate,
+        "betas": betas,
+        "eps": config.adam_eps,
+        "weight_decay": config.weight_decay,
+        "amsgrad": False,
+        "percentile_clipping": 100,
+        "block_wise": True,
+    }
+
+    # Specific arguments based on optimizer type
+    if config.optim == "adamw8bit":
+        common_args.update(
+            {
+                "optim_bits": 8,
+                "args": None,
+                "min_8bit_size": 1024,
+                "is_paged": False,
+            }
+        )
+    else:  # paged variants
+        common_args.update(
+            {
+                "optim_bits": 8 if "8bit" in config.optim else 32,
+                "args": None,
+                "min_8bit_size": 4096,
+            }
+        )
+
+    return optimizer_class(params, **common_args)
+
+
+def make_learning_rate_decay_fn(config: Any, running_config: Optional[Any] = None) -> Optional[Callable[[int], float]]:
+    """Returns the learning rate decay function from config.
+
+    Args:
+        config: The full configuration object.
+        running_config: Optional override for training config (used when loading checkpoints).
+    """
     model_config = config.model
-    running_config = config.training
-    if running_config.decay_method == "noam":
-        return functools.partial(
+    if running_config is None:
+        running_config = config.training
+
+    decay_functions = {
+        "noam": functools.partial(
             noam_decay,
             warmup_steps=running_config.warmup_steps,
             model_size=model_config.hidden_size,
-        )
-    elif running_config.decay_method == "noamwd":
-        return functools.partial(
+        ),
+        "noamwd": functools.partial(
             noamwd_decay,
             warmup_steps=running_config.warmup_steps,
             model_size=model_config.hidden_size,
             rate=running_config.learning_rate_decay,
             decay_steps=running_config.decay_steps,
             start_step=running_config.start_decay_steps,
-        )
-    elif running_config.decay_method == "cosine":
-        return functools.partial(
+        ),
+        "cosine": functools.partial(
             cosine_decay,
             warmup_steps=running_config.warmup_steps,
             train_steps=running_config.train_steps,
-        )
-    elif running_config.decay_method == "rsqrt":
-        return functools.partial(rsqrt_decay, warmup_steps=running_config.warmup_steps)
+        ),
+        "rsqrt": functools.partial(rsqrt_decay, warmup_steps=running_config.warmup_steps),
+    }
+
+    if running_config.decay_method in decay_functions:
+        return decay_functions[running_config.decay_method]
     elif running_config.start_decay_steps is not None:
         return functools.partial(
             exponential_decay,
@@ -192,100 +206,112 @@ def make_learning_rate_decay_fn(config):
             start_step=running_config.start_decay_steps,
         )
 
+    # Return None if no decay method is configured
+    return None
 
-def noam_decay(step, warmup_steps, model_size):
-    """Learning rate schedule described in
-    https://arxiv.org/pdf/1706.03762.pdf.
+
+def noam_decay(step: int, warmup_steps: int, model_size: int) -> float:
+    """Learning rate schedule from 'Attention Is All You Need'.
+
+    https://arxiv.org/pdf/1706.03762.pdf
     """
     return model_size ** (-0.5) * min(step ** (-0.5), step * warmup_steps ** (-1.5))
 
 
-def noamwd_decay(step, warmup_steps, model_size, rate, decay_steps, start_step=0):
-    """Learning rate schedule optimized for huge batches"""
-    return (
-        model_size ** (-0.5)
-        * min(step ** (-0.5), step * warmup_steps ** (-1.5))
-        * rate ** (max(step - start_step + decay_steps, 0) // decay_steps)
-    )
+def noamwd_decay(
+    step: int, warmup_steps: int, model_size: int, rate: float, decay_steps: int, start_step: int = 0
+) -> float:
+    """Learning rate schedule optimized for large batches."""
+    base_rate = model_size ** (-0.5) * min(step ** (-0.5), step * warmup_steps ** (-1.5))
+    decay_factor = rate ** (max(step - start_step + decay_steps, 0) // decay_steps)
+    return base_rate * decay_factor
 
 
-def cosine_decay(step, warmup_steps, train_steps):
+def cosine_decay(step: int, warmup_steps: int, train_steps: int) -> float:
+    """Cosine annealing learning rate schedule."""
     if step < warmup_steps:
         return step / warmup_steps
-    else:
-        decay_ratio = (step - warmup_steps) / (train_steps - warmup_steps)
-        return 0.5 * (1.0 + cos(pi * decay_ratio))
+
+    decay_ratio = (step - warmup_steps) / (train_steps - warmup_steps)
+    return 0.5 * (1.0 + cos(pi * decay_ratio))
 
 
-def exponential_decay(step, rate, decay_steps, start_step=0):
-    """A standard exponential decay, scaling the learning rate by :obj:`rate`
-    every :obj:`decay_steps` steps.
+def exponential_decay(step: int, rate: float, decay_steps: int, start_step: int = 0) -> float:
+    """Standard exponential decay.
+
+    Scales the learning rate by `rate` every `decay_steps` steps.
     """
     return rate ** (max(step - start_step + decay_steps, 0) // decay_steps)
 
 
-def rsqrt_decay(step, warmup_steps):
+def rsqrt_decay(step: int, warmup_steps: int) -> float:
     """Decay based on the reciprocal of the step square root."""
     return 1.0 / sqrt(max(step, warmup_steps))
 
 
-class MultipleOptimizer(object):
-    """Implement multiple optimizers needed for sparse adam"""
+class MultipleOptimizer:
+    """Wrapper for multiple optimizers (used for sparse Adam)."""
 
-    def __init__(self, op):
-        """?"""
-        self.optimizers = op
+    def __init__(self, optimizers: list[TorchOptimizer]) -> None:
+        """Initialize with list of optimizers."""
+        self.optimizers = optimizers
 
     @property
-    def param_groups(self):
-        param_groups = []
+    def param_groups(self) -> list:
+        """Get all parameter groups from all optimizers."""
+        return [group for optimizer in self.optimizers for group in optimizer.param_groups]
+
+    def zero_grad(self, set_to_none: bool = True) -> None:
+        """Zero gradients for all optimizers."""
         for optimizer in self.optimizers:
-            param_groups.extend(optimizer.param_groups)
-        return param_groups
+            optimizer.zero_grad(set_to_none=set_to_none)
 
-    def zero_grad(self, set_to_none=True):
-        """?"""
-        for op in self.optimizers:
-            op.zero_grad(set_to_none)
-
-    def step(self):
-        """?"""
-        for op in self.optimizers:
-            op.step()
+    def step(self) -> None:
+        """Perform optimization step for all optimizers."""
+        for optimizer in self.optimizers:
+            optimizer.step()
 
     @property
-    def state(self):
-        """?"""
-        return {k: v for op in self.optimizers for k, v in op.state.items()}
+    def state(self) -> dict:
+        """Get combined state from all optimizers."""
+        return {k: v for optimizer in self.optimizers for k, v in optimizer.state.items()}
 
-    def state_dict(self):
-        """?"""
-        return [op.state_dict() for op in self.optimizers]
+    def state_dict(self) -> list[dict]:
+        """Get state dicts from all optimizers."""
+        return [optimizer.state_dict() for optimizer in self.optimizers]
 
-    def load_state_dict(self, state_dicts):
-        """?"""
-        assert len(state_dicts) == len(self.optimizers)
-        for i in range(len(state_dicts)):
-            self.optimizers[i].load_state_dict(state_dicts[i])
+    def load_state_dict(self, state_dicts: list[dict]) -> None:
+        """Load state dicts into optimizers."""
+        if len(state_dicts) != len(self.optimizers):
+            raise ValueError(f"Expected {len(self.optimizers)} state_dicts, " f"got {len(state_dicts)}")
+        for optimizer, state_dict in zip(self.optimizers, state_dicts):
+            optimizer.load_state_dict(state_dict)
 
 
-class Optimizer(object):
-    """
-    Controller class for optimization. Mostly a thin
-    wrapper for `optim`, but also useful for implementing
-    rate scheduling beyond what is currently available.
-    Also implements necessary methods for training RNNs such
-    as grad manipulations.
+class Optimizer:
+    """Optimizer wrapper with learning rate scheduling and gradient scaling.
+
+    Wraps a torch.optim.Optimizer with additional functionality:
+    - Learning rate scheduling
+    - Gradient clipping
+    - Automatic mixed precision (AMP) support with gradient scaling
 
     Args:
-        optimizer: A ``torch.optim.Optimizer`` instance.
+        optimizer: A torch.optim.Optimizer instance.
         learning_rate: The initial learning rate.
-        learning_rate_decay_fn: An optional callable taking the current step
-            as argument and return a learning rate scaling factor.
-        max_grad_norm: Clip gradients to this global norm.
+        learning_rate_decay_fn: Optional callable for LR scheduling.
+        max_grad_norm: Clip gradients to this global norm (0 = no clipping).
+        use_amp: Whether to use automatic mixed precision.
     """
 
-    def __init__(self, optimizer, learning_rate, learning_rate_decay_fn=None, max_grad_norm=None, use_amp=True):
+    def __init__(
+        self,
+        optimizer: TorchOptimizer,
+        learning_rate: float,
+        learning_rate_decay_fn: Optional[Callable[[int], float]] = None,
+        max_grad_norm: Optional[float] = None,
+        use_amp: bool = True,
+    ) -> None:
         self._optimizer = optimizer
         self._learning_rate = learning_rate
         self._learning_rate_decay_fn = learning_rate_decay_fn
@@ -293,331 +319,167 @@ class Optimizer(object):
         self._training_step = 1
         self._decay_step = 1
         self.use_amp = use_amp
-        self._scaler = None
+        self._scaler: Optional[GradScaler] = None
 
     @classmethod
-    def from_config(cls, model, config, metadata=None):
-        """Builds the optimizer from options.
+    def from_config(cls, model: Module, config: Any, metadata: Optional[dict] = None) -> Optimizer:
+        """Build optimizer from configuration.
 
         Args:
-          cls: The ``Optimizer`` class to instantiate.
-          model: The model to optimize.
-          config: The dict of user options.
-          metadata: An optional checkpoint metadata to load states from.
+            model: The model to optimize.
+            config: The configuration object.
+            metadata: Optional checkpoint metadata to load states from.
 
         Returns:
-          An ``Optimizer`` instance.
+            An Optimizer instance.
         """
-        # we could almost go with only training config here, except for noam schedule which requires hidden size (additional kwarg?) # noqa: E501
         running_config = config.training
         optim_state_dict = None
 
-        if running_config.train_from and metadata is not None and "optim" in metadata.keys():
-            optim = metadata["optim"]
-            ckpt_config = metadata["config"].training
-            ckpt_state_dict = {}
-            if isinstance(optim, Optimizer):  # Backward compatibility.
-                ckpt_state_dict["training_step"] = optim._step + 1
-                ckpt_state_dict["decay_step"] = optim._step + 1
-                ckpt_state_dict["optimizer"] = optim.optimizer.state_dict()
-            else:
-                ckpt_state_dict = optim
+        # Handle checkpoint loading and potentially update running_config
+        if running_config.train_from and metadata is not None and "optim" in metadata:
+            optim_state_dict, running_config = cls._process_checkpoint(metadata, running_config)
 
-            # we might be able to simplify this with the new general config update
-            if running_config.reset_optim == "none":
-                # Load everything from the metadata.
-                running_config = ckpt_config
-                optim_state_dict = ckpt_state_dict
-            elif running_config.reset_optim == "all":
-                # Build everything from scratch.
-                pass
-            elif running_config.reset_optim == "states":
-                # Reset optimizer, keep options.
-                running_config = ckpt_config
-                optim_state_dict = ckpt_state_dict
-                del optim_state_dict["optimizer"]
-            elif running_config.reset_optim == "keep_states":
-                # Reset options, keep optimizer.
-                optim_state_dict = ckpt_state_dict
-
+        # Determine if AMP should be used
         use_amp = running_config.use_amp and running_config.compute_dtype in [torch.float16, torch.bfloat16]
+
         optimizer = cls(
             build_torch_optimizer(model, running_config),
             running_config.learning_rate,
-            learning_rate_decay_fn=make_learning_rate_decay_fn(config),
+            learning_rate_decay_fn=make_learning_rate_decay_fn(config, running_config),
             max_grad_norm=running_config.max_grad_norm,
             use_amp=use_amp,
         )
-        # if running_config.compute_dtype in [torch.float16, torch.bfloat16]:
+
+        # Initialize GradScaler for AMP
         if use_amp:
+            # Modern API: torch.amp.GradScaler with device specification
             optimizer._scaler = GradScaler("cuda")
 
         if optim_state_dict:
             optimizer.load_state_dict(optim_state_dict)
+
         return optimizer
 
+    @staticmethod
+    def _process_checkpoint(metadata: dict, running_config: Any) -> tuple[Optional[dict], Any]:
+        """Process checkpoint metadata for optimizer state loading.
+
+        Returns:
+            Tuple of (optim_state_dict, config_to_use)
+        """
+        ckpt_state_dict = metadata["optim"]
+        ckpt_config = metadata["config"].training
+
+        # Handle reset options
+        reset_option = running_config.reset_optim
+
+        if reset_option == "none":
+            # Load everything from checkpoint including config
+            return ckpt_state_dict, ckpt_config
+        elif reset_option == "all":
+            # Build from scratch with new config
+            return None, running_config
+        elif reset_option == "states":
+            # Reset optimizer, but keep options and step counters from checkpoint
+            result = ckpt_state_dict.copy()
+            result.pop("optimizer", None)
+            return result, ckpt_config
+        elif reset_option == "keep_states":
+            # Reset options (use new config), keep optimizer state only
+            # Step counters are intentionally reset for new learning rate schedule
+            return {"optimizer": ckpt_state_dict.get("optimizer")}, running_config
+
+        return None, running_config
+
     @property
-    def training_step(self):
+    def training_step(self) -> int:
         """The current training step."""
         return self._training_step
 
     @property
-    def amp(self):
-        """True if use torch amp mix precision training."""
+    def amp(self) -> bool:
+        """Whether using automatic mixed precision."""
         return self.use_amp
 
-    def learning_rate(self, step=None):
-        """Returns the current learning rate."""
+    def learning_rate(self, step: Optional[int] = None) -> float:
+        """Calculate current learning rate.
+
+        Args:
+            step: Step to calculate LR for (defaults to current decay_step).
+
+        Returns:
+            The learning rate value.
+        """
         if step is None:
             step = self._decay_step
+
         if self._learning_rate_decay_fn is None:
             return self._learning_rate
+
         scale = self._learning_rate_decay_fn(step)
         return scale * self._learning_rate
 
-    def state_dict(self):
+    def state_dict(self) -> dict[str, Any]:
+        """Get optimizer state for checkpointing."""
         return {
             "training_step": self._training_step,
             "decay_step": self._decay_step,
             "optimizer": self._optimizer.state_dict(),
         }
 
-    def load_state_dict(self, state_dict):
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        """Load optimizer state from checkpoint."""
         self._training_step = state_dict["training_step"]
-        # State can be partially restored.
+
         if "decay_step" in state_dict:
             self._decay_step = state_dict["decay_step"]
+
         if "optimizer" in state_dict:
             self._optimizer.load_state_dict(state_dict["optimizer"])
 
-    def zero_grad(self, set_to_none=True):
-        """Zero the gradients of optimized parameters."""
-        self._optimizer.zero_grad(set_to_none)
+    def zero_grad(self, set_to_none: bool = True) -> None:
+        """Zero the gradients of optimized parameters.
 
-    def backward(self, loss):
-        """Wrapper for backward pass. Some optimizer requires ownership of the
-        backward pass."""
+        Args:
+            set_to_none: Set gradients to None instead of zero for memory efficiency.
+        """
+        self._optimizer.zero_grad(set_to_none=set_to_none)
+
+    def backward(self, loss: torch.Tensor) -> None:
+        """Perform backward pass with optional gradient scaling.
+
+        Args:
+            loss: The loss tensor to backpropagate.
+        """
         if self._scaler is not None:
             self._scaler.scale(loss).backward()
         else:
             loss.backward()
 
-    def step(self):
-        """Update the model parameters based on current gradients.
+    def step(self) -> None:
+        """Update model parameters based on gradients.
 
-        Optionally, will employ gradient modification or update learning
-        rate.
+        Handles learning rate updates, gradient clipping, and AMP scaling.
         """
         learning_rate = self.learning_rate()
 
+        # Unscale gradients if using AMP
         if self._scaler is not None:
             self._scaler.unscale_(self._optimizer)
 
+        # Update learning rate and apply gradient clipping
         for group in self._optimizer.param_groups:
             group["lr"] = learning_rate
             if self._max_grad_norm > 0:
                 clip_grad_norm_(group["params"], self._max_grad_norm)
 
+        # Perform optimizer step with optional AMP scaling
         if self._scaler is not None:
-            # unscaled optimizer's gradients (already done therefore skip),
-            # skips optimizer.step() if gradients contain infs/NaNs.
             self._scaler.step(self._optimizer)
-            # Updates the scale for next iteration.
             self._scaler.update()
         else:
             self._optimizer.step()
+
         self._decay_step += 1
         self._training_step += 1
-
-
-# Code below is an implementation of https://arxiv.org/pdf/1804.04235.pdf
-# inspired but modified from https://github.com/DeadAt0m/adafactor-pytorch
-
-
-class AdaFactor(torch.optim.Optimizer):
-    def __init__(
-        self,
-        params,
-        lr=None,
-        beta1=0.9,
-        beta2=0.999,
-        eps1=1e-30,
-        eps2=1e-3,
-        cliping_threshold=1,
-        non_constant_decay=True,
-        enable_factorization=True,
-        ams_grad=True,
-        weight_decay=0,
-    ):
-        enable_momentum = beta1 != 0
-
-        if non_constant_decay:
-            ams_grad = False
-
-        defaults = dict(
-            lr=lr,
-            beta1=beta1,
-            beta2=beta2,
-            eps1=eps1,
-            eps2=eps2,
-            cliping_threshold=cliping_threshold,
-            weight_decay=weight_decay,
-            ams_grad=ams_grad,
-            enable_factorization=enable_factorization,
-            enable_momentum=enable_momentum,
-            non_constant_decay=non_constant_decay,
-        )
-
-        super(AdaFactor, self).__init__(params, defaults)
-
-    def __setstate__(self, state):
-        super(AdaFactor, self).__setstate__(state)
-
-    def _experimental_reshape(self, shape):
-        temp_shape = shape[2:]
-        if len(temp_shape) == 1:
-            new_shape = (shape[0], shape[1] * shape[2])
-        else:
-            tmp_div = len(temp_shape) // 2 + len(temp_shape) % 2
-            new_shape = (
-                shape[0] * functools.reduce(operator.mul, temp_shape[tmp_div:], 1),
-                shape[1] * functools.reduce(operator.mul, temp_shape[:tmp_div], 1),
-            )
-        return new_shape, copy(shape)
-
-    def _check_shape(self, shape):
-        """
-        output1 - True - algorithm for matrix, False - vector;
-        output2 - need reshape
-        """
-        if len(shape) > 2:
-            return True, True
-        elif len(shape) == 2:
-            return True, False
-        elif len(shape) == 2 and (shape[0] == 1 or shape[1] == 1):
-            return False, False
-        else:
-            return False, False
-
-    def _rms(self, x):
-        return torch.mean(x.pow(2)).sqrt().item()
-
-    def step(self, closure=None):
-        loss = None
-        if closure is not None:
-            loss = closure()
-        for group in self.param_groups:
-            for p in group["params"]:
-                if p.grad is None:
-                    continue
-                grad = p.grad.data
-
-                if grad.is_sparse:
-                    raise RuntimeError(
-                        "Adam does not support sparse \
-                                       gradients, use SparseAdam instead"
-                    )
-
-                is_matrix, is_need_reshape = self._check_shape(grad.size())
-                new_shape = p.data.size()
-                if is_need_reshape and group["enable_factorization"]:
-                    new_shape, old_shape = self._experimental_reshape(p.data.size())
-                    grad = grad.view(new_shape)
-
-                state = self.state[p]
-                if len(state) == 0:
-                    state["step"] = 0
-                    if group["enable_momentum"]:
-                        state["exp_avg"] = torch.zeros(new_shape, dtype=torch.float32, device=p.grad.device)
-
-                    if is_matrix and group["enable_factorization"]:
-                        state["exp_avg_sq_R"] = torch.zeros(
-                            (1, new_shape[1]), dtype=torch.float32, device=p.grad.device
-                        )
-                        state["exp_avg_sq_C"] = torch.zeros(
-                            (new_shape[0], 1), dtype=torch.float32, device=p.grad.device
-                        )
-                    else:
-                        state["exp_avg_sq"] = torch.zeros(new_shape, dtype=torch.float32, device=p.grad.device)
-                    if group["ams_grad"]:
-                        state["exp_avg_sq_hat"] = torch.zeros(new_shape, dtype=torch.float32, device=p.grad.device)
-
-                if group["enable_momentum"]:
-                    exp_avg = state["exp_avg"]
-
-                if is_matrix and group["enable_factorization"]:
-                    exp_avg_sq_r = state["exp_avg_sq_R"]
-                    exp_avg_sq_c = state["exp_avg_sq_C"]
-                else:
-                    exp_avg_sq = state["exp_avg_sq"]
-
-                if group["ams_grad"]:
-                    exp_avg_sq_hat = state["exp_avg_sq_hat"]
-
-                state["step"] += 1
-                lr_t = group["lr"]
-                lr_t *= max(group["eps2"], self._rms(p.data))
-
-                if group["enable_momentum"]:
-                    if group["non_constant_decay"]:
-                        beta1_t = (
-                            group["beta1"]
-                            * (1 - group["beta1"] ** (state["step"] - 1))
-                            / (1 - group["beta1"] ** state["step"])
-                        )
-                    else:
-                        beta1_t = group["beta1"]
-                    exp_avg.mul_(beta1_t).add_(1 - beta1_t, grad)
-
-                if group["non_constant_decay"]:
-                    beta2_t = (
-                        group["beta2"]
-                        * (1 - group["beta2"] ** (state["step"] - 1))
-                        / (1 - group["beta2"] ** state["step"])
-                    )
-                else:
-                    beta2_t = group["beta2"]
-
-                if is_matrix and group["enable_factorization"]:
-                    exp_avg_sq_r.mul_(beta2_t).add_(
-                        1 - beta2_t,
-                        torch.sum(
-                            torch.mul(grad, grad).add_(group["eps1"]),
-                            dim=0,
-                            keepdim=True,
-                        ),
-                    )
-                    exp_avg_sq_c.mul_(beta2_t).add_(
-                        1 - beta2_t,
-                        torch.sum(
-                            torch.mul(grad, grad).add_(group["eps1"]),
-                            dim=1,
-                            keepdim=True,
-                        ),
-                    )
-                    v = torch.mul(exp_avg_sq_c, exp_avg_sq_r).div_(torch.sum(exp_avg_sq_r))
-                else:
-                    exp_avg_sq.mul_(beta2_t).addcmul_(1 - beta2_t, grad, grad).add_((1 - beta2_t) * group["eps1"])
-                    v = exp_avg_sq
-
-                g = grad
-                if group["enable_momentum"]:
-                    g = torch.div(exp_avg, 1 - beta1_t ** state["step"])
-
-                if group["ams_grad"]:
-                    torch.max(exp_avg_sq_hat, v, out=exp_avg_sq_hat)
-                    v = exp_avg_sq_hat
-                    u = torch.div(
-                        g,
-                        (torch.div(v, 1 - beta2_t ** state["step"])).sqrt().add_(group["eps1"]),
-                    )
-                else:
-                    u = torch.div(g, v.sqrt())
-
-                u.div_(max(1, self._rms(u) / group["cliping_threshold"]))
-                p.data.add_(-lr_t * (u.view(old_shape) if is_need_reshape and group["enable_factorization"] else u))
-
-                if group["weight_decay"] != 0:
-                    p.data.add_(-group["weight_decay"] * lr_t, p.data)
-
-        return loss
