@@ -1,6 +1,5 @@
 # flake8: noqa
 from vllm import LLM, SamplingParams
-from vllm.config import CompilationConfig, CUDAGraphMode
 
 """
 CompilationMode:

@@ -16,7 +16,7 @@ input 3: number of generated tokens 1131, throughput 31 tok/sec
 ## Eole
 ################ BATCH SIZE 4 ################################
 [2026-01-16 13:50:53,254 INFO] Init single process mode
-[2026-01-16 13:50:53,254 INFO] Loading metadata from /mnt/InternalCrucial4/LLM_work/gemma-3-1b-it
+[2026-01-16 13:50:53,254 INFO] Loading metadata from $EOLE_MODEL_DIR/gemma-3-1b-it
 [2026-01-16 13:50:53,455 INFO] Building model...
 [2026-01-16 13:50:53,504 INFO] Loading data into the model
 [2026-01-16 13:50:53,943 INFO] Missing key in safetensors checkpoint: generator.weight
@@ -46,10 +46,10 @@ real	0m18,690s
 
 ## CT2
 ################ BATCH SIZE 1 ################################ 
-Number of genrated tokens 307, throughput 222 tok/sec
-Number of genrated tokens 961, throughput 236 tok/sec
-Number of genrated tokens 953, throughput 236 tok/sec
-Number of genrated tokens 1072, throughput 237 tok/sec
+Number of generated tokens 307, throughput 222 tok/sec
+Number of generated tokens 961, throughput 236 tok/sec
+Number of generated tokens 953, throughput 236 tok/sec
+Number of generated tokens 1072, throughput 237 tok/sec
 real	0m21,894s
 
 
@@ -71,7 +71,7 @@ Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.01i
 (EngineCore_DP0 pid=614224) 
 (EngineCore_DP0 pid=614224) INFO 01-16 15:54:00 [default_loader.py:308] Loading weights took 0.39 seconds
 (EngineCore_DP0 pid=614224) INFO 01-16 15:54:00 [gpu_model_runner.py:3659] Model loading took 1.9148 GiB memory and 1.154851 seconds
-(EngineCore_DP0 pid=614224) INFO 01-16 15:54:04 [backends.py:643] Using cache directory: /home/vincent/.cache/vllm/torch_compile_cache/de6a8866bd/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=614224) INFO 01-16 15:54:04 [backends.py:643] Using cache directory: $HOME/.cache/vllm/torch_compile_cache/de6a8866bd/rank_0_0/backbone for vLLM's torch.compile
 (EngineCore_DP0 pid=614224) INFO 01-16 15:54:04 [backends.py:703] Dynamo bytecode transform time: 3.78 s
 (EngineCore_DP0 pid=614224) INFO 01-16 15:54:07 [backends.py:226] Directly load the compiled graph(s) for compile range (1, 8192) from the cache, took 0.700 s
 (EngineCore_DP0 pid=614224) INFO 01-16 15:54:07 [monitor.py:34] torch.compile takes 4.48 s in total

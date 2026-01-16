@@ -64,10 +64,9 @@ def main():
 
     finally:
         engine.terminate()
-    """
+    
     for i in range(4):
         _, _, pred = engine.infer_list([test_input[i]])
-    """
 
 
 if __name__ == "__main__":
