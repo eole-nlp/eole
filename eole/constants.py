@@ -81,31 +81,33 @@ class InferenceConstants:
 
 
 def fused_gated_gelu(x):
-    assert _eole_ops, "Fused Gate requires eole_ops installed"
     d = x.shape[-1] // 2
-    output_shape = x.shape[:-1] + (d,)
-    out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-    eole.ops.gelu_and_mul(out, x)
-    return out
+    if _eole_ops:
+        output_shape = x.shape[:-1] + (d,)
+        out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
+        eole.ops.gelu_and_mul(out, x)
+        return out
+    return F.gelu(x[..., :d]) * x[..., d:]
 
 
 def fused_gated_silu(x):
-    assert _eole_ops, "Fused Gate requires eole_ops installed"
     d = x.shape[-1] // 2
-    # basically doing return F.silu(x[..., :d]) * x[..., d:]
-    output_shape = x.shape[:-1] + (d,)
-    out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-    eole.ops.silu_and_mul(out, x)
-    return out
+    if _eole_ops:
+        output_shape = x.shape[:-1] + (d,)
+        out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
+        eole.ops.silu_and_mul(out, x)
+        return out
+    return F.silu(x[..., :d]) * x[..., d:]
 
 
 def fused_gated_gelu_tanh(x):
-    assert _eole_ops, "Fused Gate requires eole_ops installed"
     d = x.shape[-1] // 2
-    output_shape = x.shape[:-1] + (d,)
-    out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-    eole.ops.gelu_tanh_and_mul(out, x)
-    return out
+    if _eole_ops:
+        output_shape = x.shape[:-1] + (d,)
+        out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
+        eole.ops.gelu_tanh_and_mul(out, x)
+        return out
+    return F.gelu(x[..., :d], approximate="tanh") * x[..., d:]
 
 
 @torch.jit.script
