@@ -34,7 +34,7 @@ Even wihout Cudagraph, the full start-end timing is longer than for Eole.
 * With eole_ops:
 python generate-eole.py 
 [2026-01-17 15:30:20,370 INFO] Init single process mode
-[2026-01-17 15:30:20,370 INFO] Loading metadata from /mnt/InternalCrucial4/LLM_work/gemma-3-1b-it
+[2026-01-17 15:30:20,370 INFO] Loading metadata from gemma-3-1b-it
 [2026-01-17 15:30:20,575 INFO] Building model...
 [2026-01-17 15:30:20,624 INFO] Loading data into the model
 [2026-01-17 15:30:21,055 INFO] Missing key in safetensors checkpoint: generator.weight
@@ -54,7 +54,7 @@ python generate-eole.py
 * Without eole_ops:
 python generate-eole.py 
 [2026-01-17 15:31:18,464 INFO] Init single process mode
-[2026-01-17 15:31:18,464 INFO] Loading metadata from /mnt/InternalCrucial4/LLM_work/gemma-3-1b-it
+[2026-01-17 15:31:18,464 INFO] Loading metadata from gemma-3-1b-it
 [2026-01-17 15:31:18,667 INFO] Building model...
 [2026-01-17 15:31:18,716 INFO] Loading data into the model
 [2026-01-17 15:31:19,158 INFO] Missing key in safetensors checkpoint: generator.weight
