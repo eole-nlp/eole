@@ -6,7 +6,7 @@ from typing import Tuple, List
 from eole.constants import PositionEncodingType, _eole_ops
 
 if _eole_ops:
-    import eole.ops
+    import eole._ops
 
 
 class NoOpPosition:
@@ -86,7 +86,7 @@ def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bo
         key_ = key.view(num_tok, -1, D)
         positions = torch.arange(S, device=query.device).repeat(B)
         # cuda ops change query key in-place
-        eole.ops.rotary_embedding(positions, query_, key_, D, cos_sin, not interleave)
+        eole._ops.rotary_embedding(positions, query_, key_, D, cos_sin, not interleave)
         return query_.view(B, S, -1, D), key_.view(B, S, -1, D)
 
     else:
@@ -159,39 +159,43 @@ class RotaryPosition(nn.Module):
               `dim_per_head`.
             - Additional scaling types can be added in the future by extending this class.
         """
-        super(RotaryPosition, self).__init__()
+        super().__init__()
         self.model_config = model_config
         self.mode = mode
         self.dim_per_head = model_config.dim_per_head
-        if model_config.rope_config.rotary_dim == 0:
-            rotary_dim = self.dim_per_head
-        else:
-            rotary_dim = model_config.rope_config.rotary_dim
-        self.rotary_interleave = model_config.rope_config.rotary_interleave
-        if variant == "global":
-            self.rotary_theta = model_config.rope_config.rotary_theta
-        else:
-            self.rotary_theta = model_config.rope_config.rotary_theta_local
-        if getattr(self.model_config.rope_config, "scaling_type", None) in ["dynamic", "xdrope"] and getattr(
-            self.model_config.rope_config, "alpha", None
-        ):
-            base = self.rotary_theta * getattr(self.model_config.rope_config, "alpha", None) ** (
-                rotary_dim / (rotary_dim - 2)
-            )
+
+        rope_config = model_config.rope_config
+        rotary_dim = rope_config.rotary_dim if rope_config.rotary_dim != 0 else self.dim_per_head
+        self.rotary_interleave = rope_config.rotary_interleave
+        self.rotary_theta = rope_config.rotary_theta if variant == "global" else rope_config.rotary_theta_local
+
+        # 1. Base Inverse Frequencies (calculated in FP32)
+        if getattr(rope_config, "scaling_type", None) in ["dynamic", "xdrope"] and getattr(rope_config, "alpha", None):
+            base = self.rotary_theta * (rope_config.alpha ** (rotary_dim / (rotary_dim - 2)))
         else:
             base = self.rotary_theta
+
         inv_freq = 1.0 / (base ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
+
+        # 2. Handle 2D Expansion
         if mode == "2d":
             inv_freq = self.init_2d_inv_freq(inv_freq)
-        self.inv_freq = inv_freq
-        # TODO: extend with other scaling types
-        if getattr(self.model_config.rope_config, "scaling_type", None) == "llama3":
+
+        # Even if model.to(bf16) is called, this is manually kept as FP32
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+        # 3. Apply Scaling Logic (In-place on FP32 buffer)
+        if getattr(rope_config, "scaling_type", None) == "llama3":
             self.llama3_scaling()
-        if getattr(self.model_config.rope_config, "scaling_type", None) == "gemma3" and variant == "global":
+        elif getattr(rope_config, "scaling_type", None) == "gemma3" and variant == "global":
             self.gemma3_scaling()
 
-        cos_sin = self.update(1024)
-        self.register_buffer("cos_sin", cos_sin, persistent=False)
+        # 4. Initialize cos_sin placeholder
+        self.register_buffer("cos_sin", torch.zeros(1), persistent=False)
+
+        # Pre-allocate 32k for 1D to prevent initial graph recompiles
+        if mode == "1d":
+            self.update(32768)
 
     def init_2d_inv_freq(self, inv_freq):
         """
@@ -202,14 +206,16 @@ class RotaryPosition(nn.Module):
         w = torch.arange(max_patches_per_side, device=inv_freq.device)
         freqs_h = torch.outer(h, inv_freq[::2]).float()
         freqs_w = torch.outer(w, inv_freq[1::2]).float()
-        inv_freq = torch.cat(
+        inv_freq_2d = torch.cat(
             [
-                freqs_h[:, None, :].repeat(1, max_patches_per_side, 1),
+                freqs_h[:, None, :].repeat(1, max_patches_per_side, 1),  # Use repeat, not expand
                 freqs_w[None, :, :].repeat(max_patches_per_side, 1, 1),
             ],
             dim=-1,
-        ).reshape(-1, self.dim_per_head // 2)
-        return inv_freq
+        ).reshape(
+            -1, self.dim_per_head // 2
+        )  # Match original output shape
+        return inv_freq_2d
 
     def llama3_scaling(self):
         """
@@ -238,26 +244,21 @@ class RotaryPosition(nn.Module):
 
         smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor)
         smoothed_inv_freq = (1 - smooth_factor) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
-        is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
+
+        is_medium_freq = (wavelen <= low_freq_wavelen) & (wavelen >= high_freq_wavelen)
         self.inv_freq = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
 
     def gemma3_scaling(self):
-        rope_config = self.model_config.rope_config
-        factor = rope_config.scaling_factor  # `8` in the original implementation
-        self.inv_freq /= factor
+        self.inv_freq /= self.model_config.rope_config.scaling_factor
 
-    def forward_1d(self, maxseqlen, step=0, prefetch=1024, offset=32):
-        maxseqlen += prefetch
-        device = self.cos_sin.device if hasattr(self, "cos_sin") else torch.device("cpu")
-        dtype = self.cos_sin.dtype if hasattr(self, "cos_sin") else torch.float32
+    def forward_1d(self, total_len):
+        device = self.inv_freq.device
+        tmax = torch.arange(total_len, device=device, dtype=torch.float32)
+        tmax += getattr(self.model_config.rope_config, "tmax_index", 0)
 
-        tmax = torch.arange(max(offset + step, 0) + maxseqlen, device=device)
-        tmax += self.model_config.rope_config.tmax_index
-        rope = torch.outer(tmax, self.inv_freq.to(device))
-        cos = torch.cos(rope).to(dtype)
-        sin = torch.sin(rope).to(dtype)
-
-        return cos, sin
+        # self.inv_freq is already FP32
+        rope = torch.outer(tmax, self.inv_freq)
+        return torch.cos(rope), torch.sin(rope)
 
     # TODO: investigate if this is useful / properly implemented
     # def _dynamic_frequency_update(self, position_ids, device):
@@ -280,54 +281,38 @@ class RotaryPosition(nn.Module):
     #         self.inv_freq = self.original_inv_freq
     #         self.max_seq_len_cached = self.original_max_seq_len
 
-    def forward_2d(self, maxseqlen, step=0, prefetch=1024, offset=32, positions=None):
-        # TODO: maybe do scaling here
-        device = self.cos_sin.device if hasattr(self, "cos_sin") else torch.device("cpu")
-        dtype = self.cos_sin.dtype if hasattr(self, "cos_sin") else torch.float32
+    def forward_2d(self, positions):
+        # Indexing stays in FP32
+        rope = self.inv_freq[positions]
+        return rope.cos(), rope.sin()
 
-        if positions is None:
-            tmax = torch.arange(maxseqlen, device=self.inv_freq.device)
-        else:
-            tmax = positions.to(self.inv_freq.device)
-        rope = self.inv_freq[tmax].to(device)
-        # rope is now matrix [maxseqlen, dim/2]
-        # if device is not None:
-        #     rope = rope.to(device)
-        cos = rope.cos().to(dtype)
-        sin = rope.sin().to(dtype)
+    def update(self, maxseqlen, step=0, reset=False, positions=None):
+        # if reset:
+        #    self.cos_sin = self.cos_sin[0]
 
-        return cos, sin
+        # target_dtype is what the C++ extension expects (BF16)
+        target_dtype = self.cos_sin.dtype if hasattr(self, "cos_sin") else torch.float32
 
-    def update(self, maxseqlen, step=0, prefetch=1024, reset=False, positions=None):
-        """
-        Computes the rotary position embeddings for a given input.
-        Args:
-            maxseqlen: max seq length of the input embeddings.
-            step: The current step or position within the sequence. Defaults to 0.
-            offset: An optional offset to apply to the position indices.
-                    This is used for the specific `flash_attn_with_kvcache` path,
-                    which requires processes by chunks of 32 tokens. Defaults to 0.
-        Returns:
-            torch.Tensor: A tensor containing the computed rotary embeddings.
-        Notes:
-            - The returned tensor contains cosine and sine values representing the
-              rotary embeddings, concatenated along the last dimension.
-            - The output tensor's dimensions are `[maxseqlen, dim]`, where `dim` is
-              twice the size of the original inverse frequency tensor (`inv_freq`).
-        """
-        if reset:
-            self.rope = None
-        offset = 32  # make sure we have at least 32 positions for flash_attn_with_kvcache
-        if step == 0:
-            maxseqlen = max(maxseqlen, 1024)  # reset as in init() with self.update(1024)
-        elif hasattr(self, "cos") and self.cos.size(0) >= max(offset + (step or 0), 0) + maxseqlen:
-            return self.cos, self.sin
         if self.mode == "1d":
-            cos, sin = self.forward_1d(maxseqlen, step=(step or 0), prefetch=prefetch, offset=offset)
-        elif self.mode == "2d":
-            cos, sin = self.forward_2d(maxseqlen, step=(step or 0), prefetch=prefetch, positions=positions)
+            # step_val = step.item() if isinstance(step, torch.Tensor) else step
+            required = 32 + (step or 0) + maxseqlen
+
+            if self.cos_sin.numel() == 0 or self.cos_sin.size(0) < required:
+                new_len = max(required, 16384)
+                cos, sin = self.forward_1d(new_len)
+                new_data = torch.cat([cos, sin], dim=-1)  # cat as FP32
+
+                if "cos_sin" in self._buffers:
+                    del self._buffers["cos_sin"]
+                self.register_buffer("cos_sin", new_data, persistent=False)
+
+            # Slice in FP32, then return as BF16
+            return self.cos_sin.to(target_dtype)
+
         else:
-            raise NotImplementedError
-        cos_sin = torch.cat([cos, sin], dim=-1)
-        self.register_buffer("cos_sin", cos_sin, persistent=False)
-        return cos_sin
+            if positions is None:
+                positions = torch.arange(maxseqlen, device=self.inv_freq.device)
+
+            cos, sin = self.forward_2d(positions)
+            # Cat in FP32, then return as BF16
+            return torch.cat([cos, sin], dim=-1).to(target_dtype)

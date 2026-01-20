@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from functools import partial
 
 try:
-    import eole.ops
+    import eole._ops
 
     _eole_ops = True
 except ImportError:
@@ -85,7 +85,7 @@ def fused_gated_gelu(x):
     if _eole_ops:
         output_shape = x.shape[:-1] + (d,)
         out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-        eole.ops.gelu_and_mul(out, x)
+        eole._ops.gelu_and_mul(out, x)
         return out
     return F.gelu(x[..., :d]) * x[..., d:]
 
@@ -95,7 +95,7 @@ def fused_gated_silu(x):
     if _eole_ops:
         output_shape = x.shape[:-1] + (d,)
         out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-        eole.ops.silu_and_mul(out, x)
+        eole._ops.silu_and_mul(out, x)
         return out
     return F.silu(x[..., :d]) * x[..., d:]
 
@@ -105,7 +105,7 @@ def fused_gated_gelu_tanh(x):
     if _eole_ops:
         output_shape = x.shape[:-1] + (d,)
         out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-        eole.ops.gelu_tanh_and_mul(out, x)
+        eole._ops.gelu_tanh_and_mul(out, x)
         return out
     return F.gelu(x[..., :d], approximate="tanh") * x[..., d:]
 

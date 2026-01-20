@@ -41,7 +41,7 @@ def get_ext_modules_and_cmdclass():
 
         ext_modules = [
             CUDAExtension(
-                name="eole.ops",
+                name="eole._ops",
                 sources=[
                     "csrc/rms_norm.cu",
                     "csrc/rotary_embedding.cu",
