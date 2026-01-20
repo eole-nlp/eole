@@ -483,6 +483,7 @@ class SelfMHA(MultiHeadedAttention):
                     softmax_scale=self.scale,
                     causal=step == 0,
                     rotary_interleaved=self.rotary_interleave,
+                    window_size=(self.sliding_window, 0) if self.sliding_window > 0 else (-1, -1),
                 )
                 attn_output = self.final_linear(blhd_to_bld(context))
                 if self.parallel_gpu > 1:

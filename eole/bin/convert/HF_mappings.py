@@ -533,6 +533,7 @@ MODEL_OVERRIDES = {
                 "add_qkvbias": True,
                 "patch_conv_bias": True,
                 "image_token_id": 120120,
+                "image_token_id_list": [120120, 120118, 120119],
             },
         },
         "encoder_layer_prefix": "vit.layers.",
