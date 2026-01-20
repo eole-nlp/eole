@@ -124,6 +124,7 @@ class MultiHeadedAttention(torch.nn.Module):
         self.relative_positions_buckets = model_config.relative_positions_buckets
         self.kcache, self.vcache, self.cache_leftpad = None, None, None
         self.sliding_window = model_config.sliding_window
+        self.window_size = (self.sliding_window, 0) if self.sliding_window > 0 else (-1, -1)
         # TODO find a cleaner way to initialize?
         self.relative_positions_embeddings = None
         self.relative_attention_bias = None
@@ -260,9 +261,9 @@ class MultiHeadedAttention(torch.nn.Module):
                 key = self.k_norm(key)
 
         if self.position_encoding_type == PositionEncodingType.Rotary:
-            # XDRoPE is only applied at step 0 (initial forward pass) because it is designed for full-sequence encoding.
+            # XDRoPE is only applied at initial forward pass because it is designed for full-sequence encoding.
             # For subsequent steps (e.g., during autoregressive decoding), standard RoPE is used.
-            if step == 0 and self.xdrope_section is not None and pos_ids is not None:
+            if self.xdrope_section is not None and pos_ids is not None:
                 query, key = apply_rotary_pos_emb_xdrope(
                     query, key, position_embeddings[step : step + query.size(1)], pos_ids, self.xdrope_section
                 )
@@ -483,7 +484,7 @@ class SelfMHA(MultiHeadedAttention):
                     softmax_scale=self.scale,
                     causal=step == 0,
                     rotary_interleaved=self.rotary_interleave,
-                    window_size=(self.sliding_window, 0) if self.sliding_window > 0 else (-1, -1),
+                    window_size=self.window_size,
                 )
                 attn_output = self.final_linear(blhd_to_bld(context))
                 if self.parallel_gpu > 1:

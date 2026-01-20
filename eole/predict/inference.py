@@ -677,9 +677,9 @@ class Inference(object):
         if images is not None and step == 0:
             emb, pos_ids = self.model.embed_vision_language_features(decoder_in, images=images)
             image_locations = decoder_in == self.image_token_id
-
-            extra_ids = torch.tensor(self.image_token_id_list, device=decoder_in.device)
-            image_locations = image_locations | torch.isin(decoder_in, extra_ids)
+            if self.image_token_id_list is not None:
+                extra_ids = torch.tensor(self.image_token_id_list, device=decoder_in.device)
+                image_locations = image_locations | torch.isin(decoder_in, extra_ids)
         else:
             emb = self.model.tgt_emb(decoder_in, step=step)
             pos_ids = None
