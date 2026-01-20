@@ -91,6 +91,7 @@ class Inference(object):
         optional_eos=[],
         id_tokenization=False,
         image_token_id=10,
+        image_token_id_list=[],
         fuse_kvq=False,
         fuse_gate=False,
     ):
@@ -186,6 +187,7 @@ class Inference(object):
         self.estimator_type = estimator_type
         self.id_tokenization = id_tokenization
         self.image_token_id = image_token_id
+        self.image_token_id_list = image_token_id_list
 
     @classmethod
     def from_config(
@@ -220,8 +222,10 @@ class Inference(object):
         id_tokenization = False
         if hasattr(model_config, "encoder") and model_config.encoder is not None:
             image_token_id = getattr(model_config.encoder, "image_token_id", 10)
+            image_token_id_list = getattr(model_config.encoder, "image_token_id_list", [])
         else:
             image_token_id = 10
+            image_token_id_list = []
         if len(config.transforms) > 0:
             tail_transform_cls = AVAILABLE_TRANSFORMS.get(config.transforms[-1], None)
             if getattr(tail_transform_cls, "output_type", None) == "ids":
@@ -264,6 +268,7 @@ class Inference(object):
             optional_eos=config.optional_eos,
             id_tokenization=id_tokenization,
             image_token_id=image_token_id,
+            image_token_id_list=image_token_id_list,
             fuse_kvq=config.fuse_kvq,
             fuse_gate=config.fuse_gate,
         )
@@ -652,7 +657,6 @@ class Inference(object):
         src_len,
         step=None,
         return_attn=False,
-        left_pad=False,
         images=None,
     ):
 
@@ -673,12 +677,19 @@ class Inference(object):
         if images is not None and step == 0:
             emb, pos_ids = self.model.embed_vision_language_features(decoder_in, images=images)
             image_locations = decoder_in == self.image_token_id
+            if self.image_token_id_list is not None:
+                extra_ids = torch.tensor(self.image_token_id_list, device=decoder_in.device)
+                image_locations = image_locations | torch.isin(decoder_in, extra_ids)
         else:
             emb = self.model.tgt_emb(decoder_in, step=step)
             pos_ids = None
             image_locations = None
 
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+
+        if step == 0 and hasattr(self.model.decoder, "_init_cache"):
+            self.model.decoder._init_cache(emb, tgt_pad_mask)
+
         dec_out, dec_attn = self.model.decoder(
             emb,
             enc_out=enc_out,
@@ -687,7 +698,6 @@ class Inference(object):
             return_attn=self.global_scorer.has_cov_pen or return_attn,
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
-            left_pad=left_pad,
             image_locations=image_locations,
             pos_ids=pos_ids,
         )

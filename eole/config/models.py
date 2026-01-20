@@ -388,6 +388,7 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     image_size: int | None = 1024
     patch_size: int | None = 16
     image_token_id: int | None = 10  # pixtral uses 10, gemma3 uses 262144
+    image_token_id_list: List[int] | None = Field(default=None, description="includes other image_token ids")
     mm_tokens_per_image: int | None = 256  # added for gemma3
     layernorm_pre: bool = True  # True for pixtral/mistral/deepseek False for gemma3/hunyuan
     layernorm_post: bool = False  # False for pixtral/mistral/deepseek/hunyuan True for gemma3

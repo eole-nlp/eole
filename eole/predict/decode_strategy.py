@@ -170,7 +170,6 @@ class DecodeStrategy(object):
 
             # fix length constraint and remove eos from count
             prefix_non_pad = target_prefix.ne(self.pad).sum(dim=-1).tolist()
-            self.max_length += max(prefix_non_pad) - 1
             self.min_length += min(prefix_non_pad) - 1
 
         self.target_prefix = target_prefix  # NOTE: forced prefix words

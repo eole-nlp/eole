@@ -15,34 +15,35 @@ input 3: number of generated tokens 1131, throughput 31 tok/sec
 
 ## Eole
 ################ BATCH SIZE 4 ################################
-[2026-01-16 13:50:53,254 INFO] Init single process mode
-[2026-01-16 13:50:53,254 INFO] Loading metadata from $EOLE_MODEL_DIR/gemma-3-1b-it
-[2026-01-16 13:50:53,455 INFO] Building model...
-[2026-01-16 13:50:53,504 INFO] Loading data into the model
-[2026-01-16 13:50:53,943 INFO] Missing key in safetensors checkpoint: generator.weight
-[2026-01-16 13:50:53,943 INFO] └─> Sharing from embeddings matrix since `share_decoder_embeddings` flag is enabled.
-[2026-01-16 13:50:58,803 INFO] Initialized tokenizers from HF model: google/gemma-3-1b-it
-[2026-01-16 13:50:58,803 INFO] Transforms applied: ['huggingface_tokenize']
-[2026-01-16 13:50:58,803 INFO] Build and loading model took 5.55 sec.
-[2026-01-16 13:51:08,668 INFO] PRED SCORE: -0.2096, PRED PPL: 1.23 NB SENTENCES: 4
-[2026-01-16 13:51:08,668 INFO] ESTIM SCORE: 1.0000, ESTIM PPL: 0.37 NB SENTENCES: 4
-[2026-01-16 13:51:08,668 INFO] Step 0 time (s): 0.25
-[2026-01-16 13:51:08,668 INFO] Enc/Step 0 tokens / sec: 269.3
-[2026-01-16 13:51:08,668 INFO] Subsequent prediction time including all (s): 9.39
-[2026-01-16 13:51:08,668 INFO] Average prediction time (ms): 2346.6
-## [2026-01-16 13:51:08,668 INFO] Tokens per second: 291.0
-[2026-01-16 13:51:08,668 INFO] pred_words_total: 2731.0
-real	0m18,690s
+[2026-01-20 20:17:42,660 INFO] Init single process mode
+[2026-01-20 20:17:42,660 INFO] Loading metadata from gemma-3-1b-it
+[2026-01-20 20:17:42,876 INFO] Building model...
+[2026-01-20 20:17:42,944 INFO] Loading data into the model
+[2026-01-20 20:17:43,403 INFO] Missing key in safetensors checkpoint: generator.weight
+[2026-01-20 20:17:43,403 INFO] └─> Sharing from embeddings matrix since `share_decoder_embeddings` flag is enabled.
+[2026-01-20 20:17:47,554 INFO] Initialized tokenizers from HF model: google/gemma-3-1b-it
+[2026-01-20 20:17:47,554 INFO] Transforms applied: ['huggingface_tokenize']
+[2026-01-20 20:17:47,554 INFO] Build and loading model took 4.89 sec.
+[2026-01-20 20:17:55,108 INFO] PRED SCORE: -0.2315, PRED PPL: 1.26 NB SENTENCES: 4
+[2026-01-20 20:17:55,108 INFO] ESTIM SCORE: 1.0000, ESTIM PPL: 0.37 NB SENTENCES: 4
+[2026-01-20 20:17:55,108 INFO] Step 0 time (s): 0.25
+[2026-01-20 20:17:55,108 INFO] Enc/Step 0 tokens / sec: 274.9
+[2026-01-20 20:17:55,108 INFO] Subsequent prediction time including all (s): 7.09
+[2026-01-20 20:17:55,108 INFO] Average prediction time (ms): 1773.5
+## [2026-01-20 20:17:55,108 INFO] Tokens per second: 359.2
+[2026-01-20 20:17:55,108 INFO] pred_words_total: 2548.0
+real	0m15,312s
+
 
 ################ BATCH SIZE 1 ################################
-[2026-01-16 13:51:11,998 INFO] Tokens per second: 100.3
-[2026-01-16 13:51:11,998 INFO] pred_words_total: 312.0
-[2026-01-16 13:51:19,623 INFO] Tokens per second: 96.9
-[2026-01-16 13:51:19,623 INFO] pred_words_total: 719.0
-[2026-01-16 13:51:27,348 INFO] Tokens per second: 94.2
-[2026-01-16 13:51:27,348 INFO] pred_words_total: 708.0
-[2026-01-16 13:51:35,813 INFO] Tokens per second: 95.7
-[2026-01-16 13:51:35,813 INFO] pred_words_total: 790.0
+[2026-01-20 20:18:59,307 INFO] Tokens per second: 109.6
+[2026-01-20 20:18:59,307 INFO] pred_words_total: 312.0
+[2026-01-20 20:19:06,373 INFO] Tokens per second: 111.2
+[2026-01-20 20:19:06,373 INFO] pred_words_total: 762.0
+[2026-01-20 20:19:12,862 INFO] Tokens per second: 113.5
+[2026-01-20 20:19:12,862 INFO] pred_words_total: 713.0
+[2026-01-20 20:19:19,929 INFO] Tokens per second: 114.5
+[2026-01-20 20:19:19,929 INFO] pred_words_total: 785.0
 
 ## CT2
 ################ BATCH SIZE 1 ################################ 

@@ -459,6 +459,18 @@ class BaseModel(nn.Module):
                 module = self.get_submodule(module_name)
                 setattr(module, param_name, nn.Parameter(param.to(torch.float32)))
 
+    def _reset_invfreq_to_fp32(self, buf_list):
+        """Reset inv_freq rope buffer to FP32 after dtype conversion"""
+        for buf in buf_list:
+            if "inv_freq" in buf:
+                *module_path, buf_name = buf.split(".")
+                module = self
+                for attr in module_path:
+                    module = getattr(module, attr)
+                old_buf = getattr(module, buf_name)
+                new_buf = old_buf.to(dtype=torch.float32)
+                module.register_buffer(buf_name, new_buf, persistent=False)
+
     def _report_extra_keys(self, keys_shard, keyfound, buf_list):
         """Report any extra keys found in checkpoint"""
         for key in keys_shard:
@@ -671,6 +683,7 @@ class BaseModel(nn.Module):
         )
         self._report_extra_keys(keys_shard, keyfound, buf_list)
         self._reset_lora_to_fp32()
+        self._reset_invfreq_to_fp32(buf_list)
 
     def count_parameters(self, log=print):
         """Count number of parameters in model (& print with `log` callback).

@@ -139,7 +139,6 @@ class GeneratorLM(Inference):
                     None,
                     src_len=decode_strategy.src_len,
                     step=step if step == 0 else step + prefill_length - 1,
-                    left_pad=batch["left_pad"],
                     images=batch.get("images", None) if step == 0 else None,
                 )
 

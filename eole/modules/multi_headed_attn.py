@@ -122,8 +122,9 @@ class MultiHeadedAttention(torch.nn.Module):
         self.is_decoder = is_decoder
         self.scale = self.attn_scaling**-0.5 if self.is_decoder and self.attn_scaling is not None else None
         self.relative_positions_buckets = model_config.relative_positions_buckets
-        self.kcache, self.vcache = None, None
+        self.kcache, self.vcache, self.cache_leftpad = None, None, None
         self.sliding_window = model_config.sliding_window
+        self.window_size = (self.sliding_window, 0) if self.sliding_window > 0 else (-1, -1)
         # TODO find a cleaner way to initialize?
         self.relative_positions_embeddings = None
         self.relative_attention_bias = None
@@ -260,14 +261,16 @@ class MultiHeadedAttention(torch.nn.Module):
                 key = self.k_norm(key)
 
         if self.position_encoding_type == PositionEncodingType.Rotary:
-            seq_len = query.size(1)
-            cos_sin = position_embeddings[step : step + seq_len]
-            # XDRoPE is only applied at step 0 (initial forward pass) because it is designed for full-sequence encoding.
+            # XDRoPE is only applied at initial forward pass because it is designed for full-sequence encoding.
             # For subsequent steps (e.g., during autoregressive decoding), standard RoPE is used.
-            if step == 0 and self.xdrope_section is not None and pos_ids is not None:
-                query, key = apply_rotary_pos_emb_xdrope(query, key, cos_sin, pos_ids, self.xdrope_section)
+            if self.xdrope_section is not None and pos_ids is not None:
+                query, key = apply_rotary_pos_emb_xdrope(
+                    query, key, position_embeddings[step : step + query.size(1)], pos_ids, self.xdrope_section
+                )
             else:
-                query, key = apply_rotary_emb(query, key, cos_sin, interleave=self.rotary_interleave)
+                query, key = apply_rotary_emb(
+                    query, key, position_embeddings[step : step + query.size(1)], interleave=self.rotary_interleave
+                )
             if self.qk_norm_post_rope:
                 if hasattr(self, "q_norm"):
                     query = self.q_norm(query)
@@ -412,35 +415,6 @@ class SelfMHA(MultiHeadedAttention):
         self.n_positions = model_config.n_positions
         super(SelfMHA, self).__init__(model_config, running_config, is_decoder)
 
-    def _expand_cache(self, add_length: int, step: int, key: Tensor) -> int:
-        if step == 0:
-            self.kcache, self.vcache = key.new_zeros(key.shape), key.new_zeros(key.shape)
-        b, l, h, dph = self.kcache.shape
-
-        if step >= l:
-            ktype = self.kcache.dtype
-            kdev = self.kcache.device
-            self.kcache = torch.cat(
-                (
-                    self.kcache,
-                    torch.zeros((b, add_length, h, dph), device=kdev, dtype=ktype),
-                ),
-                dim=1,
-            )
-            self.vcache = torch.cat(
-                (
-                    self.vcache,
-                    torch.zeros((b, add_length, h, dph), device=kdev, dtype=ktype),
-                ),
-                dim=1,
-            )
-        if self.sliding_window > 0 and step > self.sliding_window - 1:
-            self.kcache = self.kcache[:, 1:, :, :]
-            self.vcache = self.vcache[:, 1:, :, :]
-            return self.sliding_window
-        else:
-            return step + 1
-
     def _update_cache_w_inputs(
         self,
         query: Tensor,
@@ -448,16 +422,20 @@ class SelfMHA(MultiHeadedAttention):
         value: Tensor,
         step: Optional[int] = 0,
     ) -> Tuple[Tensor, Tensor, Tensor]:
+        seq_len = key.size(1)
 
         if step == 0:
-            # init cache with initial cat(key, value) on batch_size dim
-            self.kcache, self.vcache = key, value
-            return key, value, query
-        else:
-            cache_len = self._expand_cache(32, step, key)
-            self.kcache[:, cache_len - 1, :, :] = key[:, 0, :, :]
-            self.vcache[:, cache_len - 1, :, :] = value[:, 0, :, :]
-            return self.kcache[:, :cache_len, :, :], self.vcache[:, :cache_len, :, :], query
+            # Prefill: write entire sequence to cache
+            self.kcache[:, :seq_len, :, :] = key  # Slice cache to match key size
+            self.vcache[:, :seq_len, :, :] = value
+            return self.kcache[:, :seq_len, :, :], self.vcache[:, :seq_len, :, :], query
+
+        self.kcache[:, step, :, :] = key[:, 0, :, :]
+        self.vcache[:, step, :, :] = value[:, 0, :, :]
+        start = 0
+        if self.sliding_window > 0 and step > self.sliding_window - 1:
+            start = step + 1 - self.sliding_window
+        return self.kcache[:, start : step + 1, :, :], self.vcache[:, start : step + 1, :, :], query
 
     def forward(
         self,
@@ -478,7 +456,6 @@ class SelfMHA(MultiHeadedAttention):
             pos_ids=pos_ids,
         )
         if self.kcache is not None:
-            # Inference step decoding
             if (
                 not self.flash
                 or self.position_encoding_type in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
@@ -494,13 +471,6 @@ class SelfMHA(MultiHeadedAttention):
 
             else:
                 # Fast path with flash_attn_with_kvcache
-                cache_len = self._expand_cache(32, step, key)
-                # restore initial tgt_pad_mask - migth be better to store it instead.
-                cache_leftpad = (
-                    (~torch.any(attn_mask, dim=-2).squeeze(1)).sum(dim=1).to(torch.int32)
-                    if attn_mask is not None
-                    else None
-                )
                 context = self.flash_attn_with_kvcache(
                     query,
                     self.kcache[:, :, :, :],
@@ -509,11 +479,12 @@ class SelfMHA(MultiHeadedAttention):
                     value,
                     rotary_cos=None,
                     rotary_sin=None,
-                    cache_seqlens=cache_len - 1,
-                    cache_leftpad=cache_leftpad,
+                    cache_seqlens=step,
+                    cache_leftpad=self.cache_leftpad,
                     softmax_scale=self.scale,
                     causal=step == 0,
                     rotary_interleaved=self.rotary_interleave,
+                    window_size=self.window_size,
                 )
                 attn_output = self.final_linear(blhd_to_bld(context))
                 if self.parallel_gpu > 1:

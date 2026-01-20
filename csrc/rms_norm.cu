@@ -187,6 +187,8 @@ void launch_rms_norm_kernel(
           input_shape_d2, input_shape_d3, weight, epsilon, num_tokens, hidden_size);
 }
 
+} // namespace eole
+
 // ---------------------------------------------
 // Helper to compute best vectorization size
 // ---------------------------------------------
