@@ -2,23 +2,23 @@
 
 import torch
 import torch.nn as nn
-from eole.constants import _eole_ops
+from eole.ops import _CPP_OPS_AVAILABLE, rms_norm
+from eole import EOLE_TORCH_COMPILE
 
-if _eole_ops:
-    import eole._ops
+use_ops = _CPP_OPS_AVAILABLE and not EOLE_TORCH_COMPILE
 
 
 class RMSNormFunc(torch.autograd.Function):
     """Custom autograd Function implementing RMSNorm with a manual backward pass.
 
-    This wraps the low-level ``eole._ops.rms_norm`` kernel in the forward pass and
+    This wraps the low-level ``eole.ops.rms_norm`` kernel in the forward pass and
     defines the corresponding gradient computation in :meth:`backward` so that
     RMSNorm can be used efficiently during training.
     """
 
     @staticmethod
     def forward(ctx, hidden_states, weight, eps, gemma=False):
-        """Apply RMS normalization using the fused ``eole._ops.rms_norm`` kernel.
+        """Apply RMS normalization using the fused ``eole.ops.rms_norm`` kernel.
 
         Args:
             ctx: Autograd context used to stash tensors for the backward pass.
@@ -42,7 +42,7 @@ class RMSNormFunc(torch.autograd.Function):
         ctx.gemma = gemma
 
         out = torch.empty_like(hidden_states)
-        eole._ops.rms_norm(out, hidden_states, weight, eps, gemma=gemma)
+        rms_norm(out, hidden_states, weight, eps, gemma=gemma)
         return out
 
     @staticmethod
@@ -92,12 +92,12 @@ class RMSNorm(torch.nn.Module):
         self.weight = nn.Parameter(torch.empty(hidden_size))
 
     def forward(self, hidden_states):
-        if _eole_ops:
+        if use_ops:
             if self.training:
                 return RMSNormFunc.apply(hidden_states, self.weight, self.eps, False)
             else:
                 out = torch.empty_like(hidden_states)
-                eole._ops.rms_norm(out, hidden_states, self.weight, self.eps, gemma=False)
+                rms_norm(out, hidden_states, self.weight, self.eps, gemma=False)
                 return out
         inp_dtype = hidden_states.dtype
         x = hidden_states.to(torch.float32)
@@ -112,12 +112,12 @@ class RMSNorm(torch.nn.Module):
 class GemmaRMSNorm(RMSNorm):
 
     def forward(self, hidden_states):
-        if _eole_ops:
+        if use_ops:
             if self.training:
                 return RMSNormFunc.apply(hidden_states, self.weight, self.eps, True)
             else:
                 out = torch.empty_like(hidden_states)
-                eole._ops.rms_norm(out, hidden_states, self.weight, self.eps, gemma=True)
+                rms_norm(out, hidden_states, self.weight, self.eps, gemma=True)
                 return out
         dtype = hidden_states.dtype
         x = hidden_states.to(torch.float32)

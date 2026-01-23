@@ -8,7 +8,6 @@ from typing import Optional, Tuple
 from torch.utils.checkpoint import checkpoint
 from torch.nn.utils import skip_init
 from torch.distributed import all_reduce
-from importlib import import_module
 from eole.constants import PositionEncodingType
 from .relative_position_bias import relative_matmul, gen_relative_positions, compute_bias
 from .alibi_position_bias import AlibiPositionalBias
@@ -151,14 +150,12 @@ class MultiHeadedAttention(torch.nn.Module):
             self.alibi = AlibiPositionalBias(self.heads)
 
         self.maybe_ckpt = checkpoint if "mha" in getattr(running_config, "use_ckpting", []) else lambda f, x: f(x)
-
+        self.causal = True
         if getattr(running_config, "self_attn_backend", "") == "flash":
-            flash_pack = import_module("flash_attn")
-            self.flash_attn_func = getattr(flash_pack, "flash_attn_func")
-            self.flash_attn_with_kvcache = getattr(flash_pack, "flash_attn_with_kvcache")
-            self.flash = True
-        else:
-            self.flash = False
+            from eole.ops import _FLASH_ATTN_AVAILABLE, flash_attn_kvcache
+
+            if _FLASH_ATTN_AVAILABLE:
+                self.flash_attn_with_kvcache = flash_attn_kvcache
 
     def update_dropout(self, dropout: float) -> None:
         self.dropout.p = dropout
@@ -219,13 +216,12 @@ class MultiHeadedAttention(torch.nn.Module):
         key: Tensor,
         value: Tensor,
         query: Tensor,
-        step: Optional[int] = 0,
         position_embeddings=None,
-        pos_ids=None,
+        pos_ids_2d=None,
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Prepare inputs for attention computation.
-        This method performs the following steps:
+        This method performs the following:
         1. Applies linear transformations to key, value, and query inputs.
         2. Reshapes the tensors to the multi-head attention format.
         3. Applies rotary position encoding if configured.
@@ -239,7 +235,6 @@ class MultiHeadedAttention(torch.nn.Module):
             Tuple[Tensor, Tensor, Tensor]: Processed key, value, and query tensors, each of shape
             [batch_size, seq_len, num_heads, dim_per_head].
         """
-        # Retrieve keys and values from linear layers (training mode).
         if self.fused_kvq:  # only applicable for self_MHA and inference
             kvq = self.maybe_ckpt(self.linear_kvq, query)
             kvdim = self.dim_per_head * self.heads_kv // self.parallel_gpu
@@ -261,16 +256,14 @@ class MultiHeadedAttention(torch.nn.Module):
                 key = self.k_norm(key)
 
         if self.position_encoding_type == PositionEncodingType.Rotary:
-            # XDRoPE is only applied at initial forward pass because it is designed for full-sequence encoding.
-            # For subsequent steps (e.g., during autoregressive decoding), standard RoPE is used.
-            if self.xdrope_section is not None and pos_ids is not None:
+            # XDRoPE is only applied at prefill because it is designed for full-sequence encoding.
+            # For subsequent forwards (e.g., during autoregressive decoding), standard RoPE is used.
+            if self.xdrope_section is not None and pos_ids_2d is not None:
                 query, key = apply_rotary_pos_emb_xdrope(
-                    query, key, position_embeddings[step : step + query.size(1)], pos_ids, self.xdrope_section
+                    query, key, position_embeddings, pos_ids_2d, self.xdrope_section
                 )
             else:
-                query, key = apply_rotary_emb(
-                    query, key, position_embeddings[step : step + query.size(1)], interleave=self.rotary_interleave
-                )
+                query, key = apply_rotary_emb(query, key, position_embeddings, interleave=self.rotary_interleave)
             if self.qk_norm_post_rope:
                 if hasattr(self, "q_norm"):
                     query = self.q_norm(query)
@@ -420,55 +413,61 @@ class SelfMHA(MultiHeadedAttention):
         query: Tensor,
         key: Tensor,
         value: Tensor,
-        step: Optional[int] = 0,
+        cache_seqlens: Tensor,
+        cache_slice: Tuple[Tensor, Tensor],
     ) -> Tuple[Tensor, Tensor, Tensor]:
-        seq_len = key.size(1)
+        """
+        Compile-friendly cache update without graph breaks.
 
-        if step == 0:
-            # Prefill: write entire sequence to cache
-            self.kcache[:, :seq_len, :, :] = key  # Slice cache to match key size
-            self.vcache[:, :seq_len, :, :] = value
-            return self.kcache[:, :seq_len, :, :], self.vcache[:, :seq_len, :, :], query
+        key/value:
+          prefill: (B, S, H, D)
+          decode:  (B, 1, H, D)
+        cache_seqlens: (B,) - current position for each sequence (assumed uniform)
+        """
+        B, S, H, D = key.shape
+        device = key.device
 
-        self.kcache[:, step, :, :] = key[:, 0, :, :]
-        self.vcache[:, step, :, :] = value[:, 0, :, :]
-        start = 0
-        if self.sliding_window > 0 and step > self.sliding_window - 1:
-            start = step + 1 - self.sliding_window
-        return self.kcache[:, start : step + 1, :, :], self.vcache[:, start : step + 1, :, :], query
+        # Create index range: [step, step+1, ..., step+S-1]
+        indices = cache_seqlens[0] + torch.arange(S, device=device)  # (S,)
+        # Expand for all batch items and heads: (S,) -> (B, S, H, D)
+        indices_expanded = indices[None, :, None, None].expand(B, -1, H, D)
+
+        self.kcache.scatter_(1, indices_expanded, key)
+        self.vcache.scatter_(1, indices_expanded, value)
+
+        start_pos, end_pos = cache_slice
+
+        return (self.kcache[:, start_pos:end_pos, :, :], self.vcache[:, start_pos:end_pos, :, :], query)
 
     def forward(
         self,
         query: Tensor,
         attn_mask: Optional[Tensor] = None,
-        step: Optional[int] = 0,
         return_attn: Optional[bool] = False,
         position_embeddings=None,
-        pos_ids=None,
+        cache_seqlens=None,
+        cache_slice=None,
+        pos_ids_2d=None,
     ) -> Tuple[Tensor, Tensor]:
 
         key, value, query = super()._prepare_inputs(
             query,
             query,
             query,
-            step=0 if step is None else step,
             position_embeddings=position_embeddings,
-            pos_ids=pos_ids,
+            pos_ids_2d=pos_ids_2d,
         )
         if self.kcache is not None:
-            if (
-                not self.flash
-                or self.position_encoding_type in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
-                or query.dtype not in [torch.float16, torch.bfloat16]  # to match with flash
-                or query.device == torch.device("cpu")
-            ):
+
+            if cache_slice is not None:
+                # sdpa or manual attn
                 key, value, query = self._update_cache_w_inputs(
                     query,
                     key,
                     value,
-                    step=step,
+                    cache_seqlens=cache_seqlens,
+                    cache_slice=cache_slice,
                 )
-
             else:
                 # Fast path with flash_attn_with_kvcache
                 context = self.flash_attn_with_kvcache(
@@ -479,13 +478,14 @@ class SelfMHA(MultiHeadedAttention):
                     value,
                     rotary_cos=None,
                     rotary_sin=None,
-                    cache_seqlens=step,
+                    cache_seqlens=cache_seqlens,
                     cache_leftpad=self.cache_leftpad,
                     softmax_scale=self.scale,
-                    causal=step == 0,
+                    causal=self.causal,
                     rotary_interleaved=self.rotary_interleave,
                     window_size=self.window_size,
                 )
+                self.causal = False
                 attn_output = self.final_linear(blhd_to_bld(context))
                 if self.parallel_gpu > 1:
                     # all_reduce is an inplace op - not easily backprop
@@ -528,7 +528,6 @@ class ContextMHA(MultiHeadedAttention):
         value: Tensor,
         query: Tensor,
         attn_mask: Optional[Tensor] = None,
-        step: Optional[int] = 0,
         return_attn: Optional[bool] = False,
     ) -> Tuple[Tensor, Tensor]:
         if self.kcache is not None:

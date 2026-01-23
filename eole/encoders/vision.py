@@ -389,7 +389,7 @@ class VisionEncoder(EncoderBase):
 
         # Compute RoPE embeddings
         position_embeddings = self.rope.update(
-            patch_embeds.size(1), step=0, reset=True, positions=torch.cat(positions).to(self.device)
+            patch_embeds.size(1), reset=True, positions=torch.cat(positions).to(self.device)
         )
 
         return patch_embeds, mask, position_embeddings

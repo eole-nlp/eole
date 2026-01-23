@@ -128,7 +128,10 @@ class TransformerEncoder(EncoderBase):
         """
         assert pad_mask is not None, "TransformerEncoder requires pad_mask"
 
-        position_embeddings = self.rope.update(emb.size(1), step=None)
+        if self.rope.cos_sin is not None:
+            position_embeddings = self.rope.cos_sin[: emb.size(1)]
+        else:
+            position_embeddings = None
         # Expand to (batch, 1, 1, maxlen) for broadcasting in attention
         pad_mask = pad_mask.unsqueeze(1)
         attn_mask = ~pad_mask
