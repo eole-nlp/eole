@@ -472,10 +472,10 @@ class TransformerDecoder(DecoderBase):
 
         return emb, attns
 
-    def _init_cache(self, prompt, pad_mask):
-        b, l, d = prompt.size()
-        device = prompt.device
-        dtype = prompt.dtype
+    def _init_cache(self, emb, pad_mask):
+        b, l, d = emb.size()
+        device = emb.device
+        dtype = emb.dtype
 
         self.flash = (
             _FLASH_ATTN_AVAILABLE
@@ -517,4 +517,4 @@ class TransformerDecoder(DecoderBase):
             layer.self_attn.kcache, layer.self_attn.vcache = None, None
             layer.self_attn.cache_leftpad = None
             if layer.context_attn:
-                layer.context_attn.kcache, layer.self_attn.vcache = None, None
+                layer.context_attn.kcache, layer.context_attn.vcache = None, None

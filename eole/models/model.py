@@ -1084,7 +1084,7 @@ class VisionEncoderDecoderModel(BaseModel):
         with the source lengths vector. It is a decoder only LM (cf GPT-2)"""
 
         self.decoder.init_state()
-        emb, pos_ids = self.embed_vision_language_features(src, **kwargs)
+        emb, pos_ids_2d = self.embed_vision_language_features(src, **kwargs)
         dec_in = tgt[:, :-1]
         pad_idx = self.tgt_emb.word_padding_idx
         pad_mask = src.eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
@@ -1094,7 +1094,7 @@ class VisionEncoderDecoderModel(BaseModel):
             src_len=src_len,
             with_align=with_align,
             tgt_pad_mask=pad_mask,
-            pos_ids=pos_ids,
+            pos_ids_2d=pos_ids_2d,
         )
 
         if self.add_estimator:  # we take the average of dec_out using the pad mask
