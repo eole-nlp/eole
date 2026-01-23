@@ -675,19 +675,19 @@ class Inference(object):
             src_pad_mask = None
 
         if images is not None and step == 0:
-            emb, pos_ids = self.model.embed_vision_language_features(decoder_in, images=images)
+            emb, pos_ids_2d = self.model.embed_vision_language_features(decoder_in, images=images)
             image_locations = decoder_in == self.image_token_id
             if self.image_token_id_list is not None:
                 extra_ids = torch.tensor(self.image_token_id_list, device=decoder_in.device)
                 image_locations = image_locations | torch.isin(decoder_in, extra_ids)
         else:
             emb = self.model.tgt_emb(decoder_in, step=step)
-            pos_ids = None
+            pos_ids_2d = None
             image_locations = None
 
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
 
-        if step == 0 and hasattr(self.model.decoder, "_init_cache"):
+        if step == 0:
             self.model.decoder._init_cache(emb, tgt_pad_mask)
 
         dec_out, dec_attn = self.model.decoder(
@@ -699,7 +699,7 @@ class Inference(object):
             src_pad_mask=src_pad_mask,
             tgt_pad_mask=tgt_pad_mask,
             image_locations=image_locations,
-            pos_ids=pos_ids,
+            pos_ids_2d=pos_ids_2d,
         )
 
         # Generator forward.

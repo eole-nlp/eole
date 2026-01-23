@@ -3,14 +3,19 @@ import torch.nn as nn
 import math
 from torch import Tensor
 from typing import Tuple, List
-from eole.constants import PositionEncodingType, _eole_ops
+from eole.constants import PositionEncodingType
 
-if _eole_ops:
-    import eole._ops
+from eole.ops import _CPP_OPS_AVAILABLE, rotary_embedding
+from eole import EOLE_TORCH_COMPILE
+
+use_ops = _CPP_OPS_AVAILABLE and not EOLE_TORCH_COMPILE
 
 
 class NoOpPosition:
     """A no-op position encoding callable."""
+
+    def __init__(self):
+        self.cos_sin = None
 
     def update(self, *args, **kwargs):
         return None
@@ -80,13 +85,13 @@ def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bo
 
     B, S, H, D = query.shape
 
-    if _eole_ops and query.device.type == "cuda":
+    if use_ops and query.device.type == "cuda":
         num_tok = B * S
         query_ = query.view(num_tok, -1, D)
         key_ = key.view(num_tok, -1, D)
         positions = torch.arange(S, device=query.device).repeat(B)
         # cuda ops change query key in-place
-        eole._ops.rotary_embedding(positions, query_, key_, D, cos_sin, not interleave)
+        rotary_embedding(positions, query_, key_, D, cos_sin, not interleave)
         return query_.view(B, S, -1, D), key_.view(B, S, -1, D)
 
     else:
@@ -286,7 +291,7 @@ class RotaryPosition(nn.Module):
         rope = self.inv_freq[positions]
         return rope.cos(), rope.sin()
 
-    def update(self, maxseqlen, step=0, reset=False, positions=None):
+    def update(self, seq_len, reset=False, positions=None):
         # if reset:
         #    self.cos_sin = self.cos_sin[0]
 
@@ -294,11 +299,8 @@ class RotaryPosition(nn.Module):
         target_dtype = self.cos_sin.dtype if hasattr(self, "cos_sin") else torch.float32
 
         if self.mode == "1d":
-            # step_val = step.item() if isinstance(step, torch.Tensor) else step
-            required = 32 + (step or 0) + maxseqlen
-
-            if self.cos_sin.numel() == 0 or self.cos_sin.size(0) < required:
-                new_len = max(required, 16384)
+            if self.cos_sin.numel() == 0 or self.cos_sin.size(0) < seq_len:
+                new_len = max(seq_len, 16384)
                 cos, sin = self.forward_1d(new_len)
                 new_data = torch.cat([cos, sin], dim=-1)  # cat as FP32
 
@@ -311,7 +313,7 @@ class RotaryPosition(nn.Module):
 
         else:
             if positions is None:
-                positions = torch.arange(maxseqlen, device=self.inv_freq.device)
+                positions = torch.arange(seq_len, device=self.inv_freq.device)
 
             cos, sin = self.forward_2d(positions)
             # Cat in FP32, then return as BF16

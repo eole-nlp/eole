@@ -7,6 +7,7 @@ from eole.predict.encoder import Encoder
 from eole.predict.beam_search import GNMTGlobalScorer
 from eole.decoders.ensemble import EnsembleModel
 from eole.models.model import get_model_class
+from eole import EOLE_TORCH_COMPILE
 
 
 def get_infer_class(model_config):
@@ -31,6 +32,17 @@ def build_predictor(config, device_id=0, report_score=True, logger=None):
         # Single model case
         model_class = get_model_class(config.model)
         model, vocabs, model_config = model_class.for_inference(config, device_id)
+
+    if EOLE_TORCH_COMPILE:
+        import torch
+
+        # torch._inductor.config.triton.cudagraph_skip_dynamic_graphs = True
+        torch._dynamo.config.cache_size_limit = 128
+        import torch._inductor.config as inductor_config
+
+        inductor_config.fx_graph_cache = True
+        # inductor_config.max_autotune = False
+        # model.decoder = torch.compile(model.decoder, dynamic=True, fullgraph=True)
 
     config.update(model=model_config)
 

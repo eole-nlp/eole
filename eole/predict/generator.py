@@ -161,6 +161,10 @@ class GeneratorLM(Inference):
                     torch.cuda.synchronize()
                     self.step0_time.append(time() - beg_time)
 
+            self.model.decoder._disable_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         if self.add_estimator:
             # Prepare estimator input = decoder out of each pred with initial enc_out
             if not self.estim_only:
