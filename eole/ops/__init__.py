@@ -293,7 +293,7 @@ else:
     if _FLASH_ATTN_AVAILABLE:
         flash_attn_kvcache = flash_attn.flash_attn_with_kvcache
     else:
-        raise RuntimeError("flash_attn is not available. Install it before using flash attention.")
+        flash_attn_kvcache = None
 
     # Export C++ ops directly without wrapping
     if _CPP_OPS_AVAILABLE:
