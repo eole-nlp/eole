@@ -414,7 +414,7 @@ class SelfMHA(MultiHeadedAttention):
         key: Tensor,
         value: Tensor,
         cache_seqlens: Tensor,
-        cache_slice: Tuple[Tensor, Tensor],
+        cache_slice: Tensor,
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Compile-friendly cache update without graph breaks.
@@ -425,34 +425,11 @@ class SelfMHA(MultiHeadedAttention):
         cache_seqlens: (B,) - current position for each sequence (assumed uniform)
         cache_slice: tensor of position indices to update
         """
-        B, S, H, D = key.size()
 
         self.kcache[:, cache_slice, :, :] = key
         self.vcache[:, cache_slice, :, :] = value
 
-        # For sliding window: return only the window slice
-        # For no sliding window: return the entire cache (SDPA will use the mask)
-        if self.sliding_window > 0:
-            current_step = cache_seqlens[0].item()
-            end_pos = current_step + S
-        
-            if end_pos > self.sliding_window:
-                # Only return the last sliding_window tokens from cache
-                start_pos = end_pos - self.sliding_window
-                return (
-                    self.kcache[:, start_pos:end_pos, :, :],
-                    self.vcache[:, start_pos:end_pos, :, :],
-                    query
-                )
-    
-        # No sliding window OR window not yet full: return full cache
-        # The attention mask will handle what's visible
-        return (
-            self.kcache,
-            self.vcache,
-            query
-        )
-
+        return (self.kcache, self.vcache, query)
 
     def forward(
         self,

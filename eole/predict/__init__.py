@@ -36,26 +36,18 @@ def build_predictor(config, device_id=0, report_score=True, logger=None):
     if EOLE_TORCH_COMPILE:
         import torch._dynamo.config as dynamo_config
 
-        # torch._inductor.config.triton.cudagraph_skip_dynamic_graphs = True
-        print(dynamo_config.cache_size_limit)
-        print(dynamo_config.accumulated_cache_size_limit)
-        print(dynamo_config.capture_scalar_outputs)
-        dynamo_config.cache_size_limit = 128  # default is 8
-        dynamo_config.accumulated_cache_size_limit = 1024
-        dynamo_config.capture_scalar_outputs = True
+        dynamo_config.cache_size_limit = 256  # default is 8
+        dynamo_config.accumulated_cache_size_limit = 2048  # default is 256
 
         import torch._inductor.config as inductor_config
-        print(inductor_config.compile_threads)
-        print(inductor_config.fx_graph_cache)
-        print(inductor_config.max_autotune)
-        print(inductor_config.unsafe_skip_cache_dynamic_shape_guards)
-        print(inductor_config.triton.cudagraph_skip_dynamic_graphs)
 
-        inductor_config.compile_threads = 1
+        inductor_config.compile_threads = 24  # default is 24
         inductor_config.fx_graph_cache = True  # default is True
-        inductor_config.unsafe_skip_cache_dynamic_shape_guards = True  # default is False
+        inductor_config.unsafe_skip_cache_dynamic_shape_guards = True  # default is False - much faster compilation
         inductor_config.max_autotune = False  # default is False
-        inductor_config.triton.cudagraph_skip_dynamic_graphs = False  # default is False - when True it's a mess
+        inductor_config.triton.cudagraph_skip_dynamic_graphs = False  # default is False - when True much slower
+        inductor_config.force_disable_caches = False  # Keep caches enabled
+        inductor_config.freezing = False  # Enable freezing for inference - when True garbage.
 
     config.update(model=model_config)
 

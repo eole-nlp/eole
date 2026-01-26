@@ -262,42 +262,55 @@ class TransformerDecoder(DecoderBase):
         self.position_encoding_type = decoder_config.position_encoding_type
         self.flash = False
         self.max_length = getattr(running_config, "max_length", 1024)
-        self.left_pad_mask = None
+        self.left_pad_attn_mask = None
         self.cache_seqlens = None
+        self.hidden_size = decoder_config.hidden_size
+        self.compiled = False
         self._disable_cache()
 
         if EOLE_TORCH_COMPILE:
             self._compile_decoder()
 
-    def _compile_decoder(self):
+    def _compile_decoder(self, emb=None, tgt_pad_mask=None):
         self._forward_compile = torch.compile(
-                self._forward_eager,
-                fullgraph=True,
-                dynamic=False,
-                options={
-                    "guard_filter_fn": lambda guards: [
-                        g.guard_type in [] for g in guards
-                    ]
-                }
-            )
+            self._forward_eager,
+            fullgraph=True,
+            dynamic=False,
+            options={
+                "guard_filter_fn": lambda guards: [g.guard_type in ["TENSOR_MATCH"] for g in guards],
+                "triton.cudagraphs": True,
+            },
+        )
         self._forward_decode_compile = torch.compile(
-                self._forward_decode_eager,
-                fullgraph=True,
-                dynamic=True,
-                options={
-                    "guard_filter_fn": lambda guards: [
-                        g.guard_type in [] for g in guards
-                    ]
-                }
-            )
+            self._forward_decode_eager,
+            fullgraph=True,
+            dynamic=False,
+            options={
+                "guard_filter_fn": lambda guards: [g.guard_type in ["TENSOR_MATCH"] for g in guards],
+                "triton.cudagraphs": True,
+            },
+        )
+        # MANUALLY WARMUP specific batch sizes
+        if not self.compiled and emb is not None and tgt_pad_mask is not None:
+            max_bs = emb.size(0)
+            for batch_size in range(max_bs, 0, -1):
+                print(f"compiling bs {batch_size}")
+                self._init_cache(emb[:batch_size], tgt_pad_mask[:batch_size])
+                dummy_emb = torch.randn(batch_size, 1, self.hidden_size, device="cuda", dtype=torch.bfloat16)
+                dummy_pad_mask = torch.zeros((batch_size, 1), dtype=torch.bool, device="cuda").unsqueeze(1)
+                self._forward_decode_compile(
+                    dummy_emb,
+                    tgt_pad_mask=dummy_pad_mask,
+                )
+            self.compiled = True
 
     def init_state(self, **kwargs):
         """Initialize decoder state."""
         pass
 
     def map_state(self, fn):
-        if self.left_pad_mask is not None:
-            self.left_pad_mask = fn(self.left_pad_mask)
+        if self.left_pad_attn_mask is not None:
+            self.left_pad_attn_mask = fn(self.left_pad_attn_mask)
         if self.cache_seqlens is not None:
             self.cache_seqlens = fn(self.cache_seqlens)
         for layer in self.transformer_layers:
@@ -327,8 +340,8 @@ class TransformerDecoder(DecoderBase):
         )
         if self.sliding_window > 0:
             future_mask = future_mask.triu_(-self.sliding_window)
-        future_mask = future_mask.unsqueeze(0).expand(B, -1, -1)  # (B, MAX_T, MAX_T)
 
+        future_mask = future_mask.unsqueeze(0).expand(B, -1, -1)  # (B, MAX_T, MAX_T)
         future_mask = future_mask[:, :seq_len, :]  # (B, seq_len, MAX_T)
 
         if self.LM_type == "prefix" and prefix_len is not None:
@@ -344,7 +357,6 @@ class TransformerDecoder(DecoderBase):
         attn_mask = future_mask & ~tgt_pad_mask_full  # True = attend, False = pad
 
         return attn_mask.unsqueeze(1)  # (B, 1, seq_len, MAX_T)
-
 
     def _update_causal_mask(self, attn_mask, image_locations):
         """
@@ -370,15 +382,14 @@ class TransformerDecoder(DecoderBase):
         attn_mask = attn_mask.masked_fill(full_mask, True)
         return attn_mask
 
-
     def forward(self, emb, **kwargs):
         step = kwargs.pop("step", None)
         if not EOLE_TORCH_COMPILE:
-            if (step or 0) == 0:
-                # training or prefill
-                return self._forward_eager(emb, **kwargs)
+            # if (step or 0) == 0:
+            # training or prefill
+            return self._forward_eager(emb, **kwargs)
             # decoding
-            return self._forward_decode_eager(emb, **kwargs)
+            # return self._forward_decode_eager(emb, **kwargs)
 
         if (step or 0) == 0:
             return self._forward_compile(emb, **kwargs)
@@ -463,27 +474,24 @@ class TransformerDecoder(DecoderBase):
         pos_ids_2d = kwargs.pop("pos_ids_2d", None)
 
         attn_aligns = []
-        attn_mask = None
-        cache_slice = None  # triggers flash decoding
 
         if not self.flash:
-
-            if self.cache_seqlens is not None:
-                cache_slice = pos_ids_1d
-
+            cache_slice = pos_ids_1d  # tensor of position indices to update
             if seq_len > 1:
                 # training or prefill decoding, combine pad and causal mask
                 attn_mask = self._causal_attn_mask(tgt_pad_mask, prefix_len=prefix_len)
-                #if image_locations is not None:
-                #    attn_mask = self._update_causal_mask(attn_mask, image_locations)
-            else: # unused branch because prefill or training
-                # autoregressive decoding, no causal but sdpa needs pad information
-                valid = self.position_indices < self.cache_seqlens.view(-1, 1)
-                valid = valid.unsqueeze(1).unsqueeze(2)
-                attn_mask = self.left_pad_mask & valid
-
-                #if self.sliding_window > 0 and current_step >= self.sliding_window:
-                #    attn_mask = attn_mask[:, :, :, -self.sliding_window :]
+                if image_locations is not None:
+                    attn_mask = self._update_causal_mask(attn_mask, image_locations)
+            else:  # unused branch because prefill or training
+                valid = self.position_indices <= self.cache_seqlens.view(-1, 1)
+                valid = valid & self.left_pad_attn_mask
+                if self.sliding_window > 0:
+                    start = torch.clamp(current_step - self.sliding_window + 1, min=0)
+                    valid = valid & (self.position_indices >= start)
+                attn_mask = valid.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, MAX_T)
+        else:
+            attn_mask = None
+            cache_slice = None  # triggers flash decoding
 
         for layer, pos_emb in zip(self.transformer_layers, pos_emb_list):
             emb, attn = layer(
@@ -593,22 +601,19 @@ class TransformerDecoder(DecoderBase):
         else:
             pos_emb_list = [None] * len(self.transformer_layers)
 
-        prefix_len = kwargs.pop("prefix_len", None)
-
         attn_aligns = []
-        attn_mask = None
-        cache_slice = None  # triggers flash decoding
 
         if not self.flash:
-            cache_slice = pos_ids_1d
-
-            # autoregressive decoding, no causal but sdpa needs pad information
-            valid = self.position_indices < self.cache_seqlens.view(-1, 1)
-            valid = valid.unsqueeze(1).unsqueeze(2)
-            attn_mask = self.left_pad_mask & valid
-            if self.sliding_window > 0 and current_step >= self.sliding_window:
-                start = current_step + 1 - self.sliding_window
-                attn_mask = attn_mask[:, :, :,  start:start+self.sliding_window]
+            cache_slice = pos_ids_1d  # tensor of position indices to update
+            valid = self.position_indices <= self.cache_seqlens.view(-1, 1)
+            valid = valid & self.left_pad_attn_mask
+            if self.sliding_window > 0:
+                start = torch.clamp(current_step - self.sliding_window + 1, min=0)
+                valid = valid & (self.position_indices >= start)
+            attn_mask = valid.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, MAX_T)
+        else:
+            attn_mask = None
+            cache_slice = None  # triggers flash decoding
 
         for layer, pos_emb in zip(self.transformer_layers, pos_emb_list):
             emb, attn = layer(
@@ -671,9 +676,7 @@ class TransformerDecoder(DecoderBase):
         total_seq_len = self.max_length + pad_mask.size(2)
         self.position_indices = torch.arange(total_seq_len, device=device).unsqueeze(0)
         # If cache_leftpad is 0, this mask will effectively do nothing
-        self.left_pad_mask = self.position_indices >= cache_leftpad.view(-1, 1)
-
-        self.left_pad_mask = self.left_pad_mask.unsqueeze(1).unsqueeze(2)
+        self.left_pad_attn_mask = self.position_indices >= cache_leftpad.view(-1, 1)
         self.cache_seqlens = torch.zeros((b,), device=device, dtype=torch.int32)
 
         for layer in self.transformer_layers:
@@ -688,7 +691,7 @@ class TransformerDecoder(DecoderBase):
                 layer.context_attn.vcache = torch.empty(0, device=device)
 
     def _disable_cache(self):
-        self.left_pad_mask = None
+        self.left_pad_attn_mask = None
         self.cache_seqlens = None
         for layer in self.transformer_layers:
             layer.self_attn.kcache, layer.self_attn.vcache = None, None

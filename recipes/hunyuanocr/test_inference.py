@@ -13,7 +13,7 @@ def build_config():
     config = PredictConfig(
         model_path=os.path.join(mydir, "HunyuanOCR"),
         src="dummy",
-        self_attn_backend="pytorch",
+        self_attn_backend="flash",
         max_length=2048,
         world_size=1,
         gpu_ranks=[0],

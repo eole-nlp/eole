@@ -688,18 +688,19 @@ class Inference(object):
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
 
         if step == 0:
+            start_wu = time()
+            self.model.decoder._compile_decoder(emb, tgt_pad_mask)
+            self._log(f"End warmup lasted: {time() - start_wu:.1f} sec")
             self.model.decoder._init_cache(emb, tgt_pad_mask)
 
-        #print(step)
+        """
+        print(step)
         def debug_tensor(t, name):
-            print(
-                f"{name}: shape={tuple(t.shape)}, "
-                f"stride={t.stride()}, "
-                f"contiguous={t.is_contiguous()}"
-            )
+            print(f"{name}: shape={tuple(t.shape)}, " f"stride={t.stride()}, " f"contiguous={t.is_contiguous()}")
 
-        #debug_tensor(emb, "emb")
- 
+        debug_tensor(emb, "emb")
+        """
+
         dec_out, dec_attn = self.model.decoder(
             emb,
             enc_out=enc_out,
