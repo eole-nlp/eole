@@ -423,21 +423,36 @@ class SelfMHA(MultiHeadedAttention):
           prefill: (B, S, H, D)
           decode:  (B, 1, H, D)
         cache_seqlens: (B,) - current position for each sequence (assumed uniform)
+        cache_slice: tensor of position indices to update
         """
-        B, S, H, D = key.shape
-        device = key.device
+        B, S, H, D = key.size()
 
-        # Create index range: [step, step+1, ..., step+S-1]
-        indices = cache_seqlens[0] + torch.arange(S, device=device)  # (S,)
-        # Expand for all batch items and heads: (S,) -> (B, S, H, D)
-        indices_expanded = indices[None, :, None, None].expand(B, -1, H, D)
+        self.kcache[:, cache_slice, :, :] = key
+        self.vcache[:, cache_slice, :, :] = value
 
-        self.kcache.scatter_(1, indices_expanded, key)
-        self.vcache.scatter_(1, indices_expanded, value)
+        # For sliding window: return only the window slice
+        # For no sliding window: return the entire cache (SDPA will use the mask)
+        if self.sliding_window > 0:
+            current_step = cache_seqlens[0].item()
+            end_pos = current_step + S
+        
+            if end_pos > self.sliding_window:
+                # Only return the last sliding_window tokens from cache
+                start_pos = end_pos - self.sliding_window
+                return (
+                    self.kcache[:, start_pos:end_pos, :, :],
+                    self.vcache[:, start_pos:end_pos, :, :],
+                    query
+                )
+    
+        # No sliding window OR window not yet full: return full cache
+        # The attention mask will handle what's visible
+        return (
+            self.kcache,
+            self.vcache,
+            query
+        )
 
-        start_pos, end_pos = cache_slice
-
-        return (self.kcache[:, start_pos:end_pos, :, :], self.vcache[:, start_pos:end_pos, :, :], query)
 
     def forward(
         self,

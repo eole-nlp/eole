@@ -34,15 +34,28 @@ def build_predictor(config, device_id=0, report_score=True, logger=None):
         model, vocabs, model_config = model_class.for_inference(config, device_id)
 
     if EOLE_TORCH_COMPILE:
-        import torch
+        import torch._dynamo.config as dynamo_config
 
         # torch._inductor.config.triton.cudagraph_skip_dynamic_graphs = True
-        torch._dynamo.config.cache_size_limit = 128
-        import torch._inductor.config as inductor_config
+        print(dynamo_config.cache_size_limit)
+        print(dynamo_config.accumulated_cache_size_limit)
+        print(dynamo_config.capture_scalar_outputs)
+        dynamo_config.cache_size_limit = 128  # default is 8
+        dynamo_config.accumulated_cache_size_limit = 1024
+        dynamo_config.capture_scalar_outputs = True
 
-        inductor_config.fx_graph_cache = True
-        # inductor_config.max_autotune = False
-        # model.decoder = torch.compile(model.decoder, dynamic=True, fullgraph=True)
+        import torch._inductor.config as inductor_config
+        print(inductor_config.compile_threads)
+        print(inductor_config.fx_graph_cache)
+        print(inductor_config.max_autotune)
+        print(inductor_config.unsafe_skip_cache_dynamic_shape_guards)
+        print(inductor_config.triton.cudagraph_skip_dynamic_graphs)
+
+        inductor_config.compile_threads = 1
+        inductor_config.fx_graph_cache = True  # default is True
+        inductor_config.unsafe_skip_cache_dynamic_shape_guards = True  # default is False
+        inductor_config.max_autotune = False  # default is False
+        inductor_config.triton.cudagraph_skip_dynamic_graphs = False  # default is False - when True it's a mess
 
     config.update(model=model_config)
 

@@ -13,7 +13,7 @@ def build_config():
     config = PredictConfig(
         model_path=os.path.join(mydir, "HunyuanOCR"),
         src="dummy",
-        self_attn_backend="flash",
+        self_attn_backend="pytorch",
         max_length=2048,
         world_size=1,
         gpu_ranks=[0],
@@ -98,9 +98,9 @@ def main():
     try:
         test_input = build_test_inputs()
         print("######################## first pass - full warm up #####################")
-        _, _, pred = engine.infer_list(test_input)
+        _, _, pred = engine.infer_list(test_input, {"max_length": 2048})
         print("######################## first pass - actual run #######################")
-        _, _, pred = engine.infer_list(test_input)
+        _, _, pred = engine.infer_list(test_input, {"max_length": 2048})
 
         postprocess_and_print(pred, test_input)
 
