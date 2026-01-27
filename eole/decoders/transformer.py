@@ -10,7 +10,7 @@ from eole.modules.transformer_mlp import MLP
 from eole.modules.moe import MoE
 from eole.modules.rope import build_rope
 from eole.constants import LayerNorm, PositionEncodingType
-from eole import EOLE_TORCH_COMPILE
+from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
 from eole.ops import _FLASH_ATTN_AVAILABLE
 
 
@@ -90,6 +90,38 @@ class TransformerDecoderLayer(nn.Module):
         else:
             self._forward = self._forward_no_cross_attn
 
+        self.compiled = False
+        self.hidden_size = decoder_config.hidden_size
+
+        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
+            self._compile_decoder()
+
+    def _compile_decoder(self, layer_in=None, position_embeddings=None, cache_seqlens=None):
+        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
+            self._forward_compile = torch.compile(
+                self._forward_eager,
+                fullgraph=True,
+                dynamic=False,
+                options={
+                    "guard_filter_fn": lambda guards: [g.guard_type in ["TENSOR_MATCH"] for g in guards],
+                    "triton.cudagraphs": EOLE_COMPILE_MODE == "2",
+                },
+            )
+        if not self.compiled and layer_in is not None:
+            max_bs = layer_in.size(0)
+            for batch_size in range(max_bs, 0, -1):
+                cache_seqlens = cache_seqlens[:batch_size]
+                self.self_attn.cache_leftpad = self.self_attn.cache_leftpad[:batch_size]
+                self.self_attn.kcache = self.self_attn.kcache[:batch_size]
+                self.self_attn.vcache = self.self_attn.vcache[:batch_size]
+                dummy_layer_in = torch.randn(batch_size, 1, self.hidden_size, device="cuda", dtype=torch.bfloat16)
+                self._forward_compile(
+                    dummy_layer_in,
+                    position_embeddings=position_embeddings,
+                    cache_seqlens=cache_seqlens,
+                )
+            self.compiled = True
+
     def _forward_ffn_layernorm(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
         ff_in = layer_in + self.post_attention_layernorm(self_attn)
         ff_in2 = self.pre_feedforward_layernorm(ff_in)
@@ -146,6 +178,14 @@ class TransformerDecoderLayer(nn.Module):
         return self_attn + self.mlp(ff_in), attns
 
     def forward(self, layer_in, **kwargs):
+        if layer_in.size(1) > 1:
+            return self._forward_eager(layer_in, **kwargs)
+        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
+            return self._forward_compile(layer_in, **kwargs)
+
+        return self._forward_eager(layer_in, **kwargs)
+
+    def _forward_eager(self, layer_in, **kwargs):
         """
         Args:
             layer_in (Tensor):
@@ -265,10 +305,10 @@ class TransformerDecoder(DecoderBase):
         self.left_pad_attn_mask = None
         self.cache_seqlens = None
         self.hidden_size = decoder_config.hidden_size
-        self.compiled = False
+        self.compiled_shapes = set()
         self._disable_cache()
 
-        if EOLE_TORCH_COMPILE:
+        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"]:
             self._compile_decoder()
 
     def _compile_decoder(self, emb=None, tgt_pad_mask=None):
@@ -278,31 +318,20 @@ class TransformerDecoder(DecoderBase):
             dynamic=False,
             options={
                 "guard_filter_fn": lambda guards: [g.guard_type in ["TENSOR_MATCH"] for g in guards],
-                "triton.cudagraphs": True,
+                "triton.cudagraphs": EOLE_COMPILE_MODE == "0",
             },
         )
-        self._forward_decode_compile = torch.compile(
-            self._forward_decode_eager,
-            fullgraph=True,
-            dynamic=False,
-            options={
-                "guard_filter_fn": lambda guards: [g.guard_type in ["TENSOR_MATCH"] for g in guards],
-                "triton.cudagraphs": True,
-            },
-        )
-        # MANUALLY WARMUP specific batch sizes
-        if not self.compiled and emb is not None and tgt_pad_mask is not None:
-            max_bs = emb.size(0)
-            for batch_size in range(max_bs, 0, -1):
-                print(f"compiling bs {batch_size}")
-                self._init_cache(emb[:batch_size], tgt_pad_mask[:batch_size])
-                dummy_emb = torch.randn(batch_size, 1, self.hidden_size, device="cuda", dtype=torch.bfloat16)
-                dummy_pad_mask = torch.zeros((batch_size, 1), dtype=torch.bool, device="cuda").unsqueeze(1)
-                self._forward_decode_compile(
+        if emb is not None and tgt_pad_mask is not None:
+            B, S, _ = emb.size()
+            if (B, S) not in self.compiled_shapes:
+                self._init_cache(emb, tgt_pad_mask)
+                dummy_emb = torch.randn(B, 1, self.hidden_size, device=emb.device, dtype=emb.dtype)
+                dummy_pad_mask = torch.zeros((B, 1), dtype=torch.bool, device=emb.device).unsqueeze(1)
+                self._forward_compile(
                     dummy_emb,
                     tgt_pad_mask=dummy_pad_mask,
                 )
-            self.compiled = True
+                self.compiled_shapes.add((B, S))
 
     def init_state(self, **kwargs):
         """Initialize decoder state."""
@@ -383,18 +412,14 @@ class TransformerDecoder(DecoderBase):
         return attn_mask
 
     def forward(self, emb, **kwargs):
-        step = kwargs.pop("step", None)
-        if not EOLE_TORCH_COMPILE:
-            # if (step or 0) == 0:
-            # training or prefill
-            return self._forward_eager(emb, **kwargs)
-            # decoding
-            # return self._forward_decode_eager(emb, **kwargs)
-
-        if (step or 0) == 0:
-            return self._forward_compile(emb, **kwargs)
-
-        return self._forward_decode_compile(emb, **kwargs)
+        B, S, _ = emb.size()
+        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"]:
+            if S > 1:
+                self.initial_bs = B
+                return self._forward_eager(emb, **kwargs)
+            if B == self.initial_bs:
+                return self._forward_compile(emb, **kwargs)
+        return self._forward_eager(emb, **kwargs)
 
     def _forward_eager(self, emb, **kwargs):
         """
@@ -432,7 +457,7 @@ class TransformerDecoder(DecoderBase):
                   Alignment attention of shape
                   ``(batch_size, tgt_len, src_len)``.
         """
-        _, seq_len, _ = emb.size()
+        _, S, _ = emb.size()
         enc_out = kwargs.pop("enc_out", None)
         tgt_pad_mask = kwargs.pop("tgt_pad_mask", None)
         assert tgt_pad_mask is not None, "TransformerDecoder requires a tgt pad mask"
@@ -446,12 +471,13 @@ class TransformerDecoder(DecoderBase):
         return_attn = with_align or kwargs.pop("return_attn", False)
 
         if self.cache_seqlens is not None:
-            # prefill
+            # prefill & decoding
             current_step = self.cache_seqlens[0]
         else:
             # training
             current_step = 0
-        pos_ids_1d = current_step + torch.arange(seq_len, device=emb.device)
+
+        pos_ids_1d = current_step + torch.arange(S, device=emb.device)
         position_embeddings = self.rope.cos_sin
 
         if self.rope_local is not None:
@@ -469,20 +495,17 @@ class TransformerDecoder(DecoderBase):
         else:
             pos_emb_list = [None] * len(self.transformer_layers)
 
-        image_locations = kwargs.pop("image_locations", None)
-        prefix_len = kwargs.pop("prefix_len", None)
-        pos_ids_2d = kwargs.pop("pos_ids_2d", None)
-
-        attn_aligns = []
-
         if not self.flash:
             cache_slice = pos_ids_1d  # tensor of position indices to update
-            if seq_len > 1:
+            if S > 1:
                 # training or prefill decoding, combine pad and causal mask
+                image_locations = kwargs.pop("image_locations", None)
+                prefix_len = kwargs.pop("prefix_len", None)
+
                 attn_mask = self._causal_attn_mask(tgt_pad_mask, prefix_len=prefix_len)
                 if image_locations is not None:
                     attn_mask = self._update_causal_mask(attn_mask, image_locations)
-            else:  # unused branch because prefill or training
+            else:
                 valid = self.position_indices <= self.cache_seqlens.view(-1, 1)
                 valid = valid & self.left_pad_attn_mask
                 if self.sliding_window > 0:
@@ -493,9 +516,12 @@ class TransformerDecoder(DecoderBase):
             attn_mask = None
             cache_slice = None  # triggers flash decoding
 
+        pos_ids_2d = kwargs.pop("pos_ids_2d", None)
+        attn_aligns = []
+
         for layer, pos_emb in zip(self.transformer_layers, pos_emb_list):
             emb, attn = layer(
-                emb,
+                emb.clone() if (EOLE_COMPILE_MODE == "2" and EOLE_TORCH_COMPILE) else emb,
                 enc_out=enc_out,
                 src_pad_mask=src_pad_mask,
                 attn_mask=attn_mask,
@@ -507,7 +533,7 @@ class TransformerDecoder(DecoderBase):
             )
             if with_align:
                 attn_align = layer.get_attn_align(
-                    emb,
+                    emb.clone() if (EOLE_COMPILE_MODE == "2" and EOLE_TORCH_COMPILE) else emb,
                     enc_out=enc_out,
                     src_pad_mask=src_pad_mask,
                     attn_mask=attn_mask,
@@ -523,127 +549,7 @@ class TransformerDecoder(DecoderBase):
 
         emb = self.layer_norm(emb)
         if self.cache_seqlens is not None:
-            self.cache_seqlens.add_(seq_len)
-
-        # we take the first head
-        top_attn = None if attn is None else attn[:, 0, :, :].contiguous()
-        attns = {"std": top_attn}
-        if with_align:
-            attns["align"] = attn_aligns[self.alignment_layer]  # `(B, Q, K)`
-
-        return emb, attns
-
-    def _forward_decode_eager(self, emb, **kwargs):
-        """
-        Decode a sequence using transformer layers.
-
-        Args:
-            emb (Tensor):
-                Target embeddings of shape
-                ``(batch_size, tgt_len, hidden_size)``.
-
-            **kwargs:
-                enc_out (Tensor, optional):
-                    Encoder outputs.
-                tgt_pad_mask (Tensor):
-                    Target padding mask.
-                src_pad_mask (Tensor, optional):
-                    Source padding mask.
-                with_align (bool, optional):
-                    Whether to return alignment attention.
-
-        Returns:
-            (Tensor, Dict[str, Tensor]):
-
-            * dec_outs:
-                Decoder outputs of shape
-                ``(batch_size, tgt_len, hidden_size)``.
-
-            * attns:
-                Dictionary of attention tensors.
-
-                - ``attns["std"]``:
-                  Standard attention of shape
-                  ``(batch_size, tgt_len, src_len)``.
-                - ``attns["align"]`` (optional):
-                  Alignment attention of shape
-                  ``(batch_size, tgt_len, src_len)``.
-        """
-        _, seq_len, _ = emb.size()
-        enc_out = kwargs.pop("enc_out", None)
-        tgt_pad_mask = kwargs.pop("tgt_pad_mask", None)
-        assert tgt_pad_mask is not None, "TransformerDecoder requires a tgt pad mask"
-        src_pad_mask = kwargs.pop("src_pad_mask", None)
-        if self.with_cross_attn:
-            assert src_pad_mask is not None, "TransformerDecoder requires a src pad mask"
-            src_pad_mask = src_pad_mask.unsqueeze(1)  # (batch x 1 x 1 x src_len)
-            # dim 1 (heads) and 2 (tgt_len) will be broadcasted automatically in MHA
-
-        with_align = kwargs.pop("with_align", False)
-        return_attn = with_align or kwargs.pop("return_attn", False)
-
-        current_step = self.cache_seqlens[0]
-        pos_ids_1d = current_step + torch.arange(seq_len, device=emb.device)
-        position_embeddings = self.rope.cos_sin
-
-        if self.rope_local is not None:
-            position_embeddings_local = self.rope_local.cos_sin
-            pos_emb_list = [
-                (
-                    position_embeddings_local[pos_ids_1d]
-                    if (i + 1) % self.interleave_local
-                    else position_embeddings[pos_ids_1d]
-                )
-                for i in range(len(self.transformer_layers))
-            ]
-        elif position_embeddings is not None:
-            pos_emb_list = [position_embeddings[pos_ids_1d]] * len(self.transformer_layers)
-        else:
-            pos_emb_list = [None] * len(self.transformer_layers)
-
-        attn_aligns = []
-
-        if not self.flash:
-            cache_slice = pos_ids_1d  # tensor of position indices to update
-            valid = self.position_indices <= self.cache_seqlens.view(-1, 1)
-            valid = valid & self.left_pad_attn_mask
-            if self.sliding_window > 0:
-                start = torch.clamp(current_step - self.sliding_window + 1, min=0)
-                valid = valid & (self.position_indices >= start)
-            attn_mask = valid.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, MAX_T)
-        else:
-            attn_mask = None
-            cache_slice = None  # triggers flash decoding
-
-        for layer, pos_emb in zip(self.transformer_layers, pos_emb_list):
-            emb, attn = layer(
-                emb,
-                enc_out=enc_out,
-                src_pad_mask=src_pad_mask,
-                attn_mask=attn_mask,
-                return_attn=return_attn,
-                position_embeddings=pos_emb,
-                cache_seqlens=self.cache_seqlens,
-                cache_slice=cache_slice,
-            )
-            if with_align:
-                attn_align = layer.get_attn_align(
-                    emb,
-                    enc_out=enc_out,
-                    src_pad_mask=src_pad_mask,
-                    attn_mask=attn_mask,
-                    return_attn=return_attn,
-                    position_embeddings=pos_emb,
-                    cache_seqlens=self.cache_seqlens,
-                    cache_slice=cache_slice,
-                    attns=attn,
-                )
-                if attn_align is not None:
-                    attn_aligns.append(attn_align)
-
-        emb = self.layer_norm(emb)
-        if self.cache_seqlens is not None:
-            self.cache_seqlens.add_(seq_len)
+            self.cache_seqlens.add_(S)
 
         # we take the first head
         top_attn = None if attn is None else attn[:, 0, :, :].contiguous()

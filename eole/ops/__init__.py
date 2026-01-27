@@ -7,7 +7,7 @@ from eole import EOLE_TORCH_COMPILE
 try:
     from eole import _ops
 
-    _CPP_OPS_AVAILABLE = True
+    _CPP_OPS_AVAILABLE = torch.cuda.is_available()
 except (ImportError, ModuleNotFoundError) as e:
     _CPP_OPS_AVAILABLE = False
     warnings.warn(
