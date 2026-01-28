@@ -7,6 +7,18 @@ Open language modeling toolkit based on [PyTorch](https://pytorch.org) initially
 
 - New !!!! - Added Torch compile and Cudagraphs - as fast as vLLM / faster than CT2 on GPU. see [results](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md)
 
+Just reproduce with your own hardware:
+```
+git clone https://github.com/eole-nlp/eole
+cd eole
+pip install -e .
+cd benchmarks/genai
+EOLE_TORCH_COMPILE="1" EOLE_COMPILE_MODE="0" python generate-eole.py
+```
+First run will take 60-80 seconds to compile
+Run it a second time and see the blast.
+
+
 - New January 2026: Almost full refactor of the code: Encoders, Decoders, Adapters, Model classes, Trainer, Distributed training / Inference.
 
 We aim to maintain the **research-friendly** approach of the original project while including latest architectures (LLMs) and various other techniques.
