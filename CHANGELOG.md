@@ -2,6 +2,23 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.5.0
+
+* fix space tok by @vince62s in https://github.com/eole-nlp/eole/pull/301
+* fix gemma3 text model by @vince62s in https://github.com/eole-nlp/eole/pull/302
+* add cuda ops by @vince62s in https://github.com/eole-nlp/eole/pull/303
+* add backward pass to eole_ops rmsnorm + benchmark script by @vince62s in https://github.com/eole-nlp/eole/pull/305
+* replace vLLM fused_moe by adhoc triton fused_moe with similar signature by @vince62s in https://github.com/eole-nlp/eole/pull/306
+* add rope benchmark for custom ops vs pytorch implementation by @vince62s in https://github.com/eole-nlp/eole/pull/307
+* refactor Optimizer class by @vince62s in https://github.com/eole-nlp/eole/pull/308
+* compare inference speed Eole vs HF vs CT2 vs vLLM by @vince62s in https://github.com/eole-nlp/eole/pull/309
+* add script to show diff between SDPBackend.EFFICIENT_ATTENTION and Fl… by @vince62s in https://github.com/eole-nlp/eole/pull/310
+* add pytorch fused act by @vince62s in https://github.com/eole-nlp/eole/pull/311
+* bug fixes and optimizations by @vince62s in https://github.com/eole-nlp/eole/pull/313
+* torch.compile compliant transformer decoder + MHA - speed goes vrrrrrrmmmm by @vince62s in https://github.com/eole-nlp/eole/pull/316
+* Cudagraphs implementation along torch compile by @vince62s in https://github.com/eole-nlp/eole/pull/318
+* update benchmarks with cudagraphs by @vince62s in https://github.com/eole-nlp/eole/pull/319
+
 ## 0.4.4
 
 * refactor use of vLLM ops - optimize tensor shapes for Rope by @vince62s in https://github.com/eole-nlp/eole/pull/289

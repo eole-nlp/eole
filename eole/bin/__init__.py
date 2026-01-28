@@ -18,7 +18,6 @@ class BaseBin(object):
 
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["VLLM_LOGGING_LEVEL"] = "CRITICAL"
 AVAILABLE_BINS = {}
 
 
