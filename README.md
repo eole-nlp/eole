@@ -4,7 +4,10 @@
 
 Open language modeling toolkit based on [PyTorch](https://pytorch.org) initially spun-off of OpenNMT-py
 
-New January 2026: Almost full refactor of the code: Encoders, Decoders, Adapters, Model classes, Trainer, Distributed training / Inference.
+
+- New !!!! - Added Torch compile and Cudagraphs - as fast as vLLM / faster than CT2 on GPU. see [results](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md)
+
+- New January 2026: Almost full refactor of the code: Encoders, Decoders, Adapters, Model classes, Trainer, Distributed training / Inference.
 
 We aim to maintain the **research-friendly** approach of the original project while including latest architectures (LLMs) and various other techniques.
 Our goal is to provide a comprehensive yet compact and modular codebase for experimenting with various types of language models (encoder, decoder, seq2seq).
