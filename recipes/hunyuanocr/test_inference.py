@@ -14,7 +14,7 @@ def build_config():
         model_path=os.path.join(mydir, "HunyuanOCR"),
         src="dummy",
         self_attn_backend="flash",
-        max_length=2048,
+        max_length=4096,
         world_size=1,
         gpu_ranks=[0],
         parallel_mode="data_parallel",
@@ -97,7 +97,7 @@ def main():
 
     try:
         test_input = build_test_inputs()
-        _, _, pred = engine.infer_list(test_input, {"max_length": 2048})
+        _, _, pred = engine.infer_list(test_input)
 
         postprocess_and_print(pred, test_input)
 
