@@ -38,6 +38,8 @@ def build_predictor(config, device_id=0, report_score=True, logger=None):
 
         dynamo_config.cache_size_limit = 256  # default is 8
         dynamo_config.accumulated_cache_size_limit = 2048  # default is 256
+        dynamo_config.skip_nnmodule_hook_guards = True
+        dynamo_config.assume_static_by_default = True
 
         import torch._inductor.config as inductor_config
 
@@ -47,7 +49,6 @@ def build_predictor(config, device_id=0, report_score=True, logger=None):
         inductor_config.max_autotune = False  # default is False
         inductor_config.triton.cudagraph_skip_dynamic_graphs = False  # default is False - when True much slower
         inductor_config.force_disable_caches = False  # Keep caches enabled
-        inductor_config.freezing = False  # Enable freezing for inference - when True garbage.
 
     config.update(model=model_config)
 

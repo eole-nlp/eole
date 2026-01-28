@@ -90,7 +90,7 @@ class TransformerDecoderLayer(nn.Module):
         else:
             self._forward = self._forward_no_cross_attn
 
-        self.compiled = False
+        self.compiled_shapes = set()
         self.hidden_size = decoder_config.hidden_size
 
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
@@ -103,24 +103,25 @@ class TransformerDecoderLayer(nn.Module):
                 fullgraph=True,
                 dynamic=False,
                 options={
-                    "guard_filter_fn": lambda guards: [g.guard_type in ["TENSOR_MATCH"] for g in guards],
+                    "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
                     "triton.cudagraphs": EOLE_COMPILE_MODE == "2",
                 },
             )
-        if not self.compiled and layer_in is not None:
-            max_bs = layer_in.size(0)
-            for batch_size in range(max_bs, 0, -1):
-                cache_seqlens = cache_seqlens[:batch_size]
-                self.self_attn.cache_leftpad = self.self_attn.cache_leftpad[:batch_size]
-                self.self_attn.kcache = self.self_attn.kcache[:batch_size]
-                self.self_attn.vcache = self.self_attn.vcache[:batch_size]
-                dummy_layer_in = torch.randn(batch_size, 1, self.hidden_size, device="cuda", dtype=torch.bfloat16)
-                self._forward_compile(
-                    dummy_layer_in,
-                    position_embeddings=position_embeddings,
-                    cache_seqlens=cache_seqlens,
-                )
-            self.compiled = True
+        if layer_in is not None:
+            for B in range(layer_in.size(0), 0, -1):
+                if B not in self.compiled_shapes:
+                    # assumes that _init_cache was before warmup
+                    cache_seqlens = cache_seqlens[:B]
+                    self.self_attn.cache_leftpad = self.self_attn.cache_leftpad[:B]
+                    self.self_attn.kcache = self.self_attn.kcache[:B]
+                    self.self_attn.vcache = self.self_attn.vcache[:B]
+                    dummy_layer_in = torch.randn(B, 1, self.hidden_size, device=layer_in.device, dtype=layer_in.dtype)
+                    self._forward_compile(
+                        dummy_layer_in,
+                        position_embeddings=position_embeddings,
+                        cache_seqlens=cache_seqlens,
+                    )
+                self.compiled_shapes.add(B)
 
     def _forward_ffn_layernorm(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
         ff_in = layer_in + self.post_attention_layernorm(self_attn)
@@ -303,6 +304,7 @@ class TransformerDecoder(DecoderBase):
         self.flash = False
         self.max_length = getattr(running_config, "max_length", 1024)
         self.left_pad_attn_mask = None
+        self.position_indices = None
         self.cache_seqlens = None
         self.hidden_size = decoder_config.hidden_size
         self.compiled_shapes = set()
@@ -317,21 +319,22 @@ class TransformerDecoder(DecoderBase):
             fullgraph=True,
             dynamic=False,
             options={
-                "guard_filter_fn": lambda guards: [g.guard_type in ["TENSOR_MATCH"] for g in guards],
+                "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
                 "triton.cudagraphs": EOLE_COMPILE_MODE == "0",
             },
         )
+
         if emb is not None and tgt_pad_mask is not None:
-            B, S, _ = emb.size()
-            if (B, S) not in self.compiled_shapes:
-                self._init_cache(emb, tgt_pad_mask)
-                dummy_emb = torch.randn(B, 1, self.hidden_size, device=emb.device, dtype=emb.dtype)
-                dummy_pad_mask = torch.zeros((B, 1), dtype=torch.bool, device=emb.device).unsqueeze(1)
-                self._forward_compile(
-                    dummy_emb,
-                    tgt_pad_mask=dummy_pad_mask,
-                )
-                self.compiled_shapes.add((B, S))
+            for B in range(emb.size(0), 0, -1):
+                if B not in self.compiled_shapes:
+                    self._init_cache(emb[:B], tgt_pad_mask[:B])
+                    dummy_emb = torch.randn(B, 1, self.hidden_size, device=emb.device, dtype=emb.dtype)
+                    dummy_pad_mask = torch.zeros((B, 1), dtype=torch.bool, device=emb.device).unsqueeze(1)
+                    self._forward_compile(
+                        dummy_emb,
+                        tgt_pad_mask=dummy_pad_mask,
+                    )
+                    self.compiled_shapes.add(B)
 
     def init_state(self, **kwargs):
         """Initialize decoder state."""
@@ -360,7 +363,7 @@ class TransformerDecoder(DecoderBase):
     def _causal_attn_mask(self, tgt_pad_mask, prefix_len=None):
         B, _, seq_len = tgt_pad_mask.size()
         device = tgt_pad_mask.device
-        MAX_T = self.max_length + seq_len
+        MAX_T = self.max_length
 
         # Add triangular future_mask and pad_mask, result mask in (B, T, T).
         future_mask = torch.tril(
@@ -401,7 +404,7 @@ class TransformerDecoder(DecoderBase):
 
         # Compare each token to each token
         token_type_mask = token_type_ids.unsqueeze(1) == token_type_ids.unsqueeze(2)  # (B, seq_len, seq_len)
-        token_type_mask[token_type_ids == 0, :] = False
+        token_type_mask[token_type_ids == 0] = False
 
         # Expand to attn_mask shape (B, 1, seq_len, MAX_T)
         full_mask = torch.zeros((B, 1, seq_len, MAX_T), dtype=torch.bool, device=device)
@@ -413,12 +416,8 @@ class TransformerDecoder(DecoderBase):
 
     def forward(self, emb, **kwargs):
         B, S, _ = emb.size()
-        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"]:
-            if S > 1:
-                self.initial_bs = B
-                return self._forward_eager(emb, **kwargs)
-            if B == self.initial_bs:
-                return self._forward_compile(emb, **kwargs)
+        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and S == 1:
+            return self._forward_compile(emb, **kwargs)
         return self._forward_eager(emb, **kwargs)
 
     def _forward_eager(self, emb, **kwargs):
@@ -506,6 +505,7 @@ class TransformerDecoder(DecoderBase):
                 if image_locations is not None:
                     attn_mask = self._update_causal_mask(attn_mask, image_locations)
             else:
+                # at decoding _init_cache must be called and init these
                 valid = self.position_indices <= self.cache_seqlens.view(-1, 1)
                 valid = valid & self.left_pad_attn_mask
                 if self.sliding_window > 0:
@@ -579,8 +579,7 @@ class TransformerDecoder(DecoderBase):
         # This boolean tensor tells us if left-padding actually exists.
         is_left_padded = pad_mask[:, 0, 0]
         cache_leftpad = torch.where(is_left_padded, left_pad_counts, 0)
-        total_seq_len = self.max_length + pad_mask.size(2)
-        self.position_indices = torch.arange(total_seq_len, device=device).unsqueeze(0)
+        self.position_indices = torch.arange(self.max_length, device=device).unsqueeze(0)
         # If cache_leftpad is 0, this mask will effectively do nothing
         self.left_pad_attn_mask = self.position_indices >= cache_leftpad.view(-1, 1)
         self.cache_seqlens = torch.zeros((b,), device=device, dtype=torch.int32)
@@ -588,8 +587,8 @@ class TransformerDecoder(DecoderBase):
         for layer in self.transformer_layers:
             heads_kv = layer.self_attn.heads_kv
             dph = layer.self_attn.dim_per_head
-            layer.self_attn.kcache = torch.zeros((b, l + self.max_length, heads_kv, dph), dtype=dtype, device=device)
-            layer.self_attn.vcache = torch.zeros((b, l + self.max_length, heads_kv, dph), dtype=dtype, device=device)
+            layer.self_attn.kcache = torch.zeros((b, self.max_length, heads_kv, dph), dtype=dtype, device=device)
+            layer.self_attn.vcache = torch.zeros((b, self.max_length, heads_kv, dph), dtype=dtype, device=device)
             layer.self_attn.cache_leftpad = cache_leftpad
             layer.self_attn.causal = True
             if layer.context_attn:

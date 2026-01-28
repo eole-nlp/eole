@@ -320,7 +320,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 query.transpose(1, 2),
                 key.transpose(1, 2),
                 value.transpose(1, 2),
-                attn_mask=attn_mask,
+                attn_mask=attn_mask[..., : key.size(1)],
                 dropout_p=self.dropout_p,
                 scale=self.scale,
             ).transpose(1, 2)
@@ -371,8 +371,8 @@ class MultiHeadedAttention(torch.nn.Module):
                 if len(attn_mask.size()) == 2:
                     attn_mask = attn_mask[None, None, :, :]
                 # not 100% necessary but expand to nb of heads
-                print(attn_mask.size(), scores.size())
-                attn_mask = attn_mask[:, :, :, : scores.size(3)].expand(-1, self.heads // self.parallel_gpu, -1, -1)
+                # since now last dim of mask if max_length we need to slice
+                attn_mask = attn_mask[..., : scores.size(3)].expand(-1, self.heads // self.parallel_gpu, -1, -1)
 
                 # now mask and scores have the same shape
                 scores = scores.masked_fill(~attn_mask, torch.finfo(scores.dtype).min)

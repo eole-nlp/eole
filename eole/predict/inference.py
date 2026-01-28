@@ -692,14 +692,6 @@ class Inference(object):
         if step == 0:
             self.model.decoder._init_cache(emb, tgt_pad_mask)
 
-        """
-        print(step)
-        def debug_tensor(t, name):
-            print(f"{name}: shape={tuple(t.shape)}, " f"stride={t.stride()}, " f"contiguous={t.is_contiguous()}")
-
-        debug_tensor(emb, "emb")
-        """
-
         dec_out, dec_attn = self.model.decoder(
             emb,
             enc_out=enc_out,
