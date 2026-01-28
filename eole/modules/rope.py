@@ -6,9 +6,6 @@ from typing import Tuple, List
 from eole.constants import PositionEncodingType
 
 from eole.ops import _CPP_OPS_AVAILABLE, rotary_embedding
-from eole import EOLE_TORCH_COMPILE
-
-use_ops = _CPP_OPS_AVAILABLE and not EOLE_TORCH_COMPILE
 
 
 class NoOpPosition:
@@ -85,7 +82,7 @@ def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bo
 
     B, S, H, D = query.shape
 
-    if use_ops and query.device.type == "cuda":
+    if _CPP_OPS_AVAILABLE and not torch.compiler.is_compiling():
         num_tok = B * S
         query_ = query.view(num_tok, -1, D)
         key_ = key.view(num_tok, -1, D)

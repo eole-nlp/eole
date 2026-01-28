@@ -5,6 +5,7 @@ from eole.constants import ModelType
 from eole.predict.greedy_search import GreedySearchLM
 from eole.predict.beam_search import BeamSearchLM
 from eole.utils.misc import tile
+from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
 from time import time
 
 
@@ -23,7 +24,8 @@ class GeneratorLM(Inference):
 
     def predict_batch(self, batch, attn_debug, scoring=False):
         """Predict a batch of sentences."""
-        max_length = 0 if scoring else self.max_length
+        batch_size = batch["srclen"].size(0)
+        max_length = 0 if scoring else self.max_length - batch["srclen"].max()
         with torch.no_grad():
             if self.top_k != 0 or self.top_p != 0:
                 decode_strategy = GreedySearchLM(
@@ -33,7 +35,7 @@ class GeneratorLM(Inference):
                     unk=self._tgt_unk_idx,
                     start=self._tgt_start_with,
                     n_best=self.n_best,
-                    batch_size=len(batch["srclen"]),
+                    batch_size=batch_size,
                     global_scorer=self.global_scorer,
                     min_length=self.min_length,
                     max_length=max_length,
@@ -52,7 +54,7 @@ class GeneratorLM(Inference):
                 assert not self.dump_beam
                 decode_strategy = BeamSearchLM(
                     self.beam_size,
-                    batch_size=len(batch["srclen"]),
+                    batch_size=batch_size,
                     pad=self._tgt_pad_idx,
                     bos=self._tgt_bos_idx,
                     eos=self._tgt_eos_idx,
@@ -125,8 +127,34 @@ class GeneratorLM(Inference):
             target_prefix=target_prefix,
         )
         prefill_length = max(src_len.tolist())
+
+        # (4) warmup for Torch compile
+        # use the current batch to generate the decode graph (B, 1)
+        # we need proper set up to run the forward pass of the decoder or decoder layer
+        if EOLE_TORCH_COMPILE:
+            start_wu = time()
+            self._log("Warmup started")
+            images = batch.get("images", None)
+            if images is not None:
+                emb, _ = self.model.embed_vision_language_features(src, images=images)
+            else:
+                emb = self.model.tgt_emb(src, step=0)
+            tgt_pad_mask = src.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+            if EOLE_COMPILE_MODE in ["0", "1"]:
+                self.model.decoder._compile_decoder(emb, tgt_pad_mask)
+            elif EOLE_COMPILE_MODE in ["2", "3"]:
+                self.model.decoder._init_cache(emb, tgt_pad_mask)
+                current_step = self.model.decoder.cache_seqlens[0]
+                pos_ids_1d = current_step + torch.arange(1, device=emb.device)
+                position_embeddings = self.model.decoder.rope.cos_sin[pos_ids_1d]
+                self.model.decoder.transformer_layers[0]._compile_decoder(
+                    emb, position_embeddings=position_embeddings, cache_seqlens=self.model.decoder.cache_seqlens
+                )
+            self.warmup_time.append(time() - start_wu)
+            self._log(f"Warmup lasted: {time() - start_wu:.1f} sec")
+
         if not self.estim_only:
-            # (4) Begin decoding step by step:
+            # (5) Begin decoding step by step:
             if self.report_time:
                 torch.cuda.synchronize()
                 beg_time = time()

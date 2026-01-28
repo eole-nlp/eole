@@ -320,7 +320,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 query.transpose(1, 2),
                 key.transpose(1, 2),
                 value.transpose(1, 2),
-                attn_mask=attn_mask,
+                attn_mask=attn_mask[..., : key.size(1)],
                 dropout_p=self.dropout_p,
                 scale=self.scale,
             ).transpose(1, 2)
@@ -371,7 +371,9 @@ class MultiHeadedAttention(torch.nn.Module):
                 if len(attn_mask.size()) == 2:
                     attn_mask = attn_mask[None, None, :, :]
                 # not 100% necessary but expand to nb of heads
-                attn_mask = attn_mask.expand(-1, self.heads // self.parallel_gpu, -1, -1)
+                # since now last dim of mask if max_length we need to slice
+                attn_mask = attn_mask[..., : scores.size(3)].expand(-1, self.heads // self.parallel_gpu, -1, -1)
+
                 # now mask and scores have the same shape
                 scores = scores.masked_fill(~attn_mask, torch.finfo(scores.dtype).min)
 
@@ -414,7 +416,7 @@ class SelfMHA(MultiHeadedAttention):
         key: Tensor,
         value: Tensor,
         cache_seqlens: Tensor,
-        cache_slice: Tuple[Tensor, Tensor],
+        cache_slice: Tensor,
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Compile-friendly cache update without graph breaks.
@@ -423,21 +425,13 @@ class SelfMHA(MultiHeadedAttention):
           prefill: (B, S, H, D)
           decode:  (B, 1, H, D)
         cache_seqlens: (B,) - current position for each sequence (assumed uniform)
+        cache_slice: tensor of position indices to update
         """
-        B, S, H, D = key.shape
-        device = key.device
 
-        # Create index range: [step, step+1, ..., step+S-1]
-        indices = cache_seqlens[0] + torch.arange(S, device=device)  # (S,)
-        # Expand for all batch items and heads: (S,) -> (B, S, H, D)
-        indices_expanded = indices[None, :, None, None].expand(B, -1, H, D)
+        self.kcache[:, cache_slice, :, :] = key
+        self.vcache[:, cache_slice, :, :] = value
 
-        self.kcache.scatter_(1, indices_expanded, key)
-        self.vcache.scatter_(1, indices_expanded, value)
-
-        start_pos, end_pos = cache_slice
-
-        return (self.kcache[:, start_pos:end_pos, :, :], self.vcache[:, start_pos:end_pos, :, :], query)
+        return (self.kcache, self.vcache, query)
 
     def forward(
         self,

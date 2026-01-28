@@ -337,6 +337,7 @@ class Inference(object):
 
         start_time = time()
         self.step0_time = []
+        self.warmup_time = []
 
         def _maybe_retranslate(translations, batch):
             """Here we handle the cases of mismatch in number of segments
@@ -552,7 +553,8 @@ class Inference(object):
         if self.report_time:
             total_time = end_time - start_time
             step0 = sum(self.step0_time)
-            decoding_time = total_time - step0
+            warmup = sum(self.warmup_time)
+            decoding_time = total_time - step0 - warmup
             if step0 != 0:
                 self._log("Step 0 time (s): %.2f" % step0)
                 self._log("Enc/Step 0 tokens / sec: %.1f" % (src_tokens / step0))

@@ -188,7 +188,7 @@ class Embeddings(nn.Module):
             emb = self.pe(emb, step)
 
         if self.normalize:
-            normalizer = torch.tensor(self.word_vec_size**0.5, dtype=emb.dtype)
+            normalizer = torch.tensor(self.word_vec_size**0.5, dtype=emb.dtype, device=emb.device)
             emb = emb * normalizer
 
         if self.dropout_p > 0:

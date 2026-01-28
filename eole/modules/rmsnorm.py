@@ -3,9 +3,6 @@
 import torch
 import torch.nn as nn
 from eole.ops import _CPP_OPS_AVAILABLE, rms_norm
-from eole import EOLE_TORCH_COMPILE
-
-use_ops = _CPP_OPS_AVAILABLE and not EOLE_TORCH_COMPILE
 
 
 class RMSNormFunc(torch.autograd.Function):
@@ -92,7 +89,7 @@ class RMSNorm(torch.nn.Module):
         self.weight = nn.Parameter(torch.empty(hidden_size))
 
     def forward(self, hidden_states):
-        if use_ops:
+        if _CPP_OPS_AVAILABLE and not torch.compiler.is_compiling():
             if self.training:
                 return RMSNormFunc.apply(hidden_states, self.weight, self.eps, False)
             else:
@@ -112,7 +109,7 @@ class RMSNorm(torch.nn.Module):
 class GemmaRMSNorm(RMSNorm):
 
     def forward(self, hidden_states):
-        if use_ops:
+        if _CPP_OPS_AVAILABLE and not torch.compiler.is_compiling():
             if self.training:
                 return RMSNormFunc.apply(hidden_states, self.weight, self.eps, True)
             else:

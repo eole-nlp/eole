@@ -109,9 +109,6 @@ def main():
 
     try:
         test_input = build_test_inputs()
-        print("######################## first pass - full warm up #####################")
-        _, _, pred = engine.infer_list(test_input)
-        print("######################## first pass - actual run #######################")
         _, _, pred = engine.infer_list(test_input)
 
         postprocess_and_print(pred, test_input)

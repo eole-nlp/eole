@@ -34,15 +34,21 @@ def build_predictor(config, device_id=0, report_score=True, logger=None):
         model, vocabs, model_config = model_class.for_inference(config, device_id)
 
     if EOLE_TORCH_COMPILE:
-        import torch
+        import torch._dynamo.config as dynamo_config
 
-        # torch._inductor.config.triton.cudagraph_skip_dynamic_graphs = True
-        torch._dynamo.config.cache_size_limit = 128
+        dynamo_config.cache_size_limit = 256  # default is 8
+        dynamo_config.accumulated_cache_size_limit = 2048  # default is 256
+        dynamo_config.skip_nnmodule_hook_guards = True
+        dynamo_config.assume_static_by_default = True
+
         import torch._inductor.config as inductor_config
 
-        inductor_config.fx_graph_cache = True
-        # inductor_config.max_autotune = False
-        # model.decoder = torch.compile(model.decoder, dynamic=True, fullgraph=True)
+        inductor_config.compile_threads = 24  # default is 24
+        inductor_config.fx_graph_cache = True  # default is True
+        inductor_config.unsafe_skip_cache_dynamic_shape_guards = True  # default is False - much faster compilation
+        inductor_config.max_autotune = False  # default is False
+        inductor_config.triton.cudagraph_skip_dynamic_graphs = False  # default is False - when True much slower
+        inductor_config.force_disable_caches = False  # Keep caches enabled
 
     config.update(model=model_config)
 
