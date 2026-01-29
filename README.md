@@ -2,24 +2,27 @@
 
 [![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://eole-nlp.github.io/eole)
 
-Open language modeling toolkit based on [PyTorch](https://pytorch.org) initially spun-off of OpenNMT-py
+Open language modeling toolkit based on [PyTorch](https://pytorch.org)  (initially spun-off of OpenNMT-py)
 
 
-- New !!!! - Added Torch compile and Cudagraphs - as fast as vLLM / faster than CT2 on GPU. see [results](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md)
+## New !!!! - Added Torch compile and Cudagraphs - as fast as vLLM / faster than CT2 on GPU. see [results](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md)
 
 Just reproduce with your own hardware:
 ```
 git clone https://github.com/eole-nlp/eole
 cd eole
 pip install -e .
+export EOLE_MODEL_DIR=<where_to_store_models>
+export HF_TOKEN=<your_hf_token>
+eole convert HF --model_dir "google/gemma-3-1b-it" --output $EOLE_MODEL_DIR/gemma-3-1b-it --token $HF_TOKEN
 cd benchmarks/genai
 EOLE_TORCH_COMPILE="1" EOLE_COMPILE_MODE="0" python generate-eole.py
 ```
-First run will take 60-80 seconds to compile
-Run it a second time and see the blast.
+- First run will take 60-80 seconds to compile
+- Run it a second time and see the blast.
+- To accomplish this we performed a full refactor of the code: Encoders, Decoders, Adapters, Model classes, Trainer, Distributed training / Inference.
 
-
-- New January 2026: Almost full refactor of the code: Encoders, Decoders, Adapters, Model classes, Trainer, Distributed training / Inference.
+[readmore](https://github.com/eole-nlp/eole/blob/main/TORCHCOMPILE_README.md)
 
 We aim to maintain the **research-friendly** approach of the original project while including latest architectures (LLMs) and various other techniques.
 Our goal is to provide a comprehensive yet compact and modular codebase for experimenting with various types of language models (encoder, decoder, seq2seq).
@@ -39,7 +42,8 @@ Of course you can train your own architecture (Decoder only, Encoder Only, or En
 
 ## Latest developments
 
-- **high inference speed** using Flash Attention (decoding with in-place KVCache), Vllm RMSNorm kernel, fused MLP Gate / activation, fused KVQ Linear.
+- **torch.compile compliant** amazing inference speed (vLLM level)
+- **high inference speed** using Flash Attention (decoding with in-place KVCache), Cuda kernels for RMSNorm, Rope, Activations - Triton very fast MoE, fused MLP Gate, fused KVQ Linear.
 - **prefixLM + split prompt/answer in src/tgt** optional method to feed your data
 - **Pure-BF16 Training** thanks to [Kahan Summation](https://arxiv.org/pdf/2010.06192) implemented [here](https://optimi.benjaminwarner.dev/kahan_summation/)
 - **Web-based (Google translator-like) interface** featuring the latest Hunyuan-MT-7B or EuroLLM-8B-Instruct LLM
