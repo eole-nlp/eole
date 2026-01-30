@@ -71,7 +71,7 @@ class BeamSearchBase(DecodeStrategy):
         self._cov_pen = self.global_scorer.has_cov_pen
 
         self.src_len = None
-        
+
         # NEW: Track which batches are completely finished
         self.batch_finished = None  # Shape: (batch_size,) boolean tensor
 
@@ -93,25 +93,16 @@ class BeamSearchBase(DecodeStrategy):
             .repeat(self._initial_batch_size)
             .reshape(self._initial_batch_size, self.beam_size)
         )
-        
+
         # buffers for the topk scores and 'backpointer'
-        self.topk_scores = torch.empty(
-            (self._initial_batch_size, self.beam_size), 
-            dtype=torch.float, 
-            device=device
-        )
-        
+        self.topk_scores = torch.empty((self._initial_batch_size, self.beam_size), dtype=torch.float, device=device)
+
         # NEW: Initialize finished tracking
-        self.batch_finished = torch.zeros(
-            self._initial_batch_size, 
-            dtype=torch.bool, 
-            device=device
-        )
-        
+        self.batch_finished = torch.zeros(self._initial_batch_size, dtype=torch.bool, device=device)
+
         # MPS doesn't support torch.isin() in Torch 2.3
         self._is_finished_list = (
-            self._is_finished_list_mps if (device is not None and device.type == "mps") 
-            else self._is_finished_list_isin
+            self._is_finished_list_mps if (device is not None and device.type == "mps") else self._is_finished_list_isin
         )
 
     @property
@@ -134,11 +125,11 @@ class BeamSearchBase(DecodeStrategy):
 
         # Flatten probs into a list of possibilities.
         curr_scores = log_probs.reshape(-1, self.beam_size * vocab_size)
-        
+
         # NEW: Mask out finished batches - set their scores to -inf
         # so they don't affect topk selection
         batch_finished_expanded = self.batch_finished.unsqueeze(1).expand_as(curr_scores)
-        curr_scores = curr_scores.masked_fill(batch_finished_expanded, float('-inf'))
+        curr_scores = curr_scores.masked_fill(batch_finished_expanded, float("-inf"))
 
         topk_scores, topk_ids = torch.topk(curr_scores, self.beam_size, dim=-1)
 
@@ -147,29 +138,27 @@ class BeamSearchBase(DecodeStrategy):
     def update_finished(self):
         """Update finished state without removing batches."""
         step = self.alive_seq.shape[-1]
-        
+
         # Mask finished beams to prevent reactivation
         self.topk_log_probs.masked_fill_(
             torch.tensor(self.is_finished_list, device=self.topk_log_probs.device),
-            float('-inf'),
+            float("-inf"),
         )
-        
+
         predictions = self.alive_seq.view(self._initial_batch_size, self.beam_size, step)
         attention = (
-            self.alive_attn.view(
-                self._initial_batch_size, self.beam_size, step - 1, self.alive_attn.size(-1)
-            )
+            self.alive_attn.view(self._initial_batch_size, self.beam_size, step - 1, self.alive_attn.size(-1))
             if self.alive_attn is not None
             else None
         )
 
         topk_scores_list = self.topk_scores.tolist()
-        
+
         # Process each batch - same structure as original beams_non_finished
         for i in range(self._initial_batch_size):
             if self.batch_finished[i]:
                 continue
-                
+
             if any(self.is_finished_list[i]):
                 # Store finished hypotheses for this batch
                 for j in [k for k, fin in enumerate(self.is_finished_list[i]) if fin]:
@@ -180,8 +169,7 @@ class BeamSearchBase(DecodeStrategy):
                         (
                             topk_scores_list[i][j],
                             predictions[i, j, 1:],
-                            attention[i, j, :, self.src_len[i * self.beam_size]] 
-                            if attention is not None else None,
+                            attention[i, j, :, self.src_len[i * self.beam_size]] if attention is not None else None,
                         )
                     )
 
@@ -213,23 +201,21 @@ class BeamSearchBase(DecodeStrategy):
 
         if self._stepwise_cov_pen and self._prev_penalty is not None:
             self.topk_log_probs += self._prev_penalty
-            self.topk_log_probs -= self.global_scorer.cov_penalty(
-                self._coverage + attn, self.global_scorer.beta
-            ).view(_B, self.beam_size)
+            self.topk_log_probs -= self.global_scorer.cov_penalty(self._coverage + attn, self.global_scorer.beta).view(
+                _B, self.beam_size
+            )
 
         # force the output to be longer than self.min_length
         step = len(self)
         self.ensure_min_length(log_probs)
         self.ensure_unk_removed(log_probs)
-        
+
         # Multiply probs by the beam probability.
         log_probs += self.topk_log_probs.view(_B * self.beam_size, 1)
 
         # if the sequence ends now, then the penalty is the current
         # length + 1, to include the EOS token
-        length_penalty = self.global_scorer.length_penalty(
-            step + 1, alpha=self.global_scorer.alpha
-        )
+        length_penalty = self.global_scorer.length_penalty(step + 1, alpha=self.global_scorer.alpha)
         if length_penalty != 1:
             curr_scores = log_probs / length_penalty
         else:
@@ -275,9 +261,7 @@ class BeamSearchBase(DecodeStrategy):
 
         if self._vanilla_cov_pen:
             # shape: (batch_size x beam_size, 1)
-            cov_penalty = self.global_scorer.cov_penalty(
-                self._coverage, beta=self.global_scorer.beta
-            )
+            cov_penalty = self.global_scorer.cov_penalty(self._coverage, beta=self.global_scorer.beta)
             self.topk_scores -= cov_penalty.view(_B, self.beam_size).float()
 
         self.is_finished_list = self._is_finished_list()
@@ -300,9 +284,7 @@ class BeamSearch(BeamSearchBase):
         Repeat src objects `beam_size` times.
         """
 
-        (fn_tile, enc_out, target_prefix) = self.initialize_tile(
-            enc_out, src_len, target_prefix
-        )
+        (fn_tile, enc_out, target_prefix) = self.initialize_tile(enc_out, src_len, target_prefix)
         if device is None:
             device = self.get_device_from_enc_out(enc_out)
 
@@ -362,9 +344,7 @@ class GNMTGlobalScorer(object):
 
     @classmethod
     def from_config(cls, config):
-        return cls(
-            config.alpha, config.beta, config.length_penalty, config.coverage_penalty
-        )
+        return cls(config.alpha, config.beta, config.length_penalty, config.coverage_penalty)
 
     def __init__(self, alpha, beta, length_penalty, coverage_penalty):
         self._validate(alpha, beta, length_penalty, coverage_penalty)
@@ -385,20 +365,13 @@ class GNMTGlobalScorer(object):
         # forces a penalty to be a no-op, or a penalty is a no-op but
         # the alpha/beta would suggest otherwise.
         if length_penalty is not None and alpha == 0.0:
-            warnings.warn(
-                "Using length penalty with alpha==0 "
-                "is equivalent to using length penalty none."
-            )
+            warnings.warn("Using length penalty with alpha==0 " "is equivalent to using length penalty none.")
         if coverage_penalty is None or coverage_penalty == "none":
             if beta != 0:
-                warnings.warn(
-                    "Non-default `beta` with no coverage penalty. "
-                    "`beta` has no effect."
-                )
+                warnings.warn("Non-default `beta` with no coverage penalty. " "`beta` has no effect.")
         else:
             # using some coverage penalty
             if beta == 0.0:
                 warnings.warn(
-                    "Non-default coverage penalty with beta==0 "
-                    "is equivalent to using coverage penalty none."
+                    "Non-default coverage penalty with beta==0 " "is equivalent to using coverage penalty none."
                 )

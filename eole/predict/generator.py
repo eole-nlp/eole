@@ -87,7 +87,6 @@ class GeneratorLM(Inference):
     def tile_to_beam_size_after_initial_step(self, fn_tile, log_probs):
         if fn_tile is not None:
             log_probs = fn_tile(log_probs)
-            self.model.decoder.map_state(fn_tile)
             log_probs = log_probs[:, -1, :]
         return log_probs
 
@@ -179,7 +178,7 @@ class GeneratorLM(Inference):
                     decode_strategy.update_finished()
                     if decode_strategy.done:
                         break
-                
+
                 if self.report_time and step == 0:
                     torch.cuda.synchronize()
                     self.step0_time.append(time() - beg_time)
