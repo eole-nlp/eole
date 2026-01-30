@@ -167,6 +167,8 @@ class GreedySearch(DecodeStrategy):
         else:
             self.num_hyp = self.n_best
 
+        self.sequence_finished = None  # (batch_size * beam_size,) boolean tensor
+
     def initialize(self, enc_out, src_len, device=None, target_prefix=None):
         """Initialize for decoding."""
         (fn_tile, enc_out, target_prefix) = self.initialize_tile(enc_out, src_len, target_prefix)
@@ -175,9 +177,14 @@ class GreedySearch(DecodeStrategy):
 
         self.eos_t = torch.tensor(self.eos).to(device)
         super(GreedySearch, self).initialize(device, target_prefix)
-        self.select_indices = torch.arange(self.batch_size * self.beam_size, dtype=torch.long, device=device)
-        self.original_batch_idx = fn_tile(torch.arange(self.batch_size, dtype=torch.long, device=device))
+
         self.beams_scores = torch.zeros((self.batch_size * self.beam_size, 1), dtype=torch.float, device=device)
+        self.sequence_finished = torch.zeros(
+            self.batch_size * self.beam_size,
+            dtype=torch.bool,
+            device=device
+        )
+        
         # MPS doesn't support torch.isin() in Torch 2.3
         # Avoiding need to CPU fallback by adding alternative implementation
         # Can be removed when Torch 2.4 is supported
@@ -190,10 +197,6 @@ class GreedySearch(DecodeStrategy):
     def current_predictions(self):
         return self.alive_seq[:, -1]
 
-    @property
-    def batch_offset(self):
-        return self.select_indices
-
     def _pick(self, log_probs):
         """Function used to pick next tokens.
 
@@ -202,18 +205,13 @@ class GreedySearch(DecodeStrategy):
         """
         # maybe fix some prediction at this step by modifying log_probs
         log_probs = self.target_prefixing(log_probs)
+        
+        sequence_finished_expanded = self.sequence_finished.unsqueeze(1).expand_as(log_probs)
+        log_probs = log_probs.masked_fill(sequence_finished_expanded, float('-inf'))
+        
         topk_ids, topk_scores = sample_with_temperature(log_probs, self.temperature, self.top_k, self.top_p)
 
         return topk_ids, topk_scores
-
-    def align_select_indices(self):
-        nb_finished_beams = len(self.is_finished_list) - self.select_indices.size(0)
-        if nb_finished_beams:
-            self.select_indices = torch.arange(
-                self.select_indices.size(0),
-                dtype=torch.long,
-                device=self.select_indices.device,
-            )
 
     def advance(self, log_probs, attn):
         """Select next tokens randomly from the top k possible next tokens.
@@ -227,14 +225,16 @@ class GreedySearch(DecodeStrategy):
                 to 1.)
             attn (FloatTensor): Shaped ``(1, B, inp_seq_len)``.
         """
-        self.align_select_indices()
-
         self.ensure_min_length(log_probs)
         self.ensure_unk_removed(log_probs)
         self.block_ngram_repeats(log_probs)
 
         topk_ids, self.topk_scores = self._pick(log_probs)
-        self.beams_scores += self.topk_scores
+        self.beams_scores = torch.where(
+            self.sequence_finished.unsqueeze(1),
+            self.beams_scores,  # Keep old score
+            self.beams_scores + self.topk_scores  # Add new score
+        )
 
         self.is_finished_list = torch.isin(topk_ids, self.eos_t).tolist()
 
@@ -250,10 +250,17 @@ class GreedySearch(DecodeStrategy):
         """Finalize scores and predictions."""
         # shape: (sum(~ self.is_finished), 1)
         step = len(self)
-        non_finished_batch = [b for b, fin in enumerate(self.is_finished_list) if not fin[0]]
+        
         length_penalty = self.global_scorer.length_penalty(step, alpha=self.global_scorer.alpha)
         for b in [i for i, fin in enumerate(self.is_finished_list) if fin[0]]:
-            b_orig = self.original_batch_idx[b]
+        
+            if self.sequence_finished[b]:
+                # Already processed this sequence
+                continue
+            
+            # Mark as finished
+            self.sequence_finished[b] = True
+        
             score = self.beams_scores[b, 0] / length_penalty
             pred = self.alive_seq[b, 1:]
             attention = (
@@ -265,8 +272,8 @@ class GreedySearch(DecodeStrategy):
                 if self.alive_attn is not None
                 else []
             )
-            self.hypotheses[b_orig].append((score, pred, attention))
-        self.done = len(non_finished_batch) == 0
+            self.hypotheses[b].append((score, pred, attention))
+        self.done = self.sequence_finished.all().item()
         if self.done:
             for b in range(self.batch_size):
                 best_hyp = sorted(self.hypotheses[b], key=lambda x: x[0], reverse=True)[: self.num_hyp]
@@ -275,14 +282,6 @@ class GreedySearch(DecodeStrategy):
                     self.predictions[b].append(pred)
                     self.attention[b].append(attn)
             return
-        self.select_indices = torch.tensor(non_finished_batch, device=self.alive_seq.device)
-        self.alive_seq = self.alive_seq[self.select_indices]
-        self.beams_scores = self.beams_scores[self.select_indices]
-        self.src_len = self.src_len[self.select_indices]
-        if self.alive_attn is not None:
-            self.alive_attn = self.alive_attn[self.select_indices]
-        self.original_batch_idx = self.original_batch_idx[self.select_indices]
-        self.maybe_update_target_prefix(self.select_indices)
 
     def _is_finished_list_isin(self):
         return torch.isin(self.topk_ids, self.eos_t).tolist()

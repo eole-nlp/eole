@@ -231,7 +231,7 @@ class DecodeStrategy(object):
             if forbidden_tokens is not None:
                 log_probs[path_idx, list(forbidden_tokens)] = -10e20
 
-    def maybe_update_forbidden_tokens(self):
+    def maybe_update_forbidden_tokens(self, select_indices):
         """We complete and reorder the list of forbidden_tokens"""
 
         # we don't forbid nothing if the user doesn't want it
@@ -245,7 +245,7 @@ class DecodeStrategy(object):
         n = self.block_ngram_repeat
 
         forbidden_tokens = list()
-        for path_idx, seq in zip(self.select_indices, self.alive_seq):
+        for path_idx, seq in zip(select_indices, self.alive_seq):
             # Reordering forbidden_tokens following beam selection
             # We rebuild a dict to ensure we get the value and not the pointer
             forbidden_tokens.append(deepcopy(self.forbidden_tokens[path_idx]))

@@ -5,10 +5,47 @@ import warnings
 
 
 class BeamSearchBase(DecodeStrategy):
-    """Generation beam search with constant batch size for torch.compile.
+    """Generation beam search.
 
-    Modified to maintain constant batch_size * beam_size throughout decoding
-    by using masking instead of removing finished batches.
+    Note that the attributes list is not exhaustive. Rather, it highlights
+    tensors to document their shape. (Since the state variables' "batch"
+    size decreases as beams finish, we denote this axis with a B rather than
+    ``batch_size``).
+
+    Args:
+        beam_size (int): Number of beams to use (see base ``parallel_paths``).
+        batch_size (int): See base.
+        pad (int): See base.
+        bos (int): See base.
+        eos (int): See base.
+        unk (int): See base.
+        start (int): See base.
+        n_best (int): Don't stop until at least this many beams have
+            reached EOS.
+        global_scorer (eole.predict.GNMTGlobalScorer): Scorer instance.
+        min_length (int): See base.
+        max_length (int): See base.
+        return_attention (bool): See base.
+        block_ngram_repeat (int): See base.
+        exclusion_tokens (set[int]): See base.
+
+    Attributes:
+        alive_seq (LongTensor): See base.
+        topk_log_probs (FloatTensor): Shape ``(B, beam_size,)``. These
+            are the scores used for the topk operation.
+        src_len (LongTensor): Lengths of encodings. Used for
+            masking attentions.
+        topk_scores (FloatTensor): Shape
+            ``(B, beam_size)``. These are the
+            scores a sequence will receive if it finishes.
+        topk_ids (LongTensor): Shape ``(B, beam_size)``. These are the
+            word indices of the topk predictions.
+        _prev_penalty (FloatTensor or NoneType): Shape
+            ``(B, beam_size)``. Initialized to ``None``.
+        _coverage (FloatTensor or NoneType): Shape
+            ``(1, B x beam_size, inp_seq_len)``.
+        hypotheses (list[list[Tuple[Tensor]]]): Contains a tuple
+            of score (float), sequence (long), and attention (float or None).
     """
 
     def __init__(
@@ -58,8 +95,8 @@ class BeamSearchBase(DecodeStrategy):
         else:
             self.num_hyp = self.n_best
 
-        # beam state
-        self._initial_batch_size = batch_size  # Store original batch size
+        self.batch_finished = None  # (batch_size,) boolean tensor
+        self._beam_offset = None
 
         self.done = False
         # "global state" of the old beam
@@ -72,33 +109,32 @@ class BeamSearchBase(DecodeStrategy):
 
         self.src_len = None
 
-        # NEW: Track which batches are completely finished
-        self.batch_finished = None  # Shape: (batch_size,) boolean tensor
+
 
     def initialize(self, *args, **kwargs):
         raise NotImplementedError
 
     def initialize_(self, enc_out, device, target_prefix):
         super(BeamSearchBase, self).initialize(device, target_prefix)
-        self.best_scores = [-1e10 for _ in range(self._initial_batch_size)]
+        self.best_scores = [-1e10 for _ in range(self.batch_size)]
         self._beam_offset = torch.arange(
             0,
-            self._initial_batch_size * self.beam_size,
+            self.batch_size * self.beam_size,
             step=self.beam_size,
             dtype=torch.long,
             device=device,
         )
         self.topk_log_probs = (
             torch.tensor([0.0] + [float("-inf")] * (self.beam_size - 1), device=device)
-            .repeat(self._initial_batch_size)
-            .reshape(self._initial_batch_size, self.beam_size)
+            .repeat(self.batch_size)
+            .reshape(self.batch_size, self.beam_size)
         )
 
         # buffers for the topk scores and 'backpointer'
-        self.topk_scores = torch.empty((self._initial_batch_size, self.beam_size), dtype=torch.float, device=device)
+        self.topk_scores = torch.empty((self.batch_size, self.beam_size), dtype=torch.float, device=device)
 
-        # NEW: Initialize finished tracking
-        self.batch_finished = torch.zeros(self._initial_batch_size, dtype=torch.bool, device=device)
+        # Initialize finished tracking
+        self.batch_finished = torch.zeros(self.batch_size, dtype=torch.bool, device=device)
 
         # MPS doesn't support torch.isin() in Torch 2.3
         self._is_finished_list = (
@@ -108,6 +144,10 @@ class BeamSearchBase(DecodeStrategy):
     @property
     def current_predictions(self):
         return self.alive_seq[:, -1]
+
+    @property
+    def batch_offset(self):
+        return self._beam_offset
 
     def _pick(self, log_probs):
         """Take a token pick decision for a step.
@@ -126,7 +166,7 @@ class BeamSearchBase(DecodeStrategy):
         # Flatten probs into a list of possibilities.
         curr_scores = log_probs.reshape(-1, self.beam_size * vocab_size)
 
-        # NEW: Mask out finished batches - set their scores to -inf
+        # Mask out finished batches - set their scores to -inf
         # so they don't affect topk selection
         batch_finished_expanded = self.batch_finished.unsqueeze(1).expand_as(curr_scores)
         curr_scores = curr_scores.masked_fill(batch_finished_expanded, float("-inf"))
@@ -145,17 +185,17 @@ class BeamSearchBase(DecodeStrategy):
             float("-inf"),
         )
 
-        predictions = self.alive_seq.view(self._initial_batch_size, self.beam_size, step)
+        predictions = self.alive_seq.view(self.batch_size, self.beam_size, step)
         attention = (
-            self.alive_attn.view(self._initial_batch_size, self.beam_size, step - 1, self.alive_attn.size(-1))
+            self.alive_attn.view(self.batch_size, self.beam_size, step - 1, self.alive_attn.size(-1))
             if self.alive_attn is not None
             else None
         )
 
         topk_scores_list = self.topk_scores.tolist()
 
-        # Process each batch - same structure as original beams_non_finished
-        for i in range(self._initial_batch_size):
+        # Process each ex in batch
+        for i in range(self.batch_size):
             if self.batch_finished[i]:
                 continue
 
@@ -173,7 +213,7 @@ class BeamSearchBase(DecodeStrategy):
                         )
                     )
 
-                # Check if this batch should be marked as finished
+                # Check if this ex in batch should be marked as finished
                 if self.ratio > 0:
                     pred_len = self.src_len[i * self.beam_size] * self.ratio
                     finish_flag = ((topk_scores_list[i][0] / pred_len) <= self.best_scores[i]) or all(
@@ -197,7 +237,7 @@ class BeamSearchBase(DecodeStrategy):
 
     def advance(self, log_probs, attn):
         vocab_size = log_probs.size(-1)
-        _B = self._initial_batch_size  # Use constant batch size
+        _B = self.batch_size  # Use constant batch size
 
         if self._stepwise_cov_pen and self._prev_penalty is not None:
             self.topk_log_probs += self._prev_penalty
@@ -230,31 +270,40 @@ class BeamSearchBase(DecodeStrategy):
         # Recover log probs.
         self.topk_log_probs = self.topk_scores * length_penalty
 
+        # Resolve beam origin and map to batch index flat representation
+        # now LOCAL variables
+        _batch_index = (
+            self.topk_ids // vocab_size + self._beam_offset[:_B].unsqueeze(1)
+        )
+        select_indices = _batch_index.view(_B * self.beam_size)
         self.topk_ids = self.topk_ids % vocab_size
 
         # Append last prediction to reordered alive sequence
         self.alive_seq = torch.cat(
             [
-                self.alive_seq,
+                self.alive_seq[select_indices],
                 self.topk_ids.view(_B * self.beam_size, 1),
             ],
             -1,
         )
 
-        self.maybe_update_forbidden_tokens()
+        self.maybe_update_forbidden_tokens(select_indices)
 
         if self.return_attention or self._cov_pen:
+            current_attn = attn[select_indices]
             if step == 1:
-                self.alive_attn = attn
+                self.alive_attn = current_attn
                 # update global state (step == 1)
                 if self._cov_pen:  # coverage penalty
                     self._prev_penalty = torch.zeros_like(self.topk_log_probs)
-                    self._coverage = attn
+                    self._coverage = current_attn
             else:
+                self.alive_attn = self.alive_attn[select_indices]
                 self.alive_attn = torch.cat([self.alive_attn, attn], 1)
                 # update global state (step > 1)
                 if self._cov_pen:
-                    self._coverage += attn
+                    self._coverage = self._coverage[select_indices]
+                    self._coverage += current_attn
                     self._prev_penalty = self.global_scorer.cov_penalty(
                         self._coverage, beta=self.global_scorer.beta
                     ).view(_B, self.beam_size)
