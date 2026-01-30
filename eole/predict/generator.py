@@ -179,12 +179,7 @@ class GeneratorLM(Inference):
                     decode_strategy.update_finished()
                     if decode_strategy.done:
                         break
-                select_indices = decode_strategy.select_indices
-
-                if parallel_paths > 1 or any_finished:
-                    # select indexes in model state/cache
-                    self.model.decoder.map_state(lambda state: state[select_indices])
-
+                
                 if self.report_time and step == 0:
                     torch.cuda.synchronize()
                     self.step0_time.append(time() - beg_time)
