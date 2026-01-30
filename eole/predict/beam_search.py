@@ -109,8 +109,6 @@ class BeamSearchBase(DecodeStrategy):
 
         self.src_len = None
 
-
-
     def initialize(self, *args, **kwargs):
         raise NotImplementedError
 
@@ -251,7 +249,8 @@ class BeamSearchBase(DecodeStrategy):
         self.ensure_unk_removed(log_probs)
 
         # Multiply probs by the beam probability.
-        log_probs += self.topk_log_probs.view(_B * self.beam_size, 1)
+        if self.beam_size > 1:
+            log_probs += self.topk_log_probs.view(_B * self.beam_size, 1)
 
         # if the sequence ends now, then the penalty is the current
         # length + 1, to include the EOS token
@@ -272,9 +271,7 @@ class BeamSearchBase(DecodeStrategy):
 
         # Resolve beam origin and map to batch index flat representation
         # now LOCAL variables
-        _batch_index = (
-            self.topk_ids // vocab_size + self._beam_offset[:_B].unsqueeze(1)
-        )
+        _batch_index = self.topk_ids // vocab_size + self._beam_offset[:_B].unsqueeze(1)
         select_indices = _batch_index.view(_B * self.beam_size)
         self.topk_ids = self.topk_ids % vocab_size
 
@@ -299,7 +296,7 @@ class BeamSearchBase(DecodeStrategy):
                     self._coverage = current_attn
             else:
                 self.alive_attn = self.alive_attn[select_indices]
-                self.alive_attn = torch.cat([self.alive_attn, attn], 1)
+                self.alive_attn = torch.cat([self.alive_attn, current_attn], 1)
                 # update global state (step > 1)
                 if self._cov_pen:
                     self._coverage = self._coverage[select_indices]
