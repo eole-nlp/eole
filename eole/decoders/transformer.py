@@ -363,7 +363,7 @@ class TransformerDecoder(DecoderBase):
     def _causal_attn_mask(self, tgt_pad_mask, prefix_len=None):
         B, _, seq_len = tgt_pad_mask.size()
         device = tgt_pad_mask.device
-        MAX_T = self.max_length
+        MAX_T = seq_len if self.training else self.max_length
 
         # Add triangular future_mask and pad_mask, result mask in (B, T, T).
         future_mask = torch.tril(

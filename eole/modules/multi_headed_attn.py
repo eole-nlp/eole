@@ -320,7 +320,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 query.transpose(1, 2),
                 key.transpose(1, 2),
                 value.transpose(1, 2),
-                attn_mask=attn_mask[..., : key.size(1)],
+                attn_mask=attn_mask,
                 dropout_p=self.dropout_p,
                 scale=self.scale,
             ).transpose(1, 2)
