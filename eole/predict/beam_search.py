@@ -136,21 +136,8 @@ class BeamSearchBase(DecodeStrategy):
         )
         # buffers for the topk scores and 'backpointer'
         self.topk_scores = torch.empty((self.batch_size, self.beam_size), dtype=torch.float, device=device)
-        # MPS doesn't support torch.isin() in Torch 2.3
-        # Avoiding need to CPU fallback by adding alternative implementation
-        # Can be removed when Torch 2.4 is supported
-        self._is_finished_list = (
-            self._is_finished_list_mps if (device is not None and device.type == "mps") else self._is_finished_list_isin
-        )
-        """
-        self.topk_ids = torch.empty(
-            (self.batch_size, self.beam_size), dtype=torch.long, device=device
-        )
 
-        self._batch_index = torch.empty(
-            [self.batch_size, self.beam_size], dtype=torch.long, device=device
-        )
-        """
+        self.batch_finished = torch.zeros(self.batch_size, dtype=torch.bool, device=device)
 
     @property
     def current_predictions(self):
@@ -191,6 +178,10 @@ class BeamSearchBase(DecodeStrategy):
 
     def beams_non_finished(self, i, topk_scores_list, predictions, attention, step):
         # using lists instead of tensors for topk_scores and is_finished make things faster
+        # If the batch is already marked finished, skip it entirely
+        if self.static_batch_size and self.batch_finished[i]:
+            return False
+
         if any(self.is_finished_list[i]):
             b = self._batch_offset[i]
             # Store finished hypotheses for this example in the batch.
@@ -225,6 +216,8 @@ class BeamSearchBase(DecodeStrategy):
                     self.scores[b].append(score)
                     self.predictions[b].append(pred)  # ``(batch, n_best,)``
                     self.attention[b].append(attn if attn is not None else [])
+                if self.static_batch_size:
+                    self.batch_finished[i] = True
                 return False
             else:
                 return True
@@ -236,6 +229,7 @@ class BeamSearchBase(DecodeStrategy):
         _B_old = self.topk_log_probs.shape[0]
         step = self.alive_seq.shape[-1]  # 1 greater than the step in advance
         # this is required to pursue finished beams in non finished batches
+        # Mask finished beams to prevent reactivation
         self.topk_log_probs.masked_fill_(
             torch.tensor(self.is_finished_list, device=self.topk_log_probs.device),
             -65504,
@@ -260,13 +254,14 @@ class BeamSearchBase(DecodeStrategy):
             self.done = True
             return
 
-        _B_new = non_finished.shape[0]
-        self.remove_finished_batches(_B_new, _B_old, non_finished, predictions, attention, step)
-
-        # reset the selection for the next step
-        self.select_indices = self._batch_index.view(_B_new * self.beam_size)
-        self.src_len = self.src_len[self.select_indices]
-        self.maybe_update_target_prefix(self.select_indices)
+        if not self.static_batch_size:
+            # We remove the finished examples from the batch
+            _B_new = non_finished.shape[0]
+            self.remove_finished_batches(_B_new, _B_old, non_finished, predictions, attention, step)
+            # reset the selection for the next step
+            self.select_indices = self._batch_index.view(_B_new * self.beam_size)
+            self.src_len = self.src_len[self.select_indices]
+            self.maybe_update_target_prefix(self.select_indices)
 
     def remove_finished_batches(self, _B_new, _B_old, non_finished, predictions, attention, step):
         # Remove finished batches for the next step.
@@ -292,6 +287,15 @@ class BeamSearchBase(DecodeStrategy):
         # using integer division to get an integer _B without casting
         _B = log_probs.shape[0] // self.beam_size
 
+        if self.static_batch_size:
+            # Create a mask for all beams belonging to finished batches
+            # self.batch_finished is (B,), so we repeat it for each beam
+            mask = self.batch_finished.view(_B, 1).expand(_B, self.beam_size).reshape(-1)
+            # Set log_probs to a very small value so they can't win topk
+            log_probs[mask] = -65504
+            # Ensure the previous beam scores don't pull them back up
+            self.topk_log_probs.view(-1)[mask] = -65504
+
         if self._stepwise_cov_pen and self._prev_penalty is not None:
             self.topk_log_probs += self._prev_penalty
             self.topk_log_probs -= self.global_scorer.cov_penalty(self._coverage + attn, self.global_scorer.beta).view(
@@ -303,6 +307,8 @@ class BeamSearchBase(DecodeStrategy):
         self.ensure_min_length(log_probs)
         self.ensure_unk_removed(log_probs)
         # Multiply probs by the beam probability.
+        # for some reasons at beam_size=1 this generates a drift vs plain greedy
+        # but if we remove we lose the cumulated score.
         log_probs += self.topk_log_probs.view(_B * self.beam_size, 1)
 
         # if the sequence ends now, then the penalty is the current
@@ -364,14 +370,8 @@ class BeamSearchBase(DecodeStrategy):
             cov_penalty = self.global_scorer.cov_penalty(self._coverage, beta=self.global_scorer.beta)
             self.topk_scores -= cov_penalty.view(_B, self.beam_size).float()
 
-        self.is_finished_list = self._is_finished_list()
+        self.is_finished_list = torch.isin(self.topk_ids, self.eos_t).tolist()
         self.ensure_max_length()
-
-    def _is_finished_list_isin(self):
-        return torch.isin(self.topk_ids, self.eos_t).tolist()
-
-    def _is_finished_list_mps(self):
-        return (self.topk_ids.unsqueeze(1) == self.eos_t).sum(dim=1).bool().tolist()
 
 
 class BeamSearch(BeamSearchBase):

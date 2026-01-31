@@ -108,20 +108,16 @@ class TransformerDecoderLayer(nn.Module):
                 },
             )
         if layer_in is not None:
-            for B in range(layer_in.size(0), 0, -1):
-                if B not in self.compiled_shapes:
-                    # assumes that _init_cache was before warmup
-                    cache_seqlens = cache_seqlens[:B]
-                    self.self_attn.cache_leftpad = self.self_attn.cache_leftpad[:B]
-                    self.self_attn.kcache = self.self_attn.kcache[:B]
-                    self.self_attn.vcache = self.self_attn.vcache[:B]
-                    dummy_layer_in = torch.randn(B, 1, self.hidden_size, device=layer_in.device, dtype=layer_in.dtype)
-                    self._forward_compile(
-                        dummy_layer_in,
-                        position_embeddings=position_embeddings,
-                        cache_seqlens=cache_seqlens,
-                    )
-                self.compiled_shapes.add(B)
+            # assumes that _init_cache was before warmup and tiling along beam_size
+            B = cache_seqlens.size(0)
+            if B not in self.compiled_shapes:
+                dummy_layer_in = torch.randn(B, 1, self.hidden_size, device=layer_in.device, dtype=layer_in.dtype)
+                self._forward_compile(
+                    dummy_layer_in,
+                    position_embeddings=position_embeddings,
+                    cache_seqlens=cache_seqlens,
+                )
+            self.compiled_shapes.add(B)
 
     def _forward_ffn_layernorm(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
         ff_in = layer_in + self.post_attention_layernorm(self_attn)
@@ -313,7 +309,7 @@ class TransformerDecoder(DecoderBase):
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"]:
             self._compile_decoder()
 
-    def _compile_decoder(self, emb=None, tgt_pad_mask=None):
+    def _compile_decoder(self, emb=None, tgt_pad_mask=None, fn_tile=None):
         self._forward_compile = torch.compile(
             self._forward_eager,
             fullgraph=True,
@@ -325,16 +321,18 @@ class TransformerDecoder(DecoderBase):
         )
 
         if emb is not None and tgt_pad_mask is not None:
-            for B in range(emb.size(0), 0, -1):
-                if B not in self.compiled_shapes:
-                    self._init_cache(emb[:B], tgt_pad_mask[:B])
-                    dummy_emb = torch.randn(B, 1, self.hidden_size, device=emb.device, dtype=emb.dtype)
-                    dummy_pad_mask = torch.zeros((B, 1), dtype=torch.bool, device=emb.device).unsqueeze(1)
-                    self._forward_compile(
-                        dummy_emb,
-                        tgt_pad_mask=dummy_pad_mask,
-                    )
-                    self.compiled_shapes.add(B)
+            self._init_cache(emb, tgt_pad_mask)
+            # in case beam > 1 we need tiling
+            self.map_state(fn_tile)
+            B = self.cache_seqlens.size(0)
+            if B not in self.compiled_shapes:
+                dummy_emb = torch.randn(B, 1, self.hidden_size, device=emb.device, dtype=emb.dtype)
+                dummy_pad_mask = torch.zeros((B, 1), dtype=torch.bool, device=emb.device).unsqueeze(1)
+                self._forward_compile(
+                    dummy_emb,
+                    tgt_pad_mask=dummy_pad_mask,
+                )
+                self.compiled_shapes.add(B)
 
     def init_state(self, **kwargs):
         """Initialize decoder state."""
