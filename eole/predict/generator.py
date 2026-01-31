@@ -87,6 +87,7 @@ class GeneratorLM(Inference):
     def tile_to_beam_size_after_initial_step(self, fn_tile, log_probs):
         if fn_tile is not None:
             log_probs = fn_tile(log_probs)
+            self.model.decoder.map_state(fn_tile)
             log_probs = log_probs[:, -1, :]
         return log_probs
 
@@ -101,7 +102,7 @@ class GeneratorLM(Inference):
         Returns:
             results (dict): The prediction results.
         """
-
+        decode_strategy.static_batch_size = EOLE_TORCH_COMPILE
         # (0) Prep the components of the search.
         parallel_paths = decode_strategy.parallel_paths  # beam_size
         batch_size = len(batch["srclen"])
@@ -140,9 +141,10 @@ class GeneratorLM(Inference):
                 emb = self.model.tgt_emb(src, step=0)
             tgt_pad_mask = src.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
             if EOLE_COMPILE_MODE in ["0", "1"]:
-                self.model.decoder._compile_decoder(emb, tgt_pad_mask)
+                self.model.decoder._compile_decoder(emb, tgt_pad_mask, fn_tile)
             elif EOLE_COMPILE_MODE in ["2", "3"]:
                 self.model.decoder._init_cache(emb, tgt_pad_mask)
+                self.model.decoder.map_state(fn_tile)
                 current_step = self.model.decoder.cache_seqlens[0]
                 pos_ids_1d = current_step + torch.arange(1, device=emb.device)
                 position_embeddings = self.model.decoder.rope.cos_sin[pos_ids_1d]
@@ -178,6 +180,12 @@ class GeneratorLM(Inference):
                     decode_strategy.update_finished()
                     if decode_strategy.done:
                         break
+
+                select_indices = decode_strategy.select_indices
+
+                if parallel_paths > 1 or any_finished:
+                    # select indexes in model state/cache
+                    self.model.decoder.map_state(lambda state: state[select_indices])
 
                 if self.report_time and step == 0:
                     torch.cuda.synchronize()
