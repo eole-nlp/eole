@@ -180,7 +180,6 @@ class GeneratorLM(Inference):
                     decode_strategy.update_finished()
                     if decode_strategy.done:
                         break
-
                 select_indices = decode_strategy.select_indices
 
                 if parallel_paths > 1 or any_finished:

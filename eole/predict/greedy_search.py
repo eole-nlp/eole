@@ -181,7 +181,6 @@ class GreedySearch(DecodeStrategy):
         self.original_batch_idx = fn_tile(torch.arange(self.batch_size, dtype=torch.long, device=device))
         self.beams_scores = torch.zeros((self.batch_size * self.beam_size, 1), dtype=torch.float, device=device)
         self.sequence_finished = torch.zeros(self.batch_size * self.beam_size, dtype=torch.bool, device=device)
-
         return fn_tile, enc_out
 
     @property
@@ -276,7 +275,6 @@ class GreedySearch(DecodeStrategy):
             #   b=0,1,2 → b_orig=0
             #   b=3,4,5 → b_orig=1
             b_orig = self.original_batch_idx[b]
-
             score = self.beams_scores[b, 0] / length_penalty
             pred = self.alive_seq[b, 1:]
             attention = (

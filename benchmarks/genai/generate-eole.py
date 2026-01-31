@@ -19,7 +19,7 @@ def build_config():
         gpu_ranks=[0],
         parallel_mode="data_parallel",
         compute_dtype="bf16",
-        top_k=0.0,
+        top_k=1.0,
         top_p=0.0,
         temperature=1.0,
         beam_size=1,
