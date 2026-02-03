@@ -248,26 +248,26 @@ void rms_norm(torch::Tensor& out, torch::Tensor& input, torch::Tensor& weight,
   if (num_dims == 2) {
     AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16,
         input.scalar_type(), "rms_norm_kernel", [&] {
-      if (vec_size == 8) LAUNCH_KERNEL(scalar_t, 8, 2);
-      else if (vec_size == 4) LAUNCH_KERNEL(scalar_t, 4, 2);
-      else if (vec_size == 2) LAUNCH_KERNEL(scalar_t, 2, 2);
-      else LAUNCH_KERNEL(scalar_t, 1, 2);
+      if (vec_size == 8) { LAUNCH_KERNEL(scalar_t, 8, 2); }
+      else if (vec_size == 4) { LAUNCH_KERNEL(scalar_t, 4, 2); }
+      else if (vec_size == 2) { LAUNCH_KERNEL(scalar_t, 2, 2); }
+      else { LAUNCH_KERNEL(scalar_t, 1, 2); }
     });
   } else if (num_dims == 3) {
     AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16,
         input.scalar_type(), "rms_norm_kernel", [&] {
-      if (vec_size == 8) LAUNCH_KERNEL(scalar_t, 8, 3);
-      else if (vec_size == 4) LAUNCH_KERNEL(scalar_t, 4, 3);
-      else if (vec_size == 2) LAUNCH_KERNEL(scalar_t, 2, 3);
-      else LAUNCH_KERNEL(scalar_t, 1, 3);
+      if (vec_size == 8) { LAUNCH_KERNEL(scalar_t, 8, 3); }
+      else if (vec_size == 4) { LAUNCH_KERNEL(scalar_t, 4, 3); }
+      else if (vec_size == 2) { LAUNCH_KERNEL(scalar_t, 2, 3); }
+      else { LAUNCH_KERNEL(scalar_t, 1, 3); }
     });
   } else if (num_dims == 4) {
     AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16,
         input.scalar_type(), "rms_norm_kernel", [&] {
-      if (vec_size == 8) LAUNCH_KERNEL(scalar_t, 8, 4);
-      else if (vec_size == 4) LAUNCH_KERNEL(scalar_t, 4, 4);
-      else if (vec_size == 2) LAUNCH_KERNEL(scalar_t, 2, 4);
-      else LAUNCH_KERNEL(scalar_t, 1, 4);
+      if (vec_size == 8) { LAUNCH_KERNEL(scalar_t, 8, 4); }
+      else if (vec_size == 4) { LAUNCH_KERNEL(scalar_t, 4, 4); }
+      else if (vec_size == 2) { LAUNCH_KERNEL(scalar_t, 2, 4); }
+      else { LAUNCH_KERNEL(scalar_t, 1, 4); }
     });
   }
 
