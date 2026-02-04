@@ -598,6 +598,7 @@ class TransformerDecoder(DecoderBase):
     def _disable_cache(self):
         self.left_pad_attn_mask = None
         self.cache_seqlens = None
+        self.flash = False
         for layer in self.transformer_layers:
             layer.self_attn.kcache, layer.self_attn.vcache = None, None
             layer.self_attn.cache_leftpad = None
