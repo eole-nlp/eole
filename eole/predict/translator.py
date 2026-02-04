@@ -212,14 +212,14 @@ class Translator(Inference):
 
             select_indices = decode_strategy.select_indices
 
-            if any_finished:
+            if any_finished and not decode_strategy.static_batch_size:
                 # Reorder states.
                 if isinstance(enc_out, tuple):
                     enc_out = tuple(x[select_indices] for x in enc_out)
                 else:
                     enc_out = enc_out[select_indices]
 
-            if parallel_paths > 1 or any_finished:
+            if parallel_paths > 1 or (any_finished and not decode_strategy.static_batch_size):
                 self.model.decoder.map_state(lambda state: state[select_indices])
 
             if self.report_time and step == 0:
