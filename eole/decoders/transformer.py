@@ -561,6 +561,8 @@ class TransformerDecoder(DecoderBase):
         b, l, d = emb.size()
         device = emb.device
         dtype = emb.dtype
+        if torch.is_autocast_enabled():
+            dtype = torch.get_autocast_gpu_dtype()
 
         self.flash = (
             _FLASH_ATTN_AVAILABLE

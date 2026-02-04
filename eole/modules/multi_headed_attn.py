@@ -1,4 +1,4 @@
-""" Multi-Head Attention module """
+"""Multi-Head Attention module"""
 
 import torch
 import torch.nn as nn
@@ -487,6 +487,9 @@ class SelfMHA(MultiHeadedAttention):
                     all_reduce(attn_output1)
                     attn_output.copy_(attn_output1 + (attn_output - attn_output.detach()))
                 return attn_output, None
+
+        elif attn_mask is not None:
+            attn_mask = attn_mask[..., : key.size(1)]
 
         return super()._compute_attention(
             key,
