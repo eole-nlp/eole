@@ -29,6 +29,7 @@ def build_config():
         report_time=True,
         fuse_gate=True,
         fuse_kvq=True,
+        optional_eos=["<｜hy_Assistant｜>"],
     )
 
     config.data_type = "image"

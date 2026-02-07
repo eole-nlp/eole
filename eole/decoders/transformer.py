@@ -97,7 +97,12 @@ class TransformerDecoderLayer(nn.Module):
             self._compile_decoder()
 
     def _compile_decoder(
-        self, layer_in=None, enc_out=None, src_pad_mask=None, position_embeddings=None, cache_seqlens=None
+        self,
+        layer_in=None,
+        enc_out=None,
+        src_pad_mask=None,
+        position_embeddings=None,
+        cache_seqlens=None,
     ):
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
             self._forward_compile = torch.compile(

@@ -151,6 +151,8 @@ class Inference(object):
         self.image_token_id = image_token_id
         self.image_token_id_list = image_token_id_list
 
+        self.self_attn_backend = config.self_attn_backend
+
     def _log(self, msg):
         if self.logger:
             self.logger.info(msg)

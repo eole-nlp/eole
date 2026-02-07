@@ -154,6 +154,7 @@ class GeneratorLM(Inference):
                     position_embeddings = self.model.decoder.rope.cos_sin[pos_ids_1d]
                 else:
                     position_embeddings = None
+                assert self.self_attn_backend == "flash", "These compile modes work only with flash"
                 self.model.decoder.transformer_layers[0]._compile_decoder(
                     emb, position_embeddings=position_embeddings, cache_seqlens=self.model.decoder.cache_seqlens
                 )

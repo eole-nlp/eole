@@ -879,7 +879,6 @@ class LlamaHFConverter(BaseBin):
     @classmethod
     def run(cls, args):
         hf = HuggingfaceFiles.fetch(args)
-
         # Build eole compatible configs from HF config
         model_config, training_config, params = build_config_dict(hf)
         gpt2_pretok = False
@@ -908,7 +907,7 @@ class LlamaHFConverter(BaseBin):
             case "huggingface_tokenize", "hf":
                 transforms = ["huggingface_tokenize"]
                 transforms_configs = {
-                    TOK_TABLE[hf.arch]: {"max_length": 512},
+                    TOK_TABLE[hf.arch]: {"path": hf.tokenizer_json},
                 }
             case _:
                 transforms = ["onmt_tokenize", "filtertoolong"]
@@ -921,7 +920,6 @@ class LlamaHFConverter(BaseBin):
                         "mapped_tokens": mapped_tokens,
                     },
                 }
-
         if hf.config.get("decoder_start_token_id", None) is not None:
             vocabs["decoder_start_token"] = src_vocab.ids_to_tokens[hf.config["decoder_start_token_id"]]
         elif add_bos_token:
@@ -970,6 +968,7 @@ class LlamaHFConverter(BaseBin):
                 **training_config,
             ),
         )
+
         # Grab only explicitly set fields to save in the model's json config
         config_dict = recursive_model_fields_set(config)
 
