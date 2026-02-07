@@ -50,20 +50,17 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
 
     def warm_up(self, vocabs=None):
         # from tokenizers.processors import TemplateProcessing
+        from tokenizers import Tokenizer
 
-        if self.huggingface_model is not None:
-            from transformers import AutoTokenizer
-
-            self.tokenizer = AutoTokenizer.from_pretrained(self.huggingface_model, legacy=False)
-            logger.info(f"Initialized tokenizers from HF model: {self.huggingface_model}")
-        elif self.path is not None:
+        if self.path is not None:
             if os.path.exists(self.path):
-                from tokenizers import Tokenizer
-
-                self.tokenizer = Tokenizer.from_file(self.path, legacy=False)
+                self.tokenizer = Tokenizer.from_file(self.path)
             else:
                 raise FileNotFoundError(self.path)
             logger.info(f"Initialized tokenizers from local file: {self.path}")
+        elif self.huggingface_model is not None:
+            self.tokenizer = Tokenizer.from_pretrained(self.huggingface_model)
+            logger.info(f"Initialized tokenizers from HF model: {self.huggingface_model}")
         else:
             raise RuntimeError(f"Either model_name or path must be configured for {self.name} transform")
         """
@@ -94,26 +91,14 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
         """
 
     def tokenize_string(self, string, side="src", is_train=False):
-        if self.max_length is not None and is_train:
-            max_length = self.max_length
-            decoder_start_token = self.full_config.decoder_start_token
-            if side == "tgt" and self.full_config.model.encoder is None and decoder_start_token == "":
-                max_length += 1
-            kwargs = {"max_length": max_length, "truncation": True}
-        else:
-            kwargs = {}
-        tokens = self.tokenizer.encode(string.replace(DefaultTokens.SEP, "\n"), **kwargs)
-        return tokens
+        encoding = self.tokenizer.encode(string.replace(DefaultTokens.SEP, "\n"))
+        return encoding.ids, encoding.tokens
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
         assert isinstance(example["src"], str), "HuggingfaceTokenizer requires a string as input"
-        src_tokens = self.tokenize_string(example["src"], side="src", is_train=is_train)
-        example["src_ids"] = src_tokens
-        example["src"] = self.tokenizer.convert_ids_to_tokens(src_tokens)
+        example["src_ids"], example["src"] = self.tokenize_string(example["src"], side="src", is_train=is_train)
         if example.get("tgt", None) is not None:
-            tgt_tokens = self.tokenize_string(example["tgt"], side="tgt", is_train=is_train)
-            example["tgt_ids"] = tgt_tokens
-            example["tgt"] = self.tokenizer.convert_ids_to_tokens(tgt_tokens)
+            example["tgt_ids"], example["tgt"] = self.tokenize_string(example["tgt"], side="tgt", is_train=is_train)
         return example
 
     def apply_reverse(self, predicted):

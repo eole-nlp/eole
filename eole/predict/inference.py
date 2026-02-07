@@ -21,31 +21,9 @@ class Inference(object):
         model (eole.modules.BaseModel): Model to use for prediction
         vocabs (dict[str, Vocab]): A dict
             mapping each side's Vocab.
-        gpu (int): GPU device. Set to negative for no GPU.
-        n_best (int): How many beams to wait for.
-        min_length (int): See
-            :class:`eole.predict.decode_strategy.DecodeStrategy`.
-        max_length (int): See
-            :class:`eole.predict.decode_strategy.DecodeStrategy`.
-        beam_size (int): Number of beams.
-        top_p (float): See
-            :class:`eole.predict.greedy_search.GreedySearch`.
-        top_k (int): See
-            :class:`eole.predict.greedy_search.GreedySearch`.
-        temperature (float): See
-            :class:`eole.predict.greedy_search.GreedySearch`.
-        stepwise_penalty (bool): Whether coverage penalty is applied every step
-            or not.
-        dump_beam (bool): Debugging option.
-        block_ngram_repeat (int): See
-            :class:`eole.predict.decode_strategy.DecodeStrategy`.
-        ignore_when_blocking (set or frozenset): See
-            :class:`eole.predict.decode_strategy.DecodeStrategy`.
-        replace_unk (bool): Replace unknown token.
-        tgt_file_prefix (bool): Force the predictions begin with provided -tgt.
-        data_type (str): Source data type.
-        verbose (bool): Print/log every prediction.
-        report_time (bool): Print/log total time/frequency.
+        config
+        model_config
+        device_id
         global_scorer (eole.predict.GNMTGlobalScorer): Prediction
             scoring/reranking object.
         report_score (bool) : Whether to report scores
@@ -56,65 +34,47 @@ class Inference(object):
         self,
         model,
         vocabs,
-        gpu=-1,
-        n_best=1,
-        min_length=0,
-        max_length=100,
-        max_length_ratio=1.5,
-        ratio=0.0,
-        beam_size=30,
-        top_k=0,
-        top_p=0.0,
-        temperature=1.0,
-        stepwise_penalty=None,
-        dump_beam=False,
-        block_ngram_repeat=0,
-        ignore_when_blocking=frozenset(),
-        replace_unk=False,
-        ban_unk_token=False,
-        tgt_file_prefix=False,
-        phrase_table="",
-        data_type="text",
-        verbose=False,
-        report_time=False,
+        config,  # running_config/predict_config
+        model_config,
+        device_id=0,
         global_scorer=None,
-        report_align=False,
-        gold_align=False,
         report_score=True,
         logger=None,
-        seed=-1,
-        with_score=False,
-        estim_only=False,
         return_gold_log_probs=False,
-        add_estimator=False,
-        estimator_type="average",
-        optional_eos=[],
-        id_tokenization=False,
-        image_token_id=10,
-        image_token_id_list=[],
-        fuse_kvq=False,
-        fuse_gate=False,
     ):
+
+        id_tokenization = False
+        if hasattr(model_config, "encoder") and model_config.encoder is not None:
+            image_token_id = getattr(model_config.encoder, "image_token_id", 10)
+            image_token_id_list = getattr(model_config.encoder, "image_token_id_list", [])
+        else:
+            image_token_id = 10
+            image_token_id_list = []
+        if len(config.transforms) > 0:
+            tail_transform_cls = AVAILABLE_TRANSFORMS.get(config.transforms[-1], None)
+            if getattr(tail_transform_cls, "output_type", None) == "ids":
+                id_tokenization = True
+
         self.model = model
         if hasattr(self.model, "decoder") and self.model.decoder is not None:
             if hasattr(self.model.decoder, "transformer_layers"):
                 for layer in self.model.decoder.transformer_layers:
-                    if fuse_kvq:
+                    if config.fuse_kvq:
                         layer.self_attn._fuse_KVQ()
-                    if fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
+                    if config.fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
                         layer.mlp._fuse_gate()
         if hasattr(self.model, "encoder") and self.model.encoder is not None:
             if hasattr(self.model.encoder, "transformer_layers"):
                 for layer in self.model.encoder.transformer_layers:
-                    if fuse_kvq:
+                    if config.fuse_kvq:
                         layer.self_attn._fuse_KVQ()
-                    if fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
+                    if config.fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
                         layer.mlp._fuse_gate()
 
         self.vocabs = vocabs
         self._tgt_vocab = vocabs["tgt"]
         self._tgt_eos_idx = [vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("eos_token", ""))] + [
-            vocabs["tgt"].lookup_token(eos_token) for eos_token in optional_eos
+            vocabs["tgt"].lookup_token(eos_token) for eos_token in config.optional_eos
         ]
         # defaulting to DefaultTokens.PAD might not always work
         self._tgt_pad_idx = vocabs["tgt"].lookup_token(vocabs.get("specials", {}).get("pad_token", DefaultTokens.PAD))
@@ -125,42 +85,44 @@ class Inference(object):
         self._tgt_start_with = vocabs["tgt"].lookup_token(vocabs["decoder_start_token"])
         self._tgt_vocab_len = len(self._tgt_vocab)
 
-        self._gpu = gpu
-        self._use_gpu = gpu > -1
+        self._gpu = device_id
+        self._use_gpu = device_id > -1
         self._dev = get_device(self._gpu) if self._use_gpu else torch.device("cpu")
 
-        self.n_best = n_best
-        self.max_length = max_length
-        self.max_length_ratio = max_length_ratio
+        self.dynamic_shapes = config.dynamic_shapes
 
-        self.beam_size = beam_size
-        self.temperature = temperature
-        self.top_k = top_k
-        self.top_p = top_p
+        self.n_best = config.n_best
+        self.max_length = config.max_length
+        self.max_length_ratio = config.max_length_ratio
 
-        self.min_length = min_length
-        self.ban_unk_token = ban_unk_token
-        self.ratio = ratio
-        self.stepwise_penalty = stepwise_penalty
-        self.dump_beam = dump_beam
-        self.block_ngram_repeat = block_ngram_repeat
-        self.ignore_when_blocking = ignore_when_blocking
+        self.beam_size = config.beam_size
+        self.temperature = config.temperature
+        self.top_k = config.top_k
+        self.top_p = config.top_p
+
+        self.min_length = config.min_length
+        self.ban_unk_token = config.ban_unk_token
+        self.ratio = config.ratio
+        self.stepwise_penalty = config.stepwise_penalty
+        self.dump_beam = config.dump_beam
+        self.block_ngram_repeat = config.block_ngram_repeat
+        self.ignore_when_blocking = set(config.ignore_when_blocking)
         self._exclusion_idxs = {self._tgt_vocab[t] for t in self.ignore_when_blocking}
-        self.replace_unk = replace_unk
+        self.replace_unk = config.replace_unk
         if self.replace_unk and not self.model.decoder.attentional:
             raise ValueError("replace_unk requires an attentional decoder.")
-        self.tgt_file_prefix = tgt_file_prefix
-        self.phrase_table = phrase_table
-        self.data_type = data_type
-        self.verbose = verbose
-        self.report_time = report_time
+        self.tgt_file_prefix = config.tgt_file_prefix
+        self.phrase_table = config.phrase_table
+        self.data_type = config.data_type
+        self.verbose = config.verbose
+        self.report_time = config.report_time
         self.step0_time = 0.0
 
         self.global_scorer = global_scorer
         if self.global_scorer.has_cov_pen and not self.model.decoder.attentional:
             raise ValueError("Coverage penalty requires an attentional decoder.")
-        self.report_align = report_align
-        self.gold_align = gold_align
+        self.report_align = config.report_align
+        self.gold_align = config.gold_align
         self.report_score = report_score
         self.logger = logger
 
@@ -178,100 +140,18 @@ class Inference(object):
                 "log_probs": [],
             }
 
-        set_random_seed(seed, self._use_gpu)
-        self.with_score = with_score
-        self.estim_only = estim_only
+        set_random_seed(config.seed, self._use_gpu)
+        self.with_score = config.with_score
+        self.estim_only = config.estim_only
 
         self.return_gold_log_probs = return_gold_log_probs
-        self.add_estimator = add_estimator
-        self.estimator_type = estimator_type
+        self.add_estimator = model_config.add_estimator
+        self.estimator_type = model_config.estimator_type
         self.id_tokenization = id_tokenization
         self.image_token_id = image_token_id
         self.image_token_id_list = image_token_id_list
 
-    @classmethod
-    def from_config(
-        cls,
-        model,
-        vocabs,
-        config,  # running/predict config
-        model_config,
-        device_id=0,
-        global_scorer=None,
-        report_align=False,
-        report_score=True,
-        logger=None,
-    ):
-        """Alternate constructor.
-
-        Args:
-            model (eole.modules.BaseModel): See :func:`__init__()`.
-            vocabs (dict[str, Vocab]): See
-                :func:`__init__()`.
-            opt (argparse.Namespace): Command line options
-            model_opt (argparse.Namespace): Command line options saved with
-                the model checkpoint.
-            global_scorer (eole.predict.GNMTGlobalScorer): See
-                :func:`__init__()`..
-            report_align (bool) : See :func:`__init__()`.
-            report_score (bool) : See :func:`__init__()`.
-            logger (logging.Logger or NoneType): See :func:`__init__()`.
-        """
-        # TODO: maybe add dynamic part
-
-        id_tokenization = False
-        if hasattr(model_config, "encoder") and model_config.encoder is not None:
-            image_token_id = getattr(model_config.encoder, "image_token_id", 10)
-            image_token_id_list = getattr(model_config.encoder, "image_token_id_list", [])
-        else:
-            image_token_id = 10
-            image_token_id_list = []
-        if len(config.transforms) > 0:
-            tail_transform_cls = AVAILABLE_TRANSFORMS.get(config.transforms[-1], None)
-            if getattr(tail_transform_cls, "output_type", None) == "ids":
-                id_tokenization = True
-
-        return cls(
-            model,
-            vocabs,
-            gpu=device_id,
-            n_best=config.n_best,
-            min_length=config.min_length,
-            max_length=config.max_length,
-            max_length_ratio=config.max_length_ratio,
-            ratio=config.ratio,
-            beam_size=config.beam_size,
-            top_k=config.top_k,
-            top_p=config.top_p,
-            temperature=config.temperature,
-            stepwise_penalty=config.stepwise_penalty,
-            dump_beam=config.dump_beam,
-            block_ngram_repeat=config.block_ngram_repeat,
-            ignore_when_blocking=set(config.ignore_when_blocking),
-            replace_unk=config.replace_unk,
-            ban_unk_token=config.ban_unk_token,
-            tgt_file_prefix=config.tgt_file_prefix,
-            phrase_table=config.phrase_table,
-            data_type=config.data_type,
-            verbose=config.verbose,
-            report_time=config.report_time,
-            global_scorer=global_scorer,
-            report_align=report_align,
-            gold_align=config.gold_align,
-            report_score=report_score,
-            logger=logger,
-            seed=config.seed,
-            with_score=config.with_score,
-            estim_only=config.estim_only,
-            add_estimator=model_config.add_estimator,
-            estimator_type=model_config.estimator_type,
-            optional_eos=config.optional_eos,
-            id_tokenization=id_tokenization,
-            image_token_id=image_token_id,
-            image_token_id_list=image_token_id_list,
-            fuse_kvq=config.fuse_kvq,
-            fuse_gate=config.fuse_gate,
-        )
+        self.self_attn_backend = config.self_attn_backend
 
     def _log(self, msg):
         if self.logger:
@@ -667,7 +547,7 @@ class Inference(object):
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
         # we still rely on src_len here because updated at each beam search step
-        if isinstance(enc_out, tuple):
+        if isinstance(enc_out, tuple):  # ensemble decoding
             src_max_len = enc_out[0].size(1)
             src_pad_mask = sequence_mask(src_len, src_max_len).unsqueeze(1)  # [B, 1, T_src]
         elif enc_out is not None:
@@ -690,12 +570,11 @@ class Inference(object):
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
 
         if step == 0:
-            self.model.decoder._init_cache(emb, tgt_pad_mask)
+            self.model.decoder._init_cache(emb, tgt_pad_mask, enc_out=enc_out)
 
         dec_out, dec_attn = self.model.decoder(
             emb,
             enc_out=enc_out,
-            src_len=src_len,
             step=step,
             return_attn=self.global_scorer.has_cov_pen or return_attn,
             src_pad_mask=src_pad_mask,

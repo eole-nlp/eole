@@ -908,7 +908,7 @@ class LlamaHFConverter(BaseBin):
             case "huggingface_tokenize", "hf":
                 transforms = ["huggingface_tokenize"]
                 transforms_configs = {
-                    TOK_TABLE[hf.arch]: {"max_length": 512},
+                    TOK_TABLE[hf.arch]: {"path": hf.tokenizer_json},
                 }
             case _:
                 transforms = ["onmt_tokenize", "filtertoolong"]

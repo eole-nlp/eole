@@ -59,7 +59,7 @@ echo "Succeeded" | tee -a ${LOG_FILE}
 # flake8 check
 echo -n "[+] Doing flake8 check..."
 #${PYTHON} -m flake8 --ignore *venv* . >> ${LOG_FILE} 2>&1
-${PYTHON} -m pflake8 . >> ${LOG_FILE} 2>&1
+${PYTHON} -m flake8 . >> ${LOG_FILE} 2>&1
 [ "$?" -eq 0 ] || error_exit
 echo "Succeeded" | tee -a ${LOG_FILE}
 

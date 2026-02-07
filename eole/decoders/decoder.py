@@ -82,7 +82,10 @@ class DecoderBase(nn.Module, ABC):
 
         raise NotImplementedError
 
-    def _init_cache(self, emb, pad_mask):
+    def _init_cache(self, emb, pad_mask, enc_out=None):
+        pass
+
+    def _extend_cache(self):
         pass
 
     def _disable_cache(self):

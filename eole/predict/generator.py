@@ -102,22 +102,26 @@ class GeneratorLM(Inference):
         Returns:
             results (dict): The prediction results.
         """
-        decode_strategy.static_batch_size = EOLE_TORCH_COMPILE
+        if self.dynamic_shapes is not None:
+            decode_strategy.static_batch_size = not self.dynamic_shapes
+        else:
+            decode_strategy.static_batch_size = EOLE_TORCH_COMPILE
+
         # (0) Prep the components of the search.
         parallel_paths = decode_strategy.parallel_paths  # beam_size
         batch_size = len(batch["srclen"])
 
-        # (1) split src into src and target_prefix to avoid padding.
+        # (1) check if we use left padding or not
         src = batch["src"]
         src_len = batch["srclen"]
-
         if batch["left_pad"]:
             target_prefix = None
         else:
+            # split src into src and target_prefix to avoid padding.
             src, src_len, target_prefix = self.split_src_to_prevent_padding(src, src_len)
 
         # (2) init decoder
-        self.model.decoder.init_state()
+        self.model.decoder.init_state()  # noop for Transformer
         gold_score, gold_log_probs = self._gold_score(batch, None, src_len, None, batch_size, src)
 
         # (3) prep decode_strategy. Possibly repeat src objects.
@@ -133,27 +137,31 @@ class GeneratorLM(Inference):
         # we need proper set up to run the forward pass of the decoder or decoder layer
         if EOLE_TORCH_COMPILE:
             start_wu = time()
-            self._log("Warmup started")
             images = batch.get("images", None)
             if images is not None:
                 emb, _ = self.model.embed_vision_language_features(src, images=images)
             else:
                 emb = self.model.tgt_emb(src, step=0)
             tgt_pad_mask = src.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+            self.model.decoder._init_cache(emb, tgt_pad_mask)
+            self.model.decoder.map_state(fn_tile)
             if EOLE_COMPILE_MODE in ["0", "1"]:
-                self.model.decoder._compile_decoder(emb, tgt_pad_mask, fn_tile)
+                self.model.decoder._compile_decoder(emb=emb, tgt_pad_mask=tgt_pad_mask)
             elif EOLE_COMPILE_MODE in ["2", "3"]:
-                self.model.decoder._init_cache(emb, tgt_pad_mask)
-                self.model.decoder.map_state(fn_tile)
                 current_step = self.model.decoder.cache_seqlens[0]
                 pos_ids_1d = current_step + torch.arange(1, device=emb.device)
-                position_embeddings = self.model.decoder.rope.cos_sin[pos_ids_1d]
+                if self.model.decoder.rope.cos_sin is not None:
+                    position_embeddings = self.model.decoder.rope.cos_sin[pos_ids_1d]
+                else:
+                    position_embeddings = None
+                assert self.self_attn_backend == "flash", "These compile modes work only with flash"
                 self.model.decoder.transformer_layers[0]._compile_decoder(
                     emb, position_embeddings=position_embeddings, cache_seqlens=self.model.decoder.cache_seqlens
                 )
             self.warmup_time.append(time() - start_wu)
             self._log(f"Warmup lasted: {time() - start_wu:.1f} sec")
 
+        # (5) Start the decoding loop with timers
         if not self.estim_only:
             # (5) Begin decoding step by step:
             if self.report_time:
@@ -188,6 +196,8 @@ class GeneratorLM(Inference):
                 if self.report_time and step == 0:
                     torch.cuda.synchronize()
                     self.step0_time.append(time() - beg_time)
+
+                self.model.decoder._extend_cache()  # noop when dynamic_shape is False
 
             self.model.decoder._disable_cache()
             if torch.cuda.is_available():

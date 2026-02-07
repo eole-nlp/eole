@@ -4,9 +4,10 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from eole.predict.beam_search import BeamSearch
 from eole.predict.greedy_search import GreedySearch
-from eole.utils.misc import tile
+from eole.utils.misc import tile, sequence_mask
 from eole.utils.alignment import extract_alignment
 from eole.predict.inference import Inference
+from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
 from time import time
 
 
@@ -153,7 +154,10 @@ class Translator(Inference):
         Returns:
             results (dict): The translation results.
         """
-
+        if self.dynamic_shapes is not None:
+            decode_strategy.static_batch_size = not self.dynamic_shapes
+        else:
+            decode_strategy.static_batch_size = EOLE_TORCH_COMPILE
         # (0) Prep the components of the search.
         parallel_paths = decode_strategy.parallel_paths  # beam_size
 
@@ -193,9 +197,48 @@ class Translator(Inference):
         else:
             raise TypeError("enc_out must be either a tensor or a tuple of tensors")
 
+        if self.report_time:
+            torch.cuda.synchronize()
+            self.step0_time.append(time() - beg_time)
+
+        # (4) warmup for Torch compile
+        # use the current batch to generate the decode graph (B, 1)
+        # we need proper set up to run the forward pass of the decoder or decoder layer
+        if EOLE_TORCH_COMPILE:
+            assert not isinstance(enc_out, tuple), "torch.compile does not work with Ensembles"
+            start_wu = time()
+            self._log("Warmup started")
+            decoder_input = decode_strategy.current_predictions.view(-1, 1)
+            emb = self.model.tgt_emb(decoder_input)
+            tgt_pad_mask = decoder_input.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+            src_max_len = enc_out.size(1)
+            src_pad_mask = sequence_mask(decode_strategy.src_len, src_max_len).unsqueeze(1)  # [B, 1, T_src]
+            self.model.decoder._init_cache(emb, tgt_pad_mask, enc_out=enc_out)
+            self.model.decoder._forward_eager(
+                emb, enc_out=enc_out, src_pad_mask=src_pad_mask, tgt_pad_mask=tgt_pad_mask
+            )
+            if EOLE_COMPILE_MODE in ["0", "1"]:
+                self.model.decoder._compile_decoder(emb, enc_out, src_pad_mask, tgt_pad_mask, fn_tile)
+            elif EOLE_COMPILE_MODE in ["2", "3"]:
+                current_step = self.model.decoder.cache_seqlens[0]
+                pos_ids_1d = current_step + torch.arange(1, device=emb.device)
+                if self.model.decoder.rope.cos_sin is not None:
+                    position_embeddings = self.model.decoder.rope.cos_sin[pos_ids_1d]
+                else:
+                    position_embeddings = None
+                self.model.decoder.transformer_layers[0]._compile_decoder(
+                    emb,
+                    enc_out,
+                    src_pad_mask.unsqueeze(1),
+                    position_embeddings=position_embeddings,
+                    cache_seqlens=self.model.decoder.cache_seqlens,
+                )
+            self.warmup_time.append(time() - start_wu)
+            self._log(f"Warmup lasted: {time() - start_wu:.1f} sec")
+
+        # (5) We start the Decoding loop
         for step in range(decode_strategy.max_length):
             decoder_input = decode_strategy.current_predictions.view(-1, 1)
-
             log_probs, attn = self._decode_and_generate(
                 decoder_input,
                 enc_out,
@@ -222,9 +265,7 @@ class Translator(Inference):
             if parallel_paths > 1 or (any_finished and not decode_strategy.static_batch_size):
                 self.model.decoder.map_state(lambda state: state[select_indices])
 
-            if self.report_time and step == 0:
-                torch.cuda.synchronize()
-                self.step0_time.append(time() - beg_time)
+            self.model.decoder._extend_cache()  # noop when dynamic_shapes is False
 
         self.model.decoder._disable_cache()
         if torch.cuda.is_available():

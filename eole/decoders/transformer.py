@@ -96,7 +96,14 @@ class TransformerDecoderLayer(nn.Module):
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
             self._compile_decoder()
 
-    def _compile_decoder(self, layer_in=None, position_embeddings=None, cache_seqlens=None):
+    def _compile_decoder(
+        self,
+        layer_in=None,
+        enc_out=None,
+        src_pad_mask=None,
+        position_embeddings=None,
+        cache_seqlens=None,
+    ):
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
             self._forward_compile = torch.compile(
                 self._forward_eager,
@@ -110,14 +117,17 @@ class TransformerDecoderLayer(nn.Module):
         if layer_in is not None:
             # assumes that _init_cache was before warmup and tiling along beam_size
             B = cache_seqlens.size(0)
-            if B not in self.compiled_shapes:
+            S = enc_out.size(1) if enc_out is not None else 0
+            if (B, S) not in self.compiled_shapes:
                 dummy_layer_in = torch.randn(B, 1, self.hidden_size, device=layer_in.device, dtype=layer_in.dtype)
                 self._forward_compile(
                     dummy_layer_in,
+                    enc_out=enc_out,
+                    src_pad_mask=src_pad_mask,
                     position_embeddings=position_embeddings,
                     cache_seqlens=cache_seqlens,
                 )
-            self.compiled_shapes.add(B)
+            self.compiled_shapes.add((B, S))
 
     def _forward_ffn_layernorm(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
         ff_in = layer_in + self.post_attention_layernorm(self_attn)
@@ -298,7 +308,8 @@ class TransformerDecoder(DecoderBase):
         self.self_attn_backend = getattr(running_config, "self_attn_backend", "flash")
         self.position_encoding_type = decoder_config.position_encoding_type
         self.flash = False
-        self.max_length = getattr(running_config, "max_length", 1024)
+        self.dynamic_shapes = getattr(running_config, "dynamic_shapes", None)
+        self.max_length = getattr(running_config, "max_length", 256)
         self.left_pad_attn_mask = None
         self.position_indices = None
         self.cache_seqlens = None
@@ -309,7 +320,7 @@ class TransformerDecoder(DecoderBase):
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"]:
             self._compile_decoder()
 
-    def _compile_decoder(self, emb=None, tgt_pad_mask=None, fn_tile=None):
+    def _compile_decoder(self, emb=None, enc_out=None, src_pad_mask=None, tgt_pad_mask=None, fn_tile=None):
         self._forward_compile = torch.compile(
             self._forward_eager,
             fullgraph=True,
@@ -321,18 +332,18 @@ class TransformerDecoder(DecoderBase):
         )
 
         if emb is not None and tgt_pad_mask is not None:
-            self._init_cache(emb, tgt_pad_mask)
-            # in case beam > 1 we need tiling
-            self.map_state(fn_tile)
             B = self.cache_seqlens.size(0)
-            if B not in self.compiled_shapes:
+            S = enc_out.size(1) if enc_out is not None else 0
+            if (B, S) not in self.compiled_shapes:
                 dummy_emb = torch.randn(B, 1, self.hidden_size, device=emb.device, dtype=emb.dtype)
                 dummy_pad_mask = torch.zeros((B, 1), dtype=torch.bool, device=emb.device).unsqueeze(1)
                 self._forward_compile(
                     dummy_emb,
+                    enc_out=enc_out,
+                    src_pad_mask=src_pad_mask,
                     tgt_pad_mask=dummy_pad_mask,
                 )
-                self.compiled_shapes.add(B)
+                self.compiled_shapes.add((B, S))
 
     def init_state(self, **kwargs):
         """Initialize decoder state."""
@@ -361,7 +372,7 @@ class TransformerDecoder(DecoderBase):
     def _causal_attn_mask(self, tgt_pad_mask, prefix_len=None):
         B, _, seq_len = tgt_pad_mask.size()
         device = tgt_pad_mask.device
-        MAX_T = seq_len if self.training else self.max_length
+        MAX_T = seq_len if (self.training or self.dynamic_shapes) else self.max_length
 
         # Add triangular future_mask and pad_mask, result mask in (B, T, T).
         future_mask = torch.tril(
@@ -509,7 +520,7 @@ class TransformerDecoder(DecoderBase):
                 if self.sliding_window > 0:
                     start = torch.clamp(current_step - self.sliding_window + 1, min=0)
                     valid = valid & (self.position_indices >= start)
-                attn_mask = valid.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, MAX_T)
+                attn_mask = valid.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, MAX_T or Dynamic Cache Len)
         else:
             attn_mask = None
             cache_slice = None  # triggers flash decoding
@@ -557,7 +568,7 @@ class TransformerDecoder(DecoderBase):
 
         return emb, attns
 
-    def _init_cache(self, emb, pad_mask):
+    def _init_cache(self, emb, pad_mask, enc_out=None):
         b, l, d = emb.size()
         device = emb.device
         dtype = emb.dtype
@@ -571,6 +582,14 @@ class TransformerDecoder(DecoderBase):
             and dtype in [torch.float16, torch.bfloat16]
             and device != torch.device("cpu")
         )
+
+        if self.dynamic_shapes is None:
+            self.dynamic_shapes = not EOLE_TORCH_COMPILE
+        if self.dynamic_shapes:
+            self.cache_len_tgt = l  # kv cache starts at target length and grows
+        else:
+            self.cache_len_tgt = self.max_length  # kv cache is set to max and remains static
+
         # We find the index of the first non-pad token (the first '0' or 'False')
         # If the first token is NOT a pad, this returns 0.
         mask_int = pad_mask.squeeze(1).to(torch.int8)
@@ -579,7 +598,7 @@ class TransformerDecoder(DecoderBase):
         # This boolean tensor tells us if left-padding actually exists.
         is_left_padded = pad_mask[:, 0, 0]
         cache_leftpad = torch.where(is_left_padded, left_pad_counts, 0)
-        self.position_indices = torch.arange(self.max_length, device=device).unsqueeze(0)
+        self.position_indices = torch.arange(self.cache_len_tgt, device=device).unsqueeze(0)
         # If cache_leftpad is 0, this mask will effectively do nothing
         self.left_pad_attn_mask = self.position_indices >= cache_leftpad.view(-1, 1)
         self.cache_seqlens = torch.zeros((b,), device=device, dtype=torch.int32)
@@ -587,13 +606,28 @@ class TransformerDecoder(DecoderBase):
         for layer in self.transformer_layers:
             heads_kv = layer.self_attn.heads_kv
             dph = layer.self_attn.dim_per_head
-            layer.self_attn.kcache = torch.zeros((b, self.max_length, heads_kv, dph), dtype=dtype, device=device)
-            layer.self_attn.vcache = torch.zeros((b, self.max_length, heads_kv, dph), dtype=dtype, device=device)
+            layer.self_attn.kcache = torch.zeros((b, self.cache_len_tgt, heads_kv, dph), dtype=dtype, device=device)
+            layer.self_attn.vcache = torch.zeros((b, self.cache_len_tgt, heads_kv, dph), dtype=dtype, device=device)
             layer.self_attn.cache_leftpad = cache_leftpad
             layer.self_attn.causal = True
             if layer.context_attn:
-                layer.context_attn.kcache = torch.empty(0, device=device)
-                layer.context_attn.vcache = torch.empty(0, device=device)
+                # prefill context KV with encoder out
+                layer.context_attn._prefill_cache(enc_out)
+
+    def _extend_cache(self, threshold=1, addzeros=32):
+        if self.dynamic_shapes and (self.cache_len_tgt - self.cache_seqlens[0].item()) < threshold:
+            for layer in self.transformer_layers:
+                b, l, h, d = layer.self_attn.kcache.shape
+                extend = torch.zeros(
+                    b, addzeros, h, d, device=layer.self_attn.kcache.device, dtype=layer.self_attn.kcache.dtype
+                )
+                layer.self_attn.kcache = torch.cat([layer.self_attn.kcache, extend], dim=1)
+                layer.self_attn.vcache = torch.cat([layer.self_attn.vcache, extend], dim=1)
+            self.cache_len_tgt += addzeros
+            self.position_indices = torch.arange(self.cache_len_tgt, device=layer.self_attn.kcache.device).unsqueeze(0)
+            b, _ = self.left_pad_attn_mask.shape
+            extend = torch.ones(b, addzeros, device=self.left_pad_attn_mask.device, dtype=torch.bool)
+            self.left_pad_attn_mask = torch.cat([self.left_pad_attn_mask, extend], dim=1)
 
     def _disable_cache(self):
         self.left_pad_attn_mask = None
