@@ -67,14 +67,13 @@ class ScoringPreparator:
         )
 
         scorer = GNMTGlobalScorer.from_config(predict_config)
-        translator = Translator.from_config(  # we need to review opt/config stuff in translator
+        translator = Translator(  # we need to review opt/config stuff in translator
             model,
             self.vocabs,
             predict_config,
             model_config,
             device_id=gpu_rank,
             global_scorer=scorer,
-            report_align=predict_config.report_align,
             report_score=False,
             logger=None,
         )

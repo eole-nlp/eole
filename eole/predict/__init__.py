@@ -56,17 +56,16 @@ def build_predictor(config, device_id=0, report_score=True, logger=None):
 
     infer_class = get_infer_class(model_config)
     if infer_class is not None:
-        translator = infer_class.from_config(
+        predictor = infer_class(
             model,
             vocabs,
             config,
             model_config,
             device_id=device_id,
             global_scorer=scorer,
-            report_align=config.report_align,
             report_score=report_score,
             logger=logger,
         )
     else:
         raise NotImplementedError(f"No infer_class found for {model_config.__class__}")
-    return translator
+    return predictor

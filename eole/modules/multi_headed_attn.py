@@ -510,12 +510,18 @@ class ContextMHA(MultiHeadedAttention):
         self.n_positions = 0
         super(ContextMHA, self).__init__(model_config, running_config, True)
 
+    def _prefill_cache(self, enc_out: Tensor):
+        # this is called once in Transformer Decoder _init_cache
+        key = self.linear_keys(enc_out)
+        value = self.linear_values(enc_out)
+        key = bld_to_blhd(key, self.dim_per_head)
+        value = bld_to_blhd(value, self.dim_per_head)
+        self.kcache = key
+        self.vcache = value
+
     def _prepare_inputs_w_cache(self, key: Tensor, value: Tensor, query: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
         query = self.linear_query(query)
         query = bld_to_blhd(query, self.dim_per_head)
-        if self.kcache.numel() == 0:
-            key, value = self.linear_keys(key), self.linear_values(value)
-            self.kcache, self.vcache = bld_to_blhd(key, self.dim_per_head), bld_to_blhd(value, self.dim_per_head)
         key, value = self.kcache, self.vcache
         return key, value, query
 
@@ -528,10 +534,8 @@ class ContextMHA(MultiHeadedAttention):
         return_attn: Optional[bool] = False,
     ) -> Tuple[Tensor, Tensor]:
         if self.kcache is not None:
-            # inference: we fill the cross-attention cache only once
             key, value, query = self._prepare_inputs_w_cache(key, value, query)
         else:
-            # training: we project key, value query
             key, value, query = super()._prepare_inputs(key, value, query)
 
         return super()._compute_attention(

@@ -101,6 +101,7 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     )
     profile: bool = Field(default=False, description="Report pytorch profiling stats.")
     batch_size: int = Field(default=30, description="Batch size.")
+    dynamic_shapes: bool | None = Field(default=None, description="Use batch_size / Cache length static or Dynamic")
     batch_type: Literal["sents", "tokens"] = Field(default="sents", description="Batch grouping for batch size.")
     avg_raw_probs: bool = Field(
         default=False,
