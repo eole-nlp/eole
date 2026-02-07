@@ -161,7 +161,7 @@ class GeneratorLM(Inference):
             self.warmup_time.append(time() - start_wu)
             self._log(f"Warmup lasted: {time() - start_wu:.1f} sec")
 
-        # (5) Start the deocding loop with timers
+        # (5) Start the decoding loop with timers
         if not self.estim_only:
             # (5) Begin decoding step by step:
             if self.report_time:

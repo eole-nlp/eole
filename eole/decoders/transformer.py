@@ -587,10 +587,8 @@ class TransformerDecoder(DecoderBase):
             self.dynamic_shapes = not EOLE_TORCH_COMPILE
         if self.dynamic_shapes:
             self.cache_len_tgt = l  # kv cache starts at target length and grows
-            # self.cache_len_src = enc_out.size(1) if enc_out is not None else 0
         else:
             self.cache_len_tgt = self.max_length  # kv cache is set to max and remains static
-            # self.cache_len_src = enc_out.size(1) if enc_out is not None else 0
 
         # We find the index of the first non-pad token (the first '0' or 'False')
         # If the first token is NOT a pad, this returns 0.
@@ -599,10 +597,10 @@ class TransformerDecoder(DecoderBase):
         # Check if the VERY FIRST token is actually a pad.
         # This boolean tensor tells us if left-padding actually exists.
         is_left_padded = pad_mask[:, 0, 0]
-        self.cache_leftpad = torch.where(is_left_padded, left_pad_counts, 0)
+        cache_leftpad = torch.where(is_left_padded, left_pad_counts, 0)
         self.position_indices = torch.arange(self.cache_len_tgt, device=device).unsqueeze(0)
         # If cache_leftpad is 0, this mask will effectively do nothing
-        self.left_pad_attn_mask = self.position_indices >= self.cache_leftpad.view(-1, 1)
+        self.left_pad_attn_mask = self.position_indices >= cache_leftpad.view(-1, 1)
         self.cache_seqlens = torch.zeros((b,), device=device, dtype=torch.int32)
 
         for layer in self.transformer_layers:
@@ -610,7 +608,7 @@ class TransformerDecoder(DecoderBase):
             dph = layer.self_attn.dim_per_head
             layer.self_attn.kcache = torch.zeros((b, self.cache_len_tgt, heads_kv, dph), dtype=dtype, device=device)
             layer.self_attn.vcache = torch.zeros((b, self.cache_len_tgt, heads_kv, dph), dtype=dtype, device=device)
-            layer.self_attn.cache_leftpad = self.cache_leftpad
+            layer.self_attn.cache_leftpad = cache_leftpad
             layer.self_attn.causal = True
             if layer.context_attn:
                 # prefill context KV with encoder out

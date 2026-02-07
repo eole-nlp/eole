@@ -205,6 +205,7 @@ class Translator(Inference):
         # use the current batch to generate the decode graph (B, 1)
         # we need proper set up to run the forward pass of the decoder or decoder layer
         if EOLE_TORCH_COMPILE:
+            assert not isinstance(enc_out, tuple), "torch.compile does not work with Ensembles"
             start_wu = time()
             self._log("Warmup started")
             decoder_input = decode_strategy.current_predictions.view(-1, 1)
