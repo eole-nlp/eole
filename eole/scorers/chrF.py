@@ -1,11 +1,11 @@
 from .scorer import Scorer
 from eole.scorers import register_scorer
-from sacrebleu import corpus_bleu
+from sacrebleu import corpus_chrf
 
 
-@register_scorer(metric="BLEU_en")
-class BleuScorer(Scorer):
-    """BLEU scorer class."""
+@register_scorer(metric="chrF")
+class ChrfScorer(Scorer):
+    """chrF/chrF++ scorer class."""
 
     def __init__(self, config):
         """Initialize necessary options for sentencepiece."""
@@ -13,7 +13,7 @@ class BleuScorer(Scorer):
 
     def compute_score(self, preds, texts_refs):
         if len(preds) > 0:
-            score = corpus_bleu(preds, [texts_refs]).score
+            score = corpus_chrf(preds, [texts_refs]).score
         else:
             score = 0
         return score
