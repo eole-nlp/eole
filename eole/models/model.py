@@ -1159,8 +1159,11 @@ class AudioEncoderDecoderModel(BaseModel):
 
         # Audio encoder output has no padding — all-False mask
         src_pad_mask = torch.zeros(
-            enc_out.size(0), 1, enc_out.size(1),
-            device=enc_out.device, dtype=torch.bool,
+            enc_out.size(0),
+            1,
+            enc_out.size(1),
+            device=enc_out.device,
+            dtype=torch.bool,
         )
         dec_out, attns = self.decoder(
             self.tgt_emb(dec_in),

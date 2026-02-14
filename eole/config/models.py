@@ -402,9 +402,7 @@ class WhisperEncoderConfig(TransformerConfig, EncoderConfig):
     chunk_length: int = Field(default=30, description="Audio chunk length in seconds.")
     n_fft: int = Field(default=400, description="FFT window size for mel spectrogram.")
     hop_length: int = Field(default=160, description="Hop length for mel spectrogram.")
-    timestamp_resolution: float = Field(
-        default=0.02, description="Time resolution per timestamp token in seconds."
-    )
+    timestamp_resolution: float = Field(default=0.02, description="Time resolution per timestamp token in seconds.")
 
     @property
     def data_category(self) -> str:
@@ -421,6 +419,7 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     @property
     def data_category(self) -> str:
         return "vision"
+
     # default to Pixtral 12B settings, might change later
     num_channels: int | None = 3
     image_size: int | None = 1024

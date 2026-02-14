@@ -97,11 +97,13 @@ def chunk_audio(audio, chunk_length=30, overlap=5, sample_rate=16000):
         chunk = audio[start:end]
         if chunk.shape[0] < chunk_samples:
             chunk = torch.nn.functional.pad(chunk, (0, chunk_samples - chunk.shape[0]))
-        chunks.append({
-            "audio": chunk,
-            "start": start / sample_rate,
-            "end": min(end, total_samples) / sample_rate,
-        })
+        chunks.append(
+            {
+                "audio": chunk,
+                "start": start / sample_rate,
+                "end": min(end, total_samples) / sample_rate,
+            }
+        )
         start += step_samples
 
     return chunks
@@ -142,9 +144,7 @@ def _get_mel_transform(sample_rate, n_fft, hop_length, n_mels):
     return _mel_transform_cache[key]
 
 
-def log_mel_spectrogram(
-    audio, n_mels=80, n_fft=400, hop_length=160, sample_rate=16000, chunk_length=30
-):
+def log_mel_spectrogram(audio, n_mels=80, n_fft=400, hop_length=160, sample_rate=16000, chunk_length=30):
     """
     Compute log-mel spectrogram for audio preprocessing.
 
@@ -195,9 +195,7 @@ def tensorify_audio(minibatch, device):
     if examples[0].get("src_type") == "waveform":
         tensor_batch["src"] = examples[0]["src"]
         tensor_batch["src_type"] = "waveform"
-        tensor_batch["srclen"] = torch.tensor(
-            [examples[0]["src"].shape[0]], dtype=torch.long
-        )
+        tensor_batch["srclen"] = torch.tensor([examples[0]["src"].shape[0]], dtype=torch.long)
         tensor_batch["prefix_len"] = None
         tensor_batch["images"] = None
         tensor_batch["left_pad"] = False
@@ -209,9 +207,7 @@ def tensorify_audio(minibatch, device):
 
     mels = [ex["src"] for ex in examples]
     tensor_batch["src"] = torch.stack(mels).to(device)
-    tensor_batch["srclen"] = torch.tensor(
-        [m.shape[-1] for m in mels], dtype=torch.long, device=device
-    )
+    tensor_batch["srclen"] = torch.tensor([m.shape[-1] for m in mels], dtype=torch.long, device=device)
 
     tensor_batch["prefix_len"] = None
     tensor_batch["images"] = None

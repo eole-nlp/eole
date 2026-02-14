@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from eole.modules.transformer_mlp import MLP
 from torch.distributed import all_reduce
+
 try:
     from eole.triton.fused_moe import fused_experts_impl
 except ImportError:

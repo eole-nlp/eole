@@ -57,8 +57,7 @@ class AudioTranslator(Translator):
 
         if config.data_type != "audio":
             raise ValueError(
-                f"AudioTranslator requires data_type='audio', "
-                f"got '{config.data_type}'. Check your model config."
+                f"AudioTranslator requires data_type='audio', " f"got '{config.data_type}'. Check your model config."
             )
 
         if config.batch_size > 1:
@@ -136,9 +135,7 @@ class AudioTranslator(Translator):
             task_id = self._tgt_vocab.lookup_token(task_token)
             unk_id = self._tgt_vocab.lookup_token("<unk>")
             if task_id == unk_id:
-                raise ValueError(
-                    f"Task token {task_token} not found in vocabulary."
-                )
+                raise ValueError(f"Task token {task_token} not found in vocabulary.")
             self._decoder_prefix_ids.append(task_id)
 
         # Omit notimestamps when timestamps are requested so the model
@@ -177,8 +174,12 @@ class AudioTranslator(Translator):
     ):
         """Override to apply token suppression after getting log_probs."""
         log_probs, attn = super()._decode_and_generate(
-            decoder_in, enc_out, src_len, step=step,
-            return_attn=return_attn, images=images,
+            decoder_in,
+            enc_out,
+            src_len,
+            step=step,
+            return_attn=return_attn,
+            images=images,
         )
 
         # Skip suppression during prefix-forcing: beam search forces tokens
@@ -206,8 +207,11 @@ class AudioTranslator(Translator):
         fallback batch modes for audio data."""
         if self.data_type != "audio":
             return super()._predict(
-                infer_iter, transform=transform, attn_debug=attn_debug,
-                align_debug=align_debug, phrase_table=phrase_table,
+                infer_iter,
+                transform=transform,
+                attn_debug=attn_debug,
+                align_debug=align_debug,
+                phrase_table=phrase_table,
             )
 
         all_scores = []
@@ -222,13 +226,9 @@ class AudioTranslator(Translator):
         for batch, bucket_idx in infer_iter:
             if batch.get("src_type") == "waveform":
                 waveform = batch["src"]
-                segments, word_segments = self._predict_with_timestamps(
-                    waveform, device
-                )
+                segments, word_segments = self._predict_with_timestamps(waveform, device)
                 if segments:
-                    avg_score = sum(
-                        seg["score"] for seg in segments
-                    ) / len(segments)
+                    avg_score = sum(seg["score"] for seg in segments) / len(segments)
                 else:
                     avg_score = 0.0
 
@@ -241,9 +241,7 @@ class AudioTranslator(Translator):
                             "in generation_config.json. This model may not "
                             "support word-level timestamps."
                         )
-                    all_predictions.append(
-                        [json.dumps(word_segments)]
-                    )
+                    all_predictions.append([json.dumps(word_segments)])
                 else:
                     text = " ".join(seg["text"] for seg in segments)
                     all_predictions.append([text])
@@ -251,18 +249,16 @@ class AudioTranslator(Translator):
                 all_estim.append([1.0])
 
                 if self.verbose:
-                    self._log(
-                        f"Transcribed {len(segments)} segments "
-                        f"from {batch.get('audio_file', ['?'])[0]}"
-                    )
+                    self._log(f"Transcribed {len(segments)} segments " f"from {batch.get('audio_file', ['?'])[0]}")
             else:
                 # Prepend the consumed batch back onto the iterator
-                restored_iter = itertools.chain(
-                    [(batch, bucket_idx)], infer_iter
-                )
+                restored_iter = itertools.chain([(batch, bucket_idx)], infer_iter)
                 return super()._predict(
-                    restored_iter, transform=transform, attn_debug=attn_debug,
-                    align_debug=align_debug, phrase_table=phrase_table,
+                    restored_iter,
+                    transform=transform,
+                    attn_debug=attn_debug,
+                    align_debug=align_debug,
+                    phrase_table=phrase_table,
                 )
 
         end_time = time()
@@ -296,15 +292,9 @@ class AudioTranslator(Translator):
         from eole.inputters.audio_utils import log_mel_spectrogram
 
         if self.no_timestamps_token_id is None:
-            raise ValueError(
-                "Timestamp-seeking mode requires no_timestamps_token_id "
-                "in generation_config.json."
-            )
+            raise ValueError("Timestamp-seeking mode requires no_timestamps_token_id " "in generation_config.json.")
         token_beg = self.no_timestamps_token_id + 1
-        do_word_timestamps = (
-            self.timestamps_output == "word"
-            and self.alignment_heads is not None
-        )
+        do_word_timestamps = self.timestamps_output == "word" and self.alignment_heads is not None
 
         total_samples = waveform.shape[0]
         seek = 0
@@ -312,11 +302,9 @@ class AudioTranslator(Translator):
         word_segments = []
 
         while seek < total_samples:
-            chunk = waveform[seek:seek + self.chunk_samples]
+            chunk = waveform[seek : seek + self.chunk_samples]
             if chunk.shape[0] < self.chunk_samples:
-                chunk = torch.nn.functional.pad(
-                    chunk, (0, self.chunk_samples - chunk.shape[0])
-                )
+                chunk = torch.nn.functional.pad(chunk, (0, self.chunk_samples - chunk.shape[0]))
 
             mel = log_mel_spectrogram(
                 chunk,
@@ -341,20 +329,14 @@ class AudioTranslator(Translator):
             token_ids = token_ids[prefix_strip:]
             score = results["scores"][0][0]
 
-            segments, seek_delta = self._parse_timestamp_tokens(
-                token_ids, seek, token_beg
-            )
+            segments, seek_delta = self._parse_timestamp_tokens(token_ids, seek, token_beg)
             for seg in segments:
                 seg["score"] = score
             all_segments.extend(segments)
 
             if do_word_timestamps:
-                chunk_end_time = (
-                    seek / self.sample_rate + float(self.chunk_length)
-                )
-                word_segs = self._extract_word_timestamps(
-                    token_ids, mel, seek, device, chunk_end_time
-                )
+                chunk_end_time = seek / self.sample_rate + float(self.chunk_length)
+                word_segs = self._extract_word_timestamps(token_ids, mel, seek, device, chunk_end_time)
                 word_segments.extend(word_segs)
 
             if seek_delta <= 0:
@@ -398,11 +380,13 @@ class AudioTranslator(Translator):
                 if current_text_tokens:
                     text = self._decode_token_ids(current_text_tokens)
                     if text.strip():
-                        segments.append({
-                            "start": round(segment_start_time, 2),
-                            "end": round(timestamp, 2),
-                            "text": text.strip(),
-                        })
+                        segments.append(
+                            {
+                                "start": round(segment_start_time, 2),
+                                "end": round(timestamp, 2),
+                                "text": text.strip(),
+                            }
+                        )
                     current_text_tokens = []
                 segment_start_time = timestamp
                 last_timestamp_id = tid
@@ -414,17 +398,17 @@ class AudioTranslator(Translator):
         if current_text_tokens:
             text = self._decode_token_ids(current_text_tokens)
             if text.strip():
-                segments.append({
-                    "start": round(segment_start_time, 2),
-                    "end": round(seek_offset + float(self.chunk_length), 2),
-                    "text": text.strip(),
-                })
+                segments.append(
+                    {
+                        "start": round(segment_start_time, 2),
+                        "end": round(seek_offset + float(self.chunk_length), 2),
+                        "text": text.strip(),
+                    }
+                )
 
         if last_timestamp_id is not None:
             token_offset = last_timestamp_id - token_beg
-            seek_delta_samples = int(
-                token_offset * self.timestamp_resolution * self.sample_rate
-            )
+            seek_delta_samples = int(token_offset * self.timestamp_resolution * self.sample_rate)
         else:
             seek_delta_samples = self.chunk_samples
 
@@ -433,12 +417,9 @@ class AudioTranslator(Translator):
     def _decode_token_ids(self, token_ids):
         """Decode token IDs to text using the HuggingFace tokenizer."""
         if self._tokenizer is not None:
-            return self._tokenizer.decode(
-                token_ids, skip_special_tokens=True
-            )
+            return self._tokenizer.decode(token_ids, skip_special_tokens=True)
         return " ".join(
-            self._tgt_vocab.lookup_index(t) for t in token_ids
-            if not self._tgt_vocab.lookup_index(t).startswith("<|")
+            self._tgt_vocab.lookup_index(t) for t in token_ids if not self._tgt_vocab.lookup_index(t).startswith("<|")
         )
 
     def _collect_cross_attention(self, token_ids, mel, device):
@@ -464,12 +445,8 @@ class AudioTranslator(Translator):
         # then restore clean state so predict_batch can re-init cache
         self.model.decoder._disable_cache()
         try:
-            src_pad_mask = torch.zeros(
-                (1, 1, enc_out.size(1)), dtype=torch.bool, device=device
-            )
-            tgt_pad_mask = torch.zeros(
-                (1, 1, tgt.size(1)), dtype=torch.bool, device=device
-            )
+            src_pad_mask = torch.zeros((1, 1, enc_out.size(1)), dtype=torch.bool, device=device)
+            tgt_pad_mask = torch.zeros((1, 1, tgt.size(1)), dtype=torch.bool, device=device)
             _, attns = self.model.decoder(
                 emb,
                 enc_out=enc_out,
@@ -483,9 +460,7 @@ class AudioTranslator(Translator):
 
         return attns.get("cross_attns", [])
 
-    def _extract_word_timestamps(
-        self, token_ids, mel, seek_samples, device, chunk_end_time
-    ):
+    def _extract_word_timestamps(self, token_ids, mel, seek_samples, device, chunk_end_time):
         """Extract word-level timestamps using cross-attention DTW.
 
         Args:
@@ -520,9 +495,7 @@ class AudioTranslator(Translator):
             return []
 
         with torch.no_grad():
-            cross_attns = self._collect_cross_attention(
-                token_ids, mel, device
-            )
+            cross_attns = self._collect_cross_attention(token_ids, mel, device)
 
         if not cross_attns:
             return []
@@ -561,9 +534,7 @@ class AudioTranslator(Translator):
         while len(token_timestamps) < len(text_token_ids):
             token_timestamps.append(token_timestamps[-1] if token_timestamps else seek_offset)
 
-        return self._group_tokens_to_words(
-            text_token_ids, token_timestamps, chunk_end_time
-        )
+        return self._group_tokens_to_words(text_token_ids, token_timestamps, chunk_end_time)
 
     def _group_tokens_to_words(self, token_ids, token_timestamps, chunk_end_time):
         """Group sub-word tokens into words using space boundaries.
@@ -594,21 +565,25 @@ class AudioTranslator(Translator):
         for i, (text, ts) in enumerate(zip(token_texts, token_timestamps)):
             if text.startswith(" ") and current_word:
                 next_start = ts
-                words.append({
-                    "text": current_word.strip(),
-                    "start": round(current_start, 2),
-                    "end": round(next_start, 2),
-                })
+                words.append(
+                    {
+                        "text": current_word.strip(),
+                        "start": round(current_start, 2),
+                        "end": round(next_start, 2),
+                    }
+                )
                 current_word = text
                 current_start = ts
             else:
                 current_word += text
 
         if current_word.strip():
-            words.append({
-                "text": current_word.strip(),
-                "start": round(current_start, 2),
-                "end": round(chunk_end_time, 2),
-            })
+            words.append(
+                {
+                    "text": current_word.strip(),
+                    "start": round(current_start, 2),
+                    "end": round(chunk_end_time, 2),
+                }
+            )
 
         return words

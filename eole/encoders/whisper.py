@@ -41,16 +41,12 @@ class WhisperEncoder(EncoderBase):
             ]
         )
 
-        self.layer_norm = LayerNorm[encoder_config.layer_norm](
-            hidden_size, eps=encoder_config.norm_eps
-        )
+        self.layer_norm = LayerNorm[encoder_config.layer_norm](hidden_size, eps=encoder_config.norm_eps)
 
         self._attn_mask_cache = None
         self._attn_mask_key = None
 
-    def forward(
-        self, emb: torch.Tensor, pad_mask: torch.Tensor | None = None, **kwargs
-    ) -> tuple[torch.Tensor, None]:
+    def forward(self, emb: torch.Tensor, pad_mask: torch.Tensor | None = None, **kwargs) -> tuple[torch.Tensor, None]:
         """
         Encode mel spectrogram features.
 
@@ -81,9 +77,7 @@ class WhisperEncoder(EncoderBase):
         """Return a cached all-ones attention mask for the given input."""
         key = (x.size(0), x.size(1), x.device)
         if self._attn_mask_cache is None or self._attn_mask_key != key:
-            self._attn_mask_cache = torch.ones(
-                x.size(0), 1, 1, x.size(1), device=x.device, dtype=torch.bool
-            )
+            self._attn_mask_cache = torch.ones(x.size(0), 1, 1, x.size(1), device=x.device, dtype=torch.bool)
             self._attn_mask_key = key
         return self._attn_mask_cache
 

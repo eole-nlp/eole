@@ -90,8 +90,7 @@ class DecodingConfig(Config):
     )
     task: Literal["transcribe", "translate"] | None = Field(
         default=None,
-        description="Task for audio models: 'transcribe' for same-language, "
-        "'translate' for translation to English.",
+        description="Task for audio models: 'transcribe' for same-language, " "'translate' for translation to English.",
     )
     initial_prompt: str | None = Field(
         default=None,

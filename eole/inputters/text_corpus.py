@@ -308,9 +308,7 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
                 CorpusName.INFER, src, is_train=False  # maybe homogenize to some better name
             )
         elif config.data_type == "audio":
-            corpora_dict[CorpusName.INFER] = AudioCorpus(
-                CorpusName.INFER, src if src else config.src, is_train=False
-            )
+            corpora_dict[CorpusName.INFER] = AudioCorpus(CorpusName.INFER, src if src else config.src, is_train=False)
     return corpora_dict
 
 
