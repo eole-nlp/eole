@@ -75,6 +75,10 @@ class EncoderConfig(Config):
     # where input size to the rnn is different to the hidden size
     src_word_vec_size: int = Field(default=512, description="Word embedding size for src.")
 
+    @property
+    def data_category(self) -> str:
+        return "text"
+
 
 class DecoderConfig(Config):
     """Abstract class for all decoders"""
@@ -241,6 +245,12 @@ class TransformerConfig(Config):
         "Note: this will add bias to output projection layer too by default. "
         "Can be disabled with `add_final_linear_bias`.",
     )
+    add_key_bias: bool | None = Field(
+        default=None,
+        description="Add bias to Key projection in MHA. "
+        "Defaults to add_qkvbias when not set. "
+        "Set to False for models like Whisper where K has no bias.",
+    )
     query_norm: bool = Field(
         default=False,
     )
@@ -377,12 +387,40 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
         return self
 
 
+class WhisperEncoderConfig(TransformerConfig, EncoderConfig):
+    """Configuration for Whisper audio encoder."""
+
+    encoder_type: Literal["whisper"] = Field(default="whisper")
+    num_mel_bins: int = Field(default=80, description="Number of mel spectrogram bins.")
+    max_source_positions: int = Field(
+        default=1500, description="Maximum number of source positions (time frames after conv stem)."
+    )
+    # Whisper uses learned positional embeddings in the encoder itself, not RoPE
+    position_encoding_type: PositionEncodingType | None = Field(default=None)
+    # Audio signal processing
+    sample_rate: int = Field(default=16000, description="Audio sample rate in Hz.")
+    chunk_length: int = Field(default=30, description="Audio chunk length in seconds.")
+    n_fft: int = Field(default=400, description="FFT window size for mel spectrogram.")
+    hop_length: int = Field(default=160, description="Hop length for mel spectrogram.")
+    timestamp_resolution: float = Field(
+        default=0.02, description="Time resolution per timestamp token in seconds."
+    )
+
+    @property
+    def data_category(self) -> str:
+        return "audio"
+
+
 class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     """
     Based on mistral-community/pixtral-12b, might evolve later.
     """
 
     encoder_type: Literal["vision"] = Field(default="vision")
+
+    @property
+    def data_category(self) -> str:
+        return "vision"
     # default to Pixtral 12B settings, might change later
     num_channels: int | None = 3
     image_size: int | None = 1024
@@ -415,6 +453,7 @@ class BaseModelConfig(Config):
             CnnEncoderConfig,
             MeanEncoderConfig,
             VisionEncoderConfig,
+            WhisperEncoderConfig,
         ]
         | None
     ) = Field(
@@ -636,7 +675,7 @@ class BaseModelConfig(Config):
 
         # encoder and decoder should be same sizes
         if self.encoder is not None and self.decoder is not None:
-            if isinstance(self.encoder, VisionEncoderConfig):
+            if isinstance(self.encoder, (VisionEncoderConfig, WhisperEncoderConfig)):
                 pass
             else:
                 same_size = self.encoder.hidden_size == self.decoder.hidden_size
@@ -834,6 +873,36 @@ class VisionTransformerLMModelConfig(TransformerConfig, BaseModelConfig):
         return self.encoder.patch_size
 
 
+class WhisperModelConfig(TransformerConfig, BaseModelConfig):
+    """Configuration for Whisper speech-to-text models."""
+
+    architecture: Literal["whisper"] = Field(default="whisper")
+
+    @model_validator(mode="before")
+    @classmethod
+    def encoder_decoder_type(cls, data: Any) -> Any:
+        if not (isinstance(data, dict)):
+            return data
+        if "encoder" in data.keys():
+            data["encoder"]["encoder_type"] = "whisper"
+        else:
+            data["encoder"] = {"encoder_type": "whisper"}
+        if "decoder" in data.keys():
+            data["decoder"]["decoder_type"] = "transformer"
+        else:
+            data["decoder"] = {"decoder_type": "transformer"}
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_architecture(cls, data: Any) -> Any:
+        if not (isinstance(data, dict)):
+            return data
+        if "architecture" not in data.keys():
+            data["architecture"] = "whisper"
+        return data
+
+
 class TransformerEncoderModelConfig(TransformerConfig, BaseModelConfig):
     """
     Facilitate setting some transformer specific params at model level.
@@ -886,6 +955,7 @@ ModelConfig = Annotated[
         TransformerModelConfig,
         TransformerLMModelConfig,
         VisionTransformerLMModelConfig,
+        WhisperModelConfig,
         TransformerEncoderModelConfig,
         RnnModelConfig,
         CnnModelConfig,

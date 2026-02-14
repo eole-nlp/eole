@@ -1,0 +1,4 @@
+samples/gb0.wav
+samples/gb1.wav
+samples/hp0.wav
+samples/mm0.wav

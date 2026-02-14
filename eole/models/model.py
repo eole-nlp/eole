@@ -28,6 +28,7 @@ from eole.models.model_saver import get_metadata
 from eole.modules.estimator import FeedForward
 
 from eole.encoders.vision import VisionEncoder
+from eole.encoders.whisper import WhisperEncoder
 
 
 def build_encoder(model_config, running_config=None):
@@ -125,7 +126,7 @@ class BaseModel(nn.Module):
         self.hidden_size = kwargs.get("hidden_size", None)
         self.share_decoder_embeddings = False
         if self.encoder is not None and self.src_emb is None:
-            if not isinstance(self.encoder, VisionEncoder):
+            if not isinstance(self.encoder, (VisionEncoder, WhisperEncoder)):
                 raise ValueError("An Encoder needs source Embeddings")
         if self.decoder is not None and self.tgt_emb is None:
             raise ValueError("A Decoder needs target Embeddings")
@@ -1115,6 +1116,69 @@ class VisionEncoderDecoderModel(BaseModel):
         self.tgt_emb.update_dropout(dropout)
 
 
+class AudioEncoderDecoderModel(BaseModel):
+    """AudioEncoderDecoderModel for Whisper-style speech-to-text models.
+
+    Audio encoder (no src_emb) + text decoder with cross-attention.
+    See :class:`~eole.models.BaseModel` for options."""
+
+    def __init__(self, **kwargs):
+        super(AudioEncoderDecoderModel, self).__init__(**kwargs)
+        self.tgt_shift = 1
+        self.tgt_pad_idx = self.tgt_emb.word_padding_idx
+        if self.encoder is None or self.decoder is None:
+            raise ValueError("An AudioEncoderDecoderModel requires both an Encoder and a Decoder")
+        if self.add_estimator:
+            self.estimator = FeedForward(self.hidden_size)
+
+    @classmethod
+    def build_blocks(cls, model_config, vocabs, running_config=None):
+        encoder = build_encoder(model_config, running_config=running_config)
+        tgt_emb = build_tgt_emb(
+            model_config,
+            vocabs,
+            running_config=running_config,
+        )
+        model_config.decoder.with_cross_attn = True
+        decoder = build_decoder(model_config, running_config=running_config)
+        return cls(
+            encoder=encoder,
+            decoder=decoder,
+            tgt_emb=tgt_emb,
+            add_estimator=model_config.add_estimator,
+            hidden_size=model_config.decoder.hidden_size,
+        )
+
+    def forward(self, src, tgt, src_len, with_align=False, **kwargs):
+        """Forward pass: encode mel features, decode with cross-attention."""
+        # src is mel spectrogram (batch, num_mels, time) - no embedding needed
+        enc_out, enc_final_hs = self.encoder(src)
+        self.decoder.init_state(src=None, enc_out=enc_out, enc_final_hs=enc_final_hs)
+        dec_in = tgt[:, :-1]
+        tgt_pad_mask = dec_in.eq(self.tgt_pad_idx).unsqueeze(1)
+
+        # Audio encoder output has no padding — all-False mask
+        src_pad_mask = torch.zeros(
+            enc_out.size(0), 1, enc_out.size(1),
+            device=enc_out.device, dtype=torch.bool,
+        )
+        dec_out, attns = self.decoder(
+            self.tgt_emb(dec_in),
+            enc_out=enc_out,
+            with_align=with_align,
+            tgt_pad_mask=tgt_pad_mask,
+            src_pad_mask=src_pad_mask,
+        )
+
+        estim = None
+        return dec_out, attns, estim
+
+    def update_dropout(self, dropout, attention_dropout):
+        self.encoder.update_dropout(dropout, attention_dropout)
+        self.decoder.update_dropout(dropout, attention_dropout)
+        self.tgt_emb.update_dropout(dropout)
+
+
 def get_model_class(model_config):
     # might have more cases later
     if model_config.decoder is None:
@@ -1123,5 +1187,7 @@ def get_model_class(model_config):
         return DecoderModel
     elif model_config.encoder.encoder_type == "vision":
         return VisionEncoderDecoderModel
+    elif getattr(model_config.encoder, "data_category", "text") == "audio":
+        return AudioEncoderDecoderModel
     else:
         return EncoderDecoderModel

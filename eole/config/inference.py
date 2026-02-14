@@ -77,6 +77,27 @@ class DecodingConfig(Config):
     )  # not sure it's still working/useful
     verbose: bool = Field(default=False, description="Print scores and predictions for each input.")
     with_score: bool = Field(default=False, description="Add a tab separated score to each output.")
+    timestamps: Literal["none", "segment", "word"] = Field(
+        default="none",
+        description="Timestamp output for audio models: "
+        "'none' = plain text, 'segment' = JSON with segment times, "
+        "'word' = per-word times via cross-attention DTW.",
+    )
+    language: str | None = Field(
+        default=None,
+        description="Language code for audio models (e.g. 'en', 'fr'). "
+        "Inserts the language token into the decoder prefix.",
+    )
+    task: Literal["transcribe", "translate"] | None = Field(
+        default=None,
+        description="Task for audio models: 'transcribe' for same-language, "
+        "'translate' for translation to English.",
+    )
+    initial_prompt: str | None = Field(
+        default=None,
+        description="Text prompt to condition audio decoder output style "
+        "and vocabulary. Prepended as previous context.",
+    )
     estim_only: bool = Field(default=False, description="Process the input to estimator only (no decoder).")
     attn_debug: bool = Field(default=False, description="Print best attn for each word.")
     align_debug: bool = Field(default=False, description="Print best align for each word.")

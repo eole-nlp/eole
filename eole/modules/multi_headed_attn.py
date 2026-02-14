@@ -88,7 +88,7 @@ class MultiHeadedAttention(torch.nn.Module):
             nn.Linear,
             in_features=model_config.hidden_size,
             out_features=self.dim_per_head * self.heads_kv // self.parallel_gpu,
-            bias=model_config.add_qkvbias,
+            bias=model_config.add_key_bias if model_config.add_key_bias is not None else model_config.add_qkvbias,
         )
         self.linear_values = skip_init(
             nn.Linear,
