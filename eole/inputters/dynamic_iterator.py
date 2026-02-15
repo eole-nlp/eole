@@ -142,9 +142,6 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         image_patch_size=16,
         image_size=1024,
         adapter="llava",
-        num_mel_bins=80,
-        max_source_positions=1500,
-        timestamp_seek=True,
         sample_rate=16000,
     ):
         super(DynamicDatasetIter).__init__()
@@ -182,9 +179,6 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         self.image_patch_size = image_patch_size
         self.image_size = image_size
         self.adapter = adapter
-        self.num_mel_bins = num_mel_bins
-        self.max_source_positions = max_source_positions
-        self.timestamp_seek = timestamp_seek
         self.sample_rate = sample_rate
         self.numericalizer = Numericalizer(self.vocabs, model_type=self.model_type, task=self.task)
 
@@ -243,9 +237,6 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             image_size = 0
         # Audio model params (e.g. Whisper)
         _encoder = getattr(config.model, "encoder", None)
-        num_mel_bins = getattr(_encoder, "num_mel_bins", 80)
-        max_source_positions = getattr(_encoder, "max_source_positions", 1500)
-        timestamp_seek = getattr(_encoder, "data_category", "text") == "audio"
         sample_rate = getattr(_encoder, "sample_rate", 16000)
         return cls(
             corpora,
@@ -270,9 +261,6 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             image_patch_size=image_patch_size,
             image_size=image_size,
             adapter=getattr(config.model, "adapter", None),
-            num_mel_bins=num_mel_bins,
-            max_source_positions=max_source_positions,
-            timestamp_seek=timestamp_seek,
             sample_rate=sample_rate,
         )
 
@@ -293,9 +281,6 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             image_patch_size=self.image_patch_size,
             image_size=self.image_size,
             adapter=self.adapter,
-            num_mel_bins=self.num_mel_bins,
-            max_source_positions=self.max_source_positions,
-            timestamp_seek=self.timestamp_seek,
             sample_rate=self.sample_rate,
         )
         datasets_weights = {ds_name: int(self.corpora_info[ds_name].weight) for ds_name in datasets_iterables.keys()}
@@ -497,10 +482,6 @@ class OnDeviceDatasetIter:
                     "cid_line_number",
                     "left_pad",
                     "audio_file",
-                    "chunk_idx",
-                    "chunk_start",
-                    "chunk_end",
-                    "overlap",
                     "src_type",
                 ]:
                     if isinstance(tensor_batch[key], list):

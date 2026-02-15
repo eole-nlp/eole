@@ -68,47 +68,6 @@ def median_filter(inputs, filter_width=7):
     return windows.median(dim=-1).values
 
 
-def chunk_audio(audio, chunk_length=30, overlap=5, sample_rate=16000):
-    """Split audio waveform into overlapping chunks.
-
-    Args:
-        audio: 1D waveform tensor
-        chunk_length: length of each chunk in seconds
-        overlap: overlap between consecutive chunks in seconds
-        sample_rate: audio sample rate
-
-    Returns:
-        List of dicts: [{"audio": tensor, "start": float, "end": float}, ...]
-        Each audio tensor is exactly chunk_length * sample_rate samples
-        (zero-padded if needed).
-    """
-    chunk_samples = chunk_length * sample_rate
-    step_samples = (chunk_length - overlap) * sample_rate
-    total_samples = audio.shape[0]
-
-    if total_samples <= chunk_samples:
-        padded = torch.nn.functional.pad(audio, (0, chunk_samples - total_samples))
-        return [{"audio": padded, "start": 0.0, "end": total_samples / sample_rate}]
-
-    chunks = []
-    start = 0
-    while start < total_samples:
-        end = start + chunk_samples
-        chunk = audio[start:end]
-        if chunk.shape[0] < chunk_samples:
-            chunk = torch.nn.functional.pad(chunk, (0, chunk_samples - chunk.shape[0]))
-        chunks.append(
-            {
-                "audio": chunk,
-                "start": start / sample_rate,
-                "end": min(end, total_samples) / sample_rate,
-            }
-        )
-        start += step_samples
-
-    return chunks
-
-
 def load_audio(audio_path, sample_rate=16000):
     """Load audio file and resample to target sample rate."""
     import torchaudio
@@ -173,13 +132,7 @@ def log_mel_spectrogram(audio, n_mels=80, n_fft=400, hop_length=160, sample_rate
 
 
 def tensorify_audio(minibatch, device):
-    """Transform a batch of audio examples into tensors.
-
-    Audio examples have mel spectrograms as src (already tensors) and
-    chunk metadata for downstream merging.
-
-    In waveform mode (timestamp_seek), passes through raw waveform tensors
-    for per-window mel computation in the seeking loop.
+    """Transform a batch of audio waveform examples into tensors.
 
     Args:
         minibatch: List of (example, index) tuples
@@ -192,35 +145,14 @@ def tensorify_audio(minibatch, device):
     examples = [ex for ex, _ in minibatch]
     indices = [idx for _, idx in minibatch]
 
-    if examples[0].get("src_type") == "waveform":
-        tensor_batch["src"] = examples[0]["src"]
-        tensor_batch["src_type"] = "waveform"
-        tensor_batch["srclen"] = torch.tensor([examples[0]["src"].shape[0]], dtype=torch.long)
-        tensor_batch["prefix_len"] = None
-        tensor_batch["images"] = None
-        tensor_batch["left_pad"] = False
-        tensor_batch["audio_file"] = [ex["audio_file"] for ex in examples]
-        tensor_batch["ind_in_bucket"] = indices
-        tensor_batch["cid"] = [ex.get("cid") for ex in examples]
-        tensor_batch["cid_line_number"] = [ex.get("cid_line_number") for ex in examples]
-        return tensor_batch
-
-    mels = [ex["src"] for ex in examples]
-    tensor_batch["src"] = torch.stack(mels).to(device)
-    tensor_batch["srclen"] = torch.tensor([m.shape[-1] for m in mels], dtype=torch.long, device=device)
-
+    tensor_batch["src"] = examples[0]["src"]
+    tensor_batch["src_type"] = "waveform"
+    tensor_batch["srclen"] = torch.tensor([examples[0]["src"].shape[0]], dtype=torch.long)
     tensor_batch["prefix_len"] = None
     tensor_batch["images"] = None
     tensor_batch["left_pad"] = False
-
     tensor_batch["audio_file"] = [ex["audio_file"] for ex in examples]
-    tensor_batch["chunk_idx"] = [ex["chunk_idx"] for ex in examples]
-    tensor_batch["chunk_start"] = [ex["chunk_start"] for ex in examples]
-    tensor_batch["chunk_end"] = [ex["chunk_end"] for ex in examples]
-    tensor_batch["overlap"] = [ex["overlap"] for ex in examples]
-
     tensor_batch["ind_in_bucket"] = indices
-    tensor_batch["cid"] = [ex["cid"] for ex in examples]
-    tensor_batch["cid_line_number"] = [ex["cid_line_number"] for ex in examples]
-
+    tensor_batch["cid"] = [ex.get("cid") for ex in examples]
+    tensor_batch["cid_line_number"] = [ex.get("cid_line_number") for ex in examples]
     return tensor_batch
