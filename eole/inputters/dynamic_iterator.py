@@ -301,7 +301,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             List of numericalized examples
         """
         if self.data_type == "audio":
-            # Audio examples are already mel spectrograms; bypass text transforms
+            # Audio examples are raw waveforms at this stage; bypass text transforms
             return [ex for ex, _transform, _cid in tuple_bucket]
 
         transformed_bucket = transform_bucket(self.task, tuple_bucket, self.score_threshold)
