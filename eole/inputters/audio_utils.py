@@ -69,7 +69,11 @@ def median_filter(inputs, filter_width=7):
 
 
 def load_audio(audio_path, sample_rate=16000):
-    """Load audio file and resample to target sample rate."""
+    """Load audio file and resample to target sample rate.
+
+    Returns:
+        1D float tensor of mono audio samples at the target sample rate.
+    """
     import torchaudio
 
     waveform, sr = torchaudio.load(audio_path)
@@ -81,46 +85,18 @@ def load_audio(audio_path, sample_rate=16000):
     return waveform.squeeze(0)
 
 
-_mel_transform_cache = {}
+def log_mel_spectrogram(audio, mel_transform, n_frames):
+    """Compute log-mel spectrogram for audio preprocessing.
 
+    Args:
+        audio: 1D tensor of audio samples (already padded/trimmed to chunk size)
+        mel_transform: torchaudio.transforms.MelSpectrogram instance
+        n_frames: expected number of mel frames to output
 
-def _get_mel_transform(sample_rate, n_fft, hop_length, n_mels):
-    """Return a cached MelSpectrogram transform for the given parameters."""
-    import torchaudio.transforms as T
-
-    key = (sample_rate, n_fft, hop_length, n_mels)
-    if key not in _mel_transform_cache:
-        _mel_transform_cache[key] = T.MelSpectrogram(
-            sample_rate=sample_rate,
-            n_fft=n_fft,
-            hop_length=hop_length,
-            n_mels=n_mels,
-            power=2.0,
-            norm="slaney",
-            mel_scale="slaney",
-            f_max=sample_rate / 2.0,
-        )
-    return _mel_transform_cache[key]
-
-
-def log_mel_spectrogram(audio, n_mels=80, n_fft=400, hop_length=160, sample_rate=16000, chunk_length=30):
+    Returns:
+        Log-mel spectrogram tensor of shape (n_mels, n_frames).
     """
-    Compute log-mel spectrogram for audio preprocessing.
-
-    Uses Slaney mel scale with Slaney area normalization and f_max=sample_rate/2.
-    Parameters can be configured per-model via encoder config.
-    """
-    n_samples = chunk_length * sample_rate
-    n_frames = chunk_length * sample_rate // hop_length
-
-    if audio.shape[0] < n_samples:
-        audio = torch.nn.functional.pad(audio, (0, n_samples - audio.shape[0]))
-    else:
-        audio = audio[:n_samples]
-
-    mel_transform = _get_mel_transform(sample_rate, n_fft, hop_length, n_mels)
     mel = mel_transform(audio)
-
     mel = mel[:, :n_frames]
     # Whisper log-mel normalization (from OpenAI reference implementation):
     # clamp, log10, cap at 8 dB below peak, then shift/scale to ~[-1, 1]
@@ -153,6 +129,7 @@ def tensorify_audio(minibatch, device):
     tensor_batch["left_pad"] = False
     tensor_batch["audio_file"] = [ex["audio_file"] for ex in examples]
     tensor_batch["ind_in_bucket"] = indices
+    # cid/cid_line_number are optional metadata from corpus config
     tensor_batch["cid"] = [ex.get("cid") for ex in examples]
     tensor_batch["cid_line_number"] = [ex.get("cid_line_number") for ex in examples]
     return tensor_batch

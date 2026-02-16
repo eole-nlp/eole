@@ -44,9 +44,10 @@ class DecodingConfig(Config):
         default=2,
         description="Maximum prediction length ratio. For European languages, "
         "2 is large enough, for target Asian charageters, "
-        "need to increase to 2-3, for special languages (Burmese, Amharic) to 10.",
-        ge=1,
-    )  # we might want to validate this against min_length
+        "need to increase to 2-3, for special languages (Burmese, Amharic) to 10. "
+        "Set to 0 to disable ratio-based length capping.",
+        ge=0,
+    )
     block_ngram_repeat: int = Field(default=0, description="Block repetition of ngrams during decoding.")
     ignore_when_blocking: List[str] = Field(
         default=[],
@@ -96,6 +97,11 @@ class DecodingConfig(Config):
         default=None,
         description="Text prompt to condition audio decoder output style "
         "and vocabulary. Prepended as previous context.",
+    )
+    condition_on_previous_text: bool = Field(
+        default=False,
+        description="Feed previous chunk's decoded text as decoder prompt "
+        "for the next chunk, improving cross-chunk coherence.",
     )
     estim_only: bool = Field(default=False, description="Process the input to estimator only (no decoder).")
     attn_debug: bool = Field(default=False, description="Print best attn for each word.")

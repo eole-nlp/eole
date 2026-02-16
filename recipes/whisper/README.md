@@ -127,16 +127,17 @@ This can help with:
 
 ## Config reference
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `model_path` | str | required | Path to converted eole model |
-| `src` | str | required | File listing audio paths (one per line) |
-| `output` | str | required | Output file path |
-| `beam_size` | int | 5 | Beam search width |
-| `max_length` | int | 250 | Maximum output tokens |
-| `batch_size` | int | 1 | Batch size (use 1 for audio) |
-| `gpu_ranks` | list | [] | GPU device IDs |
-| `timestamps` | str | "none" | Output mode: "none", "segment", "word" |
-| `language` | str | null | Source language code (e.g. "en", "fr", "zh") |
-| `task` | str | null | "transcribe" or "translate" |
-| `initial_prompt` | str | null | Text prompt for decoder conditioning |
+| Field | Type | Default  | Description                                                     |
+|-------|------|----------|-----------------------------------------------------------------|
+| `model_path` | str  | required | Path to converted eole model                                    |
+| `src` | str  | required | File listing audio paths (one per line)                         |
+| `output` | str  | required | Output file path                                                |
+| `beam_size` | int  | 5        | Beam search width                                               |
+| `max_length` | int  | 250      | Maximum output tokens                                           |
+| `batch_size` | int  | 1        | Batch size (use 1 for audio)                                    |
+| `gpu_ranks` | list | []       | GPU device IDs                                                  |
+| `timestamps` | str  | "none"   | Output mode: "none", "segment", "word"                          |
+| `language` | str  | null     | Source language code (e.g. "en", "fr", "zh")                    |
+| `task` | str  | null     | "transcribe" or "translate"                                     |
+| `initial_prompt` | str  | null     | Text prompt for decoder conditioning                            |
+| `condition_on_previous_text` | bool | false    | Condition next segment transcription on previous segment's text |

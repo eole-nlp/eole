@@ -5,8 +5,10 @@ import itertools
 import json
 import os
 import torch
+import torchaudio.transforms as T
 from time import time
 
+from eole.inputters.audio_utils import dynamic_time_warping, log_mel_spectrogram, median_filter
 from eole.predict.translator import Translator
 
 
@@ -15,7 +17,7 @@ class AudioTranslator(Translator):
 
     Adds:
     - Token suppression (suppress_tokens from generation_config.json)
-    - Forced decoder IDs (<|notimestamps|> etc.)
+    - Forced decoder prefix (SOT, language, task tokens)
     - Sequential timestamp-seeking: decodes audio windows using timestamp
       tokens to determine seek advancement
     - Configurable timestamp output: none (plain text), segment (JSON), word
@@ -53,11 +55,24 @@ class AudioTranslator(Translator):
         self.num_mel_bins = encoder_cfg.num_mel_bins
         self.timestamp_resolution = encoder_cfg.timestamp_resolution
         self.chunk_samples = self.chunk_length * self.sample_rate
+        self.n_frames = self.chunk_samples // self.hop_length
         self.timestamps_output = getattr(config, "timestamps", "none")
+
+        # Mel transform lives on CPU; output is moved to device in the seeking loop
+        self._mel_transform = T.MelSpectrogram(
+            sample_rate=self.sample_rate,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            n_mels=self.num_mel_bins,
+            power=2.0,
+            norm="slaney",
+            mel_scale="slaney",
+            f_max=self.sample_rate / 2.0,
+        )
 
         if config.data_type != "audio":
             raise ValueError(
-                f"AudioTranslator requires data_type='audio', " f"got '{config.data_type}'. Check your model config."
+                f"AudioTranslator requires data_type='audio', got '{config.data_type}'. Check your model config."
             )
 
         if config.batch_size > 1:
@@ -77,17 +92,8 @@ class AudioTranslator(Translator):
         self.suppress_tokens = gen_config.get("suppress_tokens", [])
         self.begin_suppress_tokens = gen_config.get("begin_suppress_tokens", [])
         self.no_timestamps_token_id = gen_config.get("no_timestamps_token_id", None)
-        self.forced_decoder_ids = gen_config.get("forced_decoder_ids", [])
-        self.return_timestamps = gen_config.get("return_timestamps", False)
         self.alignment_heads = gen_config.get("alignment_heads", None)
         self.median_filter_width = 7
-
-        self._timestamp_token_ids = set()
-        if self.no_timestamps_token_id is not None:
-            for i in range(self.no_timestamps_token_id + 1, len(self._tgt_vocab)):
-                tok = self._tgt_vocab.lookup_index(i)
-                if tok.startswith("<|") and tok.endswith("|>"):
-                    self._timestamp_token_ids.add(i)
 
         self._tokenizer = None
         try:
@@ -99,7 +105,7 @@ class AudioTranslator(Translator):
         except ImportError:
             pass
 
-        # Decoder prefix: [startofprev, prompt..., SOT, lang?, task?, notimestamps?]
+        # Decoder prefix: [startofprev, prompt..., SOT, lang?, task?]
         self._decoder_prefix_ids = []
 
         initial_prompt = getattr(config, "initial_prompt", None)
@@ -115,6 +121,7 @@ class AudioTranslator(Translator):
             prompt_ids = self._tokenizer.encode(initial_prompt).ids
             self._decoder_prefix_ids.extend(prompt_ids)
 
+        sot_start_idx = len(self._decoder_prefix_ids)
         self._decoder_prefix_ids.append(self._tgt_start_with)
 
         language = getattr(config, "language", None)
@@ -125,7 +132,7 @@ class AudioTranslator(Translator):
             if lang_id == unk_id:
                 raise ValueError(
                     f"Language token {lang_token} not found in vocabulary. "
-                    f"Check the language code or use a multilingual model."
+                    "Check the language code or use a multilingual model."
                 )
             self._decoder_prefix_ids.append(lang_id)
 
@@ -138,22 +145,28 @@ class AudioTranslator(Translator):
                 raise ValueError(f"Task token {task_token} not found in vocabulary.")
             self._decoder_prefix_ids.append(task_id)
 
-        # Omit notimestamps when timestamps are requested so the model
-        # generates timestamp tokens (<|0.00|>, <|5.20|> etc.)
-        if self.no_timestamps_token_id is not None and self.timestamps_output == "none":
-            self._decoder_prefix_ids.append(self.no_timestamps_token_id)
+        # Store the SOT sequence for dynamic prefix construction
+        self._sot_sequence = self._decoder_prefix_ids[sot_start_idx:]
+
+        self.condition_on_previous_text = getattr(config, "condition_on_previous_text", False)
+        self._startofprev_id = self._tgt_vocab.lookup_token("<|startofprev|>")
+        self._max_prompt_length = self.max_length // 2 - 1
+        self._initial_prompt_tokens = []
+        if initial_prompt and self._tokenizer:
+            self._initial_prompt_tokens = list(self._tokenizer.encode(initial_prompt).ids)
+
+        # Keep a copy of the static prefix for restoring between chunks
+        self._static_prefix_ids = list(self._decoder_prefix_ids)
 
         # Override parent defaults for audio:
         # - start token is the first token of the decoder prefix
         # - src dim 1 is mel bins not sequence length, so ratio is meaningless
         self._tgt_start_with = self._decoder_prefix_ids[0]
         self.max_length_ratio = 0
-        if len(self._decoder_prefix_ids) > 1:
-            self.tgt_file_prefix = True
 
     def predict_batch(self, batch, attn_debug):
         """Override to inject decoder prefix tensor into batch."""
-        if len(self._decoder_prefix_ids) > 1:
+        if "tgt" not in batch and len(self._decoder_prefix_ids) > 1:
             device = batch["src"].device
             batch_size = len(batch["srclen"])
             batch["tgt"] = torch.tensor(
@@ -161,6 +174,7 @@ class AudioTranslator(Translator):
                 dtype=torch.long,
                 device=device,
             )
+        self.tgt_file_prefix = "tgt" in batch
         return Translator.predict_batch(self, batch, attn_debug)
 
     def _decode_and_generate(
@@ -182,15 +196,20 @@ class AudioTranslator(Translator):
             images=images,
         )
 
-        # Skip suppression during prefix-forcing: beam search forces tokens
-        # via -10000 penalty, but -inf from suppress_tokens would override it
+        # Suppression is skipped in two cases:
+        # 1. During prefix-forcing (step < prefix_len): beam search forces
+        #    tokens via -10000 penalty; -inf here would override it.
+        # 2. During gold scoring (step is None): log_probs is 3D
+        #    (batch, tgt_len, vocab) so token-ID indexing hits the wrong dim.
+        # The step is not None guard is needed because prefix_active is also
+        # False after the prefix, so it alone can't distinguish case 2.
         prefix_len = len(self._decoder_prefix_ids) - 1
         prefix_active = step is not None and step < prefix_len
 
-        if self.suppress_tokens and not prefix_active:
+        if self.suppress_tokens and not prefix_active and step is not None:
             log_probs[:, self.suppress_tokens] = float("-inf")
 
-        if step == prefix_len and self.begin_suppress_tokens:
+        if step is not None and step == prefix_len and self.begin_suppress_tokens:
             log_probs[:, self.begin_suppress_tokens] = float("-inf")
 
         return log_probs, attn
@@ -249,7 +268,7 @@ class AudioTranslator(Translator):
                 all_estim.append([1.0])
 
                 if self.verbose:
-                    self._log(f"Transcribed {len(segments)} segments " f"from {batch.get('audio_file', ['?'])[0]}")
+                    self._log(f"Transcribed {len(segments)} segments from {batch.get('audio_file', ['?'])[0]}")
             else:
                 # Prepend the consumed batch back onto the iterator
                 restored_iter = itertools.chain([(batch, bucket_idx)], infer_iter)
@@ -271,7 +290,7 @@ class AudioTranslator(Translator):
         if self.report_time:
             total_time = end_time - start_time
             if len(all_predictions) > 0:
-                self._log("Prediction time (s): %.2f" % total_time)
+                self._log(f"Prediction time (s): {total_time:.2f}")
 
         return all_scores, all_estim, all_predictions
 
@@ -279,20 +298,22 @@ class AudioTranslator(Translator):
         """Sequential timestamp-seeking transcription.
 
         Decodes audio windows, using timestamp tokens to determine
-        how far to advance the seek position. No overlap, no merging.
+        how far to advance the seek position.
 
         Args:
             waveform: 1D float tensor of audio samples
             device: torch device for model inference
 
         Returns:
-            List of segments: [{"start": float, "end": float,
-                                "text": str, "score": float}, ...]
+            (all_segments, word_segments) where:
+            - all_segments: [{"start": float, "end": float,
+                              "text": str, "score": float}, ...]
+            - word_segments: [{"text": str, "start": float,
+                               "end": float}, ...] (empty if word
+                              timestamps not requested)
         """
-        from eole.inputters.audio_utils import log_mel_spectrogram
-
         if self.no_timestamps_token_id is None:
-            raise ValueError("Timestamp-seeking mode requires no_timestamps_token_id " "in generation_config.json.")
+            raise ValueError("Timestamp-seeking mode requires no_timestamps_token_id in generation_config.json.")
         token_beg = self.no_timestamps_token_id + 1
         do_word_timestamps = self.timestamps_output == "word" and self.alignment_heads is not None
 
@@ -300,6 +321,7 @@ class AudioTranslator(Translator):
         seek = 0
         all_segments = []
         word_segments = []
+        all_tokens = list(self._initial_prompt_tokens) if self.condition_on_previous_text else []
 
         while seek < total_samples:
             chunk = waveform[seek : seek + self.chunk_samples]
@@ -308,23 +330,33 @@ class AudioTranslator(Translator):
 
             mel = log_mel_spectrogram(
                 chunk,
-                n_mels=self.num_mel_bins,
-                n_fft=self.n_fft,
-                hop_length=self.hop_length,
-                sample_rate=self.sample_rate,
-                chunk_length=self.chunk_length,
+                self._mel_transform,
+                n_frames=self.n_frames,
             )
 
             batch = {
                 "src": mel.unsqueeze(0).to(device),
                 "srclen": torch.tensor([mel.shape[-1]], device=device),
             }
+
+            # Build dynamic prefix if conditioning on previous text
+            if self.condition_on_previous_text:
+                if all_tokens:
+                    prefix = self._build_conditioned_prefix(all_tokens)
+                    batch["tgt"] = torch.tensor([prefix], dtype=torch.long, device=device)
+                    self._decoder_prefix_ids = prefix
+                    self._tgt_start_with = self._startofprev_id
+                else:
+                    self._decoder_prefix_ids = list(self._static_prefix_ids)
+                    self._tgt_start_with = self._static_prefix_ids[0]
+
             with torch.no_grad():
                 results = self.predict_batch(batch, attn_debug=False)
 
             token_ids = results["predictions"][0][0].tolist()
             # BeamSearch strips only position 0; remaining prefix tokens
-            # are still at the front
+            # are still at the front (_decoder_prefix_ids is synced to the
+            # active prefix when condition_on_previous_text is enabled)
             prefix_strip = len(self._decoder_prefix_ids) - 1
             token_ids = token_ids[prefix_strip:]
             score = results["scores"][0][0]
@@ -339,9 +371,21 @@ class AudioTranslator(Translator):
                 word_segs = self._extract_word_timestamps(token_ids, mel, seek, device, chunk_end_time)
                 word_segments.extend(word_segs)
 
+            # Accumulate tokens for next chunk's conditioning
+            # Filter out EOS — target_prefixing skips forcing EOS tokens,
+            # so an EOS in the middle of the prefix would let the model
+            # generate freely (likely ending the beam immediately).
+            if self.condition_on_previous_text:
+                all_tokens.extend(tid for tid in token_ids if tid not in self._tgt_eos_idx)
+
             if seek_delta <= 0:
                 seek_delta = self.chunk_samples
             seek += seek_delta
+
+        # Restore static prefix state so the next file starts clean
+        if self.condition_on_previous_text:
+            self._decoder_prefix_ids = list(self._static_prefix_ids)
+            self._tgt_start_with = self._static_prefix_ids[0]
 
         # Clamp the last segment's end time to actual audio duration
         audio_duration = round(total_samples / self.sample_rate, 2)
@@ -351,6 +395,14 @@ class AudioTranslator(Translator):
             word_segments[-1]["end"] = audio_duration
 
         return all_segments, word_segments
+
+    def _build_conditioned_prefix(self, prev_tokens):
+        """Build decoder prefix with previous text conditioning.
+
+        Returns: [startofprev, prev_tokens[-max:], SOT, lang?, task?, ...]
+        """
+        truncated = prev_tokens[-self._max_prompt_length :]
+        return [self._startofprev_id] + truncated + self._sot_sequence
 
     def _parse_timestamp_tokens(self, token_ids, seek_samples, token_beg):
         """Parse timestamp tokens from decoder output into segments.
@@ -436,7 +488,7 @@ class AudioTranslator(Translator):
         """
         enc_out, _ = self.model.encoder(mel.unsqueeze(0).to(device))
 
-        tgt_ids = list(self._decoder_prefix_ids) + token_ids
+        tgt_ids = list(self._static_prefix_ids) + token_ids
         tgt = torch.tensor([tgt_ids], dtype=torch.long, device=device)
 
         emb = self.model.tgt_emb(tgt)
@@ -473,8 +525,6 @@ class AudioTranslator(Translator):
         Returns:
             List of word dicts: [{"text": str, "start": float, "end": float}]
         """
-        from eole.inputters.audio_utils import dynamic_time_warping, median_filter
-
         token_beg = self.no_timestamps_token_id + 1
         seek_offset = seek_samples / self.sample_rate
 
@@ -500,7 +550,7 @@ class AudioTranslator(Translator):
         if not cross_attns:
             return []
 
-        prefix_len = len(self._decoder_prefix_ids)
+        prefix_len = len(self._static_prefix_ids)
         weights_list = []
         for layer_idx, head_idx in self.alignment_heads:
             if layer_idx < len(cross_attns):
@@ -562,7 +612,7 @@ class AudioTranslator(Translator):
         current_word = ""
         current_start = token_timestamps[0]
 
-        for i, (text, ts) in enumerate(zip(token_texts, token_timestamps)):
+        for text, ts in zip(token_texts, token_timestamps):
             if text.startswith(" ") and current_word:
                 next_start = ts
                 words.append(
