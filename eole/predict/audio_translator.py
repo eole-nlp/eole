@@ -335,7 +335,7 @@ class AudioTranslator(Translator):
             )
 
             batch = {
-                "src": mel.unsqueeze(0).to(device),
+                "src": mel.unsqueeze(0).to(device=device, dtype=next(self.model.parameters()).dtype),
                 "srclen": torch.tensor([mel.shape[-1]], device=device),
             }
 
@@ -486,7 +486,7 @@ class AudioTranslator(Translator):
             List of per-layer cross-attention tensors, each
             (1, heads, tgt_len, src_len).
         """
-        enc_out, _ = self.model.encoder(mel.unsqueeze(0).to(device))
+        enc_out, _ = self.model.encoder(mel.unsqueeze(0).to(device=device, dtype=next(self.model.parameters()).dtype))
 
         tgt_ids = list(self._static_prefix_ids) + token_ids
         tgt = torch.tensor([tgt_ids], dtype=torch.long, device=device)
