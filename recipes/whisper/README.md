@@ -125,6 +125,55 @@ This can help with:
 - Output formatting and punctuation style
 - Steering the model toward a particular topic or register
 
+## Evaluation (WER)
+
+### WER scorer plugin
+
+Eole includes a `WerScorer` plugin for computing Word Error Rate during training evaluation. It works like the existing BLEU and TER scorers:
+
+```python
+scoring_metrics: ["WER"]
+```
+
+Requires the `wer` extra:
+
+```bash
+pip install eole[wer]           # published install
+pip install -e .[wer]           # local/dev install
+```
+
+### LibriSpeech test-clean benchmark
+
+To measure WER on the standard LibriSpeech test-clean dataset (~2620 utterances, ~5.4 hours):
+
+#### 1. Download dataset
+
+```bash
+cd recipes/whisper/eval
+bash download_librispeech.sh
+```
+
+This downloads and extracts `test-clean.tar.gz` (~350MB) from OpenSLR.
+
+#### 2. Run evaluation
+
+```bash
+python eval_librispeech.py --model_path $EOLE_MODEL_DIR/whisper-base-en-eole
+```
+
+Options:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--model_path` | required | Path to converted eole model |
+| `--data_dir` | `./LibriSpeech/test-clean` | LibriSpeech directory |
+| `--gpu` | 0 | GPU device ID (-1 for CPU) |
+| `--beam_size` | 5 | Beam search width |
+| `--condition_on_previous_text` | false | Condition on previous segment |
+| `--output_dir` | `./results` | Where to write results |
+
+The script normalises text using `EnglishTextNormalizer` from the `whisper-normalizer` package (same normaliser used by OpenAI and whisper.cpp) before computing WER via `jiwer`.
+
 ## Config reference
 
 | Field | Type | Default  | Description                                                     |
