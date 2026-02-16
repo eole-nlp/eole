@@ -210,7 +210,7 @@ def main():
         f.write(f"Beam size: {args.beam_size}\n")
         f.write(f"Utterances: {len(audio_files)}\n")
         f.write(f"Speakers: {len(unique_speakers)}\n")
-        f.write(f"\nPer-speaker:\n")
+        f.write("\nPer-speaker:\n")
         for spk, n, w in speaker_wers:
             f.write(f"  {spk}: {w:.2f}% ({n} utts)\n")
 
