@@ -5,7 +5,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from eole.modules.transformer_mlp import MLP
 from torch.distributed import all_reduce
-from eole.triton.fused_moe import fused_experts_impl
+
+try:
+    from eole.triton.fused_moe import fused_experts_impl
+except ImportError:
+    fused_experts_impl = None
 
 
 def naive_moe(x, topk_weights, topk_ids, K, experts):
@@ -186,7 +190,7 @@ class MoE(nn.Module):
         if self.moe_softmax_after:
             expert_weights = expert_weights.softmax(dim=-1)
 
-        if not self.training:
+        if not self.training and fused_experts_impl is not None:
             y = fused_experts_impl(
                 hidden_states=x_flat,
                 w1=self._w1,

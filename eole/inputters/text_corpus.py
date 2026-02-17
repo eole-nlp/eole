@@ -133,6 +133,30 @@ class ImageTextCorpus(object):
         return f"{cls_name}({self.id}, {self.path}"
 
 
+class AudioCorpus(object):
+    """Corpus that reads audio file paths (one per line from src)."""
+
+    def __init__(self, name, src, is_train=False):
+        self.id = name
+        self.src = src
+        self.is_train = is_train
+
+    def load(self, offset=0, stride=1):
+        if isinstance(self.src, list):
+            for i, path in enumerate(self.src):
+                if (i // stride) % stride == offset:
+                    yield {"audio_path": path.strip()}
+        else:
+            with open(self.src, mode="r", encoding="utf-8") as f:
+                for i, line in enumerate(f):
+                    if (i // stride) % stride == offset:
+                        yield {"audio_path": line.strip()}
+
+    def __str__(self):
+        cls_name = type(self).__name__
+        return f"{cls_name}({self.id}, {self.src})"
+
+
 class ParallelCorpus(object):
     """A parallel corpus file pair that can be loaded to iterate."""
 
@@ -283,6 +307,8 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
             corpora_dict[CorpusName.INFER] = ImageTextCorpus(
                 CorpusName.INFER, src, is_train=False  # maybe homogenize to some better name
             )
+        elif config.data_type == "audio":
+            corpora_dict[CorpusName.INFER] = AudioCorpus(CorpusName.INFER, src if src else config.src, is_train=False)
     return corpora_dict
 
 
@@ -402,6 +428,55 @@ class ImageTextCorpusIterator(object):
         yield from corpus
 
 
+class AudioCorpusIterator(object):
+    """Iterator that loads audio and yields raw waveforms for prediction.
+
+    Yields one raw waveform per audio file. The seeking loop in
+    AudioTranslator handles windowing and mel computation.
+    """
+
+    def __init__(
+        self,
+        corpus,
+        transform,
+        skip_empty_level="warning",
+        stride=1,
+        offset=0,
+        is_train=False,
+        sample_rate=16000,
+    ):
+        self.cid = corpus.id
+        self.corpus = corpus
+        self.transform = transform
+        self.skip_empty_level = skip_empty_level
+        self.stride = stride
+        self.offset = offset
+        self.is_train = is_train
+        self.sample_rate = sample_rate
+
+    def _process(self, stream):
+        from eole.inputters.audio_utils import load_audio
+
+        for i, example in enumerate(stream):
+            audio_path = example["audio_path"]
+            line_number = i * self.stride + self.offset
+
+            audio = load_audio(audio_path, sample_rate=self.sample_rate)
+
+            yield {
+                "src": audio,
+                "src_type": "waveform",
+                "tgt": None,
+                "audio_file": audio_path,
+                "cid": self.cid,
+                "cid_line_number": line_number,
+            }, self.transform, self.cid
+
+    def __iter__(self):
+        corpus_stream = self.corpus.load(stride=self.stride, offset=self.offset)
+        yield from self._process(corpus_stream)
+
+
 def build_corpora_iters(
     corpora,
     transforms,
@@ -412,6 +487,7 @@ def build_corpora_iters(
     image_patch_size=16,
     image_size=1024,
     adapter="llava",
+    sample_rate=16000,
 ):
     """Return `ParallelCorpusIterator` for all corpora defined in opts."""
     corpora_iters = dict()
@@ -439,6 +515,16 @@ def build_corpora_iters(
                 image_patch_size=image_patch_size,
                 image_size=image_size,
                 adapter=adapter,
+            )
+        elif isinstance(corpus, AudioCorpus):
+            corpus_iter = AudioCorpusIterator(
+                corpus,
+                transform_pipe,
+                skip_empty_level=skip_empty_level,
+                stride=stride,
+                offset=offset,
+                is_train=getattr(corpus, "is_train", None),
+                sample_rate=sample_rate,
             )
         corpora_iters[c_id] = corpus_iter
     return corpora_iters

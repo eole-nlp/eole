@@ -1,0 +1,15 @@
+## Whisper inference — translate French audio to English text
+## Requires a multilingual Whisper model (e.g. openai/whisper-small)
+
+model_path: "$EOLE_MODEL_DIR/whisper-small-eole"
+data_type: audio
+src: ./audio_files.txt
+output: ./translation.json
+beam_size: 5
+max_length: 448
+gpu_ranks: [0]
+batch_type: sents
+batch_size: 1
+language: fr
+task: translate
+timestamps: segment

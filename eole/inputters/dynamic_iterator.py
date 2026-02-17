@@ -142,6 +142,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         image_patch_size=16,
         image_size=1024,
         adapter="llava",
+        sample_rate=16000,
     ):
         super(DynamicDatasetIter).__init__()
         self.corpora = corpora
@@ -158,6 +159,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         self.bucket_size_init = bucket_size_init
         self.bucket_size_increment = bucket_size_increment
         self.device = device
+        self.data_type = data_type
         if stride <= 0:
             raise ValueError(f"Invalid argument for stride={stride}.")
         self.stride = stride
@@ -177,6 +179,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         self.image_patch_size = image_patch_size
         self.image_size = image_size
         self.adapter = adapter
+        self.sample_rate = sample_rate
         self.numericalizer = Numericalizer(self.vocabs, model_type=self.model_type, task=self.task)
 
     @classmethod
@@ -232,6 +235,9 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             image_size = config.model.encoder.image_size
         except AttributeError:
             image_size = 0
+        # Audio model params (e.g. Whisper)
+        _encoder = getattr(config.model, "encoder", None)
+        sample_rate = getattr(_encoder, "sample_rate", 16000)
         return cls(
             corpora,
             corpora_info,
@@ -255,6 +261,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             image_patch_size=image_patch_size,
             image_size=image_size,
             adapter=getattr(config.model, "adapter", None),
+            sample_rate=sample_rate,
         )
 
     def _init_datasets(self, worker_id):
@@ -274,6 +281,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             image_patch_size=self.image_patch_size,
             image_size=self.image_size,
             adapter=self.adapter,
+            sample_rate=self.sample_rate,
         )
         datasets_weights = {ds_name: int(self.corpora_info[ds_name].weight) for ds_name in datasets_iterables.keys()}
         if self.task == CorpusTask.TRAIN:
@@ -292,6 +300,10 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         Returns:
             List of numericalized examples
         """
+        if self.data_type == "audio":
+            # Audio examples are raw waveforms at this stage; bypass text transforms
+            return [ex for ex, _transform, _cid in tuple_bucket]
+
         transformed_bucket = transform_bucket(self.task, tuple_bucket, self.score_threshold)
 
         # Maybe we could put numericalization in the tokenize transform but we still need to handle special tokens
@@ -406,6 +418,13 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
 
     def __iter__(self):
         """Main iteration logic: bucket -> sort -> batch -> tensorify."""
+        if self.data_type == "audio":
+            yield from self._iter_audio()
+        else:
+            yield from self._iter_text()
+
+    def _iter_text(self):
+        """Standard text/image iteration: bucket -> sort -> batch -> tensorify."""
         for bucket, bucket_idx in self._bucketing():
             # Add indices and sort by length
             # Keep order as (example, index) to match existing code expectations
@@ -435,6 +454,20 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
                 tensor_batch = tensorify(self.vocabs, batch, self.device, self.left_pad)
                 yield (tensor_batch, bucket_idx)
 
+    def _iter_audio(self):
+        """Audio iteration: bucket -> tensorify_audio, one file at a time.
+
+        Audio files are always yielded individually because the
+        timestamp-seeking decoder processes one waveform per call.
+        """
+        from eole.inputters.audio_utils import tensorify_audio
+
+        for bucket, bucket_idx in self._bucketing():
+            indexed_bucket = [(ex, idx) for idx, ex in enumerate(bucket)]
+            for item in indexed_bucket:
+                tensor_batch = tensorify_audio([item], self.device)
+                yield (tensor_batch, bucket_idx)
+
 
 class OnDeviceDatasetIter:
     def __init__(self, data_iter, device):
@@ -449,6 +482,8 @@ class OnDeviceDatasetIter:
                     "ind_in_bucket",
                     "cid_line_number",
                     "left_pad",
+                    "audio_file",
+                    "src_type",
                 ]:
                     if isinstance(tensor_batch[key], list):
                         tensor_batch[key] = [t.to(self.device) for t in tensor_batch[key]]

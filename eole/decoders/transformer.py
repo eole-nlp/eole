@@ -130,6 +130,7 @@ class TransformerDecoderLayer(nn.Module):
             self.compiled_shapes.add((B, S))
 
     def _forward_ffn_layernorm(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
+        kwargs.pop("return_attn", None)
         ff_in = layer_in + self.post_attention_layernorm(self_attn)
         ff_in2 = self.pre_feedforward_layernorm(ff_in)
         ff_in2 = self.mlp(ff_in2)
@@ -180,6 +181,7 @@ class TransformerDecoderLayer(nn.Module):
         return self_attn + self.mlp(ff_in), attns
 
     def _forward_no_cross_attn(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
+        kwargs.pop("return_attn", None)
         self_attn.add_(layer_in)
         ff_in = self.post_attention_layernorm(self_attn)
         return self_attn + self.mlp(ff_in), attns
@@ -243,7 +245,7 @@ class TransformerDecoderLayer(nn.Module):
         if self.dropout_p > 0:
             self_attn = self.dropout(self_attn)
 
-        return self._forward(layer_in, norm_layer_in, self_attn, attns, **kwargs)
+        return self._forward(layer_in, norm_layer_in, self_attn, attns, return_attn=return_attn, **kwargs)
 
     def get_attn_align(self, layer_in, **kwargs):
         """:cite:`garg2019jointly`."""
@@ -477,6 +479,8 @@ class TransformerDecoder(DecoderBase):
 
         with_align = kwargs.pop("with_align", False)
         return_attn = with_align or kwargs.pop("return_attn", False)
+        collect_cross_attns = kwargs.pop("collect_cross_attns", False)
+        all_cross_attns = [] if (return_attn and collect_cross_attns) else None
 
         if self.cache_seqlens is not None:
             # prefill & decoding
@@ -540,6 +544,8 @@ class TransformerDecoder(DecoderBase):
                 cache_slice=cache_slice,
                 pos_ids_2d=pos_ids_2d,
             )
+            if all_cross_attns is not None and attn is not None:
+                all_cross_attns.append(attn)
             if with_align:
                 attn_align = layer.get_attn_align(
                     emb.clone() if (EOLE_COMPILE_MODE == "2" and EOLE_TORCH_COMPILE) else emb,
@@ -565,6 +571,8 @@ class TransformerDecoder(DecoderBase):
         attns = {"std": top_attn}
         if with_align:
             attns["align"] = attn_aligns[self.alignment_layer]  # `(B, Q, K)`
+        if all_cross_attns is not None:
+            attns["cross_attns"] = all_cross_attns
 
         return emb, attns
 

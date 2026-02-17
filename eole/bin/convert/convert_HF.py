@@ -399,6 +399,50 @@ def build_config_dict(hf):
         model_config["encoder"].update({})
         model_config["spatial_merge_size"] = vision_config.get("spatial_merge_size", None)
 
+    # Whisper encoder-decoder
+    if arch == "WhisperForConditionalGeneration":
+        # Whisper uses separate encoder/decoder configs in a flat HF config
+        model_config["layers"] = config.get("decoder_layers", config.get("num_hidden_layers"))
+        model_config["hidden_size"] = config.get("d_model")
+        model_config["heads"] = config.get("decoder_attention_heads")
+        model_config["heads_kv"] = config.get("decoder_attention_heads")
+        model_config["transformer_ff"] = config.get("decoder_ffn_dim")
+        model_config["encoder"] = {
+            "layers": config.get("encoder_layers"),
+            "hidden_size": config.get("d_model"),
+            "heads": config.get("encoder_attention_heads"),
+            "heads_kv": config.get("encoder_attention_heads"),
+            "transformer_ff": config.get("encoder_ffn_dim"),
+            "num_mel_bins": config.get("num_mel_bins", 80),
+            "max_source_positions": config.get("max_source_positions", 1500),
+            "layer_norm": "standard",
+            "norm_eps": 1e-5,
+            "mlp_activation_fn": "gelu",
+            "add_qkvbias": True,
+            "add_key_bias": False,
+            "add_final_linear_bias": True,
+            "add_ffnbias": True,
+            "position_encoding_type": None,
+        }
+        max_target_positions = config.get("max_target_positions", 448)
+        model_config["embeddings"].update(
+            {
+                "position_encoding_type": "Learned",
+                "n_positions": max_target_positions,
+            }
+        )
+        # Whisper uses learned positional embeddings, not rotary
+        model_config.pop("rope_config", None)
+        # Whisper-specific generation settings stored at model level
+        if hf.generation_config is not None:
+            audio_keys = ["suppress_tokens", "begin_suppress_tokens", "no_timestamps_token_id"]
+            for key in audio_keys:
+                if key in hf.generation_config:
+                    model_config[key] = hf.generation_config[key]
+            # Rename to avoid collision with decoder's alignment_heads (int)
+            if "alignment_heads" in hf.generation_config:
+                model_config["word_timestamp_heads"] = hf.generation_config["alignment_heads"]
+
     # patch transformer_ff
     if model_config["transformer_ff"] is None:
         model_config["transformer_ff"] = model_config["hidden_size"] * 4
@@ -408,33 +452,37 @@ def build_config_dict(hf):
         model_config["sliding_window"] = 4096
 
     # Populate embeddings
-    model_config["embeddings"] = {
-        "src_word_vec_size": model_config["hidden_size"],
-        "tgt_word_vec_size": model_config["hidden_size"],
-    }
-
-    # Default position encoding configuration
     model_config["embeddings"].update(
         {
-            "position_encoding_type": PositionEncodingType.Rotary,
-            "n_positions": 0,
+            "src_word_vec_size": model_config["hidden_size"],
+            "tgt_word_vec_size": model_config["hidden_size"],
         }
     )
 
-    # patch rotary dim
-    if "rotary_dim" in config.keys():
-        model_config["rope_config"]["rotary_dim"] = config["rotary_dim"]
-    elif "partial_rotary_factor" in config.keys():
-        model_config["rope_config"]["rotary_dim"] = int(
-            config["partial_rotary_factor"] * (model_config["hidden_size"] // model_config["heads"])
+    # Default position encoding configuration (skip for Whisper which sets its own)
+    if arch != "WhisperForConditionalGeneration":
+        model_config["embeddings"].update(
+            {
+                "position_encoding_type": PositionEncodingType.Rotary,
+                "n_positions": 0,
+            }
         )
-    elif model_config.get("head_dim", None) is not None:
-        model_config["rope_config"]["rotary_dim"] = model_config["head_dim"]
-    else:
-        model_config["rope_config"]["rotary_dim"] = model_config["hidden_size"] // model_config["heads"]
+
+    # patch rotary dim (skip for models using learned positional embeddings)
+    if "rope_config" in model_config:
+        if "rotary_dim" in config.keys():
+            model_config["rope_config"]["rotary_dim"] = config["rotary_dim"]
+        elif "partial_rotary_factor" in config.keys():
+            model_config["rope_config"]["rotary_dim"] = int(
+                config["partial_rotary_factor"] * (model_config["hidden_size"] // model_config["heads"])
+            )
+        elif model_config.get("head_dim", None) is not None:
+            model_config["rope_config"]["rotary_dim"] = model_config["head_dim"]
+        else:
+            model_config["rope_config"]["rotary_dim"] = model_config["hidden_size"] // model_config["heads"]
 
     # Update rope scaling related settings
-    if config.get("rope_scaling", None) is not None:
+    if config.get("rope_scaling", None) is not None and "rope_config" in model_config:
         model_config["rope_config"].update(
             {
                 "scaling_type": config["rope_scaling"].get("rope_type", config["rope_scaling"].get("type", None)),
@@ -858,7 +906,7 @@ class LlamaHFConverter(BaseBin):
         parser.add_argument(
             "--token",
             type=str,
-            default="",
+            default=None,
             help="""HF token""",
         )
         parser.add_argument(

@@ -5,6 +5,7 @@ from eole.encoders.rnn_encoder import RNNEncoder
 from eole.encoders.cnn_encoder import CNNEncoder
 from eole.encoders.mean_encoder import MeanEncoder
 from eole.encoders.vision import VisionEncoder
+from eole.encoders.whisper import WhisperEncoder
 
 
 str2enc = {
@@ -14,4 +15,5 @@ str2enc = {
     "transformer": TransformerEncoder,
     "mean": MeanEncoder,
     "vision": VisionEncoder,
+    "whisper": WhisperEncoder,
 }
