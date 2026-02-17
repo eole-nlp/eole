@@ -77,8 +77,8 @@ class AudioTranslator(Translator):
 
         if config.batch_size > 1:
             self._log(
-                "WARNING: batch_size > 1 has no effect in timestamp-seeking "
-                "mode; audio files are processed sequentially."
+                "INFO: batch_size > 1 is ignored for audio; "
+                "files are processed sequentially in timestamp-seeking mode."
             )
 
         model_path = config.get_model_path()

@@ -455,16 +455,17 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
                 yield (tensor_batch, bucket_idx)
 
     def _iter_audio(self):
-        """Audio iteration: bucket -> batch -> tensorify_audio."""
+        """Audio iteration: bucket -> tensorify_audio, one file at a time.
+
+        Audio files are always yielded individually because the
+        timestamp-seeking decoder processes one waveform per call.
+        """
         from eole.inputters.audio_utils import tensorify_audio
 
         for bucket, bucket_idx in self._bucketing():
-            # Audio chunks all have same mel shape, so just batch by count
             indexed_bucket = [(ex, idx) for idx, ex in enumerate(bucket)]
-            # Simple batching by sentence count
-            for i in range(0, len(indexed_bucket), self.batch_size):
-                batch = indexed_bucket[i : i + self.batch_size]
-                tensor_batch = tensorify_audio(batch, self.device)
+            for item in indexed_bucket:
+                tensor_batch = tensorify_audio([item], self.device)
                 yield (tensor_batch, bucket_idx)
 
 
