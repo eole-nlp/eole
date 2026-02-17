@@ -433,6 +433,15 @@ def build_config_dict(hf):
         )
         # Whisper uses learned positional embeddings, not rotary
         model_config.pop("rope_config", None)
+        # Whisper-specific generation settings stored at model level
+        if hf.generation_config is not None:
+            audio_keys = ["suppress_tokens", "begin_suppress_tokens", "no_timestamps_token_id"]
+            for key in audio_keys:
+                if key in hf.generation_config:
+                    model_config[key] = hf.generation_config[key]
+            # Rename to avoid collision with decoder's alignment_heads (int)
+            if "alignment_heads" in hf.generation_config:
+                model_config["word_timestamp_heads"] = hf.generation_config["alignment_heads"]
 
     # patch transformer_ff
     if model_config["transformer_ff"] is None:

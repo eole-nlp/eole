@@ -42,6 +42,17 @@ def parse_args():
         default="./results",
         help="Directory for output files",
     )
+    parser.add_argument(
+        "--language",
+        default=None,
+        help="Language token to force (e.g. 'en'). If not set, model auto-detects.",
+    )
+    parser.add_argument(
+        "--task",
+        default=None,
+        choices=["transcribe", "translate"],
+        help="Task token to force: 'transcribe' or 'translate'. If not set, model auto-detects.",
+    )
     return parser.parse_args()
 
 
@@ -121,6 +132,12 @@ def run_inference(audio_files, args):
 
     if args.condition_on_previous_text:
         cmd.extend(["-condition_on_previous_text"])
+
+    if args.language:
+        cmd.extend(["-language", args.language])
+
+    if args.task:
+        cmd.extend(["-task", args.task])
 
     print(f"Running inference on {len(audio_files)} files...")
     print(f"Command: {' '.join(cmd)}")

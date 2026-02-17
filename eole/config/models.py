@@ -876,6 +876,27 @@ class WhisperModelConfig(TransformerConfig, BaseModelConfig):
     """Configuration for Whisper speech-to-text models."""
 
     architecture: Literal["whisper"] = Field(default="whisper")
+    suppress_tokens: List[int] | None = Field(
+        default=None,
+        description="List of token IDs to suppress during audio decoding.",
+    )
+    begin_suppress_tokens: List[int] | None = Field(
+        default=None,
+        description="List of token IDs to suppress at the first generated position.",
+    )
+    no_timestamps_token_id: int | None = Field(
+        default=None,
+        description="Token ID for the no-timestamps token in audio models.",
+    )
+    word_timestamp_heads: List[List[int]] | None = Field(
+        default=None,
+        description="List of [layer, head] pairs for word-level timestamp extraction "
+        "(mapped from alignment_heads in HF generation_config).",
+    )
+    median_filter_width: int = Field(
+        default=7,
+        description="Median filter width for word-level timestamp smoothing.",
+    )
 
     @model_validator(mode="before")
     @classmethod

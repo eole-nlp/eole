@@ -16,7 +16,7 @@ class AudioTranslator(Translator):
     """Translator subclass for audio encoder-decoder models.
 
     Adds:
-    - Token suppression (suppress_tokens from generation_config.json)
+    - Token suppression (suppress_tokens from eole config)
     - Forced decoder prefix (SOT, language, task tokens)
     - Sequential timestamp-seeking: decodes audio windows using timestamp
       tokens to determine seek advancement
@@ -81,24 +81,17 @@ class AudioTranslator(Translator):
                 "files are processed sequentially in timestamp-seeking mode."
             )
 
-        model_path = config.get_model_path()
-        gen_config_path = os.path.join(model_path, "generation_config.json")
-        if os.path.exists(gen_config_path):
-            with open(gen_config_path) as f:
-                gen_config = json.load(f)
-        else:
-            gen_config = {}
-
-        self.suppress_tokens = gen_config.get("suppress_tokens", [])
-        self.begin_suppress_tokens = gen_config.get("begin_suppress_tokens", [])
-        self.no_timestamps_token_id = gen_config.get("no_timestamps_token_id", None)
-        self.alignment_heads = gen_config.get("alignment_heads", None)
-        self.median_filter_width = 7
+        self.suppress_tokens = getattr(model_config, "suppress_tokens", None) or []
+        self.begin_suppress_tokens = getattr(model_config, "begin_suppress_tokens", None) or []
+        self.no_timestamps_token_id = getattr(model_config, "no_timestamps_token_id", None)
+        self.word_timestamp_heads = getattr(model_config, "word_timestamp_heads", None)
+        self.median_filter_width = getattr(model_config, "median_filter_width", 7)
 
         self._tokenizer = None
         try:
             from tokenizers import Tokenizer
 
+            model_path = config.get_model_path()
             tokenizer_path = os.path.join(model_path, "tokenizer.json")
             if os.path.exists(tokenizer_path):
                 self._tokenizer = Tokenizer.from_file(tokenizer_path)
@@ -254,10 +247,10 @@ class AudioTranslator(Translator):
                 if self.timestamps_output == "segment":
                     all_predictions.append([json.dumps(segments)])
                 elif self.timestamps_output == "word":
-                    if self.alignment_heads is None:
+                    if self.word_timestamp_heads is None:
                         raise ValueError(
-                            "Word-level timestamps require alignment_heads "
-                            "in generation_config.json. This model may not "
+                            "Word-level timestamps require word_timestamp_heads "
+                            "in the model config. This model may not "
                             "support word-level timestamps."
                         )
                     all_predictions.append([json.dumps(word_segments)])
@@ -313,9 +306,9 @@ class AudioTranslator(Translator):
                               timestamps not requested)
         """
         if self.no_timestamps_token_id is None:
-            raise ValueError("Timestamp-seeking mode requires no_timestamps_token_id in generation_config.json.")
+            raise ValueError("Timestamp-seeking mode requires no_timestamps_token_id in the model config.")
         token_beg = self.no_timestamps_token_id + 1
-        do_word_timestamps = self.timestamps_output == "word" and self.alignment_heads is not None
+        do_word_timestamps = self.timestamps_output == "word" and self.word_timestamp_heads is not None
 
         total_samples = waveform.shape[0]
         seek = 0
@@ -552,7 +545,7 @@ class AudioTranslator(Translator):
 
         prefix_len = len(self._static_prefix_ids)
         weights_list = []
-        for layer_idx, head_idx in self.alignment_heads:
+        for layer_idx, head_idx in self.word_timestamp_heads:
             if layer_idx < len(cross_attns):
                 w = cross_attns[layer_idx][0, head_idx]
                 weights_list.append(w)
