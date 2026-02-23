@@ -145,7 +145,7 @@ def main():
     dev_paths, dev_texts = parse_tsv(os.path.join(data_root, "dev.tsv"), clips_dir)
     test_paths, test_texts = parse_tsv(os.path.join(data_root, "test.tsv"), clips_dir)
 
-    print(f"\nSplit sizes:")
+    print("\nSplit sizes:")
     print(f"  train: {len(train_paths)}")
     print(f"  dev:   {len(dev_paths)}")
     print(f"  test:  {len(test_paths)}")
