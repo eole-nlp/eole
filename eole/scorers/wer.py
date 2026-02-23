@@ -15,12 +15,14 @@ def _build_normalizer(mode):
     elif mode == "lowercase":
         import jiwer
 
-        transform = jiwer.Compose([
-            jiwer.ToLowerCase(),
-            jiwer.RemovePunctuation(),
-            jiwer.Strip(),
-            jiwer.RemoveMultipleSpaces(),
-        ])
+        transform = jiwer.Compose(
+            [
+                jiwer.ToLowerCase(),
+                jiwer.RemovePunctuation(),
+                jiwer.Strip(),
+                jiwer.RemoveMultipleSpaces(),
+            ]
+        )
         return transform
     elif mode == "whisper_en":
         from whisper_normalizer.english import EnglishTextNormalizer
@@ -67,7 +69,10 @@ class WerScorer(Scorer):
             catastrophic = sum(1 for s in sent_wers if s >= 1.0)
             logger.info(
                 "WER: corpus=%.2f%% mean_sent=%.2f%% catastrophic=%d/%d",
-                corpus_score, mean_sent_score, catastrophic, len(sent_wers),
+                corpus_score,
+                mean_sent_score,
+                catastrophic,
+                len(sent_wers),
             )
             score = corpus_score
         else:

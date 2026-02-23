@@ -141,15 +141,9 @@ def main():
 
     # Parse splits
     print("\nParsing TSV files...")
-    train_paths, train_texts = parse_tsv(
-        os.path.join(data_root, "train.tsv"), clips_dir
-    )
-    dev_paths, dev_texts = parse_tsv(
-        os.path.join(data_root, "dev.tsv"), clips_dir
-    )
-    test_paths, test_texts = parse_tsv(
-        os.path.join(data_root, "test.tsv"), clips_dir
-    )
+    train_paths, train_texts = parse_tsv(os.path.join(data_root, "train.tsv"), clips_dir)
+    dev_paths, dev_texts = parse_tsv(os.path.join(data_root, "dev.tsv"), clips_dir)
+    test_paths, test_texts = parse_tsv(os.path.join(data_root, "test.tsv"), clips_dir)
 
     print(f"\nSplit sizes:")
     print(f"  train: {len(train_paths)}")

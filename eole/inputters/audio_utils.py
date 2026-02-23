@@ -156,18 +156,14 @@ def tensorify_audio_training(vocabs, minibatch, device):
 
     mels = [ex["src"]["src"] for ex in examples]
     tensor_batch["src"] = torch.stack(mels, dim=0).to(device)
-    tensor_batch["srclen"] = torch.tensor(
-        [mel.shape[-1] for mel in mels], dtype=torch.long, device=device
-    )
+    tensor_batch["srclen"] = torch.tensor([mel.shape[-1] for mel in mels], dtype=torch.long, device=device)
 
     pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
     tgt_pad_idx = vocabs["tgt"][pad_token]
     tgt_sequences = [ex["tgt"]["tgt_ids"] for ex in examples]
     tgt_tensors = [torch.tensor(seq, dtype=torch.long, device=device) for seq in tgt_sequences]
     tensor_batch["tgt"] = pad_sequence(tgt_tensors, batch_first=True, padding_value=tgt_pad_idx)
-    tensor_batch["tgtlen"] = torch.tensor(
-        [len(seq) for seq in tgt_sequences], dtype=torch.long, device=device
-    )
+    tensor_batch["tgtlen"] = torch.tensor([len(seq) for seq in tgt_sequences], dtype=torch.long, device=device)
 
     tensor_batch["prefix_len"] = None
     tensor_batch["images"] = None
@@ -175,8 +171,6 @@ def tensorify_audio_training(vocabs, minibatch, device):
     tensor_batch["ind_in_bucket"] = indices
     tensor_batch["cid"] = [ex.get("cid") for ex in examples]
     tensor_batch["cid_line_number"] = [ex.get("cid_line_number") for ex in examples]
-    tensor_batch["sco"] = torch.tensor(
-        [ex.get("sco", 1.0) for ex in examples], device=device
-    )
+    tensor_batch["sco"] = torch.tensor([ex.get("sco", 1.0) for ex in examples], device=device)
 
     return tensor_batch

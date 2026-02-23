@@ -171,7 +171,7 @@ class GreedySearch(DecodeStrategy):
 
     def initialize(self, enc_out, src_len, device=None, target_prefix=None):
         """Initialize for decoding."""
-        (fn_tile, enc_out, target_prefix) = self.initialize_tile(enc_out, src_len, target_prefix)
+        fn_tile, enc_out, target_prefix = self.initialize_tile(enc_out, src_len, target_prefix)
         if device is None:
             device = self.get_device_from_enc_out(enc_out)
 
@@ -252,11 +252,13 @@ class GreedySearch(DecodeStrategy):
             raw_log_prob = log_probs.gather(dim=1, index=topk_ids)
             if self.static_batch_size:
                 self._sum_logprobs = torch.where(
-                    self.sequence_finished.unsqueeze(1), self._sum_logprobs,
+                    self.sequence_finished.unsqueeze(1),
+                    self._sum_logprobs,
                     self._sum_logprobs + raw_log_prob,
                 )
                 self._n_text_tokens = torch.where(
-                    self.sequence_finished.unsqueeze(1), self._n_text_tokens,
+                    self.sequence_finished.unsqueeze(1),
+                    self._n_text_tokens,
                     self._n_text_tokens + 1,
                 )
             else:
@@ -304,11 +306,15 @@ class GreedySearch(DecodeStrategy):
                 if self.alive_attn is not None
                 else []
             )
-            self.hypotheses[b_orig].append((
-                score, pred, attention,
-                self._sum_logprobs[b, 0].item(),
-                self._n_text_tokens[b, 0].item(),
-            ))
+            self.hypotheses[b_orig].append(
+                (
+                    score,
+                    pred,
+                    attention,
+                    self._sum_logprobs[b, 0].item(),
+                    self._n_text_tokens[b, 0].item(),
+                )
+            )
 
         if self.static_batch_size:
             self.done = self.sequence_finished.all().item()
@@ -350,7 +356,7 @@ class GreedySearchLM(GreedySearch):
         if device is None:
             device = src.device
         self.eos_t = torch.tensor(self.eos).to(device)
-        (fn_tile, _) = super(GreedySearchLM, self).initialize(None, src_len, device, target_prefix)
+        fn_tile, _ = super(GreedySearchLM, self).initialize(None, src_len, device, target_prefix)
 
         return fn_tile, src
 
