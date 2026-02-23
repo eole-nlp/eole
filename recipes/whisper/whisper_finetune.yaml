@@ -97,3 +97,4 @@ inference:
     task: "transcribe"
     max_length: 448
     beam_size: 5
+    length_penalty: none

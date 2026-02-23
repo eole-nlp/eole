@@ -4,7 +4,11 @@
 
 data_type: audio
 beam_size: 5
+length_penalty: none
 max_length: 448
 batch_type: sents
 batch_size: 1
 gpu_ranks: [0]
+language: en
+task: transcribe
+seed: 0
