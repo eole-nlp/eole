@@ -63,6 +63,7 @@ class ScoringPreparator:
             model_path=[model_path],
             src=self.config.data["valid"].path_src,
             compute_dtype=self.config.training.compute_dtype,
+            share_vocab=self.config.share_vocab,
             beam_size=1,
             transforms=self.config.transforms,
             transforms_configs=self.config.transforms_configs,
@@ -72,14 +73,10 @@ class ScoringPreparator:
         )
 
         if self.config.inference is not None:
-            for field in ("language", "task", "max_length", "beam_size", "length_penalty"):
+            for field in ("language", "task", "max_length", "beam_size", "length_penalty", "seed"):
                 value = getattr(self.config.inference, field, None)
                 if value is not None:
                     predict_kwargs[field] = value
-
-        # Propagate training seed for deterministic fallback sampling
-        if self.config.seed is not None and self.config.seed >= 0:
-            predict_kwargs["seed"] = self.config.seed
 
         prefix_config = getattr(self.config.transforms_configs, "prefix", None)
         if prefix_config is not None:
