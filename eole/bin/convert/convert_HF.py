@@ -17,6 +17,8 @@ import torch
 from huggingface_hub import hf_hub_download, utils
 from safetensors.torch import save_file
 from sentencepiece import SentencePieceProcessor
+from tokenizers import Tokenizer
+from tokenizers.processors import TemplateProcessing
 
 # Eole Imports
 from eole.bin import BaseBin, register_bin
@@ -969,6 +971,19 @@ class LlamaHFConverter(BaseBin):
                         "mapped_tokens": mapped_tokens,
                     },
                 }
+
+        # Strip tokenizer post_processor for Whisper models.
+        if hf.arch == "WhisperForConditionalGeneration" and hf.tokenizer_json:
+            tokenizer = Tokenizer.from_file(hf.tokenizer_json)
+            tokenizer.post_processor = TemplateProcessing(
+                single="$A",
+                pair="$A $B",
+                special_tokens=[],
+            )
+            clean_tokenizer_path = os.path.join(args.output, "tokenizer.json")
+            tokenizer.save(clean_tokenizer_path)
+            transforms_configs["huggingface_tokenize"]["path"] = clean_tokenizer_path
+            print("Stripped tokenizer post_processor for Whisper model")
 
         if hf.config.get("decoder_start_token_id", None) is not None:
             vocabs["decoder_start_token"] = src_vocab.ids_to_tokens[hf.config["decoder_start_token_id"]]

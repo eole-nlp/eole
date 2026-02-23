@@ -50,33 +50,71 @@ class ScoringPreparator:
         model_config = self.config.model
         model_config._validate_model_config()
 
+        data_type = getattr(self.config.training, "data_type", "text")
+
         # This is somewhat broken and we shall remove or improve
         # (take 'inference' field of config if exists?)
         # Set "default" translation options on empty cfgfile
         self.config.training.num_workers = 0
-        predict_config = PredictConfig(
-            model_path=["dummy"],
+
+        model_path = self.config.training.get_model_path()
+
+        predict_kwargs = dict(
+            model_path=[model_path],
             src=self.config.data["valid"].path_src,
             compute_dtype=self.config.training.compute_dtype,
             beam_size=1,
             transforms=self.config.transforms,
             transforms_configs=self.config.transforms_configs,
             model=model_config,
-            tgt_file_prefix=self.config.transforms_configs.prefix.tgt_prefix != "",
             gpu_ranks=[gpu_rank],
+            data_type=data_type,
         )
 
+        if self.config.inference is not None:
+            for field in ("language", "task", "max_length", "beam_size"):
+                value = getattr(self.config.inference, field, None)
+                if value is not None:
+                    predict_kwargs[field] = value
+
+        # Propagate training seed for deterministic fallback sampling
+        if self.config.seed is not None and self.config.seed >= 0:
+            predict_kwargs["seed"] = self.config.seed
+
+        prefix_config = getattr(self.config.transforms_configs, "prefix", None)
+        if prefix_config is not None:
+            predict_kwargs["tgt_file_prefix"] = prefix_config.tgt_prefix != ""
+        else:
+            predict_kwargs["tgt_file_prefix"] = False
+
+        predict_config = PredictConfig(**predict_kwargs)
+
         scorer = GNMTGlobalScorer.from_config(predict_config)
-        translator = Translator(  # we need to review opt/config stuff in translator
-            model,
-            self.vocabs,
-            predict_config,
-            model_config,
-            device_id=gpu_rank,
-            global_scorer=scorer,
-            report_score=False,
-            logger=None,
-        )
+
+        if data_type == "audio":
+            from eole.predict.audio_translator import AudioTranslator
+
+            translator = AudioTranslator(
+                model,
+                self.vocabs,
+                predict_config,
+                model_config,
+                device_id=gpu_rank,
+                global_scorer=scorer,
+                report_score=False,
+                logger=None,
+            )
+        else:
+            translator = Translator(
+                model,
+                self.vocabs,
+                predict_config,
+                model_config,
+                device_id=gpu_rank,
+                global_scorer=scorer,
+                report_score=False,
+                logger=None,
+            )
 
         # ################### #
         # Validation iterator #
@@ -114,12 +152,22 @@ class ScoringPreparator:
 
         # Flatten predictions
         preds = [x.lstrip() for sublist in preds for x in sublist]
+
+        if hasattr(translator, "_tokenizer") and translator._tokenizer is not None:
+            refs = [
+                translator._tokenizer.decode(translator._tokenizer.encode(ref).ids, skip_special_tokens=True)
+                for ref in raw_refs
+            ]
+        else:
+            refs = raw_refs
+
         # Save results
         if len(preds) > 0 and self.config.scoring_debug and self.config.dump_preds is not None:
             path = os.path.join(self.config.dump_preds, f"preds.valid_step_{step}.txt")
             with open(path, "a") as file:
                 for i in range(len(raw_srcs)):
                     file.write("SOURCE: {}\n".format(raw_srcs[i]))
-                    file.write("REF: {}\n".format(raw_refs[i]))
+                    file.write("RAW REF: {}\n".format(raw_refs[i]))
+                    file.write("REF: {}\n".format(refs[i]))
                     file.write("PRED: {}\n\n".format(preds[i]))
-        return preds, raw_refs
+        return preds, refs

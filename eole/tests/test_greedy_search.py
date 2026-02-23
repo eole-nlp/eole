@@ -127,7 +127,7 @@ class TestGreedySearch(unittest.TestCase):
                 self.assertTrue(all(samp.is_finished_list[0]))
                 samp.update_finished()
                 self.assertEqual(
-                    [score for score, _, _ in samp.hypotheses[0]],
+                    [score for score, *_ in samp.hypotheses[0]],
                     [valid_score_dist_1[0] / temp],
                 )
                 if batch_sz == 1:
@@ -150,7 +150,7 @@ class TestGreedySearch(unittest.TestCase):
                 self.assertTrue(all(samp.is_finished_list[7]))
                 samp.update_finished()
                 self.assertEqual(
-                    [score for score, _, _ in samp.hypotheses[8]],
+                    [score for score, *_ in samp.hypotheses[8]],
                     [valid_score_dist_2[0] / temp],
                 )
 
@@ -248,7 +248,7 @@ class TestGreedySearch(unittest.TestCase):
 
                 samp.update_finished()
                 self.assertEqual(
-                    [score for score, _, _ in samp.hypotheses[8]],
+                    [score for score, *_ in samp.hypotheses[8]],
                     [valid_score_dist_2[0] / temp],
                 )
 
@@ -357,7 +357,7 @@ class TestGreedySearch(unittest.TestCase):
 
                 samp.update_finished()
                 self.assertEqual(
-                    [score for score, _, _ in samp.hypotheses[batch_sz - 1][-1:]],
+                    [score for score, *_ in samp.hypotheses[batch_sz - 1][-1:]],
                     [valid_score_dist_2[0] / temp],
                 )
 
@@ -436,7 +436,7 @@ class TestGreedySearch(unittest.TestCase):
                     )
                 samp.update_finished()
                 self.assertEqual(
-                    [score for score, _, _ in samp.hypotheses[0]],
+                    [score for score, *_ in samp.hypotheses[0]],
                     [valid_score_dist_1[0] / temp],
                 )
                 if batch_sz == 1:
@@ -467,7 +467,7 @@ class TestGreedySearch(unittest.TestCase):
 
                 samp.update_finished()
                 self.assertEqual(
-                    [score for score, _, _ in samp.hypotheses[8]],
+                    [score for score, *_ in samp.hypotheses[8]],
                     [valid_score_dist_2[0] / temp],
                 )
 

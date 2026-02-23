@@ -3,13 +3,18 @@
 ##   echo "/path/to/audio.wav" > ./audio_files.txt
 ##   eole predict -config recipes/whisper/whisper_predict.yaml
 
-model_path: "$EOLE_MODEL_DIR/whisper-base-en-eole"
+model_path: "$EOLE_MODEL_DIR/whisper-base-eole"
 data_type: audio
 src: ./audio_files.txt
 output: ./transcription.txt
 beam_size: 5
+length_penalty: none
 max_length: 448
 gpu_ranks: [0]
 batch_type: sents
 batch_size: 1
+language: en
+task: transcribe
 condition_on_previous_text: true
+seed: 0
+verbose: true

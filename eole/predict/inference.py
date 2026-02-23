@@ -615,6 +615,8 @@ class Inference(object):
             "scores": None,
             "attention": None,
             "estim": None,
+            "sum_logprobs": None,
+            "n_text_tokens": None,
             "batch": batch,
             "gold_score": gold_score,
             "gold_log_probs": gold_log_probs,
@@ -628,12 +630,16 @@ class Inference(object):
         scores = []
         attns = []
         sorted_estim = []
+        sorted_sum_logprobs = []
+        sorted_n_text_tokens = []
 
-        for sublist_estim, sublist_scores, sublist_preds, sublist_attns in zip(
+        for sublist_estim, sublist_scores, sublist_preds, sublist_attns, sublist_slp, sublist_ntok in zip(
             estim,
             decode_strategy.scores,
             decode_strategy.predictions,
             decode_strategy.attention,
+            decode_strategy.sum_logprobs,
+            decode_strategy.n_text_tokens,
         ):
 
             # key_fn = lambda x: x[3]  # tri sur estimation
@@ -656,7 +662,7 @@ class Inference(object):
                 return (dominates_count, E)
 
             sorted_tuples = sorted(
-                zip(sublist_scores, sublist_preds, sublist_attns, sublist_estim),
+                zip(sublist_scores, sublist_preds, sublist_attns, sublist_estim, sublist_slp, sublist_ntok),
                 key=key_fn,
                 reverse=True,
             )
@@ -666,14 +672,20 @@ class Inference(object):
                 preds = decode_strategy.predictions
                 attns = decode_strategy.attention
                 sorted_estim = estim
+                sorted_sum_logprobs = decode_strategy.sum_logprobs
+                sorted_n_text_tokens = decode_strategy.n_text_tokens
             else:
                 scores.append([item[0] for item in sorted_tuples])
                 preds.append([item[1] for item in sorted_tuples])
                 attns.append([item[2] for item in sorted_tuples])
                 sorted_estim.append([item[3] for item in sorted_tuples])
+                sorted_sum_logprobs.append([item[4] for item in sorted_tuples])
+                sorted_n_text_tokens.append([item[5] for item in sorted_tuples])
 
         results["scores"] = scores
         results["predictions"] = preds
         results["attention"] = attns
         results["estim"] = sorted_estim
+        results["sum_logprobs"] = sorted_sum_logprobs
+        results["n_text_tokens"] = sorted_n_text_tokens
         return results

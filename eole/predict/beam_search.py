@@ -138,6 +138,8 @@ class BeamSearchBase(DecodeStrategy):
         self.topk_scores = torch.empty((self.batch_size, self.beam_size), dtype=torch.float, device=device)
 
         self.batch_finished = torch.zeros(self.batch_size, dtype=torch.bool, device=device)
+        self._sum_logprobs = torch.zeros((self.batch_size, self.beam_size), dtype=torch.float, device=device)
+        self._n_text_tokens = torch.zeros((self.batch_size, self.beam_size), dtype=torch.long, device=device)
 
     @property
     def current_predictions(self):
@@ -196,6 +198,8 @@ class BeamSearchBase(DecodeStrategy):
                         topk_scores_list[i][j],
                         predictions[i, j, 1:],  # Ignore start_token.
                         attention[i, j, :, : self.src_len[i]] if attention is not None else None,
+                        self._sum_logprobs[i, j].item(),
+                        self._n_text_tokens[i, j].item(),
                     )
                 )
 
@@ -212,10 +216,12 @@ class BeamSearchBase(DecodeStrategy):
 
             if finish_flag and len(self.hypotheses[b]) >= self.num_hyp:
                 self.hypotheses[b] = sorted(self.hypotheses[b], key=lambda x: x[0], reverse=True)
-                for score, pred, attn in self.hypotheses[b][: self.num_hyp]:
+                for score, pred, attn, slp, ntok in self.hypotheses[b][: self.num_hyp]:
                     self.scores[b].append(score)
                     self.predictions[b].append(pred)  # ``(batch, n_best,)``
                     self.attention[b].append(attn if attn is not None else [])
+                    self.sum_logprobs[b].append(slp)
+                    self.n_text_tokens[b].append(ntok)
                 if self.static_batch_size:
                     self.batch_finished[i] = True
                 return False
@@ -268,6 +274,8 @@ class BeamSearchBase(DecodeStrategy):
         self._batch_offset = self._batch_offset[non_finished]  # CPU
         non_finished = non_finished.to(self.topk_log_probs.device)
         self.topk_log_probs = self.topk_log_probs[non_finished]
+        self._sum_logprobs = self._sum_logprobs[non_finished]
+        self._n_text_tokens = self._n_text_tokens[non_finished]
         self._batch_index = self._batch_index[non_finished]
         self.alive_seq = predictions[non_finished].view(-1, self.alive_seq.size(-1))
 
@@ -309,15 +317,15 @@ class BeamSearchBase(DecodeStrategy):
         # Multiply probs by the beam probability.
         # for some reasons at beam_size=1 this generates a drift vs plain greedy
         # but if we remove we lose the cumulated score.
-        log_probs += self.topk_log_probs.view(_B * self.beam_size, 1)
+        cumulative = log_probs + self.topk_log_probs.view(_B * self.beam_size, 1)
 
         # if the sequence ends now, then the penalty is the current
         # length + 1, to include the EOS token
         length_penalty = self.global_scorer.length_penalty(step + 1, alpha=self.global_scorer.alpha)
         if length_penalty != 1:
-            curr_scores = log_probs / length_penalty
+            curr_scores = cumulative / length_penalty
         else:
-            curr_scores = log_probs
+            curr_scores = cumulative
 
         # Avoid any direction that would repeat unwanted ngrams
         self.block_ngram_repeats(curr_scores)
@@ -334,6 +342,17 @@ class BeamSearchBase(DecodeStrategy):
         self._batch_index = self.topk_ids // vocab_size + self._beam_offset[:_B].unsqueeze(1)
         self.select_indices = self._batch_index.view(_B * self.beam_size)
         self.topk_ids %= vocab_size
+
+        self._sum_logprobs = self._sum_logprobs.view(-1)[self.select_indices].view(_B, self.beam_size)
+        self._n_text_tokens = self._n_text_tokens.view(-1)[self.select_indices].view(_B, self.beam_size)
+        if step > self._prefix_len:
+            raw_step = (
+                log_probs[self.select_indices]
+                .gather(dim=1, index=self.topk_ids.view(_B * self.beam_size, 1))
+                .view(_B, self.beam_size)
+            )
+            self._sum_logprobs += raw_step
+            self._n_text_tokens += 1
 
         # Append last prediction to reordered alive sequence
         self.alive_seq = torch.cat(
@@ -384,7 +403,7 @@ class BeamSearch(BeamSearchBase):
         Repeat src objects `beam_size` times.
         """
 
-        (fn_tile, enc_out, target_prefix) = self.initialize_tile(enc_out, src_len, target_prefix)
+        fn_tile, enc_out, target_prefix = self.initialize_tile(enc_out, src_len, target_prefix)
         if device is None:
             device = self.get_device_from_enc_out(enc_out)
 
@@ -403,7 +422,7 @@ class BeamSearchLM(BeamSearchBase):
         """Initialize for decoding.
         Repeat src objects `beam_size` times.
         """
-        (fn_tile, _, target_prefix) = self.initialize_tile(None, src_len, target_prefix)
+        fn_tile, _, target_prefix = self.initialize_tile(None, src_len, target_prefix)
         if device is None:
             device = src.device
 

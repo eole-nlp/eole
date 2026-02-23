@@ -60,6 +60,7 @@ class WhisperEncoder(EncoderBase):
                 - Encoded output (batch, time//2, hidden_size)
                 - None (transformers don't return final state)
         """
+        emb = emb.to(dtype=self.conv1.weight.dtype)
         x = torch.nn.functional.gelu(self.conv1(emb))
         x = torch.nn.functional.gelu(self.conv2(x))
         x = x.permute(0, 2, 1)

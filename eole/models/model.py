@@ -153,7 +153,7 @@ class BaseModel(nn.Module):
         """Apply encoder/decoder freezing based on config."""
         if running_config.freeze_encoder:
             self.encoder.requires_grad_(False)
-            if hasattr(self, "adapter"):
+            if getattr(self, "adapter", None) is not None:
                 self.adapter.requires_grad_(False)
 
         if running_config.freeze_decoder:

@@ -133,3 +133,50 @@ def tensorify_audio(minibatch, device):
     tensor_batch["cid"] = [ex.get("cid") for ex in examples]
     tensor_batch["cid_line_number"] = [ex.get("cid_line_number") for ex in examples]
     return tensor_batch
+
+
+def tensorify_audio_training(vocabs, minibatch, device):
+    """Transform a batch of mel+text training examples into tensors.
+
+    Args:
+        vocabs: Vocabulary dictionaries
+        minibatch: List of (example, index) tuples where example has
+            src={src: mel_tensor, src_type: "mel"} and tgt={tgt_ids: [...]}
+        device: Target device for tensors
+
+    Returns:
+        Dictionary of batch tensors for training.
+    """
+    from torch.nn.utils.rnn import pad_sequence
+    from eole.constants import DefaultTokens
+
+    tensor_batch = {}
+    examples = [ex for ex, _ in minibatch]
+    indices = [idx for _, idx in minibatch]
+
+    mels = [ex["src"]["src"] for ex in examples]
+    tensor_batch["src"] = torch.stack(mels, dim=0).to(device)
+    tensor_batch["srclen"] = torch.tensor(
+        [mel.shape[-1] for mel in mels], dtype=torch.long, device=device
+    )
+
+    pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
+    tgt_pad_idx = vocabs["tgt"][pad_token]
+    tgt_sequences = [ex["tgt"]["tgt_ids"] for ex in examples]
+    tgt_tensors = [torch.tensor(seq, dtype=torch.long, device=device) for seq in tgt_sequences]
+    tensor_batch["tgt"] = pad_sequence(tgt_tensors, batch_first=True, padding_value=tgt_pad_idx)
+    tensor_batch["tgtlen"] = torch.tensor(
+        [len(seq) for seq in tgt_sequences], dtype=torch.long, device=device
+    )
+
+    tensor_batch["prefix_len"] = None
+    tensor_batch["images"] = None
+    tensor_batch["left_pad"] = False
+    tensor_batch["ind_in_bucket"] = indices
+    tensor_batch["cid"] = [ex.get("cid") for ex in examples]
+    tensor_batch["cid_line_number"] = [ex.get("cid_line_number") for ex in examples]
+    tensor_batch["sco"] = torch.tensor(
+        [ex.get("sco", 1.0) for ex in examples], device=device
+    )
+
+    return tensor_batch

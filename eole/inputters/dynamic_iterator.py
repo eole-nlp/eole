@@ -143,6 +143,10 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         image_size=1024,
         adapter="llava",
         sample_rate=16000,
+        num_mel_bins=80,
+        n_fft=400,
+        hop_length=160,
+        chunk_length=30,
     ):
         super(DynamicDatasetIter).__init__()
         self.corpora = corpora
@@ -180,6 +184,10 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         self.image_size = image_size
         self.adapter = adapter
         self.sample_rate = sample_rate
+        self.num_mel_bins = num_mel_bins
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.chunk_length = chunk_length
         self.numericalizer = Numericalizer(self.vocabs, model_type=self.model_type, task=self.task)
 
     @classmethod
@@ -238,6 +246,10 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
         # Audio model params (e.g. Whisper)
         _encoder = getattr(config.model, "encoder", None)
         sample_rate = getattr(_encoder, "sample_rate", 16000)
+        num_mel_bins = getattr(_encoder, "num_mel_bins", 80)
+        n_fft = getattr(_encoder, "n_fft", 400)
+        hop_length = getattr(_encoder, "hop_length", 160)
+        chunk_length = getattr(_encoder, "chunk_length", 30)
         return cls(
             corpora,
             corpora_info,
@@ -262,6 +274,10 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             image_size=image_size,
             adapter=getattr(config.model, "adapter", None),
             sample_rate=sample_rate,
+            num_mel_bins=num_mel_bins,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            chunk_length=chunk_length,
         )
 
     def _init_datasets(self, worker_id):
@@ -282,6 +298,10 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             image_size=self.image_size,
             adapter=self.adapter,
             sample_rate=self.sample_rate,
+            num_mel_bins=self.num_mel_bins,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            chunk_length=self.chunk_length,
         )
         datasets_weights = {ds_name: int(self.corpora_info[ds_name].weight) for ds_name in datasets_iterables.keys()}
         if self.task == CorpusTask.TRAIN:
@@ -301,8 +321,20 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             List of numericalized examples
         """
         if self.data_type == "audio":
-            # Audio examples are raw waveforms at this stage; bypass text transforms
-            return [ex for ex, _transform, _cid in tuple_bucket]
+            if self.task == CorpusTask.INFER:
+                return [ex for ex, _transform, _cid in tuple_bucket]
+
+            transformed_bucket = transform_bucket(self.task, tuple_bucket, self.score_threshold)
+            if transformed_bucket is None:
+                return []
+            results = []
+            for example in transformed_bucket:
+                if example is not None:
+                    mel = example.pop("mel", None)
+                    example = self.numericalizer(example)
+                    example["src"] = {"src": mel, "src_type": "mel"}
+                    results.append(example)
+            return results
 
         transformed_bucket = transform_bucket(self.task, tuple_bucket, self.score_threshold)
 
@@ -455,18 +487,45 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
                 yield (tensor_batch, bucket_idx)
 
     def _iter_audio(self):
-        """Audio iteration: bucket -> tensorify_audio, one file at a time.
+        """Audio iteration with training and inference paths.
 
-        Audio files are always yielded individually because the
-        timestamp-seeking decoder processes one waveform per call.
+        Training/validation: sort by tgt length, batch, tensorify with mel+text.
+        Inference: yield one waveform at a time for timestamp-seeking.
         """
-        from eole.inputters.audio_utils import tensorify_audio
+        if self.task == CorpusTask.INFER:
+            from eole.inputters.audio_utils import tensorify_audio
 
-        for bucket, bucket_idx in self._bucketing():
-            indexed_bucket = [(ex, idx) for idx, ex in enumerate(bucket)]
-            for item in indexed_bucket:
-                tensor_batch = tensorify_audio([item], self.device)
-                yield (tensor_batch, bucket_idx)
+            for bucket, bucket_idx in self._bucketing():
+                indexed_bucket = [(ex, idx) for idx, ex in enumerate(bucket)]
+                for item in indexed_bucket:
+                    tensor_batch = tensorify_audio([item], self.device)
+                    yield (tensor_batch, bucket_idx)
+        else:
+            from eole.inputters.audio_utils import tensorify_audio_training
+
+            for bucket, bucket_idx in self._bucketing():
+                indexed_bucket = [(ex, idx) for idx, ex in enumerate(bucket)]
+                indexed_bucket.sort(key=lambda x: len(x[0].get("tgt", {}).get("tgt_ids", [])))
+
+                batches = list(self._audio_batch_iter(indexed_bucket, self.batch_size))
+
+                if self.task == CorpusTask.TRAIN:
+                    batches = self.random_shuffler(batches)
+
+                for batch in batches:
+                    tensor_batch = tensorify_audio_training(self.vocabs, batch, self.device)
+                    yield (tensor_batch, bucket_idx)
+
+    def _audio_batch_iter(self, data, batch_size):
+        """Simple batching by sentence count for audio training."""
+        minibatch = []
+        for item in data:
+            minibatch.append(item)
+            if len(minibatch) >= batch_size:
+                yield minibatch
+                minibatch = []
+        if minibatch:
+            yield minibatch
 
 
 class OnDeviceDatasetIter:

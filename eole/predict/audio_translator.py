@@ -4,6 +4,8 @@ token suppression, and sequential timestamp-seeking for long audio."""
 import itertools
 import json
 import os
+import zlib
+from contextlib import contextmanager
 import torch
 import torchaudio.transforms as T
 from time import time
@@ -151,6 +153,21 @@ class AudioTranslator(Translator):
         # Keep a copy of the static prefix for restoring between chunks
         self._static_prefix_ids = list(self._decoder_prefix_ids)
 
+        self._no_speech_token_id = self._tgt_vocab.lookup_token("<|nocaptions|>")
+        unk_id = self._tgt_vocab.lookup_token("<unk>")
+        if self._no_speech_token_id == unk_id:
+            raise ValueError(
+                "<|nocaptions|> token not found in vocabulary. "
+                "The model may not support no-speech probability tracking."
+            )
+        self._no_speech_prob = 0.0
+        self._no_speech_threshold = getattr(config, "no_speech_threshold", 0.6)
+
+        self._fallback_temperatures = getattr(config, "fallback_temperatures", [0.0])
+        self._compression_ratio_threshold = getattr(config, "compression_ratio_threshold", 2.4)
+        self._logprob_threshold = getattr(config, "logprob_threshold", -1.0)
+        self._seed = getattr(config, "seed", -1)
+
         # Override parent defaults for audio:
         # - start token is the first token of the decoder prefix
         # - src dim 1 is mel bins not sequence length, so ratio is meaningless
@@ -170,6 +187,106 @@ class AudioTranslator(Translator):
         self.tgt_file_prefix = "tgt" in batch
         return Translator.predict_batch(self, batch, attn_debug)
 
+    @staticmethod
+    def _compression_ratio(text: str) -> float:
+        """Gzip compression ratio — high values indicate repetitive text."""
+        text_bytes = text.encode("utf-8")
+        if len(text_bytes) == 0:
+            return 0.0
+        return len(text_bytes) / len(zlib.compress(text_bytes))
+
+    @contextmanager
+    def _search_params(self, **overrides):
+        """Temporarily override search parameters for predict_batch."""
+        saved = {k: getattr(self, k) for k in overrides}
+        for k, v in overrides.items():
+            setattr(self, k, v)
+        try:
+            yield
+        finally:
+            for k, v in saved.items():
+                setattr(self, k, v)
+
+    def _extract_result(self, results):
+        """Extract decoded tokens, score, and logprob stats from predict_batch output."""
+        token_ids = results["predictions"][0][0].tolist()
+        prefix_strip = len(self._decoder_prefix_ids) - 1
+        token_ids = token_ids[prefix_strip:]
+        raw_score = results["scores"][0][0]
+        score = float(raw_score) if hasattr(raw_score, "item") else raw_score
+        sum_lp = results["sum_logprobs"][0][0]
+        n_tok = results["n_text_tokens"][0][0]
+        return token_ids, score, sum_lp, n_tok
+
+    def _decode_with_fallback(self, batch):
+        """Decode with temperature fallback on repetitive/low-confidence output.
+
+        Tries beam search first (temperature 0), then sampling at increasing
+        temperatures. Accepts the first result that passes compression ratio
+        and avg logprob checks, or the last attempt.
+
+        Returns:
+            (token_ids, score): decoded token IDs (prefix stripped) and score.
+        """
+        temperatures = self._fallback_temperatures
+        self._no_speech_prob = 0.0
+
+        if len(temperatures) <= 1:
+            results = self.predict_batch(batch, attn_debug=False)
+            token_ids, score, _, _ = self._extract_result(results)
+            return token_ids, score
+
+        token_beg = self.no_timestamps_token_id + 1
+        best_token_ids = None
+        best_score = None
+
+        for i, t in enumerate(temperatures):
+            is_last = i == len(temperatures) - 1
+            if t == 0:
+                params = dict(top_k=0, top_p=0.0)
+            else:
+                if self._seed >= 0:
+                    torch.manual_seed(self._seed + i)
+                params = dict(beam_size=1, temperature=t, top_k=0, top_p=1.0)
+
+            with self._search_params(**params):
+                results = self.predict_batch(batch, attn_debug=False)
+            token_ids, score, sum_lp, n_tok = self._extract_result(results)
+
+            best_token_ids = token_ids
+            best_score = score
+
+            if is_last:
+                break
+
+            text_ids = [tid for tid in token_ids if tid < token_beg and tid not in self._tgt_eos_idx]
+            decoded_text = self._decode_token_ids(text_ids)
+            cr = self._compression_ratio(decoded_text)
+            cr_ok = cr <= self._compression_ratio_threshold
+
+            if cr_ok:
+                avg_logprob = sum_lp / n_tok if n_tok > 0 else 0.0
+                lp_ok = avg_logprob >= self._logprob_threshold or self._no_speech_prob >= self._no_speech_threshold
+            else:
+                avg_logprob = None
+                lp_ok = False
+
+            if cr_ok and lp_ok:
+                break
+
+            if self.verbose:
+                reasons = []
+                if not cr_ok:
+                    reasons.append(f"compression_ratio={cr:.2f}>{self._compression_ratio_threshold}")
+                if not lp_ok and avg_logprob is not None:
+                    reasons.append(
+                        f"avg_logprob={avg_logprob:.2f}<{self._logprob_threshold}"
+                        f" & no_speech_prob={self._no_speech_prob:.2f}<{self._no_speech_threshold}"
+                    )
+                self._log(f"Fallback: t={t} failed ({', '.join(reasons)}), retrying at t={temperatures[i+1]}")
+
+        return best_token_ids, best_score
+
     def _decode_and_generate(
         self,
         decoder_in,
@@ -188,6 +305,10 @@ class AudioTranslator(Translator):
             return_attn=return_attn,
             images=images,
         )
+
+        sot_step = len(self._decoder_prefix_ids) - len(self._sot_sequence)
+        if step is not None and step == sot_step:
+            self._no_speech_prob = log_probs[:, self._no_speech_token_id].exp().mean().item()
 
         # Suppression is skipped in two cases:
         # 1. During prefix-forcing (step < prefix_len): beam search forces
@@ -344,15 +465,7 @@ class AudioTranslator(Translator):
                     self._tgt_start_with = self._static_prefix_ids[0]
 
             with torch.no_grad():
-                results = self.predict_batch(batch, attn_debug=False)
-
-            token_ids = results["predictions"][0][0].tolist()
-            # BeamSearch strips only position 0; remaining prefix tokens
-            # are still at the front (_decoder_prefix_ids is synced to the
-            # active prefix when condition_on_previous_text is enabled)
-            prefix_strip = len(self._decoder_prefix_ids) - 1
-            token_ids = token_ids[prefix_strip:]
-            score = results["scores"][0][0]
+                token_ids, score = self._decode_with_fallback(batch)
 
             segments, seek_delta = self._parse_timestamp_tokens(token_ids, seek, token_beg)
             for seg in segments:

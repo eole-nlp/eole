@@ -19,6 +19,15 @@ Any HuggingFace Whisper checkpoint can be converted:
 | large-v3 | `openai/whisper-large-v3` | Multilingual |
 | large-v3-turbo | `openai/whisper-large-v3-turbo` | Multilingual |
 
+## Prerequisites
+
+Audio decoding requires FFmpeg libraries to be installed on your system:
+
+```bash
+apt install ffmpeg          # Debian/Ubuntu
+brew install ffmpeg         # macOS
+```
+
 ## Quick start
 
 ### Set environment variables
@@ -182,11 +191,17 @@ The script normalises text using `EnglishTextNormalizer` from the `whisper-norma
 | `src` | str  | required | File listing audio paths (one per line)                         |
 | `output` | str  | required | Output file path                                                |
 | `beam_size` | int  | 5        | Beam search width                                               |
+| `length_penalty` | str  | "avg"    | Length penalty strategy. Use `none` for Whisper models           |
 | `max_length` | int  | 250      | Maximum output tokens                                           |
 | `batch_size` | int  | 1        | Batch size (use 1 for audio)                                    |
 | `gpu_ranks` | list | []       | GPU device IDs                                                  |
+| `seed` | int  | -1       | Random seed. Set to 0+ for deterministic fallback sampling      |
 | `timestamps` | str  | "none"   | Output mode: "none", "segment", "word"                          |
 | `language` | str  | null     | Source language code (e.g. "en", "fr", "zh")                    |
 | `task` | str  | null     | "transcribe" or "translate"                                     |
 | `initial_prompt` | str  | null     | Text prompt for decoder conditioning                            |
-| `condition_on_previous_text` | bool | false    | Condition next segment transcription on previous segment's text |
+| `condition_on_previous_text` | bool | false    | Condition next segment on previous segment's text               |
+| `fallback_temperatures` | list | [0.0, 0.2, 0.4, 0.6, 0.8, 1.0] | Temperature cascade. Beam search at t=0, sampling at t>0. `[0.0]` to disable |
+| `compression_ratio_threshold` | float | 2.4 | Retry at next temperature if gzip compression ratio exceeds this |
+| `logprob_threshold` | float | -1.0 | Retry at next temperature if avg log probability is below this   |
+| `no_speech_threshold` | float | 0.6 | Low logprob only triggers fallback when no-speech prob is also below this |
