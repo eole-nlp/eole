@@ -236,10 +236,11 @@ class ParallelCorpus(object):
 
 def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
     corpora_dict = {}
+    data_type = getattr(config, "data_type", "text")
     if task == CorpusTask.TRAIN:
         for corpus_id, corpus_dict in config.data.items():
             if corpus_id != CorpusName.VALID:
-                if config.data_type == "audio":
+                if data_type == "audio":
                     corpora_dict[corpus_id] = AudioTextCorpus(
                         corpus_id,
                         corpus_dict.path_src,
@@ -254,13 +255,13 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
                         corpus_dict.path_sco,
                         corpus_dict.path_align,
                     )
-                elif config.data_type == "text":
+                elif data_type == "text":
                     corpora_dict[corpus_id] = BlockwiseCorpus(
                         corpus_id,
                         corpus_dict.path_txt,
                         block_size=8192,  # number of characters
                     )
-                elif config.data_type == "image":
+                elif data_type == "image":
                     corpora_dict[corpus_id] = ImageTextCorpus(
                         corpus_id,
                         corpus_dict.path_txt,
@@ -268,13 +269,13 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
                     )
     elif task == CorpusTask.VALID:
         if CorpusName.VALID in config.data.keys():
-            if config.data_type == "audio":
+            if data_type == "audio":
                 corpora_dict[CorpusName.VALID] = AudioTextCorpus(
                     CorpusName.VALID,
                     config.data[CorpusName.VALID].path_src,
                     config.data[CorpusName.VALID].path_tgt,
                 )
-            elif config.data_type == "text":
+            elif data_type == "text":
                 corpora_dict[CorpusName.VALID] = ParallelCorpus(
                     CorpusName.VALID,
                     config.data[CorpusName.VALID].path_src,
@@ -282,7 +283,7 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
                     None,
                     config.data[CorpusName.VALID].path_align,
                 )
-            elif config.data_type == "image":
+            elif data_type == "image":
                 corpora_dict[CorpusName.VALID] = ImageTextCorpus(
                     CorpusName.VALID,
                     config.data[CorpusName.VALID].path_txt,
@@ -291,18 +292,18 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
         else:
             return None
     else:
-        if config.data_type == "text":
+        if data_type == "text":
             corpora_dict[CorpusName.INFER] = ParallelCorpus(
                 CorpusName.INFER,
                 src if src else config.src,
                 tgt if tgt else config.tgt,
                 align if align else None,
             )
-        elif config.data_type == "image":
+        elif data_type == "image":
             corpora_dict[CorpusName.INFER] = ImageTextCorpus(
                 CorpusName.INFER, src, is_train=False  # maybe homogenize to some better name
             )
-        elif config.data_type == "audio":
+        elif data_type == "audio":
             corpora_dict[CorpusName.INFER] = AudioCorpus(CorpusName.INFER, src if src else config.src, is_train=False)
     return corpora_dict
 
