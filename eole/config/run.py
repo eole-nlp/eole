@@ -82,7 +82,9 @@ class TrainConfig(LoggingConfig, MiscConfig, DataConfig, VocabConfig):  # ModelC
                 "or specify a model configuration."
             )
         if self.n_sample != 0:
-            assert self.save_data, "-save_data should be set if \
+            assert (
+                self.save_data
+            ), "-save_data should be set if \
                 want save samples."
         # if torch.cuda.is_available() and len(self.training.gpu_ranks) == 0:
         #     logger.warn("You have a CUDA device, should run with -gpu_ranks")
