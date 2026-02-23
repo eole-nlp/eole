@@ -153,12 +153,16 @@ class AudioTranslator(Translator):
         # Keep a copy of the static prefix for restoring between chunks
         self._static_prefix_ids = list(self._decoder_prefix_ids)
 
-        self._no_speech_token_id = self._tgt_vocab.lookup_token("<|nocaptions|>")
         unk_id = self._tgt_vocab.lookup_token("<unk>")
+        # large-v3+ renamed <|nocaptions|> to <|nospeech|>
+        self._no_speech_token_id = self._tgt_vocab.lookup_token("<|nospeech|>")
         if self._no_speech_token_id == unk_id:
-            raise ValueError(
-                "<|nocaptions|> token not found in vocabulary. "
-                "The model may not support no-speech probability tracking."
+            self._no_speech_token_id = self._tgt_vocab.lookup_token("<|nocaptions|>")
+        if self._no_speech_token_id == unk_id:
+            self._no_speech_token_id = None
+            logger.warning(
+                "No-speech token (<|nospeech|> or <|nocaptions|>) not found in vocabulary. "
+                "No-speech probability tracking will be disabled."
             )
         self._no_speech_prob = 0.0
         self._no_speech_threshold = getattr(config, "no_speech_threshold", 0.6)
@@ -307,7 +311,7 @@ class AudioTranslator(Translator):
         )
 
         sot_step = len(self._decoder_prefix_ids) - len(self._sot_sequence)
-        if step is not None and step == sot_step:
+        if step is not None and step == sot_step and self._no_speech_token_id is not None:
             self._no_speech_prob = log_probs[:, self._no_speech_token_id].exp().mean().item()
 
         # Suppression is skipped in two cases:
