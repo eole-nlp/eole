@@ -361,7 +361,7 @@ def evaluate_language(fleurs_lang, whisper_lang, args):
         f.write(f"Split: {args.split}\n")
         f.write(f"Beam size: {args.beam_size}\n")
         f.write(f"Utterances: {len(audio_files)}\n")
-        f.write(f"\nPer-gender:\n")
+        f.write("\nPer-gender:\n")
         for label, n, g_score in gender_results:
             f.write(f"  {label}: {g_score:.2f}% ({n} utts)\n")
     print(f"  Results saved to {results_file}")
@@ -423,7 +423,7 @@ def main():
         os.makedirs(args.output_dir, exist_ok=True)
         summary_file = os.path.join(args.output_dir, "fleurs_summary.txt")
         with open(summary_file, "w") as f:
-            f.write(f"FLEURS Evaluation Summary\n")
+            f.write("FLEURS Evaluation Summary\n")
             f.write(f"Model: {args.model_path}\n")
             f.write(f"Split: {args.split}\n")
             f.write(f"Beam size: {args.beam_size}\n\n")
