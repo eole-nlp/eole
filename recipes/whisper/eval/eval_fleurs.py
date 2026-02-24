@@ -115,12 +115,8 @@ CER_LANGUAGES = {"zh", "ja", "ko", "yue"}
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Evaluate Whisper WER/CER on FLEURS multilingual benchmark"
-    )
-    parser.add_argument(
-        "--model_path", required=True, help="Path to converted eole Whisper model"
-    )
+    parser = argparse.ArgumentParser(description="Evaluate Whisper WER/CER on FLEURS multilingual benchmark")
+    parser.add_argument("--model_path", required=True, help="Path to converted eole Whisper model")
     parser.add_argument(
         "--languages",
         required=True,
@@ -132,15 +128,9 @@ def parse_args():
         choices=["test", "dev", "train"],
         help="FLEURS split to evaluate (default: test)",
     )
-    parser.add_argument(
-        "--gpu", type=int, default=0, help="GPU device ID (-1 for CPU)"
-    )
-    parser.add_argument(
-        "--beam_size", type=int, default=5, help="Beam search width"
-    )
-    parser.add_argument(
-        "--output_dir", default="./results", help="Output root directory"
-    )
+    parser.add_argument("--gpu", type=int, default=0, help="GPU device ID (-1 for CPU)")
+    parser.add_argument("--beam_size", type=int, default=5, help="Beam search width")
+    parser.add_argument("--output_dir", default="./results", help="Output root directory")
     parser.add_argument(
         "--audio_cache_dir",
         default="./fleurs_audio_cache",
@@ -294,9 +284,7 @@ def run_inference(audio_files, whisper_lang, args, lang_output_dir):
         hypotheses = [line.strip() for line in f]
 
     if len(hypotheses) != len(audio_files):
-        print(
-            f"Warning: got {len(hypotheses)} hypotheses for {len(audio_files)} audio files"
-        )
+        print(f"Warning: got {len(hypotheses)} hypotheses for {len(audio_files)} audio files")
 
     return hypotheses
 
@@ -328,9 +316,7 @@ def evaluate_language(fleurs_lang, whisper_lang, args):
     print(f"Evaluating: {fleurs_lang} (Whisper code: {whisper_lang})")
     print(f"{'='*60}")
 
-    audio_files, references, genders = load_fleurs_data(
-        fleurs_lang, args.split, args.audio_cache_dir
-    )
+    audio_files, references, genders = load_fleurs_data(fleurs_lang, args.split, args.audio_cache_dir)
     print(f"  {len(audio_files)} utterances loaded")
 
     lang_output_dir = os.path.join(args.output_dir, fleurs_lang)
@@ -348,9 +334,7 @@ def evaluate_language(fleurs_lang, whisper_lang, args):
 
     ref_list = [references[f] for f in audio_files]
     hyp_list = hypotheses[: len(audio_files)]
-    overall_score, refs_norm, hyps_norm = compute_wer(
-        ref_list, hyp_list, normalizer, metric_fn
-    )
+    overall_score, refs_norm, hyps_norm = compute_wer(ref_list, hyp_list, normalizer, metric_fn)
 
     print(f"\n  FLEURS {fleurs_lang} {metric_name}: {overall_score:.2f}%")
 
@@ -364,9 +348,7 @@ def evaluate_language(fleurs_lang, whisper_lang, args):
     gender_labels = {0: "male", 1: "female", -1: "unknown"}
     gender_results = []
     for g in sorted(gender_refs.keys()):
-        g_score, _, _ = compute_wer(
-            gender_refs[g], gender_hyps[g], normalizer, metric_fn
-        )
+        g_score, _, _ = compute_wer(gender_refs[g], gender_hyps[g], normalizer, metric_fn)
         label = gender_labels.get(g, f"gender_{g}")
         n = len(gender_refs[g])
         gender_results.append((label, n, g_score))
