@@ -210,20 +210,32 @@ def load_fleurs_data(fleurs_lang, split, audio_cache_dir):
     references = {}
     genders = {}
 
+    skipped = 0
     for i, example in enumerate(ds):
         wav_path = os.path.join(cache_dir, f"{i:05d}.wav")
+
+        if need_write:
+            try:
+                array, sr = _extract_audio(example["audio"])
+            except RuntimeError as e:
+                print(f"  Warning: skipping example {i} (corrupt audio: {e})")
+                skipped += 1
+                continue
+            write_wav(wav_path, array, sr)
+        elif not os.path.exists(wav_path):
+            skipped += 1
+            continue
+
         audio_files.append(wav_path)
         references[wav_path] = example["transcription"]
         genders[wav_path] = example.get("gender", -1)
-
-        if need_write:
-            array, sr = _extract_audio(example["audio"])
-            write_wav(wav_path, array, sr)
 
     if need_write:
         print(f"  Wrote {len(audio_files)} WAV files to {cache_dir}")
     else:
         print(f"  Using cached audio ({len(audio_files)} files in {cache_dir})")
+    if skipped:
+        print(f"  Skipped {skipped} examples with corrupt audio")
 
     audio_files.sort()
     return audio_files, references, genders
