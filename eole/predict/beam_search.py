@@ -138,8 +138,7 @@ class BeamSearchBase(DecodeStrategy):
         self.topk_scores = torch.empty((self.batch_size, self.beam_size), dtype=torch.float, device=device)
 
         self.batch_finished = torch.zeros(self.batch_size, dtype=torch.bool, device=device)
-        self._sum_logprobs = torch.zeros((self.batch_size, self.beam_size), dtype=torch.float, device=device)
-        self._n_text_tokens = torch.zeros((self.batch_size, self.beam_size), dtype=torch.long, device=device)
+        self._prefix_cumulative = torch.zeros((self.batch_size, self.beam_size), dtype=torch.float, device=device)
 
     @property
     def current_predictions(self):
@@ -198,8 +197,8 @@ class BeamSearchBase(DecodeStrategy):
                         topk_scores_list[i][j],
                         predictions[i, j, 1:],  # Ignore start_token.
                         attention[i, j, :, : self.src_len[i]] if attention is not None else None,
-                        self._sum_logprobs[i, j].item(),
-                        self._n_text_tokens[i, j].item(),
+                        self.topk_log_probs[i, j].item() - self._prefix_cumulative[i, j].item(),
+                        step - 1 - self._prefix_len,
                     )
                 )
 
@@ -234,12 +233,6 @@ class BeamSearchBase(DecodeStrategy):
         # Penalize beams that finished.
         _B_old = self.topk_log_probs.shape[0]
         step = self.alive_seq.shape[-1]  # 1 greater than the step in advance
-        # this is required to pursue finished beams in non finished batches
-        # Mask finished beams to prevent reactivation
-        self.topk_log_probs.masked_fill_(
-            torch.tensor(self.is_finished_list, device=self.topk_log_probs.device),
-            -65504,
-        )
         predictions = self.alive_seq.view(_B_old, self.beam_size, step)
         attention = (
             self.alive_attn.view(_B_old, self.beam_size, step - 1, self.alive_attn.size(-1))
@@ -253,6 +246,13 @@ class BeamSearchBase(DecodeStrategy):
             for i in range(len(self.is_finished_list))
             if self.beams_non_finished(i, topk_scores_list, predictions, attention, step)
         ]
+
+        # Mask finished beams to prevent reactivation in subsequent steps
+        # (must be after beams_non_finished which reads topk_log_probs for sum_logprobs)
+        self.topk_log_probs.masked_fill_(
+            torch.tensor(self.is_finished_list, device=self.topk_log_probs.device),
+            -65504,
+        )
 
         non_finished = torch.tensor(non_finished_batch)
         # If all sentences are predicted, no need to go further.
@@ -274,8 +274,7 @@ class BeamSearchBase(DecodeStrategy):
         self._batch_offset = self._batch_offset[non_finished]  # CPU
         non_finished = non_finished.to(self.topk_log_probs.device)
         self.topk_log_probs = self.topk_log_probs[non_finished]
-        self._sum_logprobs = self._sum_logprobs[non_finished]
-        self._n_text_tokens = self._n_text_tokens[non_finished]
+        self._prefix_cumulative = self._prefix_cumulative[non_finished]
         self._batch_index = self._batch_index[non_finished]
         self.alive_seq = predictions[non_finished].view(-1, self.alive_seq.size(-1))
 
@@ -343,16 +342,11 @@ class BeamSearchBase(DecodeStrategy):
         self.select_indices = self._batch_index.view(_B * self.beam_size)
         self.topk_ids %= vocab_size
 
-        self._sum_logprobs = self._sum_logprobs.view(-1)[self.select_indices].view(_B, self.beam_size)
-        self._n_text_tokens = self._n_text_tokens.view(-1)[self.select_indices].view(_B, self.beam_size)
-        if step > self._prefix_len:
-            raw_step = (
-                log_probs[self.select_indices]
-                .gather(dim=1, index=self.topk_ids.view(_B * self.beam_size, 1))
-                .view(_B, self.beam_size)
-            )
-            self._sum_logprobs += raw_step
-            self._n_text_tokens += 1
+        if self._prefix_len > 0:
+            if step == self._prefix_len:
+                self._prefix_cumulative = self.topk_log_probs.clone()
+            elif step > self._prefix_len:
+                self._prefix_cumulative = self._prefix_cumulative.view(-1)[self.select_indices].view(_B, self.beam_size)
 
         # Append last prediction to reordered alive sequence
         self.alive_seq = torch.cat(
