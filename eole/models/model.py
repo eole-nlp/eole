@@ -1190,7 +1190,7 @@ def get_model_class(model_config):
         return DecoderModel
     elif model_config.encoder.encoder_type == "vision":
         return VisionEncoderDecoderModel
-    elif getattr(model_config.encoder, "data_category", "text") == "audio":
+    elif getattr(model_config.encoder, "data_type", "text") == "audio":
         return AudioEncoderDecoderModel
     else:
         return EncoderDecoderModel

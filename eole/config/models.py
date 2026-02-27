@@ -76,7 +76,7 @@ class EncoderConfig(Config):
     src_word_vec_size: int = Field(default=512, description="Word embedding size for src.")
 
     @property
-    def data_category(self) -> str:
+    def data_type(self) -> str:
         return "text"
 
 
@@ -405,7 +405,7 @@ class WhisperEncoderConfig(TransformerConfig, EncoderConfig):
     timestamp_resolution: float = Field(default=0.02, description="Time resolution per timestamp token in seconds.")
 
     @property
-    def data_category(self) -> str:
+    def data_type(self) -> str:
         return "audio"
 
 
@@ -417,7 +417,7 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
     encoder_type: Literal["vision"] = Field(default="vision")
 
     @property
-    def data_category(self) -> str:
+    def data_type(self) -> str:
         return "vision"
 
     # default to Pixtral 12B settings, might change later
