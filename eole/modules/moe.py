@@ -107,8 +107,13 @@ class MoE(nn.Module):
                 running_config=running_config,
                 moe_transformer_ff=model_config.moe_transformer_ff * model_config.num_shared_experts,
             )
+            if model_config.shared_expert_gate:
+                self.shared_expert_gate = nn.Linear(model_config.hidden_size, 1, bias=False)
+            else:
+                self.shared_expert_gate = None
         else:
             self.shared_experts = None
+            self.shared_expert_gate = None
         self.moe_softmax_after = model_config.moe_softmax_after
         self._gates_fused = False
         self._grouped = GroupedExperts(self.experts)
@@ -207,7 +212,13 @@ class MoE(nn.Module):
 
         # optional shared experts
         if self.shared_experts is not None:
-            y = y + self.shared_experts(x)
+            shared_out = self.shared_experts(x)
+            if self.shared_expert_gate is not None:
+                x_flat_for_gate = x.view(-1, x.shape[-1])
+                gate_val = torch.sigmoid(self.shared_expert_gate(x_flat_for_gate)).view(B, T, 1)
+                y = y + gate_val * shared_out
+            else:
+                y = y + shared_out
 
         return y
 

@@ -80,6 +80,9 @@ class MultiHeadedAttention(torch.nn.Module):
         self.heads_kv = model_config.heads_kv if model_config.heads_kv is not None else model_config.heads
         self.attn_scaling = model_config.attn_scaling
         self.parallel_gpu = getattr(running_config, "parallel_gpu", 1)
+        # Gated query attention (Qwen3.5): linear_query has 2× output size;
+        # the second half is used as a sigmoid gate applied to the attention output.
+        self.q_gating = getattr(model_config, "q_gating", False)
 
         assert (
             self.dim_per_head * self.heads_kv
@@ -96,10 +99,15 @@ class MultiHeadedAttention(torch.nn.Module):
             out_features=self.dim_per_head * self.heads_kv // self.parallel_gpu,
             bias=model_config.add_qkvbias,
         )
+        # When q_gating is enabled the projection is doubled: first half is the
+        # actual query, second half is the gate.
+        q_out_features = self.dim_per_head * self.heads // self.parallel_gpu
+        if self.q_gating:
+            q_out_features *= 2
         self.linear_query = skip_init(
             nn.Linear,
             in_features=model_config.hidden_size,
-            out_features=self.dim_per_head * self.heads // self.parallel_gpu,
+            out_features=q_out_features,
             bias=model_config.add_qkvbias,
         )
         self.dropout_p = getattr(running_config, "attention_dropout", [0.0])[0]
@@ -245,6 +253,17 @@ class MultiHeadedAttention(torch.nn.Module):
             key = self.maybe_ckpt(self.linear_keys, key)
             value = self.maybe_ckpt(self.linear_values, value)
             query = self.maybe_ckpt(self.linear_query, query)
+
+        # Gated-query attention (Qwen3.5): split query and gate from doubled projection.
+        # HF q_proj stores query and gate interleaved per head:
+        #   flat layout: [h0_q(head_dim), h0_g(head_dim), h1_q(head_dim), h1_g(head_dim), ...]
+        # View as (B, S, num_heads, 2, head_dim) then split at dim=-2 to match HF chunk logic.
+        if self.q_gating:
+            num_heads_local = self.heads // self.parallel_gpu
+            q_g = query.view(query.shape[0], query.shape[1], num_heads_local, 2, self.dim_per_head)
+            query = q_g[:, :, :, 0, :].reshape(query.shape[0], query.shape[1], -1)
+            self._attn_gate = torch.sigmoid(q_g[:, :, :, 1, :].reshape(query.shape[0], query.shape[1], -1))
+
         key = bld_to_blhd(key, self.dim_per_head)
         value = bld_to_blhd(value, self.dim_per_head)
         query = bld_to_blhd(query, self.dim_per_head)
@@ -260,7 +279,12 @@ class MultiHeadedAttention(torch.nn.Module):
             # For subsequent forwards (e.g., during autoregressive decoding), standard RoPE is used.
             if self.xdrope_section is not None and pos_ids_2d is not None:
                 query, key = apply_rotary_pos_emb_xdrope(
-                    query, key, position_embeddings, pos_ids_2d, self.xdrope_section
+                    query,
+                    key,
+                    position_embeddings,
+                    pos_ids_2d,
+                    self.xdrope_section,
+                    interleave=self.rotary_interleave,
                 )
             else:
                 query, key = apply_rotary_emb(query, key, position_embeddings, interleave=self.rotary_interleave)
@@ -390,6 +414,11 @@ class MultiHeadedAttention(torch.nn.Module):
 
         context = blhd_to_bld(attn_output)
 
+        # Apply sigmoid gate if gated-query attention is enabled (Qwen3.5).
+        # Gate is in heads*head_dim space (before output projection), matching HF implementation.
+        if self.q_gating and hasattr(self, "_attn_gate"):
+            context = context * self._attn_gate
+
         if self.kcache is not None:
             attn_output = self.final_linear(context)
         else:
@@ -480,7 +509,10 @@ class SelfMHA(MultiHeadedAttention):
                     window_size=self.window_size,
                 )
                 self.causal = False
-                attn_output = self.final_linear(blhd_to_bld(context))
+                context = blhd_to_bld(context)
+                if self.q_gating and hasattr(self, "_attn_gate"):
+                    context = context * self._attn_gate
+                attn_output = self.final_linear(context)
                 if self.parallel_gpu > 1:
                     # all_reduce is an inplace op - not easily backprop
                     attn_output1 = attn_output.detach().clone()

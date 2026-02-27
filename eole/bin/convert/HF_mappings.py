@@ -564,6 +564,74 @@ MODEL_OVERRIDES = {
         "adapter.image_newline": "vit.perceive.image_newline",
         "adapter.image_sep": "vit.perceive.image_sep",
     },
+    "Qwen3_5ForConditionalGeneration": {
+        "decoder_layer_prefix": "model.language_model.layers.",
+        "tgt_emb.embeddings.weight": "model.language_model.embed_tokens.weight",
+        "decoder.layer_norm.weight": "model.language_model.norm.weight",
+        "generator.weight": "lm_head.weight",
+        # Vision encoder (same structure as Qwen3VL)
+        "encoder_layer_prefix": "model.visual.blocks.",
+        "encoder.patch_conv.weight": "model.visual.patch_embed.proj.weight",
+        "encoder.patch_conv.bias": "model.visual.patch_embed.proj.bias",
+        "encoder.pos_embed.weight": "model.visual.pos_embed.weight",
+        "encoder": {
+            # Fused QKV → split into Q / K / V
+            ".self_attn.linear_query.weight": (".attn.qkv.weight", "[:hidden_size, :]"),
+            ".self_attn.linear_keys.weight": (".attn.qkv.weight", "[hidden_size:2*hidden_size, :]"),
+            ".self_attn.linear_values.weight": (".attn.qkv.weight", "[-hidden_size:, :]"),
+            ".self_attn.linear_query.bias": (".attn.qkv.bias", "[:hidden_size]"),
+            ".self_attn.linear_keys.bias": (".attn.qkv.bias", "[hidden_size:2*hidden_size]"),
+            ".self_attn.linear_values.bias": (".attn.qkv.bias", "[-hidden_size:]"),
+            ".self_attn.final_linear.weight": ".attn.proj.weight",
+            ".self_attn.final_linear.bias": ".attn.proj.bias",
+            # Vision MLP: linear_fc1 → gate_up_proj, linear_fc2 → down_proj
+            ".mlp.gate_up_proj.": ".mlp.linear_fc1.",
+            ".mlp.down_proj.": ".mlp.linear_fc2.",
+            # Layer norms
+            ".input_layernorm.": ".norm1.",
+            ".post_attention_layernorm.": ".norm2.",
+        },
+        # Vision merger (adapter)
+        "adapter.norm.weight": "model.visual.merger.norm.weight",
+        "adapter.norm.bias": "model.visual.merger.norm.bias",
+        "adapter.linear_fc1.weight": "model.visual.merger.linear_fc1.weight",
+        "adapter.linear_fc1.bias": "model.visual.merger.linear_fc1.bias",
+        "adapter.linear_fc2.weight": "model.visual.merger.linear_fc2.weight",
+        "adapter.linear_fc2.bias": "model.visual.merger.linear_fc2.bias",
+        # Decoder layers (Qwen3.5 hybrid text model — same as Qwen3_5TextForCausalLM)
+        "decoder": {
+            ".self_attn.q_norm.": ".self_attn.q_norm.",
+            ".self_attn.k_norm.": ".self_attn.k_norm.",
+            ".linear_attn.in_proj_qkv.": ".linear_attn.in_proj_qkv.",
+            ".linear_attn.in_proj_z.": ".linear_attn.in_proj_z.",
+            ".linear_attn.in_proj_b.": ".linear_attn.in_proj_b.",
+            ".linear_attn.in_proj_a.": ".linear_attn.in_proj_a.",
+            ".linear_attn.conv1d.": ".linear_attn.conv1d.",
+            ".linear_attn.dt_bias": ".linear_attn.dt_bias",
+            ".linear_attn.A_log": ".linear_attn.A_log",
+            ".linear_attn.norm.": ".linear_attn.norm.",
+            ".linear_attn.out_proj.": ".linear_attn.out_proj.",
+        },
+        "config": {
+            "adapter": "qwen3_5vl",
+            "decoder": {
+                "query_norm": True,
+                "key_norm": True,
+                "q_gating": True,
+            },
+            "encoder": {
+                "layer_norm": "standard",
+                "mlp_activation_fn": "gelu-tanh",
+                "add_ffnbias": True,
+                "add_final_linear_bias": True,
+                "add_qkvbias": True,
+                "layernorm_pre": False,
+                "layernorm_post": False,
+                "temporal_patch_size": 2,
+                "patch_conv_bias": True,
+            },
+        },
+    },
 }
 
 # Combine base mappings with overrides
@@ -583,6 +651,7 @@ LN_TABLE = defaultdict(
         "Gemma3ForCausalLM": "gemma-rms",
         "M2M100ForConditionalGeneration": "standard",
         "Gemma3ForConditionalGeneration": "gemma-rms",
+        "Qwen3_5ForConditionalGeneration": "gemma-rms",
     },
 )
 
@@ -620,6 +689,7 @@ ARCH_TABLE = defaultdict(
         "DeepseekOCRForCausalLM": VisionTransformerLMModelConfig,
         "HunYuanVLForConditionalGeneration": VisionTransformerLMModelConfig,
         "Qwen3VLForConditionalGeneration": VisionTransformerLMModelConfig,
+        "Qwen3_5ForConditionalGeneration": VisionTransformerLMModelConfig,
     },
 )
 

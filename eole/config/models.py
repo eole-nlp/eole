@@ -270,9 +270,19 @@ class TransformerConfig(Config):
     )
     num_experts: int = Field(default=0, description="Number of experts for MoE models.")
     num_shared_experts: int = Field(default=0, description="Number of shared experts for MoE models (DeepSeekv2).")
+    shared_expert_gate: bool = Field(
+        default=False,
+        description="Apply sigmoid-gated shared expert output (Qwen3.5 MoE style). "
+        "When True, a linear gate is applied: output += sigmoid(gate(x)) * shared_expert(x).",
+    )
     first_k_dense_replace: int = Field(default=0, description="Number of layers using Dense instead of MoE")
     num_experts_per_tok: int = Field(default=2, description="Number of experts per token.")
     moe_softmax_after: bool = Field(default=False, description="Usually softmax is before topk, Mixtral does it after.")
+    q_gating: bool = Field(
+        default=False,
+        description="Enable gated query in attention (Qwen3.5 style). "
+        "Q projection has doubled output size; output is multiplied by sigmoid(gate).",
+    )
     # These fields are set at EmbeddingsConfig level but will be copied here to be accessible in MHA
     position_encoding_type: PositionEncodingType | None = Field(
         default=PositionEncodingType.SinusoidalInterleaved,
@@ -346,6 +356,32 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
         default="causal",
         description="TransformerDecoder LM type (causal = classic, or prefix LM https://arxiv.org/pdf/2308.06912)",
     )
+    layer_types: List[str] | None = Field(
+        default=None,
+        description="Per-layer types for hybrid architectures (e.g. Qwen3.5). "
+        "Supported values: 'full_attention', 'linear_attention'. "
+        "When None, all layers use full attention.",
+    )
+    linear_conv_kernel_dim: int = Field(
+        default=4,
+        description="Convolution kernel size for linear attention layers (Qwen3.5 GatedDeltaNet).",
+    )
+    linear_key_head_dim: int = Field(
+        default=128,
+        description="Key head dimension for linear attention layers (Qwen3.5 GatedDeltaNet).",
+    )
+    linear_value_head_dim: int = Field(
+        default=128,
+        description="Value head dimension for linear attention layers (Qwen3.5 GatedDeltaNet).",
+    )
+    linear_num_key_heads: int = Field(
+        default=16,
+        description="Number of key heads for linear attention layers (Qwen3.5 GatedDeltaNet).",
+    )
+    linear_num_value_heads: int = Field(
+        default=32,
+        description="Number of value heads for linear attention layers (Qwen3.5 GatedDeltaNet).",
+    )
 
     @model_validator(mode="after")
     def _validate_transformer_decoder_config(self):
@@ -369,11 +405,15 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
         #         )
         #     )
 
-        assert (
-            self.hidden_size % self.heads == 0
-        ), "Transformer Model dimension {} must be divisible by the number of heads {}".format(
-            self.hidden_size, self.heads
-        )
+        # When head_dim is explicitly set (e.g. Qwen3.5 MoE: head_dim=256,
+        # heads=24, hidden_size=5120), the projection size is heads*head_dim
+        # which may differ from hidden_size, so skip the divisibility check.
+        if self.head_dim is None:
+            assert (
+                self.hidden_size % self.heads == 0
+            ), "Transformer Model dimension {} must be divisible by the number of heads {}".format(
+                self.hidden_size, self.heads
+            )
         return self
 
 
@@ -396,6 +436,20 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
 
     encoder_sam: bool = False  # True for DeepSeekOCR (Segment Anything Model as 1st step)
     use_class_embedding: bool = False
+
+    # Qwen3.5 VL / Qwen3 VL style options
+    temporal_patch_size: int = Field(
+        default=1,
+        description="Temporal kernel size for Conv3D patch embedding. "
+        "When >1 a nn.Conv3d is used (e.g. Qwen3.5 VL uses 2).",
+    )
+    num_position_embeddings: int | None = Field(
+        default=None,
+        description="Size of the absolute position embedding table "
+        "(Qwen3.5 VL uses 2304 = 48×48). When set together with "
+        "position_encoding_type=Rotary both absolute embeddings and "
+        "2D RoPE are applied.",
+    )
 
 
 # use Field with default= + description would be more readable
