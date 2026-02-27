@@ -90,7 +90,7 @@ def transform_bucket(task, bucket, threshold=0):
             example = clean_example(example)
 
             # Filter by non-empty source and score threshold
-            if ("mel" in example or len(example["src"]["src"]) > 0) and example.get("sco", 1) >= threshold:
+            if ("mel" in example.keys() or len(example["src"]["src"]) > 0) and example.get("sco", 1) >= threshold:
                 transformed_examples.append(example)
 
     return transformed_examples if transformed_examples else None
