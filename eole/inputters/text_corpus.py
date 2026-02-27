@@ -240,14 +240,7 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
     if task == CorpusTask.TRAIN:
         for corpus_id, corpus_dict in config.data.items():
             if corpus_id != CorpusName.VALID:
-                if data_type == "audio":
-                    corpora_dict[corpus_id] = AudioTextCorpus(
-                        corpus_id,
-                        corpus_dict.path_src,
-                        corpus_dict.path_tgt,
-                        corpus_dict.path_sco,
-                    )
-                elif corpus_dict.path_txt is None:
+                if corpus_dict.path_txt is None:
                     corpora_dict[corpus_id] = ParallelCorpus(
                         corpus_id,
                         corpus_dict.path_src,
@@ -267,15 +260,16 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
                         corpus_dict.path_txt,
                         is_train=True,
                     )
+                elif data_type == "audio":
+                    corpora_dict[corpus_id] = AudioTextCorpus(
+                        corpus_id,
+                        corpus_dict.path_src,
+                        corpus_dict.path_tgt,
+                        corpus_dict.path_sco,
+                    )
     elif task == CorpusTask.VALID:
         if CorpusName.VALID in config.data.keys():
-            if data_type == "audio":
-                corpora_dict[CorpusName.VALID] = AudioTextCorpus(
-                    CorpusName.VALID,
-                    config.data[CorpusName.VALID].path_src,
-                    config.data[CorpusName.VALID].path_tgt,
-                )
-            elif data_type == "text":
+            if data_type == "text":
                 corpora_dict[CorpusName.VALID] = ParallelCorpus(
                     CorpusName.VALID,
                     config.data[CorpusName.VALID].path_src,
@@ -288,6 +282,12 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
                     CorpusName.VALID,
                     config.data[CorpusName.VALID].path_txt,
                     is_train=True,
+                )
+            elif data_type == "audio":
+                corpora_dict[CorpusName.VALID] = AudioTextCorpus(
+                    CorpusName.VALID,
+                    config.data[CorpusName.VALID].path_src,
+                    config.data[CorpusName.VALID].path_tgt,
                 )
         else:
             return None
