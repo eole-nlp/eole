@@ -1,5 +1,7 @@
 """Whisper encoder for speech-to-text models."""
 
+from typing import Optional, Tuple
+
 import torch
 import torch.nn as nn
 
@@ -46,7 +48,7 @@ class WhisperEncoder(EncoderBase):
         self._attn_mask_cache = None
         self._attn_mask_key = None
 
-    def forward(self, emb: torch.Tensor, pad_mask: torch.Tensor | None = None, **kwargs) -> tuple[torch.Tensor, None]:
+    def forward(self, emb: torch.Tensor, pad_mask: Optional[torch.Tensor] = None, **kwargs) -> Tuple[torch.Tensor, None]:
         """
         Encode mel spectrogram features.
 
