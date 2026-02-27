@@ -57,12 +57,12 @@ class WerScorer(Scorer):
             if self._normalizer is not None:
                 preds = [self._normalizer(p) for p in preds]
                 texts_refs = [self._normalizer(r) for r in texts_refs]
-                pairs = [(p, r) for p, r in zip(preds, texts_refs) if r.strip()]
-                if not pairs:
-                    return 0
-                preds, texts_refs = zip(*pairs)
-                preds = list(preds)
-                texts_refs = list(texts_refs)
+            pairs = [(p, r) for p, r in zip(preds, texts_refs) if r.strip()]
+            if not pairs:
+                return 0
+            preds, texts_refs = zip(*pairs)
+            preds = list(preds)
+            texts_refs = list(texts_refs)
             corpus_score = wer(texts_refs, preds) * 100
             sent_wers = [min(wer([r], [p]), 1.0) for r, p in zip(texts_refs, preds)]
             mean_sent_score = sum(sent_wers) / len(sent_wers) * 100

@@ -160,7 +160,7 @@ class AudioTranslator(Translator):
             self._no_speech_token_id = self._tgt_vocab.lookup_token("<|nocaptions|>")
         if self._no_speech_token_id == unk_id:
             self._no_speech_token_id = None
-            logger.warning(
+            self._log(
                 "No-speech token (<|nospeech|> or <|nocaptions|>) not found in vocabulary. "
                 "No-speech probability tracking will be disabled."
             )
