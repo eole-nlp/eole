@@ -1152,8 +1152,7 @@ class AudioEncoderDecoderModel(BaseModel):
     def forward(self, src, tgt, src_len, with_align=False, **kwargs):
         """Forward pass: encode mel features, decode with cross-attention."""
         # src is mel spectrogram (batch, num_mels, time) - no embedding needed
-        enc_out, enc_final_hs = self.encoder(src)
-        self.decoder.init_state(src=None, enc_out=enc_out, enc_final_hs=enc_final_hs)
+        enc_out, _ = self.encoder(src)
         dec_in = tgt[:, :-1]
         tgt_pad_mask = dec_in.eq(self.tgt_pad_idx).unsqueeze(1)
 
