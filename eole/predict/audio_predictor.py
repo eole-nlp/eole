@@ -1,4 +1,4 @@
-"""AudioTranslator: Audio prediction with forced decoder IDs,
+"""AudioPredictor: Audio prediction with forced decoder IDs,
 token suppression, and sequential timestamp-seeking for long audio."""
 
 import itertools
@@ -14,7 +14,7 @@ from eole.inputters.audio_utils import dynamic_time_warping, log_mel_spectrogram
 from eole.predict.translator import Translator
 
 
-class AudioTranslator(Translator):
+class AudioPredictor(Translator):
     """Translator subclass for audio encoder-decoder models.
 
     Adds:
@@ -74,7 +74,7 @@ class AudioTranslator(Translator):
 
         if config.data_type != "audio":
             raise ValueError(
-                f"AudioTranslator requires data_type='audio', got '{config.data_type}'. Check your model config."
+                f"AudioPredictor requires data_type='audio', got '{config.data_type}'. Check your model config."
             )
 
         if config.batch_size > 1:

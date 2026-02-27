@@ -78,7 +78,7 @@ class DecodingConfig(Config):
     )  # not sure it's still working/useful
     verbose: bool = Field(default=False, description="Print scores and predictions for each input.")
     with_score: bool = Field(default=False, description="Add a tab separated score to each output.")
-    # Audio/Whisper settings (used by AudioTranslator only)
+    # Audio/Whisper settings (used by AudioPredictor only)
     timestamps: Literal["none", "segment", "word"] = Field(
         default="none",
         description="Audio models only. Timestamp output: "

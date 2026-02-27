@@ -65,7 +65,7 @@ class AudioCorpusIterator(object):
     """Iterator that loads audio and yields raw waveforms for prediction.
 
     Yields one raw waveform per audio file. The seeking loop in
-    AudioTranslator handles windowing and mel computation.
+    AudioPredictor handles windowing and mel computation.
     """
 
     def __init__(

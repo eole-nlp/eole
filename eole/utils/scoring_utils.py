@@ -89,9 +89,9 @@ class ScoringPreparator:
         scorer = GNMTGlobalScorer.from_config(predict_config)
 
         if data_type == "audio":
-            from eole.predict.audio_translator import AudioTranslator
+            from eole.predict.audio_predictor import AudioPredictor
 
-            translator = AudioTranslator(
+            translator = AudioPredictor(
                 model,
                 self.vocabs,
                 predict_config,
