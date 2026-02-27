@@ -28,7 +28,7 @@ from eole.models.model_saver import get_metadata
 from eole.modules.estimator import FeedForward
 
 from eole.encoders.vision import VisionEncoder
-from eole.encoders.whisper import WhisperEncoder
+from eole.encoders.audio import AudioEncoder
 
 
 def build_encoder(model_config, running_config=None):
@@ -126,7 +126,7 @@ class BaseModel(nn.Module):
         self.hidden_size = kwargs.get("hidden_size", None)
         self.share_decoder_embeddings = False
         if self.encoder is not None and self.src_emb is None:
-            if not isinstance(self.encoder, (VisionEncoder, WhisperEncoder)):
+            if not isinstance(self.encoder, (VisionEncoder, AudioEncoder)):
                 raise ValueError("An Encoder needs source Embeddings")
         if self.decoder is not None and self.tgt_emb is None:
             raise ValueError("A Decoder needs target Embeddings")
@@ -1156,7 +1156,7 @@ class AudioEncoderDecoderModel(BaseModel):
         dec_in = tgt[:, :-1]
         tgt_pad_mask = dec_in.eq(self.tgt_pad_idx).unsqueeze(1)
 
-        # Audio encoder output has no padding — all-False mask
+        # Audio input is fixed-length (zero-padded to chunk_length before mel) — no padding mask needed
         src_pad_mask = torch.zeros(
             enc_out.size(0),
             1,

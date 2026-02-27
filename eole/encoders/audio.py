@@ -1,4 +1,4 @@
-"""Whisper encoder for speech-to-text models."""
+"""Audio encoder for speech-to-text models."""
 
 from typing import Optional, Tuple
 
@@ -10,9 +10,9 @@ from eole.encoders.transformer import TransformerEncoderLayer
 from eole.constants import LayerNorm
 
 
-class WhisperEncoder(EncoderBase):
+class AudioEncoder(EncoderBase):
     """
-    Whisper encoder: Conv1d stem + learned positional embeddings + transformer layers.
+    Audio encoder: Conv1d stem + learned positional embeddings + transformer layers.
 
     Processes mel spectrograms into encoder hidden states for cross-attention
     with the decoder.
@@ -21,7 +21,7 @@ class WhisperEncoder(EncoderBase):
     Output: (batch, time // 2, hidden_size)
 
     Args:
-        encoder_config: Whisper encoder configuration
+        encoder_config: Audio encoder configuration
         running_config: Runtime configuration (optional)
     """
 
@@ -56,7 +56,7 @@ class WhisperEncoder(EncoderBase):
 
         Args:
             emb: Mel spectrogram tensor (batch, num_mels, time)
-            pad_mask: Not used for Whisper (fixed-length input)
+            pad_mask: Not used (fixed-length input)
             **kwargs: Additional arguments (ignored)
 
         Returns:

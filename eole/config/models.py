@@ -387,15 +387,15 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
         return self
 
 
-class WhisperEncoderConfig(TransformerConfig, EncoderConfig):
-    """Configuration for Whisper audio encoder."""
+class AudioEncoderConfig(TransformerConfig, EncoderConfig):
+    """Configuration for audio encoder."""
 
-    encoder_type: Literal["whisper"] = Field(default="whisper")
+    encoder_type: Literal["audio"] = Field(default="audio")
     num_mel_bins: int = Field(default=80, description="Number of mel spectrogram bins.")
     max_source_positions: int = Field(
         default=1500, description="Maximum number of source positions (time frames after conv stem)."
     )
-    # Whisper uses learned positional embeddings in the encoder itself, not RoPE
+    # Audio encoder uses learned positional embeddings in the encoder itself, not RoPE
     position_encoding_type: PositionEncodingType | None = Field(default=None)
     # Audio signal processing
     sample_rate: int = Field(default=16000, description="Audio sample rate in Hz.")
@@ -452,7 +452,7 @@ class BaseModelConfig(Config):
             CnnEncoderConfig,
             MeanEncoderConfig,
             VisionEncoderConfig,
-            WhisperEncoderConfig,
+            AudioEncoderConfig,
         ]
         | None
     ) = Field(
@@ -674,7 +674,7 @@ class BaseModelConfig(Config):
 
         # encoder and decoder should be same sizes
         if self.encoder is not None and self.decoder is not None:
-            if isinstance(self.encoder, (VisionEncoderConfig, WhisperEncoderConfig)):
+            if isinstance(self.encoder, (VisionEncoderConfig, AudioEncoderConfig)):
                 pass
             else:
                 same_size = self.encoder.hidden_size == self.decoder.hidden_size
@@ -904,9 +904,9 @@ class WhisperModelConfig(TransformerConfig, BaseModelConfig):
         if not (isinstance(data, dict)):
             return data
         if "encoder" in data.keys():
-            data["encoder"]["encoder_type"] = "whisper"
+            data["encoder"]["encoder_type"] = "audio"
         else:
-            data["encoder"] = {"encoder_type": "whisper"}
+            data["encoder"] = {"encoder_type": "audio"}
         if "decoder" in data.keys():
             data["decoder"]["decoder_type"] = "transformer"
         else:
