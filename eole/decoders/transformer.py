@@ -256,9 +256,6 @@ class TransformerDecoderLayer(nn.Module):
         norm_layer_in = self.input_layernorm(layer_in)
 
         if self.layer_type == "linear_attention":
-            # attn_mask is already a 2-D (B, S) valid-token mask (or None) —
-            # the decoder sets lin_attn_mask = ~tgt_pad_mask[:, 0, :] for prefill
-            # and None for single-step decode.
             self_attn = self.linear_attn(norm_layer_in, attn_mask=attn_mask)
             attns = None
         else:
@@ -394,8 +391,9 @@ class TransformerDecoder(DecoderBase):
             self.cache_seqlens = fn(self.cache_seqlens)
         for layer in self.transformer_layers:
             if layer.layer_type == "linear_attention":
-                layer.linear_attn.conv_state = fn(layer.linear_attn.conv_state)
-                layer.linear_attn.recurrent_state = fn(layer.linear_attn.recurrent_state)
+                if layer.linear_attn.conv_state is not None:
+                    layer.linear_attn.conv_state = fn(layer.linear_attn.conv_state)
+                    layer.linear_attn.recurrent_state = fn(layer.linear_attn.recurrent_state)
             else:
                 if self.with_cross_attn:
                     if layer.context_attn.kcache is not None:
@@ -555,6 +553,7 @@ class TransformerDecoder(DecoderBase):
                 attn_mask = self._causal_attn_mask(tgt_pad_mask, prefix_len=prefix_len)
                 if image_locations is not None:
                     attn_mask = self._update_causal_mask(attn_mask, image_locations)
+                lin_attn_mask = ~tgt_pad_mask[:, 0, :] if self.has_linear_attn else None
             else:
                 # at decoding _init_cache must be called and init these
                 valid = self.position_indices <= self.cache_seqlens.view(-1, 1)
@@ -563,27 +562,27 @@ class TransformerDecoder(DecoderBase):
                     start = torch.clamp(current_step - self.sliding_window + 1, min=0)
                     valid = valid & (self.position_indices >= start)
                 attn_mask = valid.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, MAX_T or Dynamic Cache Len)
+                lin_attn_mask = None
         else:
             attn_mask = None
             cache_slice = None  # triggers flash decoding
             if S > 1 and self.has_linear_attn:
-                # training or prefill decoding, combine pad and causal mask
-                image_locations = kwargs.pop("image_locations", None)
-                prefix_len = kwargs.pop("prefix_len", None)
-
-                attn_mask = self._causal_attn_mask(tgt_pad_mask, prefix_len=prefix_len)
-                if image_locations is not None:
-                    attn_mask = self._update_causal_mask(attn_mask, image_locations)
+                lin_attn_mask = ~tgt_pad_mask[:, 0, :] if self.has_linear_attn else None
+            else:
+                lin_attn_mask = None
 
         pos_ids_2d = kwargs.pop("pos_ids_2d", None)
         attn_aligns = []
 
         for layer, pos_emb in zip(self.transformer_layers, pos_emb_list):
+            layer_attn_mask = (
+                lin_attn_mask if (lin_attn_mask is not None and layer.layer_type == "linear_attention") else attn_mask
+            )
             emb, attn = layer(
                 emb.clone() if (EOLE_COMPILE_MODE == "2" and EOLE_TORCH_COMPILE) else emb,
                 enc_out=enc_out,
                 src_pad_mask=src_pad_mask,
-                attn_mask=attn_mask,
+                attn_mask=layer_attn_mask,
                 return_attn=return_attn,
                 position_embeddings=pos_emb,
                 cache_seqlens=self.cache_seqlens,
@@ -595,7 +594,7 @@ class TransformerDecoder(DecoderBase):
                     emb.clone() if (EOLE_COMPILE_MODE == "2" and EOLE_TORCH_COMPILE) else emb,
                     enc_out=enc_out,
                     src_pad_mask=src_pad_mask,
-                    attn_mask=attn_mask,
+                    attn_mask=layer_attn_mask,
                     return_attn=return_attn,
                     position_embeddings=pos_emb,
                     cache_seqlens=self.cache_seqlens,

@@ -390,8 +390,6 @@ class GatedDeltaNet(nn.Module):
         a = self.in_proj_a(hidden_states)  # (B, S, num_v_heads)
 
         if use_precomputed:
-            if self.conv1d.weight is None:
-                print(self.conv1d)
             mixed_qkv = self._causal_conv1d_update(
                 mixed_qkv,
                 self.conv_state,
@@ -406,8 +404,6 @@ class GatedDeltaNet(nn.Module):
                     F.pad(mixed_qkv, (self.conv_kernel_size - mixed_qkv.shape[-1], 0))[:, :, -self.conv_kernel_size :]
                 )
             if self._causal_conv1d_fn is not None:
-                if self.conv1d.weight is None:
-                    print(self.conv1d)
                 mixed_qkv = self._causal_conv1d_fn(
                     x=mixed_qkv,
                     weight=self.conv1d.weight.squeeze(1),
