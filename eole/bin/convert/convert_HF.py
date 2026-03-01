@@ -776,6 +776,10 @@ def build_shards(model_config, hf, args, params):
             print("Loading %s" % ckpt)
             checkpoint = hf.checkpoint(ckpt)
             for i in shard_layer_ranges[shard]:
+                # Cache raw tensors read from this checkpoint+layer to avoid
+                # re-reading the same stacked tensor (e.g. mlp.experts.gate_up_proj)
+                # hundreds of times when splitting MoE expert weights.
+                _layer_tensor_cache = {}
                 prefix_mapping = (
                     ("encoder", hf.encoder_layer_prefix, "encoder.transformer_layers."),
                     ("encoder.sam", hf.encoder_sam_layer_prefix, "encoder.sam.blocks."),
@@ -794,10 +798,13 @@ def build_shards(model_config, hf, args, params):
 
                             if srckey.endswith("."):
                                 srckey = srckey + param
-                            w = get_weight(
-                                checkpoint,
-                                hf_prefix + str(i) + srckey,
-                            )
+                            full_srckey = hf_prefix + str(i) + srckey
+                            if full_srckey not in _layer_tensor_cache:
+                                _layer_tensor_cache[full_srckey] = get_weight(
+                                    checkpoint,
+                                    full_srckey,
+                                )
+                            w = _layer_tensor_cache[full_srckey]
 
                             if w is not None:
                                 if srcmap is not None:
@@ -812,12 +819,17 @@ def build_shards(model_config, hf, args, params):
                                             "w": w,
                                             "hidden_size": hidden_size,
                                             "transformer_ff": model_config["transformer_ff"],
+                                            "moe_transformer_ff": model_config.get("decoder", {}).get(
+                                                "moe_transformer_ff",
+                                                model_config.get("moe_transformer_ff", 0),
+                                            ),
                                         },
                                     ).contiguous()
                                 target1 = target
                                 if target.endswith("."):
                                     target1 = target + param
                                 eole_safetensor[eole_prefix + str(i) + target1] = w
+                _layer_tensor_cache.clear()
 
         # Convert to another dtype if specified
         if args.dtype is not None:

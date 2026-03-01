@@ -115,6 +115,7 @@ class MoE(nn.Module):
             self.shared_experts = None
             self.shared_expert_gate = None
         self.moe_softmax_after = model_config.moe_softmax_after
+        self.moe_renormalize = model_config.moe_renormalize
         self._gates_fused = False
         self._grouped = GroupedExperts(self.experts)
 
@@ -167,7 +168,12 @@ class MoE(nn.Module):
     def forward(self, x):
 
         if not self.training:
-            self._maybe_fused_moe_weights(x.device, x.dtype)
+            # For plain nn.Linear experts, build the Triton weight cache permanently (once).
+            # type() is (not isinstance) is intentional: subclasses such as
+            # bitsandbytes Linear4bit or AWQ WQLinear must NOT match here so
+            # that quantized models default to the lazy-dequantize Triton path.
+            if self._w1 is None and self.experts and type(self.experts[0].gate_up_proj) is torch.nn.Linear:
+                self._maybe_fused_moe_weights(x.device, x.dtype)
         else:
             self._maybe_fuse_gates()
 
@@ -189,9 +195,17 @@ class MoE(nn.Module):
         expert_weights, expert_indices = torch.topk(scores, K, dim=-1, sorted=False)  # both are (BT, K)
 
         if self.moe_softmax_after:
+            # Mixtral-style: softmax is applied *after* topk selection.
             expert_weights = expert_weights.softmax(dim=-1)
+        elif self.moe_renormalize:
+            # Qwen-style (default): softmax is applied over all experts before topk.
+            # After topk selection the remaining weights no longer sum to 1, so we
+            # re-normalize to restore a proper probability distribution.
+            # clamp prevents a theoretical zero-sum when all selected logits are tiny.
+            expert_weights = expert_weights / expert_weights.sum(dim=-1, keepdim=True).clamp(min=1e-9)
 
-        if not self.training:
+        if not self.training and self._w1 is not None:
+            # Triton fastpath - requires nn.Linear
             y = fused_experts_impl(
                 hidden_states=x_flat,
                 w1=self._w1,

@@ -587,12 +587,28 @@ class BaseModel(nn.Module):
         # Load leaf modules
         for module_name, module in self.named_modules():
             has_children = any(module.children())
-            has_own_params = next(module.parameters(recurse=False), None) is not None
+            has_own_params = (
+                next(module.parameters(recurse=False), None) is not None
+                or next(module.buffers(recurse=False), None) is not None
+            )
             if not has_children or has_own_params:
                 self._load_module_parameters(
                     module_name, module, f, keys_shard, updated_params, buf_list, keyfound, tp_offset, strict
                 )
-                module.to(device=device, dtype=dtype)
+                if has_children:
+                    # Module has both own params and children (e.g. VisionEncoderDecoderModel
+                    # with image_newline/view_separator). Move only direct params/buffers to
+                    # avoid a recursive .to() that would prematurely pack bitsandbytes 4-bit
+                    # weights in child modules before those modules have loaded their weights.
+                    for param_name, param in module._parameters.items():
+                        if param is not None:
+                            param.data = param.data.to(device=device, dtype=dtype)
+                    for buf_name, buf in module._buffers.items():
+                        if buf is not None:
+                            buf_dtype = dtype if buf.is_floating_point() else buf.dtype
+                            module._buffers[buf_name] = buf.to(device=device, dtype=buf_dtype)
+                else:
+                    module.to(device=device, dtype=dtype)
                 if getattr(running_config, "compute_dtype", None) == torch.int8:
                     torch.quantization.quantize_dynamic(module, inplace=True)
         return keyfound

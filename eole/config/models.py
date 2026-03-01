@@ -278,6 +278,7 @@ class TransformerConfig(Config):
     first_k_dense_replace: int = Field(default=0, description="Number of layers using Dense instead of MoE")
     num_experts_per_tok: int = Field(default=2, description="Number of experts per token.")
     moe_softmax_after: bool = Field(default=False, description="Usually softmax is before topk, Mixtral does it after.")
+    moe_renormalize: bool = Field(default=False, description="Qwen renormalize expert weights after softmax.")
     q_gating: bool = Field(
         default=False,
         description="Enable gated query in attention (Qwen3.5 style). "
