@@ -472,21 +472,37 @@ def build_config_dict(hf):
             quant_type = quant_type_mapping.get(backend, "").get(quant_config.get("version").lower(), "")
             if not quant_type:
                 raise ValueError("Unknown quantization config")
+            training_config["quant_type"] = quant_type
+            training_config["w_bit"] = quant_config.get("bits", quant_config.get("w_bit", 0))
+            training_config["group_size"] = quant_config.get("group_size", quant_config.get("q_group_size", 0))
+            training_config["quant_layers"] = [
+                "gate_up_proj",
+                "down_proj",
+                "up_proj",
+                "linear_values",
+                "linear_query",
+                "linear_keys",
+                "final_linear",
+            ]
+            params = ["qweight", "qzeros", "scales"] + ["weight", "bias"]
+        elif quant_config.get("quant_method") in ["intel/auto-round", "autoround", "auto-round"]:
+            training_config["quant_type"] = "autoround"
+            training_config["w_bit"] = quant_config.get("bits", 4)
+            training_config["group_size"] = quant_config.get("group_size", 128)
+            training_config["autoround_packing_format"] = quant_config.get("packing_format", "auto_round:auto_gptq")
+            training_config["autoround_sym"] = quant_config.get("sym", True)
+            training_config["quant_layers"] = [
+                "gate_up_proj",
+                "down_proj",
+                "up_proj",
+                "linear_values",
+                "linear_query",
+                "linear_keys",
+                "final_linear",
+            ]
+            params = ["qweight", "qzeros", "scales"] + ["weight", "bias"]
         else:
-            raise ValueError("Can convert only awq models for now")
-        training_config["quant_type"] = quant_type
-        training_config["w_bit"] = quant_config.get("bits", quant_config.get("w_bit", 0))
-        training_config["group_size"] = quant_config.get("group_size", quant_config.get("q_group_size", 0))
-        training_config["quant_layers"] = [
-            "gate_up_proj",
-            "down_proj",
-            "up_proj",
-            "linear_values",
-            "linear_query",
-            "linear_keys",
-            "final_linear",
-        ]
-        params = ["qweight", "qzeros", "scales"] + ["weight", "bias"]
+            raise ValueError("Can convert only awq or autoround models for now")
     else:
         training_config["quant_type"] = ""
         training_config["w_bit"] = 0
