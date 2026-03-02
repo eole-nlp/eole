@@ -309,7 +309,7 @@ def build_config_dict(hf):
         ),
         "sliding_window": config.get("sliding_window", 0) or 4096,
         "num_experts": config.get("num_local_experts", config.get("n_routed_experts", config.get("num_experts", 0))),
-        "num_shared_experts": config.get("n_shared_experts", 0),
+        "num_shared_experts": config.get("n_shared_experts", 1 if config.get("shared_expert_intermediate_size") else 0),
         "first_k_dense_replace": config.get("first_k_dense_replace", 0),
         "num_experts_per_tok": config.get("num_experts_per_tok", 0),
         "moe_transformer_ff": config.get("moe_intermediate_size", None),
@@ -328,6 +328,20 @@ def build_config_dict(hf):
     }
     if model_config["num_experts"] == 1:
         model_config["num_experts"] = 0
+
+    # For Qwen3.5 MoE: use shared_expert_intermediate_size as shared expert FF size
+    # (overrides the default moe_transformer_ff * num_shared_experts calculation in MoE.__init__)
+    if config.get("shared_expert_intermediate_size") and arch in [
+        "Qwen3_5MoeForCausalLM",
+        "Qwen3_5MoeForConditionalGeneration",
+    ]:
+        # num_shared_experts=1, shared_expert_intermediate_size is the actual ff size
+        # Since MoE uses moe_transformer_ff * num_shared_experts, set moe_transformer_ff
+        # to shared_expert_intermediate_size so product = shared_expert_intermediate_size
+        model_config["moe_transformer_ff"] = config["moe_intermediate_size"]
+        # The shared expert uses shared_expert_intermediate_size directly
+        # Store it separately so the decoder config can reference it
+        model_config.setdefault("decoder", {})["moe_transformer_ff"] = config["moe_intermediate_size"]
 
     # Vision encoder
     if vision_config is not None:
@@ -399,6 +413,43 @@ def build_config_dict(hf):
         model_config["encoder"].update({})
         model_config["spatial_merge_size"] = vision_config.get("spatial_merge_size", None)
 
+    if arch in [
+        "Qwen3VLForConditionalGeneration",
+        "Qwen3_5ForConditionalGeneration",
+        "Qwen3_5MoeForConditionalGeneration",
+    ]:
+        # Vision config uses different key names from standard vision models
+        num_pos_embed = vision_config.get("num_position_embeddings", 0)
+        patch_size = vision_config.get("patch_size", 16)
+        num_heads = vision_config.get("num_heads", 16)
+        # image_size derived from num_position_embeddings: num_pos = (img_size / patch_size)^2
+        img_size = int(num_pos_embed**0.5) * patch_size if num_pos_embed else 0
+        model_config["encoder"].update(
+            {
+                # Qwen3.5 VL uses `num_heads` not `num_attention_heads`
+                "heads": num_heads,
+                "heads_kv": num_heads,
+                "head_dim": vision_config.get("hidden_size", 0) // num_heads,
+                # Override layers using `depth` key
+                "layers": vision_config.get("depth", model_config["encoder"].get("layers", 27)),
+                # No fixed image_size in HF config → derive from pos embed table size
+                "image_size": img_size,
+                # Absolute position embedding table size
+                "num_position_embeddings": num_pos_embed,
+                # Use 2D RoPE (pixtral-style) for vision attention
+                "position_encoding_type": PositionEncodingType.Rotary,
+                "rope_config": {
+                    "rotary_interleave": False,
+                    "rotary_theta": 10000,
+                },
+                # Number of input channels
+                "num_channels": vision_config.get("in_channels", 3),
+                # Image token id from top-level config
+                "image_token_id": other_config.get("image_token_id", 151655),
+            }
+        )
+        model_config["spatial_merge_size"] = vision_config.get("spatial_merge_size", 2)
+
     # patch transformer_ff
     if model_config["transformer_ff"] is None:
         model_config["transformer_ff"] = model_config["hidden_size"] * 4
@@ -422,12 +473,15 @@ def build_config_dict(hf):
     )
 
     # patch rotary dim
+    # partial_rotary_factor may live at the top level or inside rope_parameters (newer HF format)
+    _partial_rotary = config.get(
+        "partial_rotary_factor", config.get("rope_parameters", {}).get("partial_rotary_factor")
+    )
     if "rotary_dim" in config.keys():
         model_config["rope_config"]["rotary_dim"] = config["rotary_dim"]
-    elif "partial_rotary_factor" in config.keys():
-        model_config["rope_config"]["rotary_dim"] = int(
-            config["partial_rotary_factor"] * (model_config["hidden_size"] // model_config["heads"])
-        )
+    elif _partial_rotary is not None:
+        _head_dim = model_config.get("head_dim") or (model_config["hidden_size"] // model_config["heads"])
+        model_config["rope_config"]["rotary_dim"] = int(_partial_rotary * _head_dim)
     elif model_config.get("head_dim", None) is not None:
         model_config["rope_config"]["rotary_dim"] = model_config["head_dim"]
     else:
@@ -440,7 +494,9 @@ def build_config_dict(hf):
                 "scaling_type": config["rope_scaling"].get("rope_type", config["rope_scaling"].get("type", None)),
                 "scaling_factor": config["rope_scaling"].get("factor", 8.0),
                 "alpha": config["rope_scaling"].get("alpha", None),
-                "xdrope_section": config["rope_scaling"].get("xdrope_section", None),
+                "xdrope_section": config["rope_scaling"].get(
+                    "xdrope_section", config["rope_scaling"].get("mrope_section", None)
+                ),
                 "low_freq_factor": config["rope_scaling"].get("low_freq_factor", 1.0),
                 "high_freq_factor": config["rope_scaling"].get("high_freq_factor", 4.0),
                 "original_max_position_embeddings": config["rope_scaling"].get(
@@ -448,6 +504,15 @@ def build_config_dict(hf):
                 ),
             }
         )
+
+    # Handle rope_parameters (newer HF format, e.g. Qwen3.5 VL)
+    if config.get("rope_parameters", None) is not None:
+        rope_params = config["rope_parameters"]
+        mrope_section = rope_params.get("mrope_section", None)
+        if mrope_section is not None:
+            model_config["rope_config"]["xdrope_section"] = mrope_section
+        if rope_params.get("mrope_interleaved", False):
+            model_config["rope_config"]["rotary_interleave"] = True
 
     # Validate required fields
     required_fields = {
@@ -519,6 +584,27 @@ def build_config_dict(hf):
             from eole.config import recursive_update_dict
 
             model_config = recursive_update_dict(model_config, arch_config, {})
+
+    # Qwen3.5-specific: extract hybrid layer types and linear attention parameters
+    if arch in [
+        "Qwen3_5TextForCausalLM",
+        "Qwen3_5ForConditionalGeneration",
+        "Qwen3_5MoeForCausalLM",
+        "Qwen3_5MoeForConditionalGeneration",
+    ]:
+        layer_types = config.get("layer_types", None)
+        if layer_types is not None:
+            model_config.setdefault("decoder", {})["layer_types"] = layer_types
+        for key in [
+            "linear_conv_kernel_dim",
+            "linear_key_head_dim",
+            "linear_value_head_dim",
+            "linear_num_key_heads",
+            "linear_num_value_heads",
+        ]:
+            val = config.get(key, None)
+            if val is not None:
+                model_config.setdefault("decoder", {})[key] = val
 
     return model_config, training_config, params
 
@@ -706,6 +792,10 @@ def build_shards(model_config, hf, args, params):
             print("Loading %s" % ckpt)
             checkpoint = hf.checkpoint(ckpt)
             for i in shard_layer_ranges[shard]:
+                # Cache raw tensors read from this checkpoint+layer to avoid
+                # re-reading the same stacked tensor (e.g. mlp.experts.gate_up_proj)
+                # hundreds of times when splitting MoE expert weights.
+                _layer_tensor_cache = {}
                 prefix_mapping = (
                     ("encoder", hf.encoder_layer_prefix, "encoder.transformer_layers."),
                     ("encoder.sam", hf.encoder_sam_layer_prefix, "encoder.sam.blocks."),
@@ -724,10 +814,13 @@ def build_shards(model_config, hf, args, params):
 
                             if srckey.endswith("."):
                                 srckey = srckey + param
-                            w = get_weight(
-                                checkpoint,
-                                hf_prefix + str(i) + srckey,
-                            )
+                            full_srckey = hf_prefix + str(i) + srckey
+                            if full_srckey not in _layer_tensor_cache:
+                                _layer_tensor_cache[full_srckey] = get_weight(
+                                    checkpoint,
+                                    full_srckey,
+                                )
+                            w = _layer_tensor_cache[full_srckey]
 
                             if w is not None:
                                 if srcmap is not None:
@@ -742,12 +835,17 @@ def build_shards(model_config, hf, args, params):
                                             "w": w,
                                             "hidden_size": hidden_size,
                                             "transformer_ff": model_config["transformer_ff"],
+                                            "moe_transformer_ff": model_config.get("decoder", {}).get(
+                                                "moe_transformer_ff",
+                                                model_config.get("moe_transformer_ff", 0),
+                                            ),
                                         },
                                     ).contiguous()
                                 target1 = target
                                 if target.endswith("."):
                                     target1 = target + param
                                 eole_safetensor[eole_prefix + str(i) + target1] = w
+                _layer_tensor_cache.clear()
 
         # Convert to another dtype if specified
         if args.dtype is not None:
