@@ -11,17 +11,11 @@ def build_config():
         raise RuntimeError("EOLE_MODEL_DIR environment variable is not set")
 
     config = PredictConfig(
-        model_path=os.path.join(mydir, "qwen3.5-27B"),
+        model_path=os.path.join(mydir, "qwen3.5-4B"),
         src="dummy",
         self_attn_backend="flash",
         max_length=2048,
         gpu_ranks=[0],
-        quant_type="bnb_NF4",  # HF default, using it for initial reproducibility checks
-        quant_layers=[
-            "gate_up_proj",
-            "down_proj",
-            "up_proj",
-        ],
         compute_dtype="bf16",
         top_k=20,
         top_p=0.95,
@@ -41,7 +35,7 @@ def build_config():
 def build_test_inputs():
     return [
         {
-            "text": "<|im_start|>user\nList the top 5 countries in Europe with the highest GDP from this image. Just output 5 lines.\n{image1}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+            "text": "<|im_start|>user\nList the top 5 countries in Europe with the highest GDP from this image.\n{image1}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
             "images": {"image1": "eole/tests/data/images/gdp.png"},
         },
         {

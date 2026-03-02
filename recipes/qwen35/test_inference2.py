@@ -11,17 +11,11 @@ def build_config():
         raise RuntimeError("EOLE_MODEL_DIR environment variable is not set")
 
     config = PredictConfig(
-        model_path=os.path.join(mydir, "qwen3.5-27B"),
+        model_path=os.path.join(mydir, "qwen3.5-4B"),
         src="dummy",
         self_attn_backend="flash",
         max_length=4096,
         gpu_ranks=[0],
-        quant_type="bnb_NF4",  # HF default, using it for initial reproducibility checks
-        quant_layers=[
-            "gate_up_proj",
-            "down_proj",
-            "up_proj",
-        ],
         compute_dtype="bf16",
         top_k=0,
         top_p=0.0,
