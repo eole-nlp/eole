@@ -587,12 +587,28 @@ class BaseModel(nn.Module):
         # Load leaf modules
         for module_name, module in self.named_modules():
             has_children = any(module.children())
-            has_own_params = next(module.parameters(recurse=False), None) is not None
+            has_own_params = (
+                next(module.parameters(recurse=False), None) is not None
+                or next(module.buffers(recurse=False), None) is not None
+            )
             if not has_children or has_own_params:
                 self._load_module_parameters(
                     module_name, module, f, keys_shard, updated_params, buf_list, keyfound, tp_offset, strict
                 )
-                module.to(device=device, dtype=dtype)
+                if has_children:
+                    # Module has both own params and children (e.g. VisionEncoderDecoderModel
+                    # with image_newline/view_separator). Move only direct params/buffers to
+                    # avoid a recursive .to() that would prematurely pack bitsandbytes 4-bit
+                    # weights in child modules before those modules have loaded their weights.
+                    for param_name, param in module._parameters.items():
+                        if param is not None:
+                            param.data = param.data.to(device=device, dtype=dtype)
+                    for buf_name, buf in module._buffers.items():
+                        if buf is not None:
+                            buf_dtype = dtype if buf.is_floating_point() else buf.dtype
+                            module._buffers[buf_name] = buf.to(device=device, dtype=buf_dtype)
+                else:
+                    module.to(device=device, dtype=dtype)
                 if getattr(running_config, "compute_dtype", None) == torch.int8:
                     torch.quantization.quantize_dynamic(module, inplace=True)
         return keyfound
@@ -972,7 +988,7 @@ class VisionEncoderDecoderModel(BaseModel):
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
-    def build_position_ids(self, src, image_locations, image_sizes):
+    def build_hunyuan_position_ids(self, src, image_locations, image_sizes):
         """
         src: [B, L]
         image_locations: bool mask of same shape as src
@@ -1019,6 +1035,67 @@ class VisionEncoderDecoderModel(BaseModel):
                 position_ids[b, start : end + 1, 1] = w
                 position_ids[b, start : end + 1, 2] = h
                 position_ids[b, start : end + 1, 3] = 0
+        return position_ids
+
+    def build_qwen_vl_position_ids(self, src, image_locations, image_sizes):
+        """
+        Build mRoPE position IDs (3 sections: temporal, height, width) for Qwen3 VL / Qwen3.5 VL.
+
+        Follows the HuggingFace ``get_rope_index`` logic for ``mrope_section = [t, h, w]``:
+        - Text tokens at sequential position ``p``: ``(p, p, p)``
+        - Image tokens in a H×W merged-patch grid starting at position ``p``:
+          - temporal: ``p`` (constant — still images have a single frame)
+          - height:   ``row + p``  (row ∈ 0..H-1, each row repeated W times)
+          - width:    ``col + p``  (col ∈ 0..W-1, repeated H times)
+        - After an image block, the position counter advances by ``max(H, W)`` (not H*W).
+
+        Args:
+            src: (B, L) token id tensor
+            image_locations: bool mask of same shape as src (True for image_pad tokens)
+            image_sizes: (N_images, 2) tensor with (height_px, width_px) per image
+
+        Returns:
+            position_ids of shape (B, L, 3)
+        """
+        B, L = src.shape
+        device = src.device
+        merge_stride = self.patch_size * self.spatial_merge_size
+
+        position_ids = torch.zeros((B, L, 3), device=device, dtype=torch.long)
+
+        img_ptr = 0  # pointer into image_sizes
+        for b in range(B):
+            seq_pos = 0
+            i = 0
+            while i < L:
+                if not image_locations[b, i]:
+                    # Text token: all 3 dims = sequential position
+                    position_ids[b, i, :] = seq_pos
+                    seq_pos += 1
+                    i += 1
+                else:
+                    # Start of an image-pad block — find its extent
+                    start = i
+                    while i < L and image_locations[b, i]:
+                        i += 1
+                    end = i  # exclusive
+
+                    H_px, W_px = image_sizes[img_ptr].tolist()
+                    img_ptr += 1
+                    H = H_px // merge_stride  # merged-patch rows
+                    W = W_px // merge_stride  # merged-patch cols
+
+                    # height indices: [0,0,...,0, 1,1,...,1, ..., H-1,...,H-1], each repeated W times
+                    h_idx = torch.arange(H, device=device).repeat_interleave(W)
+                    # width indices: [0,1,...,W-1] repeated H times
+                    w_idx = torch.arange(W, device=device).repeat(H)
+
+                    position_ids[b, start:end, 0] = seq_pos  # temporal: constant
+                    position_ids[b, start:end, 1] = h_idx + seq_pos  # height offset
+                    position_ids[b, start:end, 2] = w_idx + seq_pos  # width offset
+
+                    seq_pos += max(H, W)
+
         return position_ids
 
     def embed_vision_language_features(self, src, **kwargs):
@@ -1073,7 +1150,9 @@ class VisionEncoderDecoderModel(BaseModel):
         # TODO: Revisit this when implementing real mRope for Qwen VL (3 sections). This is a temporary solution
         # and may not generalize to other vision-language models with different position encoding schemes.
         if self.adapter.__class__.__name__ == "HunYuanVisionPatchMerger":
-            position_ids = self.build_position_ids(src, image_locations, image_sizes)
+            position_ids = self.build_hunyuan_position_ids(src, image_locations, image_sizes)
+        elif self.adapter.__class__.__name__ == "Qwen3_5VisionMerger":
+            position_ids = self.build_qwen_vl_position_ids(src, image_locations, image_sizes)
         else:
             position_ids = None
 
