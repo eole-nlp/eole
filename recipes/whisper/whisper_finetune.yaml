@@ -6,9 +6,9 @@
 ##   1. Convert a multilingual Whisper model to EOLE format
 ##      (whisper-base-eole or whisper-small-eole)
 ##   2. Run data preparation:
-##      python recipes/whisper/finetune/prepare_cv_hindi.py
+##      python finetune/prepare_cv_hindi.py
 ##   3. Train:
-##      eole train -config recipes/whisper/whisper_finetune.yaml
+##      eole train -config whisper_finetune.yaml
 ##
 
 # IO
@@ -49,8 +49,7 @@ training:
     keep_checkpoint: 10
 
     # Freeze encoder for fine-tuning (common approach)
-    freeze_encoder: true
-    save_frozen_weights: true
+    freeze_encoder: false
 
     # GPU
     world_size: 1
@@ -89,7 +88,7 @@ training:
     normalization: "tokens"
 
 # Inference settings used during validation scoring (WER eval).
-# AudioTranslator uses language/task to construct the decoder prefix:
+# AudioPredictor uses language/task to construct the decoder prefix:
 # <|startoftranscript|><|hi|><|transcribe|>
 # The model then generates <|notimestamps|> + Hindi text (as trained).
 inference:

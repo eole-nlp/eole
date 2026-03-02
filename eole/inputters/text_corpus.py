@@ -240,7 +240,7 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
     if task == CorpusTask.TRAIN:
         for corpus_id, corpus_dict in config.data.items():
             if corpus_id != CorpusName.VALID:
-                if corpus_dict.path_txt is None:
+                if corpus_dict.path_txt is None and data_type == "text":
                     corpora_dict[corpus_id] = ParallelCorpus(
                         corpus_id,
                         corpus_dict.path_src,

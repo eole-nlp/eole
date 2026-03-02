@@ -110,12 +110,6 @@ class TrainingConfig(
     )
     freeze_encoder: bool = Field(default=False, description="Freeze parameters in encoder.")
     freeze_decoder: bool = Field(default=False, description="Freeze parameters in decoder.")
-    save_frozen_weights: bool = Field(
-        default=False,
-        description="Save frozen encoder/decoder weights in checkpoints. "
-        "When False (default), frozen weights are stripped to save disk space. "
-        "Set to True for self-contained checkpoints that work without the base model.",
-    )
     # Pretrained word vectors (might be deprecated)
     pre_word_vecs_enc: str | None = Field(
         default=None,

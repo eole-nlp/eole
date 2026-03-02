@@ -233,11 +233,11 @@ class TrainingModelSaver(ModelSaverBase):
             model_state_dict.pop("tgt_emb.embeddings.weight")
         if self.config.model.share_decoder_embeddings and "generator.weight" in model_state_dict:
             model_state_dict.pop("generator.weight")
-        if self.config.training.freeze_encoder and not self.config.training.save_frozen_weights:
+        if self.config.training.freeze_encoder:
             model_state_dict = {
                 k: v for k, v in model_state_dict.items() if not (k.startswith("encoder") or k.startswith("adapter"))
             }
-        if self.config.training.freeze_decoder and not self.config.training.save_frozen_weights:
+        if self.config.training.freeze_decoder:
             model_state_dict = {
                 k: v
                 for k, v in model_state_dict.items()
