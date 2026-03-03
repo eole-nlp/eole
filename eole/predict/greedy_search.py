@@ -181,8 +181,8 @@ class GreedySearch(DecodeStrategy):
         self.original_batch_idx = fn_tile(torch.arange(self.batch_size, dtype=torch.long, device=device))
         self.beams_scores = torch.zeros((self.batch_size * self.beam_size, 1), dtype=torch.float, device=device)
         self.sequence_finished = torch.zeros(self.batch_size * self.beam_size, dtype=torch.bool, device=device)
-        self._sum_logprobs = torch.zeros((self.batch_size * self.beam_size, 1), dtype=torch.float, device=device)
-        self._n_text_tokens = torch.zeros((self.batch_size * self.beam_size, 1), dtype=torch.long, device=device)
+        self._cumulative_logprobs = torch.zeros((self.batch_size * self.beam_size, 1), dtype=torch.float, device=device)
+        self._prefix_cumulative = torch.zeros((self.batch_size * self.beam_size, 1), dtype=torch.float, device=device)
         return fn_tile, enc_out
 
     @property
@@ -248,22 +248,17 @@ class GreedySearch(DecodeStrategy):
             self.beams_scores += self.topk_scores
 
         step = len(self)
-        if step > self._prefix_len:
-            raw_log_prob = log_probs.gather(dim=1, index=topk_ids)
-            if self.static_batch_size:
-                self._sum_logprobs = torch.where(
-                    self.sequence_finished.unsqueeze(1),
-                    self._sum_logprobs,
-                    self._sum_logprobs + raw_log_prob,
-                )
-                self._n_text_tokens = torch.where(
-                    self.sequence_finished.unsqueeze(1),
-                    self._n_text_tokens,
-                    self._n_text_tokens + 1,
-                )
-            else:
-                self._sum_logprobs += raw_log_prob
-                self._n_text_tokens += 1
+        raw_log_prob = log_probs.gather(dim=1, index=topk_ids)
+        if self.static_batch_size:
+            self._cumulative_logprobs = torch.where(
+                self.sequence_finished.unsqueeze(1),
+                self._cumulative_logprobs,
+                self._cumulative_logprobs + raw_log_prob,
+            )
+        else:
+            self._cumulative_logprobs += raw_log_prob
+        if step == self._prefix_len:
+            self._prefix_cumulative = self._cumulative_logprobs.clone()
 
         self.is_finished_list = torch.isin(topk_ids, self.eos_t).tolist()
 
@@ -311,8 +306,8 @@ class GreedySearch(DecodeStrategy):
                     score,
                     pred,
                     attention,
-                    self._sum_logprobs[b, 0].item(),
-                    self._n_text_tokens[b, 0].item(),
+                    self._cumulative_logprobs[b, 0].item() - self._prefix_cumulative[b, 0].item(),
+                    step - 1 - self._prefix_len,
                 )
             )
 
@@ -341,8 +336,8 @@ class GreedySearch(DecodeStrategy):
             if self.alive_attn is not None:
                 self.alive_attn = self.alive_attn[self.select_indices]
             self.original_batch_idx = self.original_batch_idx[self.select_indices]
-            self._sum_logprobs = self._sum_logprobs[self.select_indices]
-            self._n_text_tokens = self._n_text_tokens[self.select_indices]
+            self._cumulative_logprobs = self._cumulative_logprobs[self.select_indices]
+            self._prefix_cumulative = self._prefix_cumulative[self.select_indices]
             self.maybe_update_target_prefix(self.select_indices)
 
 
