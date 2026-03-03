@@ -138,7 +138,6 @@ class BeamSearchBase(DecodeStrategy):
         self.topk_scores = torch.empty((self.batch_size, self.beam_size), dtype=torch.float, device=device)
 
         self.batch_finished = torch.zeros(self.batch_size, dtype=torch.bool, device=device)
-        self._prefix_cumulative = torch.zeros((self.batch_size, self.beam_size), dtype=torch.float, device=device)
 
     @property
     def current_predictions(self):
@@ -197,7 +196,7 @@ class BeamSearchBase(DecodeStrategy):
                         topk_scores_list[i][j],
                         predictions[i, j, 1:],  # Ignore start_token.
                         attention[i, j, :, : self.src_len[i]] if attention is not None else None,
-                        self.topk_log_probs[i, j].item() - self._prefix_cumulative[i, j].item(),
+                        self.topk_log_probs[i, j].item(),
                         step - 1 - self._prefix_len,
                     )
                 )
@@ -274,7 +273,6 @@ class BeamSearchBase(DecodeStrategy):
         self._batch_offset = self._batch_offset[non_finished]  # CPU
         non_finished = non_finished.to(self.topk_log_probs.device)
         self.topk_log_probs = self.topk_log_probs[non_finished]
-        self._prefix_cumulative = self._prefix_cumulative[non_finished]
         self._batch_index = self._batch_index[non_finished]
         self.alive_seq = predictions[non_finished].view(-1, self.alive_seq.size(-1))
 
@@ -313,6 +311,11 @@ class BeamSearchBase(DecodeStrategy):
         step = len(self)
         self.ensure_min_length(log_probs)
         self.ensure_unk_removed(log_probs)
+        # Subtract the live beam's prefix cumulative at the boundary so
+        # topk_log_probs naturally represents post-prefix values.  Dead beams
+        # (score -inf) stay dead; the live beam (column 0) resets to zero.
+        if self._prefix_len > 0 and step == self._prefix_len:
+            self.topk_log_probs -= self.topk_log_probs[:, :1].clone()
         # Multiply probs by the beam probability.
         # for some reasons at beam_size=1 this generates a drift vs plain greedy
         # but if we remove we lose the cumulated score.
@@ -341,12 +344,6 @@ class BeamSearchBase(DecodeStrategy):
         self._batch_index = self.topk_ids // vocab_size + self._beam_offset[:_B].unsqueeze(1)
         self.select_indices = self._batch_index.view(_B * self.beam_size)
         self.topk_ids %= vocab_size
-
-        if self._prefix_len > 0:
-            if step == self._prefix_len:
-                self._prefix_cumulative = self.topk_log_probs.clone()
-            elif step > self._prefix_len:
-                self._prefix_cumulative = self._prefix_cumulative.view(-1)[self.select_indices].view(_B, self.beam_size)
 
         # Append last prediction to reordered alive sequence
         self.alive_seq = torch.cat(

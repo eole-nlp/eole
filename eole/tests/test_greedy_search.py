@@ -128,7 +128,7 @@ class TestGreedySearch(unittest.TestCase):
                 samp.update_finished()
                 self.assertEqual(
                     [score for score, *_ in samp.hypotheses[0]],
-                    [valid_score_dist_1[0] / temp],
+                    [valid_score_dist_1[0]],
                 )
                 if batch_sz == 1:
                     self.assertTrue(samp.done)
@@ -151,7 +151,7 @@ class TestGreedySearch(unittest.TestCase):
                 samp.update_finished()
                 self.assertEqual(
                     [score for score, *_ in samp.hypotheses[8]],
-                    [valid_score_dist_2[0] / temp],
+                    [valid_score_dist_2[0]],
                 )
 
                 # step 3
@@ -249,7 +249,7 @@ class TestGreedySearch(unittest.TestCase):
                 samp.update_finished()
                 self.assertEqual(
                     [score for score, *_ in samp.hypotheses[8]],
-                    [valid_score_dist_2[0] / temp],
+                    [valid_score_dist_2[0]],
                 )
 
                 # step 3
@@ -358,7 +358,7 @@ class TestGreedySearch(unittest.TestCase):
                 samp.update_finished()
                 self.assertEqual(
                     [score for score, *_ in samp.hypotheses[batch_sz - 1][-1:]],
-                    [valid_score_dist_2[0] / temp],
+                    [valid_score_dist_2[0]],
                 )
 
                 # step 3
@@ -437,7 +437,7 @@ class TestGreedySearch(unittest.TestCase):
                 samp.update_finished()
                 self.assertEqual(
                     [score for score, *_ in samp.hypotheses[0]],
-                    [valid_score_dist_1[0] / temp],
+                    [valid_score_dist_1[0]],
                 )
                 if batch_sz == 1:
                     self.assertTrue(samp.done)
@@ -468,7 +468,7 @@ class TestGreedySearch(unittest.TestCase):
                 samp.update_finished()
                 self.assertEqual(
                     [score for score, *_ in samp.hypotheses[8]],
-                    [valid_score_dist_2[0] / temp],
+                    [valid_score_dist_2[0]],
                 )
 
                 # step 3
