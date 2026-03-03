@@ -272,6 +272,83 @@ class DeepSeekOCRProjector(BaseVisionAdapter):
         return self.w_in(x)
 
 
+class Qwen3_5VisionMerger(BaseVisionAdapter):
+    """
+    Vision-to-language adapter for Qwen3.5 VL (and Qwen3 VL) models.
+
+    Replicates ``Qwen3_5VisionPatchMerger``:
+
+    1. Apply LayerNorm to each patch token independently.
+    2. Group spatially adjacent ``spatial_merge_size × spatial_merge_size`` patches
+       together using ``torch.nn.functional.unfold`` (handles arbitrary image grids).
+    3. Project through ``linear_fc1`` (with GELU) then ``linear_fc2``.
+
+    The adapter weight names mirror the HuggingFace checkpoint:
+
+    * ``adapter.norm.*``          ← ``visual.merger.norm.*``
+    * ``adapter.linear_fc1.*``   ← ``visual.merger.linear_fc1.*``
+    * ``adapter.linear_fc2.*``   ← ``visual.merger.linear_fc2.*``
+    """
+
+    def __init__(self, model_config, running_config=None):
+        super().__init__()
+        enc = model_config.encoder
+        dec_hidden_size = model_config.decoder.hidden_size
+        hidden_size = enc.hidden_size
+        self.patch_size = enc.patch_size
+        self.spatial_merge_size = model_config.spatial_merge_size
+        merged_size = hidden_size * (self.spatial_merge_size**2)
+
+        self.norm = nn.LayerNorm(hidden_size, eps=1e-6)
+        self.linear_fc1 = nn.Linear(merged_size, merged_size)
+        self.act_fn = nn.GELU()
+        self.linear_fc2 = nn.Linear(merged_size, dec_hidden_size)
+
+    def forward(self, x, image_sizes=None):
+        """
+        Args:
+            x: Vision encoder outputs of shape (1, total_patches, hidden_size).
+            image_sizes: Tensor of shape (B, 2) with image sizes in pixels.
+
+        Returns:
+            Tensor of shape (1, total_merged_tokens, decoder_hidden_size).
+        """
+        D = x.shape[-1]
+        # Apply LayerNorm per token before spatial merging
+        x = self.norm(x.squeeze(0))  # (total_patches, hidden_size)
+
+        if image_sizes is not None:
+            # Split by image, spatially merge, then concatenate
+            xs, grids = split_by_image(x, image_sizes, self.patch_size)
+            m = self.spatial_merge_size
+            outputs = []
+            for xi, (h, w) in zip(xs, grids):
+                # xi: (h*w, D) → (1, D, h, w) for unfold
+                xi = xi.view(h, w, D).permute(2, 0, 1).unsqueeze(0)
+                # Unfold: (1, D*S*S, merged_h*merged_w)
+                xi = torch.nn.functional.unfold(
+                    xi,
+                    kernel_size=m,
+                    stride=m,
+                )
+                # Transpose: (merged_h*merged_w, D*S*S) — unfold produces
+                # channel-first layout (D outermost, then kernel positions).
+                xi = xi.view(D * m**2, -1).t()
+                # Rearrange from (D, m²) to (m², D) spatial-first layout so
+                # that each merged-block row matches HF's block-interleaved
+                # concatenation order: [patch0[0:D], patch1[0:D], ..., patchM[0:D]]
+                xi = xi.view(-1, D, m * m).transpose(1, 2).reshape(-1, D * m * m)
+                outputs.append(xi)
+            merged = torch.cat(outputs, dim=0)
+        else:
+            # No image_sizes: assume patches are already in spatial-merge-block order
+            merged = x.view(-1, D * self.spatial_merge_size**2)
+
+        # Project through FC layers
+        merged = self.linear_fc2(self.act_fn(self.linear_fc1(merged)))
+        return merged.unsqueeze(0)  # (1, total_merged_tokens, dec_hidden_size)
+
+
 class HunYuanVisionPatchMerger(BaseVisionAdapter):
     """
     Vision adapter used by HunYuan-style multimodal models.

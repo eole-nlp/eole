@@ -2,6 +2,14 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.5.1
+
+* stupid bug by @vince62s in https://github.com/eole-nlp/eole/pull/321
+* Add a static batch size decoding to optimize torch compile usage by @vince62s in https://github.com/eole-nlp/eole/pull/322
+* for some reason did not compile with pytorch 2.10 by @vince62s in https://github.com/eole-nlp/eole/pull/323
+* Fixtrain by @vince62s in https://github.com/eole-nlp/eole/pull/324
+* Dynamicshapes by @vince62s in https://github.com/eole-nlp/eole/pull/325
+
 ## 0.5.0
 
 * fix space tok by @vince62s in https://github.com/eole-nlp/eole/pull/301
