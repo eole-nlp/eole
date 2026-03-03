@@ -218,9 +218,8 @@ class AudioPredictor(Translator):
         token_ids = token_ids[prefix_strip:]
         raw_score = results["scores"][0][0]
         score = float(raw_score) if hasattr(raw_score, "item") else raw_score
-        sum_lp = results["sum_logprobs"][0][0]
         n_tok = results["n_text_tokens"][0][0]
-        return token_ids, score, sum_lp, n_tok
+        return token_ids, score, n_tok
 
     def _decode_with_fallback(self, batch):
         """Decode with temperature fallback on repetitive/low-confidence output.
@@ -237,7 +236,7 @@ class AudioPredictor(Translator):
 
         if len(temperatures) <= 1:
             results = self.predict_batch(batch, attn_debug=False)
-            token_ids, score, _, _ = self._extract_result(results)
+            token_ids, score, _ = self._extract_result(results)
             return token_ids, score
 
         token_beg = self.no_timestamps_token_id + 1
@@ -255,7 +254,7 @@ class AudioPredictor(Translator):
 
             with self._search_params(**params):
                 results = self.predict_batch(batch, attn_debug=False)
-            token_ids, score, sum_lp, n_tok = self._extract_result(results)
+            token_ids, score, n_tok = self._extract_result(results)
 
             best_token_ids = token_ids
             best_score = score
@@ -269,7 +268,7 @@ class AudioPredictor(Translator):
             cr_ok = cr <= self._compression_ratio_threshold
 
             if cr_ok:
-                avg_logprob = sum_lp / n_tok if n_tok > 0 else 0.0
+                avg_logprob = score / n_tok if n_tok > 0 else 0.0
                 lp_ok = avg_logprob >= self._logprob_threshold or self._no_speech_prob >= self._no_speech_threshold
             else:
                 avg_logprob = None

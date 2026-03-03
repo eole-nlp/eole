@@ -196,7 +196,6 @@ class BeamSearchBase(DecodeStrategy):
                         topk_scores_list[i][j],
                         predictions[i, j, 1:],  # Ignore start_token.
                         attention[i, j, :, : self.src_len[i]] if attention is not None else None,
-                        self.topk_log_probs[i, j].item(),
                         step - 1 - self._prefix_len,
                     )
                 )
@@ -214,11 +213,10 @@ class BeamSearchBase(DecodeStrategy):
 
             if finish_flag and len(self.hypotheses[b]) >= self.num_hyp:
                 self.hypotheses[b] = sorted(self.hypotheses[b], key=lambda x: x[0], reverse=True)
-                for score, pred, attn, slp, ntok in self.hypotheses[b][: self.num_hyp]:
+                for score, pred, attn, ntok in self.hypotheses[b][: self.num_hyp]:
                     self.scores[b].append(score)
                     self.predictions[b].append(pred)  # ``(batch, n_best,)``
                     self.attention[b].append(attn if attn is not None else [])
-                    self.sum_logprobs[b].append(slp)
                     self.n_text_tokens[b].append(ntok)
                 if self.static_batch_size:
                     self.batch_finished[i] = True
@@ -247,7 +245,6 @@ class BeamSearchBase(DecodeStrategy):
         ]
 
         # Mask finished beams to prevent reactivation in subsequent steps
-        # (must be after beams_non_finished which reads topk_log_probs for sum_logprobs)
         self.topk_log_probs.masked_fill_(
             torch.tensor(self.is_finished_list, device=self.topk_log_probs.device),
             -65504,
@@ -315,7 +312,7 @@ class BeamSearchBase(DecodeStrategy):
         # topk_log_probs naturally represents post-prefix values.  Dead beams
         # (score -inf) stay dead; the live beam (column 0) resets to zero.
         if self._prefix_len > 0 and step == self._prefix_len:
-            self.topk_log_probs -= self.topk_log_probs[:, :1].clone()
+            self.topk_log_probs[:, 0] = 0.0
         # Multiply probs by the beam probability.
         # for some reasons at beam_size=1 this generates a drift vs plain greedy
         # but if we remove we lose the cumulated score.

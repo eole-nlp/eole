@@ -295,7 +295,6 @@ class GreedySearch(DecodeStrategy):
                     score,
                     pred,
                     attention,
-                    self.beams_scores[b, 0].item(),
                     step - 1 - self._prefix_len,
                 )
             )
@@ -309,11 +308,10 @@ class GreedySearch(DecodeStrategy):
         if self.done:
             for b in range(self.batch_size):
                 best_hyp = sorted(self.hypotheses[b], key=lambda x: x[0], reverse=True)[: self.num_hyp]
-                for score, pred, attn, slp, ntok in best_hyp:
+                for score, pred, attn, ntok in best_hyp:
                     self.scores[b].append(score)
                     self.predictions[b].append(pred)
                     self.attention[b].append(attn)
-                    self.sum_logprobs[b].append(slp)
                     self.n_text_tokens[b].append(ntok)
             return
 
