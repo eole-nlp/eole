@@ -458,7 +458,7 @@ def build_config_dict(hf):
             # Rename to avoid collision with decoder's alignment_heads (int)
             if "alignment_heads" in hf.generation_config:
                 model_config["word_timestamp_heads"] = hf.generation_config["alignment_heads"]
-    
+
     if arch in [
         "Qwen3VLForConditionalGeneration",
         "Qwen3_5ForConditionalGeneration",
@@ -511,7 +511,7 @@ def build_config_dict(hf):
             "tgt_word_vec_size": model_config["hidden_size"],
         }
     )
-    
+
     # Default position encoding configuration (skip for Whisper which sets its own)
     if arch != "WhisperForConditionalGeneration":
         model_config["embeddings"].update(
