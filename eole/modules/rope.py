@@ -32,21 +32,22 @@ def apply_rotary_pos_emb_xdrope(
     cos_sin: Tensor,
     position_ids: Tensor,
     xdrope_section: List[int],
+    interleave: bool = False,
 ) -> Tuple[Tensor, Tensor]:
     # Note: We did not implement a Cuda version since it is typically called once
 
-    bs, seqlen, heads, rot_dim = query.size()
-
     x_dim = len(xdrope_section)
-    cos = cos_sin[:, : cos_sin.size(1) // 2]
-    sin = cos_sin[:, cos_sin.size(1) // 2 :]
+    # Rd is the rotary dimension; may be < head_dim for partial-rotation models
+    Rd = cos_sin.size(1)
+    cos = cos_sin[:, : Rd // 2]
+    sin = cos_sin[:, Rd // 2 :]
 
     cos = cos[position_ids, ...]  # positions_ids is (bs, seqlen, x_dim) so (bs, seqlen, x_dim, dim_per_x)
     sin = sin[position_ids, ...]
 
     assert sum(xdrope_section) == cos.shape[-1], "Illegal partition for xd rope"
 
-    # XD concat
+    # XD concat: assemble cos/sin from the correct position component per section
     cos = torch.cat(
         [m[:, :, i % x_dim, :] for i, m in enumerate(cos.split(xdrope_section, dim=-1))],
         dim=-1,
@@ -57,30 +58,46 @@ def apply_rotary_pos_emb_xdrope(
     )
 
     # broadcast over heads (new layout)
-    cos = cos.view(bs, seqlen, 1, -1)
-    sin = sin.view(bs, seqlen, 1, -1)
+    cos = cos.view(cos.size(0), cos.size(1), 1, -1)
+    sin = sin.view(sin.size(0), sin.size(1), 1, -1)
 
     origin_dtype = query.dtype
-    query = query.float()
-    key = key.float()
     cos = cos.float()
     sin = sin.float()
 
-    # Split query/key into halves
-    half = rot_dim // 2
-    q1, q2 = query[..., :half], query[..., half:]
-    k1, k2 = key[..., :half], key[..., half:]
+    # Split into rotated portion and pass-through (handles partial rotation where Rd < head_dim)
+    q_rot = query[..., :Rd].float()
+    q_pass = query[..., Rd:]
+    k_rot = key[..., :Rd].float()
+    k_pass = key[..., Rd:]
 
-    # Apply rotation
-    q_out = torch.cat((q1 * cos - q2 * sin, q1 * sin + q2 * cos), dim=-1)
-    k_out = torch.cat((k1 * cos - k2 * sin, k1 * sin + k2 * cos), dim=-1)
+    if interleave:
+        # GPT-J style: rotate adjacent pairs (2i, 2i+1)
+        q1, q2 = q_rot[..., 0::2], q_rot[..., 1::2]
+        k1, k2 = k_rot[..., 0::2], k_rot[..., 1::2]
+        q_rotated = torch.stack((q1 * cos - q2 * sin, q1 * sin + q2 * cos), dim=-1).flatten(-2)
+        k_rotated = torch.stack((k1 * cos - k2 * sin, k1 * sin + k2 * cos), dim=-1).flatten(-2)
+    else:
+        # GPT-NeoX style: split into halves
+        half = Rd // 2
+        q1, q2 = q_rot[..., :half], q_rot[..., half:]
+        k1, k2 = k_rot[..., :half], k_rot[..., half:]
+        q_rotated = torch.cat((q1 * cos - q2 * sin, q1 * sin + q2 * cos), dim=-1)
+        k_rotated = torch.cat((k1 * cos - k2 * sin, k1 * sin + k2 * cos), dim=-1)
 
-    return q_out.to(origin_dtype), k_out.to(origin_dtype)
+    q_rotated = q_rotated.to(origin_dtype)
+    k_rotated = k_rotated.to(origin_dtype)
+    # Re-attach pass-through dimensions (only present for partial-rotation models where Rd < head_dim)
+    q_out = torch.cat((q_rotated, q_pass), dim=-1) if q_pass.size(-1) > 0 else q_rotated
+    k_out = torch.cat((k_rotated, k_pass), dim=-1) if k_pass.size(-1) > 0 else k_rotated
+
+    return q_out, k_out
 
 
 def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bool) -> Tuple[Tensor, Tensor]:
 
     B, S, H, D = query.shape
+    _, _, Hk, _ = key.shape  # GQA: key may have fewer heads than query
 
     if _CPP_OPS_AVAILABLE and not torch.compiler.is_compiling():
         num_tok = B * S
@@ -100,7 +117,7 @@ def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bo
         if interleave:
             # Split into pairs: (B, S, H, Rd) -> (B, S, H, Rd//2, 2)
             q1, q2 = q_rot.view(B, S, H, -1, 2).unbind(-1)
-            k1, k2 = k_rot.view(B, S, H, -1, 2).unbind(-1)
+            k1, k2 = k_rot.view(B, S, Hk, -1, 2).unbind(-1)
         else:
             # Split into halves
             half = Rd // 2
@@ -201,13 +218,26 @@ class RotaryPosition(nn.Module):
 
     def init_2d_inv_freq(self, inv_freq):
         """
-        Initialize 2d inverse frequencies for pixtral rotary embeddings.
+        Initialize 2d inverse frequencies for 2D rotary embeddings.
+        Two styles are supported:
+        * **Pixtral** (``temporal_patch_size == 1``): height uses even-indexed
+          base frequencies (``inv_freq[::2]``), width uses odd-indexed ones
+          (``inv_freq[1::2]``).
+        * **Qwen VL** (``temporal_patch_size > 1``): both height and width use
+          the same even-indexed base frequencies (``inv_freq[::2]``), matching
+          HF's ``VisionRotaryEmbedding`` which applies the full frequency set
+          to each spatial dimension independently.
         """
         max_patches_per_side = self.model_config.image_size // self.model_config.patch_size
         h = torch.arange(max_patches_per_side, device=inv_freq.device)
         w = torch.arange(max_patches_per_side, device=inv_freq.device)
         freqs_h = torch.outer(h, inv_freq[::2]).float()
-        freqs_w = torch.outer(w, inv_freq[1::2]).float()
+        # Qwen VL uses the same base frequencies for both spatial dimensions.
+        # Pixtral interleaves even/odd frequencies between height and width.
+        if getattr(self.model_config, "temporal_patch_size", 1) > 1:
+            freqs_w = torch.outer(w, inv_freq[::2]).float()
+        else:
+            freqs_w = torch.outer(w, inv_freq[1::2]).float()
         inv_freq_2d = torch.cat(
             [
                 freqs_h[:, None, :].repeat(1, max_patches_per_side, 1),  # Use repeat, not expand
