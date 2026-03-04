@@ -175,6 +175,9 @@ class PredictConfig(
                 self.update(
                     quant_layers=training_config.quant_layers,
                     quant_type=training_config.quant_type,
+                    autoround_packing_format=training_config.autoround_packing_format,
+                    autoround_sym=training_config.autoround_sym,
+                    quant_exclude_modules=training_config.quant_exclude_modules,
                 )
 
             self.update(

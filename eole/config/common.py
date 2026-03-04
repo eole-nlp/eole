@@ -73,6 +73,12 @@ class QuantizeConfig(Config):
         description="AutoRound symmetric quantization flag (from quantization_config.sym). "
         "Required to select the Marlin CUDA backend, which only supports symmetric quantization.",
     )
+    quant_exclude_modules: List[str] = Field(
+        default=[],
+        description="List of parent module names whose entire subtrees must not be quantized, "
+        "even if child layers appear in quant_layers. Used for AutoRound models where some parent "
+        "modules (e.g. shared_experts in MoE) were kept in fp16 during quantization.",
+    )
 
 
 class MiscConfig(Config):

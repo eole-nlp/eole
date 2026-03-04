@@ -691,6 +691,12 @@ MODEL_OVERRIDES = {
                 for j in range(256)
             },
             **{f".mlp.experts.{j}.down_proj.weight": (".mlp.experts.down_proj", f"[{j}]") for j in range(256)},
+            # Quantized (AutoRound): per-expert storage — gate_proj/up_proj/down_proj stored separately.
+            # FP16 layers listed in extra_config (e.g. shared_expert) naturally fall through to
+            # param="weight" because qweight/qzeros/scales are absent for those tensors.
+            **{f".mlp.experts.{j}.gate_up_proj.": f".mlp.experts.{j}.gate_proj." for j in range(256)},
+            **{f".mlp.experts.{j}.up_proj.": f".mlp.experts.{j}.up_proj." for j in range(256)},
+            **{f".mlp.experts.{j}.down_proj.": f".mlp.experts.{j}.down_proj." for j in range(256)},
             ".mlp.shared_experts.gate_up_proj.": ".mlp.shared_expert.gate_proj.",
             ".mlp.shared_experts.up_proj.": ".mlp.shared_expert.up_proj.",
             ".mlp.shared_experts.down_proj.": ".mlp.shared_expert.down_proj.",
