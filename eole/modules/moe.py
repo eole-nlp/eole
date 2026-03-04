@@ -5,7 +5,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from eole.modules.transformer_mlp import MLP
 from torch.distributed import all_reduce
-from eole.triton.fused_moe import fused_experts_impl
+
+try:
+    from eole.triton.fused_moe import fused_experts_impl
+except ImportError:
+    fused_experts_impl = None
 
 
 def naive_moe(x, topk_weights, topk_ids, K, experts):
@@ -167,7 +171,7 @@ class MoE(nn.Module):
 
     def forward(self, x):
 
-        if not self.training:
+        if not self.training and fused_experts_impl is not None:
             # For plain nn.Linear experts, build the Triton weight cache permanently (once).
             # type() is (not isinstance) is intentional: subclasses such as
             # bitsandbytes Linear4bit or AWQ WQLinear must NOT match here so
