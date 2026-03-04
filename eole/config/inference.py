@@ -44,9 +44,10 @@ class DecodingConfig(Config):
         default=2,
         description="Maximum prediction length ratio. For European languages, "
         "2 is large enough, for target Asian charageters, "
-        "need to increase to 2-3, for special languages (Burmese, Amharic) to 10.",
-        ge=1,
-    )  # we might want to validate this against min_length
+        "need to increase to 2-3, for special languages (Burmese, Amharic) to 10. "
+        "Set to 0 to disable ratio-based length capping.",
+        ge=0,
+    )
     block_ngram_repeat: int = Field(default=0, description="Block repetition of ngrams during decoding.")
     ignore_when_blocking: List[str] = Field(
         default=[],
@@ -77,6 +78,54 @@ class DecodingConfig(Config):
     )  # not sure it's still working/useful
     verbose: bool = Field(default=False, description="Print scores and predictions for each input.")
     with_score: bool = Field(default=False, description="Add a tab separated score to each output.")
+    # Audio/Whisper settings (used by AudioPredictor only)
+    timestamps: Literal["none", "segment", "word"] = Field(
+        default="none",
+        description="Audio models only. Timestamp output: "
+        "'none' = plain text, 'segment' = JSON with segment times, "
+        "'word' = per-word times via cross-attention DTW.",
+    )
+    language: str | None = Field(
+        default=None,
+        description="Audio models only. Language code (e.g. 'en', 'fr'). "
+        "Inserts the language token into the decoder prefix.",
+    )
+    task: Literal["transcribe", "translate"] | None = Field(
+        default=None,
+        description="Audio models only. 'transcribe' for same-language, " "'translate' for translation to English.",
+    )
+    initial_prompt: str | None = Field(
+        default=None,
+        description="Audio models only. Text prompt to condition decoder "
+        "output style and vocabulary. Prepended as previous context.",
+    )
+    condition_on_previous_text: bool = Field(
+        default=False,
+        description="Audio models only. Feed previous chunk's decoded text " "as decoder prompt for the next chunk.",
+    )
+    fallback_temperatures: List[float] = Field(
+        default=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+        description="Audio models only. Temperature cascade for decoding fallback. "
+        "First temperature uses beam search; subsequent use sampling. "
+        "Set to [0.0] to disable fallback.",
+    )
+    compression_ratio_threshold: float = Field(
+        default=2.4,
+        description="Audio models only. If gzip compression ratio of decoded "
+        "text exceeds this, retry at next fallback temperature.",
+    )
+    logprob_threshold: float = Field(
+        default=-1.0,
+        description="Audio models only. If average log probability per token "
+        "is below this, retry at next fallback temperature.",
+    )
+    no_speech_threshold: float = Field(
+        default=0.6,
+        description="Audio models only. Low avg_logprob only triggers fallback "
+        "when no_speech_prob is also below this threshold.",
+        ge=0.0,
+        le=1.0,
+    )
     estim_only: bool = Field(default=False, description="Process the input to estimator only (no decoder).")
     attn_debug: bool = Field(default=False, description="Print best attn for each word.")
     align_debug: bool = Field(default=False, description="Print best align for each word.")

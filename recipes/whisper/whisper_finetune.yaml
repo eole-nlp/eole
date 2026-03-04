@@ -1,0 +1,99 @@
+## Whisper fine-tuning on Common Voice Hindi
+## Replicates the HuggingFace "Fine-Tune Whisper" blog exercise.
+## See: https://huggingface.co/blog/fine-tune-whisper
+##
+## Prerequisites:
+##   1. Convert a multilingual Whisper model to EOLE format
+##      (whisper-base-eole or whisper-small-eole)
+##   2. Run data preparation:
+##      python finetune/prepare_cv_hindi.py
+##   3. Train:
+##      eole train -config whisper_finetune.yaml
+##
+
+# IO
+save_data: ./whisper-finetune
+seed: 1234
+report_every: 25
+valid_metrics: ["WER"]
+scoring_debug: true
+dump_preds: ./whisper-finetune/preds
+# Use whisper_basic (multilingual normalizer) — not whisper_en
+wer_normalize: "whisper_basic"
+
+# Vocab (loaded from pretrained model)
+src_vocab: "${EOLE_MODEL_DIR}/whisper-small-eole/vocab.txt"
+share_vocab: true
+n_sample: 0
+
+# Data: path_src = audio file paths, path_tgt = transcriptions
+# Transcriptions are prefixed with <|hi|><|transcribe|><|notimestamps|>
+# which the huggingface_tokenize transform encodes as single token IDs.
+data:
+    train_cv_hindi:
+        path_src: ./finetune/train_audio_paths.txt
+        path_tgt: ./finetune/train_transcripts.txt
+        transforms: [huggingface_tokenize]
+        weight: 1
+    valid:
+        path_src: ./finetune/valid_audio_paths.txt
+        path_tgt: ./finetune/valid_transcripts.txt
+        transforms: [huggingface_tokenize]
+
+skip_empty_level: silent
+
+training:
+    data_type: "audio"
+    train_from: "${EOLE_MODEL_DIR}/whisper-small-eole"
+    model_path: ./whisper-finetune/model
+    keep_checkpoint: 10
+
+    # Freeze encoder for fine-tuning (common approach)
+    freeze_encoder: false
+
+    # GPU
+    world_size: 1
+    gpu_ranks: [0]
+
+    # Steps — HF blog: 5000 steps, eval/save every 1000, warmup 500
+    train_steps: 5000
+    valid_steps: 1000
+    save_checkpoint_steps: 1000
+
+    # Batching — HF blog: batch_size=16
+    # Using batch_size=8 with accum_count=2 for equivalent effective batch
+    batch_type: "sents"
+    batch_size: 8
+    valid_batch_size: 4
+    bucket_size: 256
+    num_workers: 2
+
+    # Optimization — matches HF blog hyperparameters
+    # On CUDA: use fp16 with use_amp: true for mixed precision + loss scaling
+    # On MPS: use fp32 (no AMP support, pure fp16 overflows on 51k-token vocab)
+    compute_dtype: "fp32"
+    use_amp: false
+    optim: "adamw"
+    learning_rate: 1e-5
+    warmup_steps: 500
+    decay_method: "cosine"
+    adam_beta2: 0.999
+    max_grad_norm: 5
+    label_smoothing: 0.0
+    accum_count: [2]
+    accum_steps: [0]
+    dropout_steps: [0]
+    dropout: [0.0]
+    attention_dropout: [0.0]
+    normalization: "tokens"
+
+# Inference settings used during validation scoring (WER eval).
+# AudioPredictor uses language/task to construct the decoder prefix:
+# <|startoftranscript|><|hi|><|transcribe|>
+# The model then generates <|notimestamps|> + Hindi text (as trained).
+inference:
+    language: "hi"
+    task: "transcribe"
+    max_length: 448
+    beam_size: 5
+    length_penalty: none

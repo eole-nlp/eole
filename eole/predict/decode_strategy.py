@@ -101,6 +101,7 @@ class DecodeStrategy(object):
         self.predictions = [[] for _ in range(batch_size)]
         self.scores = [[] for _ in range(batch_size)]
         self.attention = [[] for _ in range(batch_size)]
+        self.n_text_tokens = [[] for _ in range(batch_size)]
         self.hypotheses = [[] for _ in range(batch_size)]
 
         self.alive_attn = None
@@ -174,6 +175,7 @@ class DecodeStrategy(object):
             self.min_length += min(prefix_non_pad) - 1
 
         self.target_prefix = target_prefix  # NOTE: forced prefix words
+        self._prefix_len = self.target_prefix.size(1) if self.target_prefix is not None else 0
         return None
 
     def __len__(self):

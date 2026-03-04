@@ -5,8 +5,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 from eole.modules.transformer_mlp import MLP
 from torch.distributed import all_reduce
-from eole.triton.fused_moe import fused_experts_impl
-from eole.triton.fused_moe_int4 import fused_experts_int4_impl
+
+try:
+    from eole.triton.fused_moe import fused_experts_impl
+    from eole.triton.fused_moe_int4 import fused_experts_int4_impl
+
+    _triton_moe = True
+except ImportError:
+    _triton_moe = False
+
 from eole.modules.moe_quant_utils import (
     detect_expert_quant_type,
     stack_gptq_moe_weights,
@@ -190,7 +197,7 @@ class MoE(nn.Module):
 
     def _maybe_init_quant_weights(self, device, dtype):
         """Detect quantisation and populate the appropriate weight cache. Runs once."""
-        if self._quant_weights_initialized:
+        if self._quant_weights_initialized or not _triton_moe:
             return
         self._quant_weights_initialized = True
 

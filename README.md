@@ -37,6 +37,7 @@ Our goal is to provide a comprehensive yet compact and modular codebase for expe
 - **Mistral-3.1-24B-instruct** supports all Mistral AI models (text and image input) - includes Ministral 3, Mixtral, Mathstral
 - **meta-llama/Llama-3.X** models
 - **microsoft/Phi-2/3** models
+- **openai/whisper** models
 
 Of course you can train your own architecture (Decoder only, Encoder Only, or EncoderDecoder Model)
 

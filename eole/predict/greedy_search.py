@@ -171,7 +171,7 @@ class GreedySearch(DecodeStrategy):
 
     def initialize(self, enc_out, src_len, device=None, target_prefix=None):
         """Initialize for decoding."""
-        (fn_tile, enc_out, target_prefix) = self.initialize_tile(enc_out, src_len, target_prefix)
+        fn_tile, enc_out, target_prefix = self.initialize_tile(enc_out, src_len, target_prefix)
         if device is None:
             device = self.get_device_from_enc_out(enc_out)
 
@@ -236,14 +236,18 @@ class GreedySearch(DecodeStrategy):
         self.block_ngram_repeats(log_probs)
 
         topk_ids, self.topk_scores = self._pick(log_probs)
+        step = len(self)
+        raw_log_prob = log_probs.gather(dim=1, index=topk_ids)
         if self.static_batch_size:
             self.beams_scores = torch.where(
                 self.sequence_finished.unsqueeze(1),
-                self.beams_scores,  # Keep old score
-                self.beams_scores + self.topk_scores,  # Add new score
+                self.beams_scores,
+                self.beams_scores + raw_log_prob,
             )
         else:
-            self.beams_scores += self.topk_scores
+            self.beams_scores += raw_log_prob
+        if self._prefix_len > 0 and step == self._prefix_len:
+            self.beams_scores.zero_()
 
         self.is_finished_list = torch.isin(topk_ids, self.eos_t).tolist()
 
@@ -286,7 +290,14 @@ class GreedySearch(DecodeStrategy):
                 if self.alive_attn is not None
                 else []
             )
-            self.hypotheses[b_orig].append((score, pred, attention))
+            self.hypotheses[b_orig].append(
+                (
+                    score,
+                    pred,
+                    attention,
+                    step - 1 - self._prefix_len,
+                )
+            )
 
         if self.static_batch_size:
             self.done = self.sequence_finished.all().item()
@@ -297,10 +308,11 @@ class GreedySearch(DecodeStrategy):
         if self.done:
             for b in range(self.batch_size):
                 best_hyp = sorted(self.hypotheses[b], key=lambda x: x[0], reverse=True)[: self.num_hyp]
-                for score, pred, attn in best_hyp:
+                for score, pred, attn, ntok in best_hyp:
                     self.scores[b].append(score)
                     self.predictions[b].append(pred)
                     self.attention[b].append(attn)
+                    self.n_text_tokens[b].append(ntok)
             return
 
         if not self.static_batch_size:
@@ -324,7 +336,7 @@ class GreedySearchLM(GreedySearch):
         if device is None:
             device = src.device
         self.eos_t = torch.tensor(self.eos).to(device)
-        (fn_tile, _) = super(GreedySearchLM, self).initialize(None, src_len, device, target_prefix)
+        fn_tile, _ = super(GreedySearchLM, self).initialize(None, src_len, device, target_prefix)
 
         return fn_tile, src
 

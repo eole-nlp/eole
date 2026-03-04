@@ -1,0 +1,14 @@
+## Whisper inference config for LibriSpeech evaluation
+## Used by eval_librispeech.py — model_path, src, output, gpu_ranks
+## are overridden via CLI args.
+
+data_type: audio
+beam_size: 5
+length_penalty: none
+max_length: 448
+batch_type: sents
+batch_size: 1
+gpu_ranks: [0]
+language: en
+task: transcribe
+seed: 0
