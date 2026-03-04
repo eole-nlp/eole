@@ -5,6 +5,12 @@ from eole.utils.logging import logger
 from eole.constants import CorpusName, CorpusTask
 from eole.transforms import TransformPipe
 from eole.inputters.text_utils import transform_bucket
+from eole.inputters.audio_corpus import (
+    AudioCorpus,
+    AudioTextCorpus,
+    AudioCorpusIterator,
+    AudioTextCorpusIterator,
+)
 
 from contextlib import contextmanager
 import itertools
@@ -230,10 +236,11 @@ class ParallelCorpus(object):
 
 def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
     corpora_dict = {}
+    data_type = getattr(config, "data_type", "text")
     if task == CorpusTask.TRAIN:
         for corpus_id, corpus_dict in config.data.items():
             if corpus_id != CorpusName.VALID:
-                if corpus_dict.path_txt is None:
+                if corpus_dict.path_txt is None and data_type == "text":
                     corpora_dict[corpus_id] = ParallelCorpus(
                         corpus_id,
                         corpus_dict.path_src,
@@ -241,21 +248,28 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
                         corpus_dict.path_sco,
                         corpus_dict.path_align,
                     )
-                elif config.data_type == "text":
+                elif data_type == "text":
                     corpora_dict[corpus_id] = BlockwiseCorpus(
                         corpus_id,
                         corpus_dict.path_txt,
                         block_size=8192,  # number of characters
                     )
-                elif config.data_type == "image":
+                elif data_type == "image":
                     corpora_dict[corpus_id] = ImageTextCorpus(
                         corpus_id,
                         corpus_dict.path_txt,
                         is_train=True,
                     )
+                elif data_type == "audio":
+                    corpora_dict[corpus_id] = AudioTextCorpus(
+                        corpus_id,
+                        corpus_dict.path_src,
+                        corpus_dict.path_tgt,
+                        corpus_dict.path_sco,
+                    )
     elif task == CorpusTask.VALID:
         if CorpusName.VALID in config.data.keys():
-            if config.data_type == "text":
+            if data_type == "text":
                 corpora_dict[CorpusName.VALID] = ParallelCorpus(
                     CorpusName.VALID,
                     config.data[CorpusName.VALID].path_src,
@@ -263,26 +277,34 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
                     None,
                     config.data[CorpusName.VALID].path_align,
                 )
-            elif config.data_type == "image":
+            elif data_type == "image":
                 corpora_dict[CorpusName.VALID] = ImageTextCorpus(
                     CorpusName.VALID,
                     config.data[CorpusName.VALID].path_txt,
                     is_train=True,
                 )
+            elif data_type == "audio":
+                corpora_dict[CorpusName.VALID] = AudioTextCorpus(
+                    CorpusName.VALID,
+                    config.data[CorpusName.VALID].path_src,
+                    config.data[CorpusName.VALID].path_tgt,
+                )
         else:
             return None
     else:
-        if config.data_type == "text":
+        if data_type == "text":
             corpora_dict[CorpusName.INFER] = ParallelCorpus(
                 CorpusName.INFER,
                 src if src else config.src,
                 tgt if tgt else config.tgt,
                 align if align else None,
             )
-        elif config.data_type == "image":
+        elif data_type == "image":
             corpora_dict[CorpusName.INFER] = ImageTextCorpus(
                 CorpusName.INFER, src, is_train=False  # maybe homogenize to some better name
             )
+        elif data_type == "audio":
+            corpora_dict[CorpusName.INFER] = AudioCorpus(CorpusName.INFER, src if src else config.src, is_train=False)
     return corpora_dict
 
 
@@ -412,6 +434,11 @@ def build_corpora_iters(
     image_patch_size=16,
     image_size=1024,
     adapter="llava",
+    sample_rate=16000,
+    num_mel_bins=80,
+    n_fft=400,
+    hop_length=160,
+    chunk_length=30,
 ):
     """Return `ParallelCorpusIterator` for all corpora defined in opts."""
     corpora_iters = dict()
@@ -419,7 +446,20 @@ def build_corpora_iters(
         transform_names = corpora_info[c_id].transforms
         corpus_transform = [transforms[name] for name in transform_names if name in transforms]
         transform_pipe = TransformPipe.build_from(corpus_transform)
-        if isinstance(corpus, ParallelCorpus):
+        if isinstance(corpus, AudioTextCorpus):
+            corpus_iter = AudioTextCorpusIterator(
+                corpus,
+                transform_pipe,
+                skip_empty_level=skip_empty_level,
+                stride=stride,
+                offset=offset,
+                sample_rate=sample_rate,
+                num_mel_bins=num_mel_bins,
+                n_fft=n_fft,
+                hop_length=hop_length,
+                chunk_length=chunk_length,
+            )
+        elif isinstance(corpus, ParallelCorpus):
             corpus_iter = ParallelCorpusIterator(
                 corpus,
                 transform_pipe,
@@ -439,6 +479,16 @@ def build_corpora_iters(
                 image_patch_size=image_patch_size,
                 image_size=image_size,
                 adapter=adapter,
+            )
+        elif isinstance(corpus, AudioCorpus):
+            corpus_iter = AudioCorpusIterator(
+                corpus,
+                transform_pipe,
+                skip_empty_level=skip_empty_level,
+                stride=stride,
+                offset=offset,
+                is_train=getattr(corpus, "is_train", None),
+                sample_rate=sample_rate,
             )
         corpora_iters[c_id] = corpus_iter
     return corpora_iters

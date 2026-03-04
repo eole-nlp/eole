@@ -80,6 +80,10 @@ class LoggingConfig(Config):
     valid_metrics: List[str] = Field(
         default=[], description="List of names of additional validation metrics."
     )  # should probably be validated properly (or in some registry/enum)
+    wer_normalize: str = Field(
+        default="none",
+        description="WER normalization mode: none, lowercase, whisper_en, whisper_basic.",
+    )
     scoring_debug: bool = Field(default=False, description="Dump src/ref/pred of the current batch.")
     dump_preds: str | None = Field(default=None, description="Folder to dump predictions to.")
     tensorboard: bool = Field(default=False, description="Use tensorboard for visualization during training.")

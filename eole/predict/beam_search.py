@@ -196,6 +196,7 @@ class BeamSearchBase(DecodeStrategy):
                         topk_scores_list[i][j],
                         predictions[i, j, 1:],  # Ignore start_token.
                         attention[i, j, :, : self.src_len[i]] if attention is not None else None,
+                        step - 1 - self._prefix_len,
                     )
                 )
 
@@ -212,10 +213,11 @@ class BeamSearchBase(DecodeStrategy):
 
             if finish_flag and len(self.hypotheses[b]) >= self.num_hyp:
                 self.hypotheses[b] = sorted(self.hypotheses[b], key=lambda x: x[0], reverse=True)
-                for score, pred, attn in self.hypotheses[b][: self.num_hyp]:
+                for score, pred, attn, ntok in self.hypotheses[b][: self.num_hyp]:
                     self.scores[b].append(score)
                     self.predictions[b].append(pred)  # ``(batch, n_best,)``
                     self.attention[b].append(attn if attn is not None else [])
+                    self.n_text_tokens[b].append(ntok)
                 if self.static_batch_size:
                     self.batch_finished[i] = True
                 return False
@@ -228,12 +230,6 @@ class BeamSearchBase(DecodeStrategy):
         # Penalize beams that finished.
         _B_old = self.topk_log_probs.shape[0]
         step = self.alive_seq.shape[-1]  # 1 greater than the step in advance
-        # this is required to pursue finished beams in non finished batches
-        # Mask finished beams to prevent reactivation
-        self.topk_log_probs.masked_fill_(
-            torch.tensor(self.is_finished_list, device=self.topk_log_probs.device),
-            -65504,
-        )
         predictions = self.alive_seq.view(_B_old, self.beam_size, step)
         attention = (
             self.alive_attn.view(_B_old, self.beam_size, step - 1, self.alive_attn.size(-1))
@@ -247,6 +243,12 @@ class BeamSearchBase(DecodeStrategy):
             for i in range(len(self.is_finished_list))
             if self.beams_non_finished(i, topk_scores_list, predictions, attention, step)
         ]
+
+        # Mask finished beams to prevent reactivation in subsequent steps
+        self.topk_log_probs.masked_fill_(
+            torch.tensor(self.is_finished_list, device=self.topk_log_probs.device),
+            -65504,
+        )
 
         non_finished = torch.tensor(non_finished_batch)
         # If all sentences are predicted, no need to go further.
@@ -306,18 +308,23 @@ class BeamSearchBase(DecodeStrategy):
         step = len(self)
         self.ensure_min_length(log_probs)
         self.ensure_unk_removed(log_probs)
+        # Subtract the live beam's prefix cumulative at the boundary so
+        # topk_log_probs naturally represents post-prefix values.  Dead beams
+        # (score -inf) stay dead; the live beam (column 0) resets to zero.
+        if self._prefix_len > 0 and step == self._prefix_len:
+            self.topk_log_probs[:, 0] = 0.0
         # Multiply probs by the beam probability.
         # for some reasons at beam_size=1 this generates a drift vs plain greedy
         # but if we remove we lose the cumulated score.
-        log_probs += self.topk_log_probs.view(_B * self.beam_size, 1)
+        cumulative = log_probs + self.topk_log_probs.view(_B * self.beam_size, 1)
 
         # if the sequence ends now, then the penalty is the current
         # length + 1, to include the EOS token
         length_penalty = self.global_scorer.length_penalty(step + 1, alpha=self.global_scorer.alpha)
         if length_penalty != 1:
-            curr_scores = log_probs / length_penalty
+            curr_scores = cumulative / length_penalty
         else:
-            curr_scores = log_probs
+            curr_scores = cumulative
 
         # Avoid any direction that would repeat unwanted ngrams
         self.block_ngram_repeats(curr_scores)
@@ -384,7 +391,7 @@ class BeamSearch(BeamSearchBase):
         Repeat src objects `beam_size` times.
         """
 
-        (fn_tile, enc_out, target_prefix) = self.initialize_tile(enc_out, src_len, target_prefix)
+        fn_tile, enc_out, target_prefix = self.initialize_tile(enc_out, src_len, target_prefix)
         if device is None:
             device = self.get_device_from_enc_out(enc_out)
 
@@ -403,7 +410,7 @@ class BeamSearchLM(BeamSearchBase):
         """Initialize for decoding.
         Repeat src objects `beam_size` times.
         """
-        (fn_tile, _, target_prefix) = self.initialize_tile(None, src_len, target_prefix)
+        fn_tile, _, target_prefix = self.initialize_tile(None, src_len, target_prefix)
         if device is None:
             device = src.device
 

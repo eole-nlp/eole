@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-""" Translator Class and builder """
+"""Translator Class and builder"""
+
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from eole.predict.beam_search import BeamSearch
@@ -134,9 +135,15 @@ class Translator(Inference):
         src = batch["src"]
         src_len = batch["srclen"]
         batch_size = len(batch["srclen"])
-        emb = self.model.src_emb(src)
-        pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
-        enc_out, enc_final_hs = self.model.encoder(emb, pad_mask=pad_mask)
+
+        if self.model.src_emb is not None:
+            emb = self.model.src_emb(src)
+            pad_mask = src.eq(self._src_pad_idx).unsqueeze(1)  # [B, 1, T_src]
+            enc_out, enc_final_hs = self.model.encoder(emb, pad_mask=pad_mask)
+        else:
+            enc_out, enc_final_hs = self.model.encoder(src)
+            # Encoder output length may differ from input (e.g. conv downsampling)
+            src_len = torch.full((batch_size,), enc_out.size(1), dtype=torch.long, device=enc_out.device)
 
         if src_len is None:
             assert not isinstance(enc_out, tuple), "Ensemble decoding only supported for text data"
@@ -181,7 +188,7 @@ class Translator(Inference):
 
         # (2) prep decode_strategy. Possibly repeat src objects.
         target_prefix = batch["tgt"] if self.tgt_file_prefix else None
-        (fn_tile, enc_out) = decode_strategy.initialize(enc_out, src_len, target_prefix=target_prefix)
+        fn_tile, enc_out = decode_strategy.initialize(enc_out, src_len, target_prefix=target_prefix)
 
         if fn_tile is not None:
             self.model.decoder.map_state(fn_tile)

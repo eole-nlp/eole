@@ -148,7 +148,7 @@ class PredictConfig(
         transforms_cls = get_transforms_cls(transforms)
         transforms = [t for t in transforms if transforms_cls[t].type != TransformType.Train]
 
-        if os.path.exists(config_path):
+        if os.path.exists(config_path) and "model" not in self.model_fields_set:
             # logic from models.BaseModel.inference_logic
             model_config = build_model_config(config_dict.get("model", {}))
             training_config = TrainingConfig(**config_dict.get("training", {}))
