@@ -136,9 +136,6 @@ class MoE(nn.Module):
         self.activation_function = next(
             (a for a in ("gelu", "relu", "silu") if a in model_config.mlp_activation_fn), None
         )
-        self._w1 = None
-        self._w2 = None
-
         # fp16 fast-path cache (plain nn.Linear)
         self._w1 = None
         self._w2 = None

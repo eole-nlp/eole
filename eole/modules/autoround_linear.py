@@ -1,5 +1,68 @@
+import gc
+import threading
 import torch.nn as nn
 from torch.cuda import is_available as cuda_is_available
+
+_marlin_preflight_done = False
+
+
+def _preflight_marlin_import():
+    """Import gptqmodel marlin and retroactively patch any pre-existing triton.Autotuner instances.
+
+    gptqmodel's nogil_patcher replaces triton.Autotuner.__init__ and .run() with thread-safe
+    versions.  The patched __init__ adds three instance attributes that the patched run()
+    requires:
+
+      _cache       – a dict alias for the existing ``cache`` dict (for lock-protected access)
+      _cache_lock  – a threading.RLock() for cache serialisation across threads
+      _cache_futures – a dict for in-flight autotuning work items
+
+    Instances created before gptqmodel is imported (e.g. FLA's @triton.autotune kernels in
+    fla/modules/convolution.py, or eole's own fused_moe.py kernels) are missing all three
+    attributes.  When gptqmodel's background thread later calls the patched run(), it crashes
+    on the first missing attribute.
+
+    This function:
+    1. Imports gptqmodel marlin (side effect: replaces Autotuner.__init__ and .run()).
+    2. Walks all live Python objects via gc and fully back-fills the three attributes on any
+       Autotuner instance that was created before the patch.
+
+    Because the patching is retroactive and order-independent it works regardless of whether
+    triton / FLA / eole's own triton kernels were imported before this function runs.
+
+    A module-level flag ensures the gc scan executes at most once per process.
+
+    Safe to call unconditionally: silently returns if gptqmodel is not installed or CUDA
+    is unavailable.
+    """
+    global _marlin_preflight_done
+    if _marlin_preflight_done:
+        return
+    if not cuda_is_available():
+        return
+    try:
+        # side effect: patches triton.Autotuner
+        from auto_round_extension.cuda.gptqmodel_marlin import get_marlin_layer  # noqa E401
+    except ImportError:
+        return
+
+    # Retroactively apply the same attribute additions that gptqmodel's patched_init performs,
+    # to every Autotuner instance that was created before the patch ran.
+    try:
+        from triton.runtime.autotuner import Autotuner
+
+        for obj in gc.get_objects():
+            if isinstance(obj, Autotuner) and not hasattr(obj, "_cache_lock"):
+                # Mirror what gptqmodel's patched_init does for pre-existing instances:
+                cache_map = getattr(obj, "cache", {})
+                obj._cache = dict(cache_map)
+                obj.cache = obj._cache
+                obj._cache_lock = threading.RLock()
+                obj._cache_futures = {}
+    except (ImportError, AttributeError):
+        pass
+
+    _marlin_preflight_done = True
 
 
 def replace_autoround_linear(
@@ -127,7 +190,6 @@ def _get_autoround_quant_linear_cls(use_gptq_zp: bool, sym: bool = True, force_p
         (QuantLinear class, use_marlin: bool)
     """
     if not force_pytorch and cuda_is_available():
-        # if False and sym:
         if sym:
             try:
                 from auto_round_extension.cuda.gptqmodel_marlin import get_marlin_layer

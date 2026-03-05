@@ -44,7 +44,17 @@ def detect_expert_quant_type(experts) -> str:
     Inspect the first expert gate_up_proj and return one of:
       'gptq'  – AutoGPTQ / AutoRound  (K-packed int4)
       'awq'   – AutoAWQ               (N-packed int4)
-      'fp16'  – plain nn.Linear / anything else
+      'fp16'  – plain nn.Linear / anything else (including Marlin)
+
+    Note on gptqmodel Marlin layers
+    --------------------------------
+    gptqmodel's Marlin backend repacks the standard GPTQ qweight (shape
+    ``(in_features//8, out_features)``) into its own tiled layout during
+    ``post_init()``.  After repacking the shape no longer matches either
+    the GPTQ (K-packed) or AWQ (N-packed) conventions.  We detect this case
+    via two guards and fall through to 'fp16' so that vectorized_moe is used
+    instead, which calls each expert's own ``forward()`` (i.e. the fast
+    Marlin CUDA kernel) rather than our custom Triton kernel.
     """
     if not experts:
         return "fp16"
@@ -53,19 +63,36 @@ def detect_expert_quant_type(experts) -> str:
     module_path = type(layer).__module__
     classname = type(layer).__name__
 
+    # gptqmodel Marlin layers live under the "gptqmodel" namespace.
+    # Their qweight has been repacked into Marlin tiles and is incompatible
+    # with our int4 Triton kernel.  Let each expert's own forward() handle it.
+    if "gptqmodel" in module_path:
+        return "fp16"
+
     # AutoGPTQ / AutoRound: QuantLinear with qweight.
     # Distinguish from AWQ's QuantLinear by packing axis:
     #   GPTQ : qweight.shape[0] == in_features // 8  (K-packed)
     #   AWQ  : qweight.shape[0] == in_features        (N-packed)
+    # Any other shape (e.g. Marlin-repacked qweight from a wrapper that does
+    # not live under "gptqmodel") is treated as an unrecognised format and
+    # falls through to 'fp16'.
     if classname == "QuantLinear" and hasattr(layer, "qweight"):
         in_f = (
             layer.infeatures
             if hasattr(layer, "infeatures")
             else layer.in_features if hasattr(layer, "in_features") else None
         )
-        if in_f is not None and layer.qweight.shape[0] == in_f:
-            return "awq"
-        return "gptq"
+        if in_f is not None:
+            if layer.qweight.shape[0] == in_f:
+                return "awq"
+            if layer.qweight.shape[0] == in_f // 8:
+                return "gptq"
+            # Unrecognised packing (e.g. Marlin-repacked qweight exposed via a
+            # non-gptqmodel wrapper) – fall through to per-expert forward().
+            return "fp16"
+        # Cannot determine in_features; cannot safely validate the weight layout,
+        # so fall back to per-expert forward() rather than risk a kernel crash.
+        return "fp16"
 
     if "WQLinear" in classname and hasattr(layer, "qweight"):
         return "awq"
@@ -105,7 +132,10 @@ def _awq_tensors(layer):
     qzeros  : (K//gs, N//8)  int32
     """
     qw, sc, qz = layer.qweight, layer.scales, layer.qzeros
-    gs = layer.group_size if (hasattr(layer, "group_size") and layer.group_size > 0) else qw.shape[0] // sc.shape[0]
+    if hasattr(layer, "group_size") and layer.group_size > 0:
+        gs = layer.group_size
+    else:
+        gs = qw.shape[0] // sc.shape[0]
     return qw, sc, qz, gs
 
 
