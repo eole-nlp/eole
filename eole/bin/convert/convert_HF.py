@@ -1,11 +1,14 @@
 #!/usr/bin/env python
 # Standard Library Imports
 import configparser
+import ctypes
 import json
 import logging
 import math
 import os
 import re
+import shutil
+import struct
 from dataclasses import dataclass, field, fields
 from typing import Optional
 
@@ -15,7 +18,8 @@ import pyonmttok
 import safetensors
 import torch
 from huggingface_hub import hf_hub_download, utils
-from safetensors.torch import save_file
+
+# from safetensors.torch import save_file
 from sentencepiece import SentencePieceProcessor
 from tokenizers import Tokenizer
 from tokenizers.processors import TemplateProcessing
@@ -334,15 +338,9 @@ def build_config_dict(hf):
     # For Qwen3.5 MoE: use shared_expert_intermediate_size as shared expert FF size
     # (overrides the default moe_transformer_ff * num_shared_experts calculation in MoE.__init__)
     if config.get("shared_expert_intermediate_size") and arch in [
-        "Qwen3_5MoeForCausalLM",
         "Qwen3_5MoeForConditionalGeneration",
     ]:
-        # num_shared_experts=1, shared_expert_intermediate_size is the actual ff size
-        # Since MoE uses moe_transformer_ff * num_shared_experts, set moe_transformer_ff
-        # to shared_expert_intermediate_size so product = shared_expert_intermediate_size
         model_config["moe_transformer_ff"] = config["moe_intermediate_size"]
-        # The shared expert uses shared_expert_intermediate_size directly
-        # Store it separately so the decoder config can reference it
         model_config.setdefault("decoder", {})["moe_transformer_ff"] = config["moe_intermediate_size"]
 
     # Vision encoder
@@ -576,7 +574,9 @@ def build_config_dict(hf):
             raise ValueError(error_msg)
 
     # Handle quantization
-    quant_config = config.get("quantization_config", {})
+    # quantization_config may be at the top level (e.g. Qwen3_5MoeForConditionalGeneration)
+    # or inside text_config; check top-level (other_config) first, then text_config fallback.
+    quant_config = other_config.get("quantization_config", config.get("quantization_config", {}))
     if quant_config:
         if quant_config.get("quant_method") == "awq":
             backend = quant_config.get("backend", "autoawq")
@@ -587,21 +587,137 @@ def build_config_dict(hf):
             quant_type = quant_type_mapping.get(backend, "").get(quant_config.get("version").lower(), "")
             if not quant_type:
                 raise ValueError("Unknown quantization config")
+            training_config["quant_type"] = quant_type
+            training_config["w_bit"] = quant_config.get("bits", quant_config.get("w_bit", 0))
+            training_config["group_size"] = quant_config.get("group_size", quant_config.get("q_group_size", 0))
+            training_config["quant_layers"] = [
+                "gate_up_proj",
+                "down_proj",
+                "up_proj",
+                "linear_values",
+                "linear_query",
+                "linear_keys",
+                "final_linear",
+            ]
+            params = ["qweight", "qzeros", "scales"] + ["weight", "bias"]
+        elif quant_config.get("quant_method") in ["intel/auto-round", "autoround", "auto-round"]:
+            training_config["quant_type"] = "autoround"
+            training_config["w_bit"] = quant_config.get("bits", 4)
+            training_config["group_size"] = quant_config.get("group_size", 128)
+            training_config["autoround_packing_format"] = quant_config.get("packing_format", "auto_round:auto_gptq")
+            training_config["autoround_sym"] = quant_config.get("sym", True)
+            training_config["quant_layers"] = [
+                "gate_up_proj",
+                "down_proj",
+                "up_proj",
+                "linear_values",
+                "linear_query",
+                "linear_keys",
+                "final_linear",
+                # GatedDeltaNet linear-attention layers (Qwen3.5)
+                "in_proj_qkv",
+                "in_proj_z",
+                "in_proj_b",
+                "in_proj_a",
+                "out_proj",
+            ]
+            # We search each path for a known eole module name so that
+            # replace_autoround_linear can skip entire subtrees.
+            extra_config = quant_config.get("extra_config", {})
+            target_bits = quant_config.get("bits", 4)
+            if extra_config:
+                # Build a reverse map: HF sub-path → eole leaf module name
+                # by inverting the decoder section of KEY_MAPS for this architecture.
+                # e.g. eole ".linear_attn.in_proj_a." ← HF ".linear_attn.in_proj_a."
+                #      eole ".self_attn.linear_query." ← HF ".self_attn.q_proj."
+                decoder_map = KEY_MAPS.get(arch, {}).get("decoder", {})
+                decoder_layer_prefix = KEY_MAPS.get(arch, {}).get("decoder_layer_prefix", "model.layers.")
+                # How many dot-separated components make up the layer prefix
+                # e.g. "model.language_model.layers." → 3
+                prefix_depth = len(decoder_layer_prefix.rstrip(".").split("."))
+
+                hf_sub_to_eole_leaf: dict[str, str] = {}
+                for eole_key, hf_val in decoder_map.items():
+                    if not isinstance(eole_key, str):
+                        continue
+                    hf_suffix = hf_val[0] if isinstance(hf_val, tuple) else hf_val
+                    if not isinstance(hf_suffix, str):
+                        continue
+                    # Strip surrounding dots: ".linear_attn.in_proj_a." → "linear_attn.in_proj_a"
+                    hf_sub = hf_suffix.strip(".")
+                    # Take the last component of the eole key as the leaf name:
+                    # ".linear_attn.in_proj_a." → "in_proj_a"
+                    eole_leaf = eole_key.strip(".").split(".")[-1]
+                    if hf_sub:
+                        hf_sub_to_eole_leaf[hf_sub] = eole_leaf
+
+                excluded_modules: set[str] = set()
+                for hf_path, layer_cfg in extra_config.items():
+                    bits_val = layer_cfg.get("bits", target_bits)
+                    if bits_val < 16 and not layer_cfg.get("dtype", "").startswith("float"):
+                        continue
+                    parts = hf_path.split(".")
+                    # Need at least prefix + layer_index + one module component
+                    if len(parts) <= prefix_depth + 1:
+                        continue
+                    # Strip "model.language_model.layers.{i}." → remaining module sub-path
+                    sub_parts = parts[prefix_depth + 1 :]  # +1 skips the layer index digit
+
+                    # Try progressively shorter sub-paths (longest first) to find
+                    # the deepest matching entry in the decoder map.
+                    # e.g. ["linear_attn", "in_proj_a"] → try "linear_attn.in_proj_a" first,
+                    #      then "linear_attn" — stops at first match.
+                    for length in range(len(sub_parts), 0, -1):
+                        candidate = ".".join(sub_parts[:length])
+                        if candidate in hf_sub_to_eole_leaf:
+                            eole_leaf = hf_sub_to_eole_leaf[candidate]
+                            if eole_leaf in training_config["quant_layers"]:
+                                training_config["quant_layers"].remove(eole_leaf)
+                            break
+            params = ["qweight", "qzeros", "scales"] + ["weight", "bias"]
+        elif quant_config.get("quant_method") == "gptq":
+            # GPTQ models use the same tensor format as AutoRound GPTQ-packing.
+            # Reuse the autoround backend with auto_gptq packing convention.
+            training_config["quant_type"] = "autoround"
+            training_config["w_bit"] = quant_config.get("bits", 4)
+            training_config["group_size"] = quant_config.get("group_size", 128)
+            training_config["autoround_packing_format"] = "auto_round:auto_gptq"
+            training_config["autoround_sym"] = quant_config.get("sym", True)
+            training_config["quant_layers"] = [
+                "gate_up_proj",
+                "down_proj",
+                "up_proj",
+                "linear_values",
+                "linear_query",
+                "linear_keys",
+                "final_linear",
+                # GatedDeltaNet linear-attention layers (Qwen3.5)
+                "in_proj_qkv",
+                "in_proj_z",
+                "in_proj_b",
+                "in_proj_a",
+                "out_proj",
+            ]
+            # Parse the GPTQ dynamic field.  Keys prefixed with "-:" are negation
+            # patterns: regex expressions over the full HF module path that identify
+            # layers which were NOT quantized.  Match them against known eole module
+            # names so that replace_autoround_linear can skip those subtrees.
+            dynamic = quant_config.get("dynamic", {})
+            if dynamic:
+                # Eole module names that can be direct children of a transformer layer.
+                _CANDIDATE_EOLE_MODULES = ["self_attn", "linear_attn", "shared_experts", "experts", "mlp"]
+                excluded_patterns = [k[2:] for k in dynamic if k.startswith("-:")]
+                excluded_modules = []
+                for pattern in excluded_patterns:
+                    compiled = re.compile(pattern)
+                    for mod in _CANDIDATE_EOLE_MODULES:
+                        if compiled.search(mod) and mod not in excluded_modules:
+                            excluded_modules.append(mod)
+                if excluded_modules:
+                    training_config["quant_exclude_modules"] = excluded_modules
+            params = ["qweight", "qzeros", "scales"] + ["weight", "bias"]
         else:
-            raise ValueError("Can convert only awq models for now")
-        training_config["quant_type"] = quant_type
-        training_config["w_bit"] = quant_config.get("bits", quant_config.get("w_bit", 0))
-        training_config["group_size"] = quant_config.get("group_size", quant_config.get("q_group_size", 0))
-        training_config["quant_layers"] = [
-            "gate_up_proj",
-            "down_proj",
-            "up_proj",
-            "linear_values",
-            "linear_query",
-            "linear_keys",
-            "final_linear",
-        ]
-        params = ["qweight", "qzeros", "scales"] + ["weight", "bias"]
+            raise ValueError("Can convert only awq, autoround or gptq models for now")
     else:
         training_config["quant_type"] = ""
         training_config["w_bit"] = 0
@@ -756,7 +872,83 @@ def get_shards_map(model_config, hf, nshards):
             ):
                 shard_checkpoints[shard].add(ckpt)
 
-    return shard_checkpoints, shard_layer_ranges
+    return [sorted(s) for s in shard_checkpoints], shard_layer_ranges
+
+
+class _StreamingTensorStore:
+    """Write safetensors tensors to disk immediately to avoid RAM accumulation.
+
+    Acts as a write-only dict-like store. Each tensor assigned via __setitem__
+    is serialised to a temporary data file instantly, so peak RAM stays bounded
+    by one layer's worth of tensors rather than the entire output shard.
+    Call .save(path) to flush and assemble the final safetensors file.
+    """
+
+    # safetensors dtype string for each torch dtype we may encounter
+    _DTYPE_MAP = {
+        torch.float64: "F64",
+        torch.float32: "F32",
+        torch.float16: "F16",
+        torch.bfloat16: "BF16",
+        torch.int64: "I64",
+        torch.int32: "I32",
+        torch.int16: "I16",
+        torch.int8: "I8",
+        torch.uint8: "U8",
+    }
+
+    def __init__(self, tmp_path: str):
+        self._tmp_path = tmp_path
+        self._fp = open(tmp_path, "wb")
+        self._meta: dict = {}
+        self._offset: int = 0
+
+    def __setitem__(self, name: str, tensor):
+        t = tensor.contiguous()
+        dtype_str = self._DTYPE_MAP[t.dtype]
+        nbytes = t.nbytes
+        self._meta[name] = {
+            "dtype": dtype_str,
+            "shape": list(t.shape),
+            "data_offsets": [self._offset, self._offset + nbytes],
+        }
+        self._write_tensor_bytes(t, nbytes)
+        self._offset += nbytes
+
+    _CHUNK_SIZE = 1 << 30  # 1 GiB — safely under INT32_MAX
+
+    def _write_tensor_bytes(self, t, nbytes: int):
+        ptr = t.data_ptr()
+        written = 0
+        while written < nbytes:
+            chunk = min(self._CHUNK_SIZE, nbytes - written)
+            self._fp.write(ctypes.string_at(ptr + written, chunk))
+            written += chunk
+
+    def keys(self):
+        return self._meta.keys()
+
+    def save(self, output_path: str) -> None:
+        """Finalize: assemble header + raw data into a valid safetensors file."""
+        self._fp.flush()
+        self._fp.close()
+        self._fp = None
+
+        # safetensors requires a "__metadata__" key in the header.
+        header = {"__metadata__": {}}
+        header.update(self._meta)
+        header_bytes = json.dumps(header, separators=(",", ":")).encode("utf-8")
+        # Safetensors spec: header must be padded to a multiple of 8 bytes with spaces.
+        pad = (-len(header_bytes)) % 8
+        header_bytes += b" " * pad
+
+        with open(output_path, "wb") as fout:
+            fout.write(struct.pack("<Q", len(header_bytes)))
+            fout.write(header_bytes)
+            with open(self._tmp_path, "rb") as ftmp:
+                shutil.copyfileobj(ftmp, fout, length=64 * 1024 * 1024)
+
+        os.remove(self._tmp_path)
 
 
 def build_shards(model_config, hf, args, params):
@@ -774,11 +966,13 @@ def build_shards(model_config, hf, args, params):
     The first shard contains embeddings and model-level parameters on top of its layer split.
     """
     shard_checkpoints, shard_layer_ranges = get_shards_map(model_config, hf, args.nshards)
+    target_dtype = TORCH_DTYPES[args.dtype] if args.dtype is not None else None
 
     for shard in range(args.nshards):
 
         print("starting output shard: %d/%d" % (shard + 1, args.nshards))
-        eole_safetensor = {}
+        output_path = os.path.join(args.output, "model.{:02d}.safetensors".format(shard))
+        eole_safetensor = _StreamingTensorStore(output_path + ".part")
 
         def build_first_shard(hf, eole_safetensor):
             for target in KEY_MAPS[hf.arch].keys():
@@ -812,6 +1006,8 @@ def build_shards(model_config, hf, args, params):
                                 "transformer_ff": model_config["transformer_ff"],
                             },
                         ).contiguous()
+                    if target_dtype is not None:
+                        w = w.to(target_dtype)
                     if target == "encoder.class_embedding.weight":
                         eole_safetensor[target] = w.unsqueeze(0)
                     else:
@@ -825,6 +1021,13 @@ def build_shards(model_config, hf, args, params):
         for ckpt in shard_checkpoints[shard]:
             print("Loading %s" % ckpt)
             checkpoint = hf.checkpoint(ckpt)
+            # Pre-compute the set of keys available in this checkpoint once,
+            # so we can skip lookups for missing keys without repeatedly opening the file.
+            if isinstance(checkpoint, dict):
+                ckpt_keys = set(checkpoint.keys())
+            else:
+                with safetensors.safe_open(checkpoint, framework="pt", device="cpu") as f:
+                    ckpt_keys = set(f.keys())
             for i in shard_layer_ranges[shard]:
                 # Cache raw tensors read from this checkpoint+layer to avoid
                 # re-reading the same stacked tensor (e.g. mlp.experts.gate_up_proj)
@@ -850,10 +1053,13 @@ def build_shards(model_config, hf, args, params):
                                 srckey = srckey + param
                             full_srckey = hf_prefix + str(i) + srckey
                             if full_srckey not in _layer_tensor_cache:
-                                _layer_tensor_cache[full_srckey] = get_weight(
-                                    checkpoint,
-                                    full_srckey,
-                                )
+                                if full_srckey not in ckpt_keys:
+                                    _layer_tensor_cache[full_srckey] = None
+                                else:
+                                    _layer_tensor_cache[full_srckey] = get_weight(
+                                        checkpoint,
+                                        full_srckey,
+                                    )
                             w = _layer_tensor_cache[full_srckey]
 
                             if w is not None:
@@ -875,21 +1081,18 @@ def build_shards(model_config, hf, args, params):
                                             ),
                                         },
                                     ).contiguous()
+                                if target_dtype is not None:
+                                    w = w.to(target_dtype)
                                 target1 = target
                                 if target.endswith("."):
                                     target1 = target + param
-                                eole_safetensor[eole_prefix + str(i) + target1] = w
+                                eole_key = eole_prefix + str(i) + target1
+                                if eole_key not in eole_safetensor.keys():
+                                    eole_safetensor[eole_key] = w
                 _layer_tensor_cache.clear()
 
-        # Convert to another dtype if specified
-        if args.dtype is not None:
-            for key in eole_safetensor.keys():
-                eole_safetensor[key] = eole_safetensor[key].to(TORCH_DTYPES[args.dtype])
         print("Saving output model shard: %d" % shard)
-        save_file(
-            eole_safetensor,
-            os.path.join(args.output, "model.{:02d}.safetensors".format(shard)),
-        )
+        eole_safetensor.save(output_path)
 
 
 def check_sentencepiece_tokenizer(hf):

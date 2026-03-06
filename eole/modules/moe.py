@@ -8,8 +8,17 @@ from torch.distributed import all_reduce
 
 try:
     from eole.triton.fused_moe import fused_experts_impl
+    from eole.triton.fused_moe_int4 import fused_experts_int4_impl
+
+    _triton_moe = True
 except ImportError:
-    fused_experts_impl = None
+    _triton_moe = False
+
+from eole.modules.moe_quant_utils import (
+    detect_expert_quant_type,
+    stack_gptq_moe_weights,
+    stack_awq_moe_weights,
+)
 
 
 def naive_moe(x, topk_weights, topk_ids, K, experts):
@@ -126,8 +135,21 @@ class MoE(nn.Module):
         self.activation_function = next(
             (a for a in ("gelu", "relu", "silu") if a in model_config.mlp_activation_fn), None
         )
+        # fp16 fast-path cache (plain nn.Linear)
         self._w1 = None
         self._w2 = None
+
+        # int4 fast-path cache (GPTQ / AWQ)
+        self._w1_qweight = None
+        self._w1_scales = None
+        self._w1_qzeros = None
+        self._w2_qweight = None
+        self._w2_scales = None
+        self._w2_qzeros = None
+        self._group_size = None
+        self._kpacked = None  # True = GPTQ, False = AWQ
+
+        self._quant_weights_initialized = False
 
     def _maybe_fuse_gates(self):
         """Fuse all expert gates, executed only once."""
@@ -169,17 +191,53 @@ class MoE(nn.Module):
         self._w1 = torch.cat(w1_list, dim=0)
         self._w2 = torch.cat(w2_list, dim=0)
 
+    def _maybe_init_quant_weights(self, device, dtype):
+        """Detect quantisation and populate the appropriate weight cache. Runs once."""
+        if self._quant_weights_initialized or not _triton_moe:
+            return
+        self._quant_weights_initialized = True
+
+        if not self.experts:
+            return
+
+        quant_type = detect_expert_quant_type(self.experts)
+
+        if quant_type == "fp16":
+            if type(self.experts[0].gate_up_proj) is torch.nn.Linear:
+                self._maybe_fused_moe_weights(device, dtype)
+
+        elif quant_type == "gptq":
+            (
+                self._w1_qweight,
+                self._w1_scales,
+                self._w1_qzeros,
+                self._w2_qweight,
+                self._w2_scales,
+                self._w2_qzeros,
+                self._group_size,
+            ) = stack_gptq_moe_weights(self.experts, device)
+            self._kpacked = True
+
+        elif quant_type == "awq":
+            (
+                self._w1_qweight,
+                self._w1_scales,
+                self._w1_qzeros,
+                self._w2_qweight,
+                self._w2_scales,
+                self._w2_qzeros,
+                self._group_size,
+            ) = stack_awq_moe_weights(self.experts, device)
+            self._kpacked = False
+
+        # Unknown quant type → silently fall through to vectorized_moe.
+
     def forward(self, x):
 
-        if not self.training and fused_experts_impl is not None:
-            # For plain nn.Linear experts, build the Triton weight cache permanently (once).
-            # type() is (not isinstance) is intentional: subclasses such as
-            # bitsandbytes Linear4bit or AWQ WQLinear must NOT match here so
-            # that quantized models default to the lazy-dequantize Triton path.
-            if self._w1 is None and self.experts and type(self.experts[0].gate_up_proj) is torch.nn.Linear:
-                self._maybe_fused_moe_weights(x.device, x.dtype)
-        else:
+        if self.training:
             self._maybe_fuse_gates()
+        else:
+            self._maybe_init_quant_weights(x.device, x.dtype)
 
         B, T, C = x.shape
         K = self.num_experts_per_tok
@@ -217,6 +275,22 @@ class MoE(nn.Module):
                 topk_weights=expert_weights,
                 topk_ids=expert_indices,
                 activation=self.activation_function,
+            ).view(B, T, C)
+        elif not self.training and self._w1_qweight is not None:
+            # Path 2: int4 Triton (GPTQ / AutoRound / AWQ)
+            y = fused_experts_int4_impl(
+                hidden_states=x_flat,
+                w1_qweight=self._w1_qweight,
+                w1_scales=self._w1_scales,
+                w1_qzeros=self._w1_qzeros,
+                w2_qweight=self._w2_qweight,
+                w2_scales=self._w2_scales,
+                w2_qzeros=self._w2_qzeros,
+                topk_weights=expert_weights,
+                topk_ids=expert_indices,
+                group_size=self._group_size,
+                kpacked=self._kpacked,
+                activation=self.activation_function or "silu",
             ).view(B, T, C)
         else:
             x_flat = x_flat.repeat_interleave(K, dim=0)  # (BTK, C)

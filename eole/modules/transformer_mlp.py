@@ -77,22 +77,43 @@ class MLP(nn.Module):
                 new_gate.bias = nn.Parameter(torch.cat([self.gate_up_proj.bias, self.up_proj.bias]))
 
         elif hasattr(self.gate_up_proj, "qweight") and hasattr(self.up_proj, "qweight"):
-            w_bit = self.gate_up_proj.w_bit
+            # AutoRound QuantLinear uses 'bits', AWQ WQLinear_GEMM uses 'w_bit'
+            w_bit = getattr(self.gate_up_proj, "bits", None) or getattr(self.gate_up_proj, "w_bit")
             group_size = self.gate_up_proj.group_size
 
-            awq_cls = self.gate_up_proj.__class__
-            dim = 1 if awq_cls.__name__ == "WQLinear_GEMM" else 0
-            new_gate = awq_cls(
-                w_bit=w_bit,
-                group_size=group_size,
-                in_features=self.model_config.hidden_size,
-                out_features=self.transformer_ff // self.parallel_gpu * 2,
-                bias=self.model_config.add_ffnbias,
-                dev=self.gate_up_proj.qweight.device,
-            )
-            new_gate.qweight = torch.cat([self.gate_up_proj.qweight, self.up_proj.qweight], dim)
-            new_gate.qzeros = torch.cat([self.gate_up_proj.qzeros, self.up_proj.qzeros], dim)
-            new_gate.scales = torch.cat([self.gate_up_proj.scales, self.up_proj.scales], dim)
+            if hasattr(self.gate_up_proj, "bits") and not hasattr(self.gate_up_proj, "w_bit"):
+                # AutoRound QuantLinear: qweight is [infeatures//32*bits, outfeatures]
+                # concatenate along dim=1 (output features dimension)
+                new_gate = self.gate_up_proj.__class__(
+                    bits=w_bit,
+                    group_size=group_size,
+                    infeatures=self.model_config.hidden_size,
+                    outfeatures=self.transformer_ff // self.parallel_gpu * 2,
+                    bias=self.model_config.add_ffnbias,
+                )
+                new_gate.qweight = torch.cat([self.gate_up_proj.qweight, self.up_proj.qweight], dim=1)
+                new_gate.qzeros = torch.cat([self.gate_up_proj.qzeros, self.up_proj.qzeros], dim=1)
+                new_gate.scales = torch.cat([self.gate_up_proj.scales, self.up_proj.scales], dim=1)
+                if (
+                    self.model_config.add_ffnbias
+                    and self.gate_up_proj.bias is not None
+                    and self.up_proj.bias is not None
+                ):
+                    new_gate.bias = torch.cat([self.gate_up_proj.bias, self.up_proj.bias], dim=0)
+            else:
+                awq_cls = self.gate_up_proj.__class__
+                dim = 1 if awq_cls.__name__ == "WQLinear_GEMM" else 0
+                new_gate = awq_cls(
+                    w_bit=w_bit,
+                    group_size=group_size,
+                    in_features=self.model_config.hidden_size,
+                    out_features=self.transformer_ff // self.parallel_gpu * 2,
+                    bias=self.model_config.add_ffnbias,
+                    dev=self.gate_up_proj.qweight.device,
+                )
+                new_gate.qweight = torch.cat([self.gate_up_proj.qweight, self.up_proj.qweight], dim)
+                new_gate.qzeros = torch.cat([self.gate_up_proj.qzeros, self.up_proj.qzeros], dim)
+                new_gate.scales = torch.cat([self.gate_up_proj.scales, self.up_proj.scales], dim)
         del self.up_proj
         self.gate_up_proj = new_gate
         self.forward = self.simple_forward

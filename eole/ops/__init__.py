@@ -1,4 +1,5 @@
 from torch.library import custom_op
+from typing import Optional
 import torch
 import warnings
 from eole import EOLE_TORCH_COMPILE
@@ -316,6 +317,133 @@ else:
         gelu_and_mul = _unavailable_op("gelu_and_mul")
         gelu_tanh_and_mul = _unavailable_op("gelu_tanh_and_mul")
 
+
+# ============================================================================
+# GPTQ Marlin GEMM
+# ============================================================================
+try:
+    import gptqmodel_marlin_kernels as _marlin_kernels
+
+    _MARLIN_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):
+    _MARLIN_AVAILABLE = False
+
+if EOLE_TORCH_COMPILE:
+    if _MARLIN_AVAILABLE:
+
+        @custom_op("eole::gptq_marlin_gemm", mutates_args={})
+        def _gptq_marlin_gemm_kernel(
+            a: torch.Tensor,
+            c: Optional[torch.Tensor],
+            b_q_weight: torch.Tensor,
+            b_bias: Optional[torch.Tensor],
+            b_scales: torch.Tensor,
+            global_scale: Optional[torch.Tensor],
+            b_zeros: Optional[torch.Tensor],
+            g_idx: Optional[torch.Tensor],
+            perm: Optional[torch.Tensor],
+            workspace: torch.Tensor,
+            b_q_type_id: int,  # ScalarType.id — already an int
+            size_m: int,
+            size_n: int,
+            size_k: int,
+            is_k_full: bool = True,
+            use_atomic_add: bool = False,
+            use_fp32_reduce: bool = False,
+            is_zp_float: bool = False,
+        ) -> torch.Tensor:
+            return _marlin_kernels.gptq_marlin_gemm(
+                a,
+                c,
+                b_q_weight,
+                b_bias,
+                b_scales,
+                global_scale,
+                b_zeros,
+                g_idx,
+                perm,
+                workspace,
+                b_q_type_id,
+                size_m,
+                size_n,
+                size_k,
+                is_k_full,
+                use_atomic_add,
+                use_fp32_reduce,
+                is_zp_float,
+            )
+
+        @_gptq_marlin_gemm_kernel.register_fake
+        def _(
+            a,
+            c,
+            b_q_weight,
+            b_bias,
+            b_scales,
+            global_scale,
+            b_zeros,
+            g_idx,
+            perm,
+            workspace,
+            b_q_type_id,
+            size_m,
+            size_n,
+            size_k,
+            is_k_full=True,
+            use_atomic_add=False,
+            use_fp32_reduce=False,
+            is_zp_float=False,
+        ):
+            return torch.empty(size_m, size_n, dtype=a.dtype, device=a.device)
+
+        # Patch at the Python wrapper level, extracting .id before the custom op
+        def _patched_gptq_marlin_gemm(
+            a,
+            c,
+            b_q_weight,
+            b_bias,
+            b_scales,
+            global_scale,
+            b_zeros,
+            g_idx,
+            perm,
+            workspace,
+            b_q_type,
+            size_m,
+            size_n,
+            size_k,
+            is_k_full=True,
+            use_atomic_add=False,
+            use_fp32_reduce=False,
+            is_zp_float=False,
+        ):
+            return _gptq_marlin_gemm_kernel(
+                a,
+                c,
+                b_q_weight,
+                b_bias,
+                b_scales,
+                global_scale,
+                b_zeros,
+                g_idx,
+                perm,
+                workspace,
+                b_q_type.id,  # extract here so custom_op only sees an int
+                size_m,
+                size_n,
+                size_k,
+                is_k_full,
+                use_atomic_add,
+                use_fp32_reduce,
+                is_zp_float,
+            )
+
+    else:
+
+        def gptq_marlin_gemm(*args, **kwargs):
+            raise RuntimeError("gptq_marlin_gemm is not available.")
+
+
 # ============================================================================
 # Exports
 # ============================================================================
@@ -326,4 +454,5 @@ __all__ = [
     "silu_and_mul",
     "gelu_and_mul",
     "gelu_tanh_and_mul",
+    "gptq_marlin_gemm",
 ]
