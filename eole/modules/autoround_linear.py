@@ -1,7 +1,10 @@
 import gc
+import torch
 import threading
 import torch.nn as nn
 from torch.cuda import is_available as cuda_is_available
+from eole import EOLE_TORCH_COMPILE
+from eole.ops import _MARLIN_AVAILABLE
 
 _marlin_preflight_done = False
 
@@ -42,25 +45,35 @@ def _preflight_marlin_import():
         return
     try:
         # side effect: patches triton.Autotuner
-        from auto_round_extension.cuda.gptqmodel_marlin import get_marlin_layer  # noqa E401
+        from gptqmodel.nn_modules.qlinear.marlin import MarlinQuantLinear  # noqa
     except ImportError:
         return
 
     # Retroactively apply the same attribute additions that gptqmodel's patched_init performs,
     # to every Autotuner instance that was created before the patch ran.
+    import warnings
+
     try:
         from triton.runtime.autotuner import Autotuner
 
-        for obj in gc.get_objects():
-            if isinstance(obj, Autotuner) and not hasattr(obj, "_cache_lock"):
-                # Mirror what gptqmodel's patched_init does for pre-existing instances:
-                cache_map = getattr(obj, "cache", {})
-                obj._cache = dict(cache_map)
-                obj.cache = obj._cache
-                obj._cache_lock = threading.RLock()
-                obj._cache_futures = {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            for obj in gc.get_objects():
+                if isinstance(obj, Autotuner) and not hasattr(obj, "_cache_lock"):
+                    # Mirror what gptqmodel's patched_init does for pre-existing instances:
+                    cache_map = getattr(obj, "cache", {})
+                    obj._cache = dict(cache_map)
+                    obj.cache = obj._cache
+                    obj._cache_lock = threading.RLock()
+                    obj._cache_futures = {}
     except (ImportError, AttributeError):
         pass
+
+    if EOLE_TORCH_COMPILE and _MARLIN_AVAILABLE:
+        import gptqmodel.utils.marlin as _marlin_utils
+        from eole.ops import _patched_gptq_marlin_gemm
+
+        _marlin_utils.gptq_marlin_gemm = _patched_gptq_marlin_gemm
 
     _marlin_preflight_done = True
 
@@ -149,6 +162,18 @@ def replace_autoround_linear(
     return model
 
 
+def _get_module_device(module):
+    """Get device from parameters or buffers, whichever is available."""
+    try:
+        return next(module.parameters()).device
+    except StopIteration:
+        pass
+    try:
+        return next(module.buffers()).device
+    except StopIteration:
+        return torch.device("cpu")
+
+
 def post_init_autoround_linear(model):
     """Call post_init() on all AutoRound QuantLinear modules in the model.
 
@@ -159,11 +184,40 @@ def post_init_autoround_linear(model):
     for name, module in model.named_children():
         module_cls = type(module)
         module_pkg = getattr(module_cls, "__module__", "") or ""
-        if module_pkg.startswith("auto_round_extension") and hasattr(module, "post_init"):
+        if hasattr(module, "post_init") and len(list(module.children())) == 0:
             module.post_init()
+            # Eagerly move wf to the correct device for torch fallback layers.
+            # Their forward() does this lazily which breaks CUDAGraphs.
+            if hasattr(module, "wf") and hasattr(module, "qzeros"):
+                if module.wf.device != module.qzeros.device:
+                    module.wf = module.wf.to(module.qzeros.device)
+
+            # triton fallback (qlinear_tritonv2_zp): lazy g_idx creation
+            if hasattr(module, "infeatures") and hasattr(module, "group_size"):
+                module_pkg = getattr(type(module), "__module__", "") or ""
+                if "triton" in module_pkg and not hasattr(module, "g_idx"):
+                    device = _get_module_device(module)
+                    module.g_idx = torch.tensor(
+                        [i // module.group_size for i in range(module.infeatures)],
+                        dtype=torch.int32,
+                        device=device,
+                    )
         else:
             # Recurse into containers that are not themselves QuantLinear modules.
             post_init_autoround_linear(module)
+
+        # MoE: eagerly stack quantized expert weights before CUDAGraphs capture
+        if hasattr(module, "_maybe_init_quant_weights") and hasattr(module, "experts"):
+            device = _get_module_device(module)
+            # Determine dtype from the first expert weight we can find
+            dtype = torch.float16
+            for e in module.experts:
+                for proj_name in ("gate_up_proj", "down_proj"):
+                    proj = getattr(e, proj_name, None)
+                    if proj is not None and hasattr(proj, "scales"):
+                        dtype = proj.scales.dtype
+                        break
+            module._maybe_init_quant_weights(device, dtype)
 
 
 def _get_autoround_quant_linear_cls(use_gptq_zp: bool, sym: bool = True, force_pytorch: bool = False):
@@ -192,9 +246,9 @@ def _get_autoround_quant_linear_cls(use_gptq_zp: bool, sym: bool = True, force_p
     if not force_pytorch and cuda_is_available():
         if sym:
             try:
-                from auto_round_extension.cuda.gptqmodel_marlin import get_marlin_layer
+                from gptqmodel.nn_modules.qlinear.marlin import MarlinQuantLinear
 
-                return get_marlin_layer(), True
+                return MarlinQuantLinear, True
             except ImportError:
                 pass
         try:

@@ -621,33 +621,59 @@ def build_config_dict(hf):
                 "in_proj_a",
                 "out_proj",
             ]
-            # Parse extra_config to detect modules kept in fp16 (not quantized).
-            # extra_config maps full HF module paths to per-layer settings; entries
-            # with bits >= 16 or a float dtype indicate layers that were intentionally
-            # skipped during quantization (e.g. shared_expert in MoE models).
             # We search each path for a known eole module name so that
             # replace_autoround_linear can skip entire subtrees.
             extra_config = quant_config.get("extra_config", {})
             target_bits = quant_config.get("bits", 4)
             if extra_config:
-                # Map known HF module names to their eole equivalents.
-                # Only modules listed here will ever be added to quant_exclude_modules;
-                # generic containers like "mlp" are intentionally excluded from the map
-                # so that they are never wrongly added even if they appear in a float path.
-                _HF_TO_EOLE_MODULE = {"shared_expert": "shared_experts"}
-                excluded_hf_parents = set()
+                # Build a reverse map: HF sub-path → eole leaf module name
+                # by inverting the decoder section of KEY_MAPS for this architecture.
+                # e.g. eole ".linear_attn.in_proj_a." ← HF ".linear_attn.in_proj_a."
+                #      eole ".self_attn.linear_query." ← HF ".self_attn.q_proj."
+                decoder_map = KEY_MAPS.get(arch, {}).get("decoder", {})
+                decoder_layer_prefix = KEY_MAPS.get(arch, {}).get("decoder_layer_prefix", "model.layers.")
+                # How many dot-separated components make up the layer prefix
+                # e.g. "model.language_model.layers." → 3
+                prefix_depth = len(decoder_layer_prefix.rstrip(".").split("."))
+
+                hf_sub_to_eole_leaf: dict[str, str] = {}
+                for eole_key, hf_val in decoder_map.items():
+                    if not isinstance(eole_key, str):
+                        continue
+                    hf_suffix = hf_val[0] if isinstance(hf_val, tuple) else hf_val
+                    if not isinstance(hf_suffix, str):
+                        continue
+                    # Strip surrounding dots: ".linear_attn.in_proj_a." → "linear_attn.in_proj_a"
+                    hf_sub = hf_suffix.strip(".")
+                    # Take the last component of the eole key as the leaf name:
+                    # ".linear_attn.in_proj_a." → "in_proj_a"
+                    eole_leaf = eole_key.strip(".").split(".")[-1]
+                    if hf_sub:
+                        hf_sub_to_eole_leaf[hf_sub] = eole_leaf
+
+                excluded_modules: set[str] = set()
                 for hf_path, layer_cfg in extra_config.items():
                     bits_val = layer_cfg.get("bits", target_bits)
-                    if bits_val >= 16 or layer_cfg.get("dtype", "").startswith("float"):
-                        # Search the path components from the leaf upward for the first
-                        # known HF module name so that paths like
-                        # "…shared_expert.mlp.gate_proj" still resolve to "shared_expert"
-                        # (not the intermediate "mlp" that parts[-2] would have returned).
-                        for part in reversed(hf_path.split(".")):
-                            if part in _HF_TO_EOLE_MODULE:
-                                excluded_hf_parents.add(part)
-                                break
-                training_config["quant_exclude_modules"] = [_HF_TO_EOLE_MODULE[p] for p in excluded_hf_parents]
+                    if bits_val < 16 and not layer_cfg.get("dtype", "").startswith("float"):
+                        continue
+                    parts = hf_path.split(".")
+                    # Need at least prefix + layer_index + one module component
+                    if len(parts) <= prefix_depth + 1:
+                        continue
+                    # Strip "model.language_model.layers.{i}." → remaining module sub-path
+                    sub_parts = parts[prefix_depth + 1 :]  # +1 skips the layer index digit
+
+                    # Try progressively shorter sub-paths (longest first) to find
+                    # the deepest matching entry in the decoder map.
+                    # e.g. ["linear_attn", "in_proj_a"] → try "linear_attn.in_proj_a" first,
+                    #      then "linear_attn" — stops at first match.
+                    for length in range(len(sub_parts), 0, -1):
+                        candidate = ".".join(sub_parts[:length])
+                        if candidate in hf_sub_to_eole_leaf:
+                            eole_leaf = hf_sub_to_eole_leaf[candidate]
+                            if eole_leaf in training_config["quant_layers"]:
+                                training_config["quant_layers"].remove(eole_leaf)
+                            break
             params = ["qweight", "qzeros", "scales"] + ["weight", "bias"]
         elif quant_config.get("quant_method") == "gptq":
             # GPTQ models use the same tensor format as AutoRound GPTQ-packing.
@@ -886,10 +912,18 @@ class _StreamingTensorStore:
             "shape": list(t.shape),
             "data_offsets": [self._offset, self._offset + nbytes],
         }
-        # Use ctypes to read raw bytes — dtype-agnostic, works for bfloat16
-        # and every other PyTorch dtype without requiring NumPy.
-        self._fp.write(ctypes.string_at(t.data_ptr(), nbytes))
+        self._write_tensor_bytes(t, nbytes)
         self._offset += nbytes
+
+    _CHUNK_SIZE = 1 << 30  # 1 GiB — safely under INT32_MAX
+
+    def _write_tensor_bytes(self, t, nbytes: int):
+        ptr = t.data_ptr()
+        written = 0
+        while written < nbytes:
+            chunk = min(self._CHUNK_SIZE, nbytes - written)
+            self._fp.write(ctypes.string_at(ptr + written, chunk))
+            written += chunk
 
     def keys(self):
         return self._meta.keys()

@@ -190,6 +190,8 @@ def stack_gptq_moe_weights(experts, device: torch.device):
         w2_sc.append(sc_d.unsqueeze(0))
         w2_qz.append(qz_d.unsqueeze(0))
 
+        _free_expert_weights_single(e)
+
     return (
         torch.cat(w1_qw, dim=0).to(device),
         torch.cat(w1_sc, dim=0).to(device),
@@ -241,6 +243,8 @@ def stack_awq_moe_weights(experts, device: torch.device):
         w2_sc.append(sc_d.unsqueeze(0))
         w2_qz.append(qz_d.unsqueeze(0))
 
+        _free_expert_weights_single(e)
+
     return (
         torch.cat(w1_qw, dim=0).to(device),
         torch.cat(w1_sc, dim=0).to(device),
@@ -252,25 +256,36 @@ def stack_awq_moe_weights(experts, device: torch.device):
     )
 
 
-def _free_expert_weights(experts):
-    """
-    Delete per-expert weight tensors after they have been stacked into the
-    fast-path cache. This recovers the VRAM that would otherwise be held
-    by the original nn.ModuleList parameters.
+def stack_fp16_moe_weights(experts, device: torch.device):
+    """Stack plain fp16/bf16 expert weights for vectorized MoE forward."""
+    w1, w2 = [], []
 
-    Note: this makes the experts unusable for forward() calls, which is
-    intentional — inference always goes through the Triton kernel after this.
-    """
     for e in experts:
-        for proj_name in ("gate_up_proj", "up_proj", "down_proj"):
-            proj = getattr(e, proj_name, None)
-            if proj is None:
-                continue
-            # int4 quantised layers: free packed weight buffers
-            for attr in ("qweight", "scales", "qzeros"):
-                if hasattr(proj, attr):
-                    setattr(proj, attr, None)
-            # fp16 plain linear
-            if hasattr(proj, "weight") and proj.weight is not None:
-                proj.weight = None
+        gate_up = e.gate_up_proj.weight.data  # (2I, H)
+        down = e.down_proj.weight.data  # (H, I)
+
+        w1.append(gate_up.unsqueeze(0))
+        w2.append(down.unsqueeze(0))
+
+        _free_expert_weights_single(e)
+
+    return (
+        torch.cat(w1, dim=0).to(device),
+        torch.cat(w2, dim=0).to(device),
+    )
+
+
+def _free_expert_weights_single(expert):
+    """Free one expert's weight tensors immediately after stacking."""
+    for proj_name in ("gate_up_proj", "up_proj", "down_proj"):
+        proj = getattr(expert, proj_name, None)
+        if proj is None:
+            continue
+        # quantized backends
+        for attr in ("qweight", "scales", "qzeros"):
+            if hasattr(proj, attr):
+                setattr(proj, attr, None)
+        # fp16 plain linear
+        if hasattr(proj, "weight") and proj.weight is not None:
+            proj.weight = None
     torch.cuda.empty_cache()

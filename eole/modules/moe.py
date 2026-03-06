@@ -18,7 +18,6 @@ from eole.modules.moe_quant_utils import (
     detect_expert_quant_type,
     stack_gptq_moe_weights,
     stack_awq_moe_weights,
-    _free_expert_weights,
 )
 
 
@@ -230,12 +229,6 @@ class MoE(nn.Module):
                 self._group_size,
             ) = stack_awq_moe_weights(self.experts, device)
             self._kpacked = False
-
-        # Free the original per-expert weights — the stacked tensors are the
-        # only copy needed at inference time. Do this for all non-training paths
-        # where a fast-path cache was successfully built.
-        if not self.training and (self._w1 is not None or self._w1_qweight is not None):
-            _free_expert_weights(self.experts)
 
         # Unknown quant type → silently fall through to vectorized_moe.
 
