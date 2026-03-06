@@ -178,7 +178,7 @@ class AudioPredictor(Translator):
         self._tgt_start_with = self._decoder_prefix_ids[0]
         self.max_length_ratio = 0
 
-    def predict_batch(self, batch, attn_debug):
+    def predict_batch(self, batch, attn_debug, streamer=None):
         """Override to inject decoder prefix tensor into batch."""
         if "tgt" not in batch and len(self._decoder_prefix_ids) > 1:
             device = batch["src"].device

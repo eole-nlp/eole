@@ -72,6 +72,7 @@ class HuggingfaceFiles:
     wmap_path: Optional[str] = None
     model_path: Optional[str] = None
     special_tokens_json: Optional[str] = None
+    chat_template_jinja_path: Optional[str] = None
 
     # Unified dictionary to cache loaded files
     _loaded_files: dict = field(default_factory=dict, init=False)
@@ -134,6 +135,7 @@ class HuggingfaceFiles:
             "model_path": get_file_fn("model.safetensors", required=False)
             or get_file_fn("pytorch_model.bin", required=False),
             "special_tokens_json": get_file_fn("special_tokens_map.json", required=False),
+            "chat_template_jinja_path": get_file_fn("chat_template.jinja", required=False),
         }
 
         return cls(**paths, model_dir=args.model_dir, token=args.token)
@@ -773,7 +775,12 @@ def get_weight(checkpoint, tensor_name):
 def check_tokenizer_config(hf):
     config = hf.config
     add_bos_token = hf.tokenizer_config.get("add_bos_token", hf.tokenizer_config.get("bos_token", None) is not None)
-    chat_template = {"chat_template": hf.tokenizer_config.get("chat_template", None)}
+    # Prefer the inline template from tokenizer_config.json; fall back to a
+    # standalone chat_template.jinja file (used by some modern HF models).
+    chat_template_value = hf.tokenizer_config.get("chat_template", None)
+    if chat_template_value is None and hf.chat_template_jinja_path is not None:
+        chat_template_value = hf.chat_template_jinja
+    chat_template = {"chat_template": chat_template_value}
     eos_token_id = config.get("eos_token_id", None)
     optional_eos = []
     if isinstance(eos_token_id, list) and "added_tokens_decoder" in hf.tokenizer_config:
@@ -1348,3 +1355,11 @@ class LlamaHFConverter(BaseBin):
 
         with open(os.path.join(args.output, "config.json"), "w", encoding="utf-8") as f:
             json.dump(config_dict, f, indent=2, ensure_ascii=False)
+
+        # Copy chat_template.jinja to the output directory so the converted
+        # model is self-contained (needed when the source is a local directory,
+        # since hub downloads already land in args.output).
+        if hf.chat_template_jinja_path is not None:
+            dest = os.path.join(args.output, "chat_template.jinja")
+            if os.path.normpath(hf.chat_template_jinja_path) != os.path.normpath(dest):
+                shutil.copy2(hf.chat_template_jinja_path, dest)

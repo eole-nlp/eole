@@ -11,7 +11,7 @@ class Encoder(Inference):
         if task != ModelType.ENCODER:
             raise ValueError(f"Encoder does not support task {task}." f" Tasks supported: {ModelType.ENCODER}")
 
-    def predict_batch(self, batch, attn_debug):
+    def predict_batch(self, batch, attn_debug, streamer=None):
         """Predict a batch of sentences."""
         if self.max_length_ratio > 0:
             max_length = int(min(self.max_length, batch["src"].size(1) * self.max_length_ratio + 5))

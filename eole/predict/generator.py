@@ -22,8 +22,17 @@ class GeneratorLM(Inference):
         """
         raise NotImplementedError
 
-    def predict_batch(self, batch, attn_debug, scoring=False):
-        """Predict a batch of sentences."""
+    def predict_batch(self, batch, attn_debug, scoring=False, streamer=None):
+        """Predict a batch of sentences.
+
+        Args:
+            batch: Batch of source data.
+            attn_debug (bool): Whether to return attention weights.
+            scoring (bool): Whether to run in scoring mode.
+            streamer (GenerationStreamer, optional): If provided, tokens are
+                pushed to the streamer at each decoding step to enable
+                token-by-token output streaming.
+        """
         batch_size = batch["srclen"].size(0)
         max_length = 0 if scoring else self.max_length - batch["srclen"].max()
         with torch.no_grad():
@@ -72,7 +81,7 @@ class GeneratorLM(Inference):
                     ban_unk_token=self.ban_unk_token,
                     add_estimator=self.add_estimator,
                 )
-            return self._predict_batch_with_strategy(batch, decode_strategy)
+            return self._predict_batch_with_strategy(batch, decode_strategy, streamer=streamer)
 
     @classmethod
     def split_src_to_prevent_padding(cls, src, src_len):
@@ -91,13 +100,17 @@ class GeneratorLM(Inference):
             log_probs = log_probs[:, -1, :]
         return log_probs
 
-    def _predict_batch_with_strategy(self, batch, decode_strategy):
+    def _predict_batch_with_strategy(self, batch, decode_strategy, streamer=None):
         """Predict a batch of sentences step by step using cache.
 
         Args:
             batch: a batch of sentences, yield by data iterator.
             decode_strategy (DecodeStrategy): A decode strategy to use for
                 generate prediction step by step.
+            streamer (GenerationStreamer, optional): If provided, each newly
+                generated token (for the first sequence) is pushed to the
+                streamer at every decoding step so that callers can consume
+                partial results before generation is complete.
 
         Returns:
             results (dict): The prediction results.
@@ -143,6 +156,7 @@ class GeneratorLM(Inference):
             else:
                 emb = self.model.tgt_emb(src, step=0)
             tgt_pad_mask = src.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+            self.model.decoder.max_length = self.max_length
             self.model.decoder._init_cache(emb, tgt_pad_mask)
             self.model.decoder.map_state(fn_tile)
             if EOLE_COMPILE_MODE in ["0", "1"]:
@@ -184,6 +198,12 @@ class GeneratorLM(Inference):
 
                 decode_strategy.advance(log_probs, attn)
                 any_finished = any([any(sublist) for sublist in decode_strategy.is_finished_list])
+
+                if streamer is not None:
+                    # Push the newly generated token for the first sequence.
+                    # current_predictions has shape (batch_size * beam_size,).
+                    streamer.put(decode_strategy.current_predictions[:1])
+
                 if any_finished:
                     decode_strategy.update_finished()
                     if decode_strategy.done:
@@ -202,6 +222,9 @@ class GeneratorLM(Inference):
             self.model.decoder._disable_cache()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+            if streamer is not None:
+                streamer.end()
 
         if self.add_estimator:
             # Prepare estimator input = decoder out of each pred with initial enc_out
