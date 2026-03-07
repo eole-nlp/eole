@@ -23,7 +23,7 @@ class GenerationStreamer:
             is used to yield clean text. When ``None``, tokens are looked
             up directly in the vocabulary.
         timeout (float): Maximum seconds to wait for the next token before
-            the iterator stops. Default is 30.0.
+            the iterator stops. Default is 120.0.
 
     Example usage::
 
@@ -50,7 +50,7 @@ class GenerationStreamer:
     # Sentinel value placed in the queue to signal end-of-generation
     _STOP = object()
 
-    def __init__(self, vocabs, transform_pipe=None, timeout: float = 30.0):
+    def __init__(self, vocabs, transform_pipe=None, timeout: float = 120.0):
         self.vocabs = vocabs
         self.transform_pipe = transform_pipe
         self.timeout = timeout
