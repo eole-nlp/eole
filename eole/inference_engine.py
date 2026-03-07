@@ -104,6 +104,38 @@ class InferenceEngine:
 
         return scores, estims, preds
 
+    def infer_list_stream(self, src: str, settings: Optional[Dict[str, Any]] = None):
+        """Stream inference results for a single input string.
+
+        This is a generator that yields decoded text chunks as they are
+        produced by the model, enabling a chatbot-style streaming interface
+        instead of waiting for the full response.
+
+        Only supported for decoder-only (LM) models (``GeneratorLM``).
+        Streaming with encoder-decoder or encoder-only models falls back to
+        returning the complete prediction as a single chunk at the end.
+
+        Args:
+            src (str): Single input string to run inference on.
+            settings (dict, optional): Override inference settings
+                (e.g. ``temperature``, ``max_length``).
+
+        Yields:
+            str: Decoded text chunks, one per generated token (or
+            slightly larger chunks when the detokenizer defers output
+            to avoid partial multi-byte / subword-piece artefacts).
+
+        Raises:
+            NotImplementedError: If world_size > 1 (parallel mode).
+
+        Example::
+
+            engine = InferenceEnginePY(config)
+            for chunk in engine.infer_list_stream("Tell me a joke"):
+                print(chunk, end="", flush=True)
+        """
+        raise NotImplementedError
+
     def infer_file_parallel(self, settings: Optional[Dict[str, Any]] = None):
         """File inference in multiprocessing with partitioned models."""
         raise NotImplementedError("The inference in multiprocessing with partitioned models is not implemented.")
@@ -225,7 +257,7 @@ class InferenceEnginePY(InferenceEngine):
 
     @torch.inference_mode()
     def _predict(
-        self, infer_iter, settings: Optional[Dict[str, Any]] = None
+        self, infer_iter, settings: Optional[Dict[str, Any]] = None, streamer=None
     ) -> Tuple[List[List[float]], Optional[List[List[float]]], List[List[str]]]:
         """Run prediction on inference iterator."""
         settings = settings or {}
@@ -236,6 +268,7 @@ class InferenceEnginePY(InferenceEngine):
             infer_iter.transforms,
             self.config.attn_debug,
             self.config.align_debug,
+            streamer=streamer,
         )
 
         return scores, estims, preds
@@ -249,6 +282,69 @@ class InferenceEnginePY(InferenceEngine):
         self.predictor.return_gold_log_probs = True
 
         return self.predictor._score(infer_iter)
+
+    def infer_list_stream(self, src: str, settings: Optional[Dict[str, Any]] = None):
+        """Stream inference results for a single input string.
+
+        Runs inference in a background thread and yields decoded text
+        chunks as they are produced token by token. This is the
+        recommended API for interactive / chatbot-style use cases.
+
+        Only supported for single-process mode (``world_size <= 1``) and
+        decoder-only (LM) models. Encoder-decoder models are not supported
+        for streaming.
+
+        Args:
+            src (str): A single input string.
+            settings (dict, optional): Override inference settings such as
+                ``temperature``, ``max_length``, ``top_k``, ``top_p``.
+
+        Yields:
+            str: Decoded text chunks produced by the model.
+
+        Raises:
+            NotImplementedError: If called when ``world_size > 1``.
+
+        Example::
+
+            engine = InferenceEnginePY(config)
+            for chunk in engine.infer_list_stream("Tell me a joke"):
+                print(chunk, end="", flush=True)
+            print()
+        """
+        import threading
+        from eole.predict.streamer import GenerationStreamer
+
+        if self.config.world_size > 1:
+            raise NotImplementedError("infer_list_stream is not supported in parallel (world_size > 1) mode.")
+
+        settings = settings or {}
+
+        streamer = GenerationStreamer(
+            vocabs=self.vocabs,
+            transform_pipe=self.transform_pipe,
+        )
+
+        exception_holder = []
+
+        def _run_inference():
+            try:
+                infer_iter = self._build_inference_iterator(src=[src])
+                self._predict(infer_iter, settings=settings, streamer=streamer)
+            except Exception as exc:  # noqa: BLE001
+                self.logger.error(f"Streaming inference failed: {exc}")
+                exception_holder.append(exc)
+                streamer.end()
+
+        thread = threading.Thread(target=_run_inference, daemon=True)
+        thread.start()
+
+        yield from streamer
+
+        thread.join()
+
+        if exception_holder:
+            raise exception_holder[0]
 
     def _distribute_parallel_task(self, task_name: str, task_arg: Any, settings: Optional[Dict[str, Any]] = None):
         """Distribute a task to all parallel workers.

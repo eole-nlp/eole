@@ -181,6 +181,7 @@ class Inference(object):
         attn_debug=False,
         align_debug=False,
         phrase_table="",
+        streamer=None,
     ):
         """Predict content of ``src`` and get gold scores from ``tgt``.
 
@@ -188,6 +189,9 @@ class Inference(object):
             infer_iter: tensored batch iterator from DynamicDatasetIter
             attn_debug (bool): enables the attention logging
             align_debug (bool): enables the word alignment logging
+            streamer (GenerationStreamer, optional): If provided, tokens are
+                streamed to the streamer as they are generated.  Only
+                supported for ``GeneratorLM`` (decoder-only models).
 
         Returns:
             (`list`, `list`)
@@ -357,7 +361,7 @@ class Inference(object):
         for batch, bucket_idx in infer_iter:
 
             src_tokens += batch["srclen"].sum()
-            batch_data = self.predict_batch(batch, attn_debug)
+            batch_data = self.predict_batch(batch, attn_debug, streamer=streamer)
 
             predictions = prediction_builder.from_batch(batch_data)
             is_seq2seq = (
@@ -594,7 +598,7 @@ class Inference(object):
         # or [batch_size, tgt_len, vocab ] when full sentence
         return log_probs, attn
 
-    def predict_batch(self, batch, attn_debug):
+    def predict_batch(self, batch, attn_debug, streamer=None):
         """Predict a batch of sentences."""
         raise NotImplementedError
 

@@ -6,14 +6,14 @@ import gc
 import yaml
 import json
 import uuid
-from typing import List, Union, Optional, Literal
+from typing import Any, List, Union, Optional, Literal
 
 import torch
 import uvicorn
 
 from fastapi import FastAPI, Request, Body
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, Field, model_validator
+from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from jinja2.exceptions import TemplateError
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
@@ -109,26 +109,23 @@ class ChatRequest(DecodingConfig):
 
 
 class OpenAIMessage(BaseModel):
-    role: Literal["system", "user", "assistant"]
-    content: str
+    # Allow any extra fields (e.g. name, tool_call_id, tool_calls) sent by
+    # OpenAI-compatible clients without triggering a 422.
+    model_config = ConfigDict(extra="ignore")
+
+    role: Literal["system", "user", "assistant", "tool"]
+    # Per the OpenAI API spec, content can be a string, an array of content
+    # parts (multimodal), or null (when the message only carries tool_calls).
+    content: Optional[Union[str, List[Any]]] = None
 
 
 class OpenAIChatRequest(BaseModel):
-    model: str
-    messages: List[OpenAIMessage]
-    temperature: Optional[float] = 1.0
-    top_p: Optional[float] = 1.0
-    n: Optional[int] = 1
-    stream: Optional[bool] = False
-    stop: Optional[Union[str, List[str]]] = None
-    max_tokens: Optional[int] = None
-    presence_penalty: Optional[float] = 0.0
-    frequency_penalty: Optional[float] = 0.0
-    logit_bias: Optional[dict] = None
-    user: Optional[str] = None
-
-    class Config:
-        json_schema_extra = {
+    # Silently drop any OpenAI-compatible fields not explicitly declared here
+    # (e.g. top_k, tools, tool_choice, response_format, seed, …) so that
+    # clients that send them don't receive a 422.
+    model_config = ConfigDict(
+        extra="ignore",
+        json_schema_extra={
             "example": {
                 "model": "llama3-8b-instruct",
                 "messages": [
@@ -138,7 +135,21 @@ class OpenAIChatRequest(BaseModel):
                 "temperature": 0.7,
                 "max_tokens": 100,
             }
-        }
+        },
+    )
+
+    model: str
+    messages: List[OpenAIMessage]
+    temperature: Optional[float] = 1.0
+    top_p: Optional[float] = 0.95
+    n: Optional[int] = 1
+    stream: Optional[bool] = False
+    stop: Optional[Union[str, List[str]]] = None
+    max_tokens: Optional[int] = None
+    presence_penalty: Optional[float] = 0.0
+    frequency_penalty: Optional[float] = 0.0
+    logit_bias: Optional[dict] = None
+    user: Optional[str] = None
 
 
 class OpenAIUsage(BaseModel):
@@ -178,6 +189,36 @@ class OpenAIChatResponse(BaseModel):
                 "usage": {"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30},
             }
         }
+
+
+# ---------------------------------------------------------------------------
+# SSE streaming models (OpenAI chat.completion.chunk format)
+# ---------------------------------------------------------------------------
+
+
+class OpenAIStreamDelta(BaseModel):
+    """Delta object inside a streaming chunk choice."""
+
+    role: Optional[Literal["assistant"]] = None
+    content: Optional[str] = None
+
+
+class OpenAIStreamChoice(BaseModel):
+    """Choice object inside a streaming chunk."""
+
+    index: int
+    delta: OpenAIStreamDelta
+    finish_reason: Optional[Literal["stop", "length"]] = None
+
+
+class OpenAIStreamChunk(BaseModel):
+    """A single Server-Sent Events chunk in OpenAI streaming format."""
+
+    id: str
+    object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
+    created: int
+    model: str
+    choices: List[OpenAIStreamChoice]
 
 
 def map_openai_to_eole_settings(openai_request: OpenAIChatRequest) -> dict:
@@ -478,9 +519,52 @@ class Model(object):
         def raise_exception(message):
             raise TemplateError(message)
 
+        chat_template = self.config.chat_template
+        if chat_template is None:
+            # Fall back to a standalone chat_template.jinja file in the model
+            # directory (used by some modern HF models that don't embed the
+            # template in tokenizer_config.json or config.json).
+            jinja_file = os.path.join(self.local_path, "chat_template.jinja")
+            if os.path.exists(jinja_file):
+                with open(jinja_file, encoding="utf-8") as f:
+                    chat_template = f.read()
+            else:
+                raise TemplateError(
+                    f"Model '{self.model_id}' has no chat_template configured. "
+                    "Set chat_template in the model's inference config or provide "
+                    "a chat_template.jinja file in the model directory."
+                )
+        # Modern HuggingFace models store chat_template as a list of named
+        # templates, e.g. [{"name": "default", "template": "..."}, ...].
+        # Extract the "default" entry, or fall back to the first entry.
+        if isinstance(chat_template, list):
+            # Use .get() to safely handle list items that may lack a "template" key.
+            template_str = next(
+                (t.get("template") for t in chat_template if isinstance(t, dict) and t.get("name") == "default"),
+                None,
+            )
+            if template_str is None and chat_template:
+                first = chat_template[0]
+                template_str = (
+                    first.get("template") if isinstance(first, dict) else (first if isinstance(first, str) else None)
+                )
+            if not isinstance(template_str, str):
+                raise TemplateError(f"Model '{self.model_id}': chat_template list contains no usable template string.")
+            chat_template = template_str
+
+        # Guard against any remaining non-string value (e.g. dict or bytes from
+        # unexpected config formats) to give a clear error instead of a cryptic
+        # "Can't compile non template nodes" TypeError from Jinja2.
+        if not isinstance(chat_template, str):
+            raise TemplateError(
+                f"Model '{self.model_id}': chat_template has unexpected type "
+                f"'{type(chat_template).__name__}' — expected a string. "
+                "Check the model's config.json or chat_template.jinja file."
+            )
+
         jinja_env = ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True)
         jinja_env.globals["raise_exception"] = raise_exception
-        template = jinja_env.from_string(self.config.chat_template)
+        template = jinja_env.from_string(chat_template)
         rendered_output = template.render(
             **{
                 "messages": inputs,
@@ -613,21 +697,6 @@ def create_app(config_file):
         for OpenAI or other LLM APIs.
         """
         try:
-            # Check if streaming is requested (not supported yet)
-            if request.stream:
-                from fastapi.responses import JSONResponse
-
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "error": {
-                            "message": "Streaming is not yet supported",
-                            "type": "invalid_request_error",
-                            "code": "streaming_not_supported",
-                        }
-                    },
-                )
-
             # Check if n > 1 (multiple completions not supported in simple implementation)
             if request.n > 1:
                 from fastapi.responses import JSONResponse
@@ -667,6 +736,105 @@ def create_app(config_file):
 
             await server.maybe_load_model(model_id)
 
+            # ----------------------------------------------------------------
+            # Streaming path
+            # ----------------------------------------------------------------
+            if request.stream:
+                model_obj = server.models[model_id]
+                if not model_obj.loaded:
+                    model_obj.load()
+
+                chat_input = model_obj.apply_chat_template(messages)
+                completion_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
+                created_ts = int(time.time())
+
+                async def _stream_sse():
+                    """Async generator that yields SSE-formatted data lines."""
+                    loop = asyncio.get_event_loop()
+
+                    # Run the synchronous streaming generator in a thread-pool
+                    # executor so it doesn't block the event loop.
+                    import concurrent.futures
+
+                    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+                    # The engine's infer_list_stream is a synchronous generator.
+                    # We iterate it inside run_in_executor via a queue-bridging
+                    # pattern to keep the event loop responsive.
+                    chunk_queue: asyncio.Queue = asyncio.Queue()
+
+                    def _produce():
+                        try:
+                            for chunk in model_obj.engine.infer_list_stream(chat_input, settings=settings):
+                                loop.call_soon_threadsafe(chunk_queue.put_nowait, chunk)
+                        except Exception as exc:  # noqa: BLE001
+                            loop.call_soon_threadsafe(chunk_queue.put_nowait, exc)
+                        finally:
+                            loop.call_soon_threadsafe(chunk_queue.put_nowait, None)
+
+                    executor.submit(_produce)
+
+                    # First chunk: role announcement
+                    first_chunk = OpenAIStreamChunk(
+                        id=completion_id,
+                        created=created_ts,
+                        model=model_id,
+                        choices=[
+                            OpenAIStreamChoice(
+                                index=0,
+                                delta=OpenAIStreamDelta(role="assistant"),
+                            )
+                        ],
+                    )
+                    yield f"data: {first_chunk.model_dump_json()}\n\n"
+
+                    while True:
+                        item = await chunk_queue.get()
+                        if item is None:
+                            break
+                        if isinstance(item, Exception):
+                            raise item
+                        content_chunk = OpenAIStreamChunk(
+                            id=completion_id,
+                            created=created_ts,
+                            model=model_id,
+                            choices=[
+                                OpenAIStreamChoice(
+                                    index=0,
+                                    delta=OpenAIStreamDelta(content=item),
+                                )
+                            ],
+                        )
+                        yield f"data: {content_chunk.model_dump_json()}\n\n"
+
+                    # Final chunk with finish_reason
+                    final_chunk = OpenAIStreamChunk(
+                        id=completion_id,
+                        created=created_ts,
+                        model=model_id,
+                        choices=[
+                            OpenAIStreamChoice(
+                                index=0,
+                                delta=OpenAIStreamDelta(),
+                                finish_reason="stop",
+                            )
+                        ],
+                    )
+                    yield f"data: {final_chunk.model_dump_json()}\n\n"
+                    yield "data: [DONE]\n\n"
+
+                return StreamingResponse(
+                    _stream_sse(),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "X-Accel-Buffering": "no",
+                    },
+                )
+
+            # ----------------------------------------------------------------
+            # Non-streaming path
+            # ----------------------------------------------------------------
             # Run inference using chat mode
             scores, preds = await server.models[model_id].infer_async(
                 inputs=messages,
@@ -675,7 +843,16 @@ def create_app(config_file):
             )
 
             # Calculate token usage (rough estimation)
-            prompt_text = " ".join([msg.content for msg in request.messages])
+            # content can be None (tool-call-only message) or a list (multipart);
+            # normalise to plain text for token counting.
+            def _content_as_str(c):
+                if c is None:
+                    return ""
+                if isinstance(c, list):
+                    return " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in c)
+                return str(c)
+
+            prompt_text = " ".join([_content_as_str(msg.content) for msg in request.messages])
             prompt_tokens = estimate_tokens(prompt_text)
             completion_text = preds[0][0] if preds and preds[0] else ""
             completion_tokens = estimate_tokens(completion_text)

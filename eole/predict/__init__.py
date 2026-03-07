@@ -4,6 +4,7 @@ from eole.predict.translator import Translator
 from eole.predict.generator import GeneratorLM
 from eole.predict.encoder import Encoder
 from eole.predict.audio_predictor import AudioPredictor
+from eole.predict.streamer import GenerationStreamer  # noqa: F401
 
 from eole.predict.beam_search import GNMTGlobalScorer
 from eole.decoders.ensemble import EnsembleModel

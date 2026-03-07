@@ -1,0 +1,25 @@
+models_root: "." # used only for HF downloads for now, but might override $EOLE_MODEL_DIR at some point
+models:
+# local model
+- id: "qwen3.5-9B-int4"
+  path: "${EOLE_MODEL_DIR}/qwen3.5-9B-int4"
+  preload: true
+  config:
+    top_k: 0 #20
+    top_p: 0.0 #0.6
+    temperature: 1.0
+    beam_size: 1
+    n_best: 1
+    length_penalty: avg
+    #block_ngram_repeat: 3
+    report_time: true
+    profile: false
+    self_attn_backend: "flash"
+    compute_dtype: bf16
+    fuse_kvq: false
+    fuse_gate: false
+    with_score: false
+    estim_only: false
+#    specific to serve.py
+#    batch_size: 8
+#    batch_timeout: 0.1
