@@ -534,11 +534,11 @@ class BaseModel(nn.Module):
         """
         Returns a tuple of size 2 or 4 depending on param.
 
-         In tensor parallel:
-         - Column-parallel layers (TP_COL_PARALLEL_LAYERS) split on output dim (dim 0).
-           Their lora_A is replicated (same on all GPUs), so it must NOT be sliced.
-         - Row-parallel layers (TP_ROW_PARALLEL_LAYERS) split on input dim (dim 1).
-           Their lora_B is replicated (same on all GPUs), so it must NOT be sliced.
+        In tensor parallel:
+        - Column-parallel layers (TP_COL_PARALLEL_LAYERS) split on output dim (dim 0).
+          Their lora_A is replicated (same on all GPUs), so it must NOT be sliced.
+        - Row-parallel layers (TP_ROW_PARALLEL_LAYERS) split on input dim (dim 1).
+          Their lora_B is replicated (same on all GPUs), so it must NOT be sliced.
         """
         col_start, col_end = 0, param.size(0)
         # lora_A in column-parallel is replicated across GPUs, do not slice
