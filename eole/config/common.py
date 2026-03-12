@@ -155,6 +155,7 @@ class RunningConfig(DistributedConfig):
             flash_pack = import_module("flash_attn")
             if (
                 hasattr(flash_pack, "flash_attn_func")
+                and torch.cuda.is_available()
                 and torch.cuda.get_device_capability()[0] >= 8
                 and self.self_attn_backend == "flash"
                 and self.compute_dtype in [torch.float16, torch.bfloat16]
