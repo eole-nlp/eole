@@ -24,7 +24,7 @@ from eole.decoders import str2dec
 from eole.adapters import str2adapter
 from eole.constants import DefaultTokens, LayerNormFP32
 from eole.modules.embeddings import Embeddings
-from eole.models.model_saver import get_metadata
+from eole.models.model_saver import get_metadata, TP_COL_PARALLEL_LAYERS, TP_ROW_PARALLEL_LAYERS
 from eole.modules.estimator import FeedForward
 
 from eole.encoders.vision import VisionEncoder
@@ -530,23 +530,25 @@ class BaseModel(nn.Module):
             if key not in keyfound and key not in buf_list:
                 logger.warning(f"Extra key in checkpoint: {key}")
 
-    def _get_tp_slices(self, param, base_name, tp_offset):
+    def _get_tp_slices(self, param, base_name, tp_offset, param_name="weight"):
         """
-        Returns a tuple of size 2 or 4 depending on param
+        Returns a tuple of size 2 or 4 depending on param.
+
+         In tensor parallel:
+         - Column-parallel layers (TP_COL_PARALLEL_LAYERS) split on output dim (dim 0).
+           Their lora_A is replicated (same on all GPUs), so it must NOT be sliced.
+         - Row-parallel layers (TP_ROW_PARALLEL_LAYERS) split on input dim (dim 1).
+           Their lora_B is replicated (same on all GPUs), so it must NOT be sliced.
         """
         col_start, col_end = 0, param.size(0)
-        if base_name in {
-            "linear_keys",
-            "linear_values",
-            "linear_query",
-            "gate_up_proj",
-            "up_proj",
-        }:
+        # lora_A in column-parallel is replicated across GPUs, do not slice
+        if base_name in TP_COL_PARALLEL_LAYERS and param_name != "lora_A":
             col_start = param.size(0) * tp_offset
             col_end = param.size(0) * (tp_offset + 1)
         if param.dim() == 2:
             row_start, row_end = 0, param.size(1)
-            if base_name in {"final_linear", "down_proj"}:
+            # lora_B in row-parallel is replicated across GPUs, do not slice
+            if base_name in TP_ROW_PARALLEL_LAYERS and param_name != "lora_B":
                 row_start = param.size(1) * tp_offset
                 row_end = param.size(1) * (tp_offset + 1)
             return col_start, col_end, row_start, row_end
@@ -571,7 +573,7 @@ class BaseModel(nn.Module):
             param.data = param.data.transpose(0, 1)
             ckpt_t = ckpt_t.transpose(0, 1)
 
-        slices = self._get_tp_slices(param, base_name, tp_offset)
+        slices = self._get_tp_slices(param, base_name, tp_offset, param_name)
 
         if param.dim() == 2:
             col_start, col_end, row_start, row_end = slices

@@ -15,6 +15,14 @@ try:
 except ImportError:
     raise ImportError("run: pip install safetensors, to use safetensors")
 
+# Tensor-parallel layer name groups.
+# Column-parallel layers split the *output* dimension (dim 0) across GPUs.
+# Their lora_A weight is replicated (input dim is not split).
+TP_COL_PARALLEL_LAYERS = frozenset({"linear_keys", "linear_values", "linear_query", "gate_up_proj", "up_proj"})
+# Row-parallel layers split the *input* dimension (dim 1) across GPUs.
+# Their lora_B weight is replicated (output dim is not split).
+TP_ROW_PARALLEL_LAYERS = frozenset({"final_linear", "down_proj"})
+
 
 def build_model_saver(config, model, vocabs, optim, device_id, transforms):
 
@@ -172,32 +180,25 @@ class TrainingModelSaver(ModelSaverBase):
         full_state_dict = {}
         for key in full_model[0].keys():
             key_2, key_1 = key.split(".")[-2:]
-            averaged_params = {
-                "linear_keys",
-                "linear_values",
-                "linear_query",
-                "gate_up_proj",
-                "up_proj",
-            }
-            cat_params = {"final_linear", "down_proj"}
-
             # All operations on CPU tensors (remove redundant .cpu() calls)
+            # we probably should try and improve this to rely on dimensions instead of names
             match key_1, key_2:
-                case "lora_A", _ if key_2 in averaged_params:
+                case "lora_A", _ if key_2 in TP_COL_PARALLEL_LAYERS:
                     full_state_dict[key] = sum([full_model[i][key] for i in range(world_size)]) / world_size
-                case "lora_A", _ if key_2 in cat_params:
+                case "lora_A", _ if key_2 in TP_ROW_PARALLEL_LAYERS:
                     full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 1)
-                case "lora_B", _ if key_2 in averaged_params:
+                case "lora_B", _ if key_2 in TP_COL_PARALLEL_LAYERS:
                     full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 0)
-                case "lora_B", _ if key_2 in cat_params:
+                case "lora_B", _ if key_2 in TP_ROW_PARALLEL_LAYERS:
+                    # lora_B is replicated for row-parallel layers; take from rank 0
+                    full_state_dict[key] = full_model[0][key]
+                case _ if key_1 in TP_COL_PARALLEL_LAYERS:
+                    full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 0)
+                case _ if key_1 in TP_ROW_PARALLEL_LAYERS:
                     full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 1)
-                case _ if key_1 in averaged_params:
+                case _ if key_2 in TP_COL_PARALLEL_LAYERS:
                     full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 0)
-                case _ if key_1 in cat_params:
-                    full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 1)
-                case _ if key_2 in averaged_params:
-                    full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 0)
-                case _ if key_2 in cat_params:
+                case _ if key_2 in TP_ROW_PARALLEL_LAYERS:
                     full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 1)
                 case _, _:
                     full_state_dict[key] = full_model[0][key]
