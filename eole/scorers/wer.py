@@ -50,7 +50,7 @@ class WerScorer(Scorer):
         normalize_mode = getattr(config, "wer_normalize", "none")
         self._normalizer = _build_normalizer(normalize_mode)
 
-    def compute_score(self, preds, texts_refs):
+    def compute_score(self, preds, texts_refs, texts_srcs=None):
         if wer is None:
             raise ImportError("jiwer is required for the WER scorer: pip install -e .[wer]")
         if len(preds) > 0:

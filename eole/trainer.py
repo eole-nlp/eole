@@ -481,7 +481,7 @@ class Trainer:
                 computed_metrics = {}
                 start = time.time()
                 with get_autocast(enabled=self.optim.amp):
-                    preds, texts_ref = self.scoring_preparator.translate(
+                    preds, texts_ref, texts_src = self.scoring_preparator.translate(
                         model=self.model,
                         gpu_rank=self.config.gpu_rank,
                         step=self.optim.training_step,
@@ -498,6 +498,7 @@ class Trainer:
                         scorer=self.valid_scorers[metric]["scorer"],
                         preds=preds,
                         texts_ref=texts_ref,
+                        texts_src=texts_src,
                     )
                     computed_metrics[metric] = self.valid_scorers[metric]["value"]
                     logger.info("validation {}: {}".format(metric, self.valid_scorers[metric]["value"]))
@@ -517,17 +518,34 @@ class Trainer:
 
         return stats
 
-    def _eval_handler(self, scorer, preds, texts_ref):
+    def _eval_handler(self, scorer, preds, texts_ref, texts_src=None):
         """Trigger metrics calculations
 
         Args:
             scorer (:obj:``eole.scorer.Scorer``): scorer.
-            preds, texts_ref: outputs of the scorer's `translate` method.
+            preds, texts_ref, texts_src: outputs of the scorer's `translate` method.
 
         Returns:
             The metric calculated by the scorer."""
 
-        return scorer.compute_score(preds, texts_ref)
+        if getattr(scorer, "uses_gpu", False):
+            # Offload the training model to CPU so the scorer can use the GPU.
+            try:
+                device = next(self.model.parameters()).device
+            except StopIteration:
+                # Model has no parameters (e.g. a stub/wrapper): default to CPU.
+                device = torch.device("cpu")
+            if device.type != "cpu":
+                logger.info("Offloading training model to CPU for GPU-based metric scoring.")
+                self.model.to("cpu")
+                clear_gpu_cache()
+                try:
+                    score = scorer.compute_score(preds, texts_ref, texts_src)
+                finally:
+                    logger.info("Restoring training model to %s.", device)
+                    self.model.to(device)
+                return score
+        return scorer.compute_score(preds, texts_ref, texts_src)
 
     def _start_report_manager(self, start_time=None):
         """Start report manager."""

@@ -41,6 +41,7 @@ class ScoringPreparator:
         Returns:
             preds (list): Detokenized predictions
             texts_ref (list): Detokenized target sentences
+            raw_srcs: raw (non-detokenized) source texts as they were read
         """
         # ########## #
         # Translator #
@@ -167,4 +168,4 @@ class ScoringPreparator:
                     file.write("RAW REF: {}\n".format(raw_refs[i]))
                     file.write("REF: {}\n".format(refs[i]))
                     file.write("PRED: {}\n\n".format(preds[i]))
-        return preds, refs
+        return preds, refs, raw_srcs

@@ -101,6 +101,18 @@ class LoggingConfig(Config):
         default="none",
         description="WER normalization mode: none, lowercase, whisper_en, whisper_basic.",
     )
+    comet_model: str | None = Field(
+        default=None,
+        description=(
+            "COMET model name or local path to use for COMET/COMET-KIWI scoring. "
+            "Defaults to Unbabel/wmt22-comet-da for COMET and "
+            "Unbabel/wmt22-cometkiwi-da for COMET-KIWI when not set."
+        ),
+    )
+    comet_batch_size: int = Field(
+        default=64,
+        description="Batch size used when running COMET/COMET-KIWI scoring.",
+    )
     scoring_debug: bool = Field(default=False, description="Dump src/ref/pred of the current batch.")
     dump_preds: str | None = Field(default=None, description="Folder to dump predictions to.")
     tensorboard: bool = Field(default=False, description="Use tensorboard for visualization during training.")
