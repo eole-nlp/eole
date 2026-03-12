@@ -16,6 +16,7 @@ from eole.utils.logging import logger
 from eole.utils.misc import clear_gpu_cache, get_autocast
 from eole.utils.scoring_utils import ScoringPreparator
 from eole.scorers import get_scorers_cls, build_scorers
+from eole.models.model_saver import TP_COL_PARALLEL_LAYERS, TP_ROW_PARALLEL_LAYERS
 
 
 @dataclass
@@ -180,6 +181,32 @@ class GradientSynchronizer:
             grads = [p.grad.data for p in self.model.parameters() if p.requires_grad and p.grad is not None]
             if grads:
                 all_reduce_and_rescale_tensors(grads, float(self.n_gpu))
+        elif self.n_gpu > 1 and self.parallel_mode == "tensor_parallel":
+            # In tensor parallel, some LoRA parameters are replicated across all GPUs:
+            # - lora_A for column-parallel layers (TP_COL_PARALLEL_LAYERS): replicated because
+            #   the input dimension is not split
+            # - lora_B for row-parallel layers (TP_ROW_PARALLEL_LAYERS): replicated because
+            #   the output dimension is not split
+            # Each GPU only computes a partial gradient for these replicated params; we need
+            # to all-reduce (sum) their gradients so every GPU gets the correct full gradient.
+            grads_to_sync = []
+            for name, param in self.model.named_parameters():
+                if not param.requires_grad or param.grad is None:
+                    continue
+                parts = name.split(".")
+                # Need at least "module_name.param_name" (2 parts) to identify layer type
+                if len(parts) < 2:
+                    continue
+                module_name = parts[-2]
+                param_name = parts[-1]
+                if (module_name in TP_COL_PARALLEL_LAYERS and param_name == "lora_A") or (
+                    module_name in TP_ROW_PARALLEL_LAYERS and param_name == "lora_B"
+                ):
+                    grads_to_sync.append(param.grad.data)
+            if grads_to_sync:
+                # Use rescale_denom=1.0 to sum (not average) partial gradients,
+                # since each GPU holds a partial contribution to the full gradient.
+                all_reduce_and_rescale_tensors(grads_to_sync, 1.0)
 
 
 class Trainer:
