@@ -306,9 +306,9 @@ def prepare_pretrained_embeddings(config, vocabs):
         logger.info("\nSaving encoder embeddings as:\n\t* enc: %s" % enc_output_file)
         torch.save(convert_to_torch_tensor(src_vectors, enc_vocab), enc_output_file)
         # set the opt in place
-        config.pre_word_vecs_enc = enc_output_file
+        config.training.pre_word_vecs_enc = enc_output_file
     if config.tgt_embeddings is not None or config.both_embeddings is not None:
         logger.info("\nSaving decoder embeddings as:\n\t* dec: %s" % dec_output_file)
         torch.save(convert_to_torch_tensor(tgt_vectors, dec_vocab), dec_output_file)
         # set the opt in place
-        config.pre_word_vecs_dec = dec_output_file
+        config.training.pre_word_vecs_dec = dec_output_file
