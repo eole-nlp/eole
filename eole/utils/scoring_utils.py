@@ -41,6 +41,7 @@ class ScoringPreparator:
         Returns:
             preds (list): Detokenized predictions
             texts_ref (list): Detokenized target sentences
+            raw_srcs: raw (non-detokenized) source texts as they were read
         """
         # ########## #
         # Translator #
