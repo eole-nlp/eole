@@ -386,6 +386,16 @@ class BaseModel(nn.Module):
                     sym=getattr(running_config, "autoround_sym", True),
                     module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
                 )
+            elif running_config.quant_type == "gguf":
+                logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
+                try:
+                    from eole.modules.gguf_linear import replace_gguf_linear
+                except ImportError:
+                    raise ImportError("Install gguf to use GGUF quantized models: pip install gguf")
+                replace_gguf_linear(
+                    quant_target,
+                    module_to_convert=nonlora_to_quant,
+                )
             else:
                 logger.info("compression type %s not supported." % running_config.quant_type)
 
@@ -546,6 +556,15 @@ class BaseModel(nn.Module):
         base_name = module_name.split(".")[-1]
         is_buffer = f"{module_name}.{param_name}" in buf_list
         is_wq = module.__class__.__name__ == "WQLinear_GEMM"
+
+        # GGUFLinear stores quantized weights as variable-size uint8 buffers
+        # whose shape depends on the per-tensor quantization type loaded from
+        # the shard.  Skip the size assertion and register the buffer directly.
+        if module.__class__.__name__ == "GGUFLinear" and param_name in ("weight", "gguf_qtype"):
+            module.register_buffer(param_name, ckpt_t.contiguous())
+            if param_name == "gguf_qtype":
+                module._sync_qtype_attr()
+            return
 
         # WQLinear_GEMM fix MUST happen before slicing
         if is_wq:
