@@ -160,10 +160,15 @@ class TrainingModelSaver(ModelSaverBase):
         return model_state_dict
 
     def _tensor_parallel_state_dict(self, model_state_dict, world_size):
-        full_model = [None for _ in range(world_size)]
+        # Move everything to CPU first
+        cpu_model_state_dict = {}
         for key, value in model_state_dict.items():
-            model_state_dict[key] = value.cpu()
-        torch.distributed.all_gather_object(full_model, model_state_dict)
+            cpu_model_state_dict[key] = value.cpu()
+
+        # Gather on CPU
+        full_model = [None for _ in range(world_size)]
+        torch.distributed.all_gather_object(full_model, cpu_model_state_dict)
+
         full_state_dict = {}
         for key in full_model[0].keys():
             key_2, key_1 = key.split(".")[-2:]
@@ -175,26 +180,28 @@ class TrainingModelSaver(ModelSaverBase):
                 "up_proj",
             }
             cat_params = {"final_linear", "down_proj"}
-            # we probably should try and improve this to rely on dimensions instead of names
+
+            # All operations on CPU tensors (remove redundant .cpu() calls)
             match key_1, key_2:
                 case "lora_A", _ if key_2 in averaged_params:
-                    full_state_dict[key] = sum([full_model[i][key].cpu() for i in range(world_size)]) / world_size
+                    full_state_dict[key] = sum([full_model[i][key] for i in range(world_size)]) / world_size
                 case "lora_A", _ if key_2 in cat_params:
-                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 1)
+                    full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 1)
                 case "lora_B", _ if key_2 in averaged_params:
-                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 0)
+                    full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 0)
                 case "lora_B", _ if key_2 in cat_params:
-                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 1)
+                    full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 1)
                 case _ if key_1 in averaged_params:
-                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 0)
+                    full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 0)
                 case _ if key_1 in cat_params:
-                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 1)
+                    full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 1)
                 case _ if key_2 in averaged_params:
-                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 0)
+                    full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 0)
                 case _ if key_2 in cat_params:
-                    full_state_dict[key] = torch.cat([full_model[i][key].cpu() for i in range(world_size)], 1)
+                    full_state_dict[key] = torch.cat([full_model[i][key] for i in range(world_size)], 1)
                 case _, _:
                     full_state_dict[key] = full_model[0][key]
+
         return full_state_dict
 
     def _save_tokenizer(self):
