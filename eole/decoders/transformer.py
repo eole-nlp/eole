@@ -464,8 +464,8 @@ class TransformerDecoder(DecoderBase):
         if k_image_locations is None:
             k_image_locations = image_locations
 
-        is_q_img = image_locations            # (B, q_len)
-        is_k_img = k_image_locations          # (B, k_loc_len)
+        is_q_img = image_locations  # (B, q_len)
+        is_k_img = k_image_locations  # (B, k_loc_len)
         k_loc_len = is_k_img.size(1)
 
         # (B, q_len, k_loc_len): True where both tokens are image tokens
@@ -537,7 +537,7 @@ class TransformerDecoder(DecoderBase):
             # q_pos: (chunk_size, 1) -> (1, chunk_size, 1) for broadcasting
             # k_pos: (1, cache_len)  -> (1, 1, cache_len) for broadcasting
             q_in_prefix = q_pos.view(1, chunk_size, 1) < plen  # (B, chunk_size, 1)
-            k_in_prefix = k_pos.view(1, 1, cache_len) < plen   # (B, 1, cache_len)
+            k_in_prefix = k_pos.view(1, 1, cache_len) < plen  # (B, 1, cache_len)
             # (chunk_size, cache_len) | (B, chunk_size, cache_len) = (B, chunk_size, cache_len)
             mask = mask.unsqueeze(0) | (q_in_prefix & k_in_prefix)
         else:

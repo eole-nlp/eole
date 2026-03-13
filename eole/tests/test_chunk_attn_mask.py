@@ -53,8 +53,6 @@ def _decoding_allowed_keys(current_step, cache_len, sliding_window):
     return {k for k in range(cache_len) if k <= current_step and k >= start}
 
 
-
-
 class TestFirstChunkMaskKeyDimension(unittest.TestCase):
     """Validate that _chunk_attn_mask with current_step=0 (first chunk) produces
     a causal mask whose key dimension equals cache_len_tgt, not chunk_size.
@@ -221,7 +219,7 @@ class TestUpdateCausalMaskAsymmetric(unittest.TestCase):
             self.assertEqual(
                 allowed,
                 causal,
-                msg=f"q={q_pos} (text): image bonus should NOT apply, allowed={sorted(allowed)} != causal={sorted(causal)}",
+                msg=f"q={q_pos} (text): image bonus should NOT apply, allowed={sorted(allowed)} != causal={sorted(causal)}",  # noqa E501
             )
 
     def test_image_query_in_first_chunk_sees_own_image_tokens(self):
