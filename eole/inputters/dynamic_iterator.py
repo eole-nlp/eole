@@ -16,6 +16,27 @@ from eole.utils.misc import RandomShuffler, get_device
 from torch.utils.data import DataLoader
 
 
+def _resolve_numericalizer_model_type(model_config):
+    """Return the ModelType to use for text numericalization.
+
+    Vision-encoder + text-decoder models (e.g. Qwen-VL) have
+    ``model_type == ENCODER_DECODER`` at the config level, but their text
+    tokens are processed exclusively by the decoder.  Using
+    ``_handle_encoder_decoder`` in the Numericalizer would prepend a
+    decoder-start token *and* append EOS to the target, making ``len(tgt)``
+    differ from ``len(src)`` and breaking ``GeneratorLM._score_target``.
+    For those models we therefore use ``ModelType.DECODER`` semantics so the
+    Numericalizer mirrors the decoder-only numericalization path.
+    """
+    from eole.constants import ModelType
+
+    encoder = getattr(model_config, "encoder", None)
+    encoder_type = getattr(encoder, "encoder_type", None)
+    if encoder_type == "vision":
+        return ModelType.DECODER
+    return getattr(model_config, "model_type", None)
+
+
 class MixingStrategy(object):
     """Mixing strategy that should be used in Data Iterator."""
 
@@ -234,7 +255,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             bucket_size = 16384
             bucket_size_init = -1
             bucket_size_increment = 0
-            skip_empty_level = "warning"
+            skip_empty_level = getattr(config, "skip_empty_level", "warning")
         try:
             image_patch_size = config.model.encoder.patch_size * config.model.spatial_merge_size
         except AttributeError:
@@ -269,7 +290,7 @@ class DynamicDatasetIter(torch.utils.data.IterableDataset):
             offset=offset,
             score_threshold=0 if isinstance(config, PredictConfig) else running_config.score_threshold,
             left_pad=getattr(config.model, "left_pad", False),
-            model_type=model_type if model_type is not None else getattr(config.model, "model_type", None),
+            model_type=model_type if model_type is not None else _resolve_numericalizer_model_type(config.model),
             image_patch_size=image_patch_size,
             image_size=image_size,
             adapter=getattr(config.model, "adapter", None),

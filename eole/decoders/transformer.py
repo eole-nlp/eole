@@ -345,7 +345,9 @@ class TransformerDecoder(DecoderBase):
         self.self_attn_backend = getattr(running_config, "self_attn_backend", "flash")
         self.position_encoding_type = decoder_config.position_encoding_type
         self.flash = False
-        self.dynamic_shapes = getattr(running_config, "dynamic_shapes", None)
+        self.dynamic_shapes = getattr(running_config, "dynamic_shapes", not EOLE_TORCH_COMPILE)
+        if self.dynamic_shapes is None:
+            self.dynamic_shapes = not EOLE_TORCH_COMPILE
         self.max_length = getattr(running_config, "max_length", 256)
         self.left_pad_attn_mask = None
         self.position_indices = None
@@ -640,8 +642,6 @@ class TransformerDecoder(DecoderBase):
             and device != torch.device("cpu")
         )
 
-        if self.dynamic_shapes is None:
-            self.dynamic_shapes = not EOLE_TORCH_COMPILE
         if self.dynamic_shapes:
             self.cache_len_tgt = l  # kv cache starts at target length and grows
         else:
