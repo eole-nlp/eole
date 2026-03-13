@@ -13,7 +13,7 @@ class BleuZhScorer(Scorer):
 
     def compute_score(self, preds, texts_refs, texts_srcs=None):
         if len(preds) > 0:
-            score = corpus_bleu(preds, [texts_refs],tokenize="zh").score
+            score = corpus_bleu(preds, [texts_refs], tokenize="zh").score
         else:
             score = 0
         return score
