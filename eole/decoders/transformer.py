@@ -465,7 +465,7 @@ class TransformerDecoder(DecoderBase):
         attn_mask = attn_mask.masked_fill(full_mask, True)
         return attn_mask
 
-    def _chunk_attn_mask(self, chunk_size, current_step, tgt_pad_mask):
+    def _chunk_attn_mask(self, chunk_size, current_step, tgt_pad_mask, image_locations=None, prefix_len=None):
         """Create an absolute-position attention mask for a prefill chunk.
 
         Used when processing non-first chunks during chunked prefill
@@ -481,11 +481,21 @@ class TransformerDecoder(DecoderBase):
                 handles both transparently.
             tgt_pad_mask (Tensor): target padding mask ``(B, 1, chunk_size)``,
                 True = padding token.
+            image_locations (Tensor, optional): ``(B, S_full)`` bool tensor
+                where True marks an image token over the full input sequence.
+                When provided, image tokens are allowed to attend to other
+                image tokens at any cached position (cross-chunk).
+            prefix_len (Tensor, optional): ``(B,)`` int tensor with per-batch
+                prefix lengths.  When provided and ``self.LM_type == "prefix"``
+                prefix tokens are allowed to attend bidirectionally to every
+                other prefix token, mirroring the logic of
+                ``_causal_attn_mask``.
 
         Returns:
             Tensor: boolean mask ``(B, 1, chunk_size, cache_len_tgt)``,
                 True = position can be attended to.
         """
+        B = tgt_pad_mask.size(0)
         device = tgt_pad_mask.device
         cache_len = self.cache_len_tgt
 
@@ -501,13 +511,35 @@ class TransformerDecoder(DecoderBase):
             # Sliding window: key position must be within the window
             mask = mask & (k_pos >= (q_pos - self.sliding_window))
 
+        # Apply prefix-LM mask: prefix tokens attend to each other
+        # bidirectionally regardless of the causal / sliding-window constraint.
+        if self.LM_type == "prefix" and prefix_len is not None:
+            plen = prefix_len.view(B, 1, 1)  # (B, 1, 1)
+            # q_pos: (chunk_size, 1) -> (1, chunk_size, 1) for broadcasting
+            # k_pos: (1, cache_len)  -> (1, 1, cache_len) for broadcasting
+            q_in_prefix = q_pos.view(1, chunk_size, 1) < plen  # (B, chunk_size, 1)
+            k_in_prefix = k_pos.view(1, 1, cache_len) < plen  # (B, 1, cache_len)
+            # (chunk_size, cache_len) | (B, chunk_size, cache_len) = (B, chunk_size, cache_len)
+            mask = mask.unsqueeze(0) | (q_in_prefix & k_in_prefix)
+        else:
+            mask = mask.unsqueeze(0)  # (1, chunk_size, cache_len) for broadcast below
+
         # Apply the left-padding mask stored from _init_cache:
         # left_pad_attn_mask[b, j] is True when position j is not a pad token.
-        # After unsqueeze(0): mask is (1, chunk_size, cache_len);
-        # left_pad_attn_mask unsqueeze(1) is (B, 1, cache_len).
-        # The & broadcasts to (B, chunk_size, cache_len); unsqueeze(1) below
-        # then gives the final (B, 1, chunk_size, cache_len).
-        mask = mask.unsqueeze(0) & self.left_pad_attn_mask[:, :cache_len].unsqueeze(1)
+
+        # left_pad_attn_mask unsqueeze(1) is (B, 1, cache_len);
+        # broadcasts with mask (B or 1, chunk_size, cache_len).
+        mask = mask & self.left_pad_attn_mask[:, :cache_len].unsqueeze(1)
+        # mask is now (B, chunk_size, cache_len)
+
+        # Apply image-token mask: image tokens may attend to other image tokens
+        # at any cached position (including tokens from previous chunks).
+        if image_locations is not None:
+            step = int(current_step)
+            is_q_img = image_locations[:, step : step + chunk_size]  # (B, chunk_size)
+            is_k_img = image_locations[:, :cache_len]  # (B, cache_len)
+            img_block = is_q_img.unsqueeze(2) & is_k_img.unsqueeze(1)  # (B, chunk_size, cache_len)
+            mask = mask | img_block
 
         return mask.unsqueeze(1)  # (B, 1, chunk_size, cache_len)
 
@@ -528,9 +560,12 @@ class TransformerDecoder(DecoderBase):
         Args:
             emb (Tensor): ``(B, S, hidden_size)`` with ``S > sliding_window``.
             **kwargs: forwarded to ``_forward_eager`` unchanged except that
-                ``tgt_pad_mask``, ``image_locations``, and ``prefix_len`` are
-                managed per-chunk (``image_locations`` and ``prefix_len`` are
-                only passed to the first chunk).
+                ``tgt_pad_mask`` is sliced per chunk, ``image_locations`` is
+                sliced to the chunk's own tokens for chunk 0 (to match
+                ``_update_causal_mask``'s expected shape) and passed as the
+                full tensor to subsequent chunks (so ``_chunk_attn_mask`` can
+                check cross-chunk image-to-image attention), and ``prefix_len``
+                is forwarded to every chunk unchanged.
 
         Returns:
             (Tensor, dict): concatenated hidden-state output over all chunks
@@ -541,7 +576,8 @@ class TransformerDecoder(DecoderBase):
         chunk_size = self.sliding_window
 
         tgt_pad_mask_full = kwargs.pop("tgt_pad_mask")
-        # image_locations and prefix_len only apply to the first chunk
+        # Extract image_locations and prefix_len so we can distribute them
+        # correctly to each chunk (see per-chunk handling below).
         image_locations = kwargs.pop("image_locations", None)
         prefix_len = kwargs.pop("prefix_len", None)
 
@@ -557,11 +593,27 @@ class TransformerDecoder(DecoderBase):
 
             chunk_kwargs = dict(kwargs)
             chunk_kwargs["tgt_pad_mask"] = pad_mask_chunk
-            if i == 0:
-                if image_locations is not None:
+
+            if image_locations is not None:
+                if i == 0:
+                    # _update_causal_mask (called from _forward_eager for the
+                    # first chunk where current_step == 0) expects image_locations
+                    # of shape (B, chunk_seq_len) matching the query dimension
+                    # of the causal mask.  Slice to the current chunk tokens.
+                    chunk_kwargs["image_locations"] = image_locations[:, start:end]
+                else:
+                    # For non-first chunks _chunk_attn_mask handles the mask.
+                    # It slices the query positions internally using current_step
+                    # and needs the full tensor to check cross-chunk
+                    # image-to-image attention for keys in previous chunks.
                     chunk_kwargs["image_locations"] = image_locations
-                if prefix_len is not None:
-                    chunk_kwargs["prefix_len"] = prefix_len
+
+            if prefix_len is not None:
+                # prefix_len is passed to every chunk: _causal_attn_mask for
+                # chunk 0 and _chunk_attn_mask for subsequent chunks both use
+                # absolute positions, so prefix tokens beyond the first chunk
+                # are handled correctly.
+                chunk_kwargs["prefix_len"] = prefix_len
 
             emb_chunk_out, chunk_attns = self._forward_eager(emb_chunk, **chunk_kwargs)
             all_emb_chunks.append(emb_chunk_out)
@@ -679,7 +731,13 @@ class TransformerDecoder(DecoderBase):
                     # always starts rows from position 0, which is incorrect
                     # once earlier chunks have already been written to the cache.
                     # Use an absolute-position mask instead.
-                    attn_mask = self._chunk_attn_mask(S, current_step, tgt_pad_mask)
+                    attn_mask = self._chunk_attn_mask(
+                        S,
+                        current_step,
+                        tgt_pad_mask,
+                        image_locations=image_locations,
+                        prefix_len=prefix_len,
+                    )
                 else:
                     attn_mask = self._causal_attn_mask(tgt_pad_mask, prefix_len=prefix_len)
                     if image_locations is not None:
