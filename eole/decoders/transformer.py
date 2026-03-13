@@ -508,8 +508,11 @@ class TransformerDecoder(DecoderBase):
         mask = k_pos <= q_pos  # (chunk_size, cache_len)
 
         if self.sliding_window > 0:
-            # Sliding window: key position must be within the window
-            mask = mask & (k_pos >= (q_pos - self.sliding_window))
+            # Sliding window: key position must be within the window.
+            # Use "+ 1" to match the single-step decoding path which computes
+            # start = current_step - sliding_window + 1, giving a window of
+            # exactly sliding_window tokens (not sliding_window + 1).
+            mask = mask & (k_pos >= (q_pos - self.sliding_window + 1))
 
         # Apply prefix-LM mask: prefix tokens attend to each other
         # bidirectionally regardless of the causal / sliding-window constraint.
@@ -535,6 +538,9 @@ class TransformerDecoder(DecoderBase):
         # Apply image-token mask: image tokens may attend to other image tokens
         # at any cached position (including tokens from previous chunks).
         if image_locations is not None:
+            # current_step may be a 0-d tensor; convert to plain int so it can
+            # be used as a Python slice index (tensor slicing requires int/slice,
+            # not a 0-d tensor).
             step = int(current_step)
             is_q_img = image_locations[:, step : step + chunk_size]  # (B, chunk_size)
             is_k_img = image_locations[:, :cache_len]  # (B, cache_len)
