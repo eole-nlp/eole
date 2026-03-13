@@ -751,16 +751,21 @@ class TransformerDecoder(DecoderBase):
                     if image_locations is not None:
                         # Query tokens occupy absolute positions
                         # [current_step, current_step + S); key tokens span the
-                        # full [0, cache_len_tgt).  Pass both sides explicitly so
-                        # cross-chunk image-to-image attention is handled
-                        # correctly (advanced indexing keeps current_step on
-                        # device — no host sync).
+                        # full [0, cache_len_tgt).  Only key positions that have
+                        # already been written to the cache are eligible for the
+                        # image-to-image bonus: positions >= current_step+S are
+                        # in future chunks (uninitialized) and must be blocked
+                        # even if they are flagged as image tokens.  Use an
+                        # on-device boolean mask to avoid a host sync on the
+                        # 0-d CUDA tensor current_step.
                         cache_len = self.cache_len_tgt
-                        idx = current_step + torch.arange(S, device=tgt_pad_mask.device)
+                        q_abs_positions = current_step + torch.arange(S, device=tgt_pad_mask.device)
+                        k_positions = torch.arange(cache_len, device=tgt_pad_mask.device)
+                        filled_mask = k_positions < (current_step + S)  # (cache_len,)
                         attn_mask = self._update_causal_mask(
                             attn_mask,
-                            image_locations[:, idx],
-                            image_locations[:, :cache_len],
+                            image_locations[:, q_abs_positions],
+                            image_locations[:, :cache_len] & filled_mask,
                         )
                 else:
                     # Training path (no KV cache): _causal_attn_mask handles
