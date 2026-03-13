@@ -468,17 +468,19 @@ class TransformerDecoder(DecoderBase):
     def _chunk_attn_mask(self, chunk_size, current_step, tgt_pad_mask, image_locations=None, prefix_len=None):
         """Create an absolute-position attention mask for a prefill chunk.
 
-        Used when processing non-first chunks during chunked prefill
-        (current_step > 0) in the non-flash attention path.  The standard
-        ``_causal_attn_mask`` always starts rows from position 0, which is
-        incorrect once the cache already contains tokens from previous chunks.
+        Used for all chunks during prefill when a KV cache is present (both
+        ``current_step == 0`` for the first chunk and ``current_step > 0`` for
+        subsequent ones).  Building the mask with explicit absolute positions
+        ensures the key dimension always equals ``cache_len_tgt`` regardless of
+        chunk size, and avoids device-to-host syncs that would arise from
+        comparing a 0-d CUDA ``current_step`` tensor to a Python scalar.
 
         Args:
             chunk_size (int): number of query tokens in this chunk.
             current_step (int or Tensor): absolute position of the first query
                 token.  A 0-d scalar tensor (``self.cache_seqlens[0]``) or a
-                plain Python ``int`` are both accepted; tensor arithmetic
-                handles both transparently.
+                plain Python ``int`` are both accepted; all arithmetic remains
+                on-device to avoid unnecessary host synchronisation.
             tgt_pad_mask (Tensor): target padding mask ``(B, 1, chunk_size)``,
                 True = padding token.
             image_locations (Tensor, optional): ``(B, S_full)`` bool tensor
@@ -509,10 +511,11 @@ class TransformerDecoder(DecoderBase):
 
         if self.sliding_window > 0:
             # Sliding window: key position must be within the window.
-            # Use "+ 1" to match the single-step decoding path which computes
-            # start = current_step - sliding_window + 1, giving a window of
+            # Use "- sliding_window + 1" to match the single-step decoding path
+            # (start = current_step - sliding_window + 1), giving a window of
             # exactly sliding_window tokens (not sliding_window + 1).
-            mask = mask & (k_pos >= (q_pos - self.sliding_window + 1))
+            window_start = q_pos - self.sliding_window + 1
+            mask = mask & (k_pos >= window_start)
 
         # Apply prefix-LM mask: prefix tokens attend to each other
         # bidirectionally regardless of the causal / sliding-window constraint.
@@ -538,11 +541,10 @@ class TransformerDecoder(DecoderBase):
         # Apply image-token mask: image tokens may attend to other image tokens
         # at any cached position (including tokens from previous chunks).
         if image_locations is not None:
-            # current_step may be a 0-d tensor; convert to plain int so it can
-            # be used as a Python slice index (tensor slicing requires int/slice,
-            # not a 0-d tensor).
-            step = int(current_step)
-            is_q_img = image_locations[:, step : step + chunk_size]  # (B, chunk_size)
+            # Use advanced (gather-style) indexing so that current_step can
+            # remain a 0-d CUDA tensor without forcing a device-to-host sync.
+            idx = current_step + torch.arange(chunk_size, device=device)
+            is_q_img = image_locations[:, idx]  # (B, chunk_size)
             is_k_img = image_locations[:, :cache_len]  # (B, cache_len)
             img_block = is_q_img.unsqueeze(2) & is_k_img.unsqueeze(1)  # (B, chunk_size, cache_len)
             mask = mask | img_block
@@ -567,11 +569,10 @@ class TransformerDecoder(DecoderBase):
             emb (Tensor): ``(B, S, hidden_size)`` with ``S > sliding_window``.
             **kwargs: forwarded to ``_forward_eager`` unchanged except that
                 ``tgt_pad_mask`` is sliced per chunk, ``image_locations`` is
-                sliced to the chunk's own tokens for chunk 0 (to match
-                ``_update_causal_mask``'s expected shape) and passed as the
-                full tensor to subsequent chunks (so ``_chunk_attn_mask`` can
-                check cross-chunk image-to-image attention), and ``prefix_len``
-                is forwarded to every chunk unchanged.
+                always passed as the full ``(B, S_full)`` tensor so that
+                ``_chunk_attn_mask`` can check cross-chunk image-to-image
+                attention (it slices query positions internally), and
+                ``prefix_len`` is forwarded to every chunk unchanged.
 
         Returns:
             (Tensor, dict): concatenated hidden-state output over all chunks
@@ -592,7 +593,7 @@ class TransformerDecoder(DecoderBase):
         all_align_attns = []
         all_cross_attns_layers = None  # list-of-lists, one inner list per layer
 
-        for i, start in enumerate(range(0, S, chunk_size)):
+        for start in range(0, S, chunk_size):
             end = min(start + chunk_size, S)
             emb_chunk = emb[:, start:end, :]
             pad_mask_chunk = tgt_pad_mask_full[:, :, start:end]
@@ -601,24 +602,15 @@ class TransformerDecoder(DecoderBase):
             chunk_kwargs["tgt_pad_mask"] = pad_mask_chunk
 
             if image_locations is not None:
-                if i == 0:
-                    # _update_causal_mask (called from _forward_eager for the
-                    # first chunk where current_step == 0) expects image_locations
-                    # of shape (B, chunk_seq_len) matching the query dimension
-                    # of the causal mask.  Slice to the current chunk tokens.
-                    chunk_kwargs["image_locations"] = image_locations[:, start:end]
-                else:
-                    # For non-first chunks _chunk_attn_mask handles the mask.
-                    # It slices the query positions internally using current_step
-                    # and needs the full tensor to check cross-chunk
-                    # image-to-image attention for keys in previous chunks.
-                    chunk_kwargs["image_locations"] = image_locations
+                # _chunk_attn_mask (called from _forward_eager for every chunk)
+                # expects the full image_locations tensor and slices query
+                # positions internally using current_step + arange(chunk_size).
+                chunk_kwargs["image_locations"] = image_locations
 
             if prefix_len is not None:
-                # prefix_len is passed to every chunk: _causal_attn_mask for
-                # chunk 0 and _chunk_attn_mask for subsequent chunks both use
-                # absolute positions, so prefix tokens beyond the first chunk
-                # are handled correctly.
+                # prefix_len is passed to every chunk unchanged; _chunk_attn_mask
+                # uses absolute positions so prefix tokens beyond the first chunk
+                # are handled correctly in all chunks.
                 chunk_kwargs["prefix_len"] = prefix_len
 
             emb_chunk_out, chunk_attns = self._forward_eager(emb_chunk, **chunk_kwargs)
@@ -732,11 +724,10 @@ class TransformerDecoder(DecoderBase):
                 image_locations = kwargs.pop("image_locations", None)
                 prefix_len = kwargs.pop("prefix_len", None)
 
-                if current_step > 0:
-                    # Non-first chunk during chunked prefill: _causal_attn_mask
-                    # always starts rows from position 0, which is incorrect
-                    # once earlier chunks have already been written to the cache.
-                    # Use an absolute-position mask instead.
+                if self.cache_seqlens is not None:
+                    # Prefill with KV cache (including chunked prefill chunk 0):
+                    # use an absolute-position mask so the key dimension always
+                    # matches cache_len_tgt regardless of chunk size.
                     attn_mask = self._chunk_attn_mask(
                         S,
                         current_step,
