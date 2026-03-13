@@ -162,7 +162,7 @@ class ScoringPreparator:
         # Save results
         if len(preds) > 0 and self.config.scoring_debug and self.config.dump_preds is not None:
             path = os.path.join(self.config.dump_preds, f"preds.valid_step_{step}.txt")
-            with open(path, "a") as file:
+            with open(path, "a", encoding="utf-8") as file:
                 for i in range(len(raw_srcs)):
                     file.write("SOURCE: {}\n".format(raw_srcs[i]))
                     file.write("RAW REF: {}\n".format(raw_refs[i]))
