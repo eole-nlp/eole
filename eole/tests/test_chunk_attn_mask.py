@@ -630,5 +630,153 @@ class TestChunkAttnMaskImageLocationsPadding(unittest.TestCase):
         self.assertFalse(k_img_full[:, seq_len:].any().item())
 
 
+def _prefix_chunked_allowed_keys(q_pos, cache_len, current_step, chunk_size, prefix_len, sliding_window=0):
+    """Pure-Python reference for _chunk_attn_mask with prefix-LM semantics.
+
+    A key position is allowed when:
+    - (causal rule) k <= q, AND the sliding-window constraint holds, OR
+    - (prefix rule) BOTH q < prefix_len AND k < prefix_len AND k < current_step+chunk_size
+      (the third condition prevents attending to unfilled cache slots).
+    """
+    filled_end = current_step + chunk_size
+    causal_keys = {k for k in range(cache_len) if k <= q_pos}
+    if sliding_window > 0:
+        causal_keys = {k for k in causal_keys if k >= q_pos - sliding_window + 1}
+
+    if q_pos < prefix_len:
+        prefix_keys = {k for k in range(cache_len) if k < prefix_len and k < filled_end}
+        return causal_keys | prefix_keys
+    return causal_keys
+
+
+@unittest.skipUnless(HAS_TORCH, "torch not available")
+class TestChunkAttnMaskPrefixLM(unittest.TestCase):
+    """Validate the prefix-LM bidirectional attention guard in _chunk_attn_mask.
+
+    The bug was that the prefix block (q_in_prefix & k_in_prefix) was OR-ed into
+    the causal mask without restricting to already-filled cache positions.  Early
+    chunks could therefore attend to key slots k >= current_step + chunk_size that
+    have not yet been written, producing incorrect outputs.
+
+    The fix intersects the prefix block with ``filled_k = k_pos < current_step + chunk_size``.
+    """
+
+    def _chunk_mask_cpu(self, chunk_size, cache_len, current_step, prefix_len_val, batch=1, sliding_window=0):
+        """Call the real ``_chunk_attn_mask`` via a minimal SimpleNamespace mock."""
+        from eole.decoders.transformer import TransformerDecoder  # noqa: E402
+
+        mock = types.SimpleNamespace(
+            cache_len_tgt=cache_len,
+            sliding_window=sliding_window,
+            LM_type="prefix",
+            left_pad_attn_mask=torch.ones(batch, cache_len, dtype=torch.bool),
+        )
+        tgt_pad_mask = torch.zeros(batch, 1, chunk_size, dtype=torch.bool)
+        prefix_len = torch.full((batch,), prefix_len_val, dtype=torch.long)
+        return TransformerDecoder._chunk_attn_mask(mock, chunk_size, current_step, tgt_pad_mask, prefix_len=prefix_len)
+
+    def test_prefix_keys_blocked_beyond_filled_end(self):
+        """Key positions k >= current_step + chunk_size must NOT be attendable
+        even when both q and k are inside the prefix."""
+        cache_len = 32
+        chunk_size = 8
+        current_step = 0  # first chunk; filled positions are 0..7
+        prefix_len_val = 20  # prefix spans positions 0..19
+
+        mask = self._chunk_mask_cpu(chunk_size, cache_len, current_step, prefix_len_val)
+        # shape: (1, 1, chunk_size, cache_len)
+        mask_2d = mask[0, 0]  # (chunk_size, cache_len)
+
+        filled_end = current_step + chunk_size  # = 8
+
+        for q_offset in range(chunk_size):
+            q_pos = current_step + q_offset
+            # Future key slots (>= filled_end) must be False for ALL query rows,
+            # including prefix queries that would normally gain bidirectional access.
+            if q_pos < prefix_len_val:
+                future_row = mask_2d[q_offset, filled_end:]
+                self.assertFalse(
+                    future_row.any().item(),
+                    msg=(
+                        f"chunk0, q={q_pos} (prefix query): "
+                        f"future keys {filled_end}..{cache_len-1} should all be False"
+                    ),
+                )
+
+    def test_prefix_keys_allowed_within_filled_range(self):
+        """Key positions k < current_step + chunk_size AND k < prefix_len should
+        be accessible for a prefix query even if they precede the causal window."""
+        cache_len = 32
+        chunk_size = 8
+        current_step = 8  # second chunk; filled positions are 0..15
+        prefix_len_val = 16  # whole first two chunks are the prefix
+
+        mask = self._chunk_mask_cpu(chunk_size, cache_len, current_step, prefix_len_val)
+        mask_2d = mask[0, 0]  # (chunk_size, cache_len)
+
+        filled_end = current_step + chunk_size  # = 16
+
+        for q_offset in range(chunk_size):
+            q_pos = current_step + q_offset
+            if q_pos < prefix_len_val:
+                # All filled prefix keys (0..prefix_len-1 ∩ 0..filled_end-1) should be True
+                for k in range(min(prefix_len_val, filled_end)):
+                    self.assertTrue(
+                        mask_2d[q_offset, k].item(),
+                        msg=f"q={q_pos} (prefix): filled prefix key {k} should be True",
+                    )
+                # Keys beyond filled_end must be False
+                future_row = mask_2d[q_offset, filled_end:]
+                self.assertFalse(
+                    future_row.any().item(),
+                    msg=f"q={q_pos} (prefix): future keys {filled_end}..{cache_len-1} should be False",
+                )
+
+    def test_non_prefix_query_unaffected_by_prefix_guard(self):
+        """A non-prefix query (q_pos >= prefix_len) must only see causal keys."""
+        cache_len = 32
+        chunk_size = 8
+        current_step = 16  # third chunk; non-prefix positions
+        prefix_len_val = 8  # only first chunk is prefix
+
+        mask = self._chunk_mask_cpu(chunk_size, cache_len, current_step, prefix_len_val)
+        mask_2d = mask[0, 0]
+
+        for q_offset in range(chunk_size):
+            q_pos = current_step + q_offset
+            # q_pos >= prefix_len_val, so only causal keys should be allowed
+            allowed = mask_2d[q_offset].nonzero(as_tuple=False).view(-1).tolist()
+            ref = sorted(_chunked_prefill_allowed_keys(q_pos, cache_len))
+            self.assertEqual(
+                allowed,
+                ref,
+                msg=f"q={q_pos} (non-prefix): mask differs from causal reference",
+            )
+
+    def test_matches_pure_python_reference(self):
+        """_chunk_attn_mask with prefix-LM matches the pure-Python reference formula
+        for every (chunk, query) combination."""
+        cache_len = 24
+        chunk_size = 6
+        prefix_len_val = 10
+
+        for chunk_idx in range(4):
+            current_step = chunk_idx * chunk_size
+            mask = self._chunk_mask_cpu(chunk_size, cache_len, current_step, prefix_len_val)
+            mask_2d = mask[0, 0]  # (chunk_size, cache_len)
+
+            for q_offset in range(chunk_size):
+                q_pos = current_step + q_offset
+                if q_pos >= cache_len:
+                    break
+                ref = _prefix_chunked_allowed_keys(q_pos, cache_len, current_step, chunk_size, prefix_len_val)
+                actual = set(mask_2d[q_offset].nonzero(as_tuple=False).view(-1).tolist())
+                self.assertEqual(
+                    actual,
+                    ref,
+                    msg=(f"chunk={chunk_idx}, q={q_pos}: " f"mask={sorted(actual)} != ref={sorted(ref)}"),
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

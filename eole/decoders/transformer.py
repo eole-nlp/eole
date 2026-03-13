@@ -542,8 +542,14 @@ class TransformerDecoder(DecoderBase):
             # k_pos: (1, cache_len)  -> (1, 1, cache_len) for broadcasting
             q_in_prefix = q_pos.view(1, chunk_size, 1) < plen  # (B, chunk_size, 1)
             k_in_prefix = k_pos.view(1, 1, cache_len) < plen  # (B, 1, cache_len)
+            # Guard: only allow the prefix bidirectional bonus for key positions
+            # that have already been written to the KV cache by this chunk.
+            # Positions k >= current_step + chunk_size are uninitialized and
+            # must remain blocked, even if they fall inside the prefix.
+            # Shape: (1, cache_len) — broadcasts over the (B, chunk_size) dims.
+            filled_k = k_pos < (current_step + chunk_size)  # (1, cache_len)
             # (chunk_size, cache_len) | (B, chunk_size, cache_len) = (B, chunk_size, cache_len)
-            mask = mask.unsqueeze(0) | (q_in_prefix & k_in_prefix)
+            mask = mask.unsqueeze(0) | (q_in_prefix & k_in_prefix & filled_k)
         else:
             mask = mask.unsqueeze(0)  # (1, chunk_size, cache_len) for broadcast below
 
