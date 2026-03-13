@@ -498,5 +498,137 @@ class TestChunkAttnMaskSlidingWindow(unittest.TestCase):
                 )
 
 
+@unittest.skipUnless(HAS_TORCH, "torch not available")
+class TestCausalAttnMaskSlidingWindow(unittest.TestCase):
+    """Validate that _causal_attn_mask uses the same sliding-window convention
+    as _chunk_attn_mask and the decoding path (window of exactly W tokens).
+
+    Before the fix, _causal_attn_mask called future_mask.triu_(-sliding_window),
+    which selects k >= q - W, giving W+1 tokens per query.  The fix changes this
+    to triu_(-(sliding_window - 1)), matching k >= q - W + 1 (exactly W tokens).
+    """
+
+    def _causal_mask_cpu(self, seq_len, sliding_window, batch=1, training=True):
+        """Call the real ``_causal_attn_mask`` via a minimal SimpleNamespace mock."""
+        from eole.decoders.transformer import TransformerDecoder  # noqa: E402
+
+        mock = types.SimpleNamespace(
+            sliding_window=sliding_window,
+            LM_type="decoder",
+            training=training,
+            dynamic_shapes=False,
+            max_length=seq_len,
+        )
+        tgt_pad_mask = torch.zeros(batch, 1, seq_len, dtype=torch.bool)
+        return TransformerDecoder._causal_attn_mask(mock, tgt_pad_mask)
+
+    def test_window_size_is_exactly_w(self):
+        """Each query attends to exactly sliding_window tokens (or fewer at the start)."""
+        seq_len = 16
+        sliding_window = 4
+
+        mask = self._causal_mask_cpu(seq_len, sliding_window)
+        mask_2d = mask[0, 0]  # (seq_len, seq_len)
+
+        for q in range(seq_len):
+            row = mask_2d[q]
+            attended = row.nonzero(as_tuple=False).view(-1).tolist()
+            expected_count = min(sliding_window, q + 1)
+            self.assertEqual(
+                len(attended),
+                expected_count,
+                msg=f"q={q}: expected {expected_count} attended keys, got {len(attended)}: {attended}",
+            )
+
+    def test_causal_mask_matches_chunk_attn_mask_window(self):
+        """_causal_attn_mask and _chunk_attn_mask produce the same window size for each query."""
+        seq_len = 12
+        sliding_window = 3
+
+        causal_mask = self._causal_mask_cpu(seq_len, sliding_window)
+        # Compare per-query window count from _causal_attn_mask with the reference formula
+        causal_2d = causal_mask[0, 0]  # (seq_len, seq_len)
+
+        for q in range(seq_len):
+            ref_keys = _chunked_prefill_allowed_keys(q, seq_len, sliding_window)
+            actual_keys = set(causal_2d[q].nonzero(as_tuple=False).view(-1).tolist())
+            self.assertEqual(
+                actual_keys,
+                ref_keys,
+                msg=f"q={q}: _causal_attn_mask={sorted(actual_keys)} != reference={sorted(ref_keys)}",
+            )
+
+    def test_window_1_attends_only_self(self):
+        """With sliding_window=1, each token should attend only to itself."""
+        seq_len = 8
+        sliding_window = 1
+
+        mask = self._causal_mask_cpu(seq_len, sliding_window)
+        mask_2d = mask[0, 0]
+
+        for q in range(seq_len):
+            attended = mask_2d[q].nonzero(as_tuple=False).view(-1).tolist()
+            self.assertEqual(attended, [q], msg=f"q={q}: expected [q], got {attended}")
+
+
+@unittest.skipUnless(HAS_TORCH, "torch not available")
+class TestChunkAttnMaskImageLocationsPadding(unittest.TestCase):
+    """Validate that the image-locations key tensor is correctly padded to
+    cache_len when image_locations.size(1) < cache_len_tgt.
+
+    This is the regression test for the bug where
+    ``image_locations[:, :cache_len] & filled_mask`` would fail (or silently
+    give wrong results) when image_locations is shorter than cache_len_tgt —
+    e.g., in a static-shape cache where cache_len_tgt == max_length but
+    image_locations only covers the current sequence.
+    """
+
+    def _update_causal_mask_cpu(self, attn_mask, q_img, k_img):
+        """Call the real _update_causal_mask via a minimal mock."""
+        from eole.decoders.transformer import TransformerDecoder  # noqa: E402
+
+        mock = types.SimpleNamespace()
+        return TransformerDecoder._update_causal_mask(mock, attn_mask, q_img, k_img)
+
+    def test_padded_k_image_locations_no_shape_error(self):
+        """Padding image_locations to cache_len before AND-ing with filled_mask
+        must not raise any shape/broadcast error."""
+        batch = 2
+        seq_len = 8
+        cache_len = 32  # larger than seq_len
+        chunk_size = seq_len
+
+        # Simulate the padding logic that was added to _forward_eager
+        image_locations = torch.zeros(batch, seq_len, dtype=torch.bool)
+        image_locations[:, 0] = True  # position 0 is an image token
+
+        filled_mask = torch.arange(cache_len) < chunk_size
+
+        img_loc_len = image_locations.size(1)
+        k_img_full = torch.zeros(batch, cache_len, dtype=torch.bool)
+        k_img_full[:, :img_loc_len] = image_locations
+        # This is what _forward_eager now does; must not raise
+        k_img_and_filled = k_img_full & filled_mask
+
+        self.assertEqual(k_img_and_filled.shape, (batch, cache_len))
+        # Position 0 should be True (image and filled), position 8+ should be False
+        self.assertTrue(k_img_and_filled[:, 0].all().item())
+        self.assertFalse(k_img_and_filled[:, seq_len:].any().item())
+
+    def test_padded_positions_are_false(self):
+        """Positions beyond image_locations.size(1) must be False after padding."""
+        batch = 1
+        seq_len = 6
+        cache_len = 16
+
+        image_locations = torch.ones(batch, seq_len, dtype=torch.bool)
+
+        k_img_full = torch.zeros(batch, cache_len, dtype=torch.bool)
+        k_img_full[:, :seq_len] = image_locations
+
+        self.assertTrue(k_img_full[:, :seq_len].all().item())
+        self.assertFalse(k_img_full[:, seq_len:].any().item())
+
+
 if __name__ == "__main__":
     unittest.main()

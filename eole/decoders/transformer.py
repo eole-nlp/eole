@@ -422,7 +422,11 @@ class TransformerDecoder(DecoderBase):
             diagonal=0,
         )
         if self.sliding_window > 0:
-            future_mask = future_mask.triu_(-self.sliding_window)
+            # Use "- sliding_window + 1" to match the chunked-prefill path
+            # (_chunk_attn_mask: k >= q - sliding_window + 1) and the single-step
+            # decoding path (start = current_step - sliding_window + 1), giving a
+            # window of exactly sliding_window tokens (not sliding_window + 1).
+            future_mask = future_mask.triu_(-(self.sliding_window - 1))
 
         future_mask = future_mask.unsqueeze(0).expand(B, -1, -1)  # (B, MAX_T, MAX_T)
         future_mask = future_mask[:, :seq_len, :]  # (B, seq_len, MAX_T)
@@ -762,10 +766,25 @@ class TransformerDecoder(DecoderBase):
                         q_abs_positions = current_step + torch.arange(S, device=tgt_pad_mask.device)
                         k_positions = torch.arange(cache_len, device=tgt_pad_mask.device)
                         filled_mask = k_positions < (current_step + S)  # (cache_len,)
+                        # image_locations may be shorter than cache_len (e.g., static
+                        # cache where cache_len_tgt == max_length but image_locations
+                        # has shape (B, seq_len)).  Pad to (B, cache_len) before
+                        # AND-ing to avoid shape/broadcast errors.
+                        img_loc_len = image_locations.size(1)
+                        if img_loc_len < cache_len:
+                            k_img_full = torch.zeros(
+                                image_locations.size(0),
+                                cache_len,
+                                dtype=torch.bool,
+                                device=image_locations.device,
+                            )
+                            k_img_full[:, :img_loc_len] = image_locations
+                        else:
+                            k_img_full = image_locations[:, :cache_len]
                         attn_mask = self._update_causal_mask(
                             attn_mask,
                             image_locations[:, q_abs_positions],
-                            image_locations[:, :cache_len] & filled_mask,
+                            k_img_full & filled_mask,
                         )
                 else:
                     # Training path (no KV cache): _causal_attn_mask handles
