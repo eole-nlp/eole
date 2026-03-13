@@ -73,7 +73,4 @@ class LMScoring(RunBin):
         else:
             corpus_ppl = float("inf")
 
-        logger.info(
-            "Loss: %.2f Tokens: %d Corpus PPL: %.2f" % (cumul_loss, cumul_length, corpus_ppl)
-        )
-
+        logger.info("Loss: %.2f Tokens: %d Corpus PPL: %.2f" % (cumul_loss, cumul_length, corpus_ppl))

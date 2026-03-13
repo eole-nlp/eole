@@ -469,11 +469,11 @@ class Inference(object):
                 score_res += [item for _, item in sorted(processed_bucket.items())]
                 processed_bucket = {}
             batch_data = self.predict_batch(batch, attn_debug=False, scoring=True)
-            batch_gold_scores = batch_data["gold_score"].cpu().numpy().tolist()
+            batch_gold_scores = batch_data["gold_score"].cpu().float().numpy().tolist()
             batch_tgt_lengths = batch["tgtlen"].cpu().numpy().tolist()
             batch_inds_in_bucket = batch["ind_in_bucket"]
             if self.return_gold_log_probs:
-                batch_gold_log_probs = batch_data["gold_log_probs"].cpu().numpy().tolist()
+                batch_gold_log_probs = batch_data["gold_log_probs"].cpu().float().numpy().tolist()
             else:
                 batch_gold_log_probs = [None for i, _ in enumerate(batch_inds_in_bucket)]
             for i, ind in enumerate(batch_inds_in_bucket):

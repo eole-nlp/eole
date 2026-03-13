@@ -284,6 +284,7 @@ class GeneratorLM(Inference):
             src,
             None,
             src_len=src_len,
+            step=0,
         )
 
         log_probs[:, :, self._tgt_pad_idx] = 0

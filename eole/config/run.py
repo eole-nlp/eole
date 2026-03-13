@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Literal
 
 from eole.config import recursive_model_fields_set
 from eole.config.config import get_config_dict
@@ -98,6 +98,13 @@ class PredictConfig(
 ):
     transforms: List[str] | None = []
     transforms_configs: NestedAllTransformsConfig | None = Field(default_factory=NestedAllTransformsConfig)
+    skip_empty_level: Literal["silent", "warning", "error"] = Field(
+        default="warning",
+        description="Logging level when encountering empty examples during inference. "
+        "(silent: silently ignore/skip empty examples, "
+        "warning: warn when ignoring/skipping empty examples, "
+        "error: raise an error and stop execution when any empty example)",
+    )
     # patch to make it work
     share_vocab: bool | None = False
     _all_transform: List[str] | None = None  # might be a cleaner way to do this
