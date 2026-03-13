@@ -465,10 +465,112 @@ class TransformerDecoder(DecoderBase):
         attn_mask = attn_mask.masked_fill(full_mask, True)
         return attn_mask
 
+    def _chunk_attn_mask(self, chunk_size, current_step, tgt_pad_mask):
+        """Create an absolute-position attention mask for a prefill chunk.
+
+        Used when processing non-first chunks during chunked prefill
+        (current_step > 0) in the non-flash attention path.  The standard
+        ``_causal_attn_mask`` always starts rows from position 0, which is
+        incorrect once the cache already contains tokens from previous chunks.
+
+        Args:
+            chunk_size (int): number of query tokens in this chunk.
+            current_step (int or Tensor): absolute position of the first query
+                token.  A 0-d scalar tensor (``self.cache_seqlens[0]``) or a
+                plain Python ``int`` are both accepted; tensor arithmetic
+                handles both transparently.
+            tgt_pad_mask (Tensor): target padding mask ``(B, 1, chunk_size)``,
+                True = padding token.
+
+        Returns:
+            Tensor: boolean mask ``(B, 1, chunk_size, cache_len_tgt)``,
+                True = position can be attended to.
+        """
+        device = tgt_pad_mask.device
+        cache_len = self.cache_len_tgt
+
+        # Absolute positions of each query token: shape (chunk_size, 1)
+        q_pos = (current_step + torch.arange(chunk_size, device=device)).view(-1, 1)
+        # Absolute positions of each cached key: shape (1, cache_len)
+        k_pos = torch.arange(cache_len, device=device).view(1, -1)
+
+        # Causal constraint: key position must not exceed query position
+        mask = k_pos <= q_pos  # (chunk_size, cache_len)
+
+        if self.sliding_window > 0:
+            # Sliding window: key position must be within the window
+            mask = mask & (k_pos >= (q_pos - self.sliding_window))
+
+        # Apply the left-padding mask stored from _init_cache:
+        # left_pad_attn_mask[b, j] is True when position j is not a pad token.
+        # After unsqueeze(0): mask is (1, chunk_size, cache_len);
+        # left_pad_attn_mask unsqueeze(1) is (B, 1, cache_len).
+        # The & broadcasts to (B, chunk_size, cache_len); unsqueeze(1) below
+        # then gives the final (B, 1, chunk_size, cache_len).
+        mask = mask.unsqueeze(0) & self.left_pad_attn_mask[:, :cache_len].unsqueeze(1)
+
+        return mask.unsqueeze(1)  # (B, 1, chunk_size, cache_len)
+
+    def _forward_chunked_prefill(self, emb, **kwargs):
+        """Process a long prefill sequence in chunks of ``sliding_window`` size.
+
+        When ``sliding_window > 0`` and the input sequence is longer than the
+        window, processing the full sequence as a single forward pass would
+        allow early tokens to attend to positions they cannot see during
+        generation.  This method splits the sequence into consecutive chunks
+        of exactly ``sliding_window`` tokens (the last chunk may be shorter)
+        and runs ``_forward_eager`` on each chunk so that every token attends
+        only to the positions inside its window.
+
+        The KV cache is filled incrementally: after chunk *k* the cache holds
+        keys/values for positions ``0 … (k+1)*sliding_window - 1``.
+
+        Args:
+            emb (Tensor): ``(B, S, hidden_size)`` with ``S > sliding_window``.
+            **kwargs: forwarded to ``_forward_eager`` unchanged except that
+                ``tgt_pad_mask``, ``image_locations``, and ``prefix_len`` are
+                managed per-chunk (``image_locations`` and ``prefix_len`` are
+                only passed to the first chunk).
+
+        Returns:
+            (Tensor, dict): concatenated hidden-state output over all chunks
+                and the attention dict from the last chunk.
+        """
+        _, S, _ = emb.size()
+        chunk_size = self.sliding_window
+
+        tgt_pad_mask_full = kwargs.pop("tgt_pad_mask")
+        # image_locations and prefix_len only apply to the first chunk
+        image_locations = kwargs.pop("image_locations", None)
+        prefix_len = kwargs.pop("prefix_len", None)
+
+        all_emb_chunks = []
+        last_attns = {"std": None}
+
+        for i, start in enumerate(range(0, S, chunk_size)):
+            end = min(start + chunk_size, S)
+            emb_chunk = emb[:, start:end, :]
+            pad_mask_chunk = tgt_pad_mask_full[:, :, start:end]
+
+            chunk_kwargs = dict(kwargs)
+            chunk_kwargs["tgt_pad_mask"] = pad_mask_chunk
+            if i == 0:
+                if image_locations is not None:
+                    chunk_kwargs["image_locations"] = image_locations
+                if prefix_len is not None:
+                    chunk_kwargs["prefix_len"] = prefix_len
+
+            emb_chunk_out, last_attns = self._forward_eager(emb_chunk, **chunk_kwargs)
+            all_emb_chunks.append(emb_chunk_out)
+
+        return torch.cat(all_emb_chunks, dim=1), last_attns
+
     def forward(self, emb, **kwargs):
         B, S, _ = emb.size()
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and S == 1:
             return self._forward_compile(emb, **kwargs)
+        if self.sliding_window > 0 and S > self.sliding_window and self.cache_seqlens is not None:
+            return self._forward_chunked_prefill(emb, **kwargs)
         return self._forward_eager(emb, **kwargs)
 
     def _forward_eager(self, emb, **kwargs):
@@ -554,9 +656,16 @@ class TransformerDecoder(DecoderBase):
                 image_locations = kwargs.pop("image_locations", None)
                 prefix_len = kwargs.pop("prefix_len", None)
 
-                attn_mask = self._causal_attn_mask(tgt_pad_mask, prefix_len=prefix_len)
-                if image_locations is not None:
-                    attn_mask = self._update_causal_mask(attn_mask, image_locations)
+                if current_step > 0:
+                    # Non-first chunk during chunked prefill: _causal_attn_mask
+                    # always starts rows from position 0, which is incorrect
+                    # once earlier chunks have already been written to the cache.
+                    # Use an absolute-position mask instead.
+                    attn_mask = self._chunk_attn_mask(S, current_step, tgt_pad_mask)
+                else:
+                    attn_mask = self._causal_attn_mask(tgt_pad_mask, prefix_len=prefix_len)
+                    if image_locations is not None:
+                        attn_mask = self._update_causal_mask(attn_mask, image_locations)
                 lin_attn_mask = ~tgt_pad_mask[:, 0, :] if self.has_linear_attn else None
             else:
                 # at decoding _init_cache must be called and init these
