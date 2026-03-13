@@ -925,7 +925,6 @@ class TransformerDecoder(DecoderBase):
                 layer.self_attn.kcache = torch.zeros((b, self.cache_len_tgt, heads_kv, dph), dtype=dtype, device=device)
                 layer.self_attn.vcache = torch.zeros((b, self.cache_len_tgt, heads_kv, dph), dtype=dtype, device=device)
                 layer.self_attn.cache_leftpad = cache_leftpad
-                layer.self_attn.causal = True
                 if layer.context_attn:
                     # prefill context KV with encoder out
                     layer.context_attn._prefill_cache(enc_out)
