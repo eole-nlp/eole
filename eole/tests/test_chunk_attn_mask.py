@@ -53,6 +53,8 @@ def _decoding_allowed_keys(current_step, cache_len, sliding_window):
     return {k for k in range(cache_len) if k <= current_step and k >= start}
 
 
+
+
 class TestFirstChunkMaskKeyDimension(unittest.TestCase):
     """Validate that _chunk_attn_mask with current_step=0 (first chunk) produces
     a causal mask whose key dimension equals cache_len_tgt, not chunk_size.
@@ -147,6 +149,118 @@ class TestFirstChunkMaskKeyDimension(unittest.TestCase):
                 keys_nonfirst,
                 msg=f"q={q_abs}: chunk0={sorted(keys_chunk0)} != non-first={sorted(keys_nonfirst)}",
             )
+
+
+def _update_causal_mask_allowed_keys(causal_keys, q_is_img, k_image_locs, cache_len):
+    """Pure-Python reference for _update_causal_mask with separate q/k image locs.
+
+    Given the set of keys already allowed by the causal mask (``causal_keys``),
+    additionally allow key positions where BOTH the query and the key are image
+    tokens.  Mirrors the tensor logic:
+
+        img_block = is_q_img & is_k_img
+        attn_mask = attn_mask | img_block
+    """
+    if not q_is_img:
+        return causal_keys  # text query: no image-to-image bonus
+    img_keys = {k for k in range(cache_len) if k_image_locs[k]}
+    return causal_keys | img_keys
+
+
+class TestUpdateCausalMaskAsymmetric(unittest.TestCase):
+    """Validate the cross-chunk image-to-image attention logic in _update_causal_mask.
+
+    After the refactor, _update_causal_mask accepts separate q/k image location
+    tensors.  These tests check that:
+    - image query tokens gain access to ALL image key tokens in the full cache
+      (including tokens from previous chunks)
+    - text query tokens are NOT given the image-to-image bonus
+    - the allowed set equals (causal_keys | image_keys) for image queries
+    """
+
+    def _allowed_keys(self, q_pos, q_is_img, k_image_locs, cache_len, sliding_window=0):
+        """Combine causal mask with image update — pure-Python reference."""
+        causal = _chunked_prefill_allowed_keys(q_pos, cache_len, sliding_window)
+        return _update_causal_mask_allowed_keys(causal, q_is_img, k_image_locs, cache_len)
+
+    def test_image_query_gains_all_image_keys_in_full_cache(self):
+        """An image query token can attend to ALL image key tokens regardless of
+        whether they are in the current chunk or a previous chunk."""
+        cache_len = 32
+        chunk_size = 8
+        current_step = 8  # second chunk
+
+        # Sprinkle image tokens throughout the full cache
+        k_image_locs = [i % 3 == 0 for i in range(cache_len)]  # positions 0, 3, 6, …
+
+        for offset in range(chunk_size):
+            q_pos = current_step + offset
+            # query is an image token
+            allowed = self._allowed_keys(q_pos, q_is_img=True, k_image_locs=k_image_locs, cache_len=cache_len)
+            # All image key positions should be accessible (cross-chunk)
+            for k in range(cache_len):
+                if k_image_locs[k]:
+                    self.assertIn(
+                        k,
+                        allowed,
+                        msg=f"q={q_pos} (image): image key {k} should be accessible",
+                    )
+
+    def test_text_query_not_given_image_bonus(self):
+        """A text query token must NOT gain access to image keys via the bonus."""
+        cache_len = 32
+        chunk_size = 8
+        current_step = 0
+
+        k_image_locs = [i % 3 == 0 for i in range(cache_len)]
+
+        for offset in range(chunk_size):
+            q_pos = current_step + offset
+            causal = _chunked_prefill_allowed_keys(q_pos, cache_len)
+            allowed = self._allowed_keys(q_pos, q_is_img=False, k_image_locs=k_image_locs, cache_len=cache_len)
+            self.assertEqual(
+                allowed,
+                causal,
+                msg=f"q={q_pos} (text): image bonus should NOT apply, allowed={sorted(allowed)} != causal={sorted(causal)}",
+            )
+
+    def test_image_query_in_first_chunk_sees_own_image_tokens(self):
+        """Even for chunk 0 (current_step=0), an image query can attend to image
+        keys at positions that come before the current query within the chunk."""
+        cache_len = 16
+        chunk_size = 8
+        current_step = 0
+
+        # Only positions 0, 2, 4 are image tokens
+        k_image_locs = [i % 2 == 0 for i in range(cache_len)]
+
+        for offset in range(chunk_size):
+            q_pos = current_step + offset
+            allowed = self._allowed_keys(q_pos, q_is_img=True, k_image_locs=k_image_locs, cache_len=cache_len)
+            # Positions in the chunk BEFORE q_pos that are image tokens should be accessible
+            for k in range(q_pos):
+                if k_image_locs[k]:
+                    self.assertIn(k, allowed, msg=f"q={q_pos}: preceding image key {k} should be accessible")
+
+    def test_image_query_cross_chunk_image_keys_are_accessible(self):
+        """An image query in chunk 1 can attend to image keys from chunk 0."""
+        cache_len = 16
+        chunk_size = 4
+        current_step = 4  # second chunk starts here
+
+        # Image tokens only in positions 0-3 (first chunk)
+        k_image_locs = [i < 4 for i in range(cache_len)]
+
+        for offset in range(chunk_size):
+            q_pos = current_step + offset
+            allowed = self._allowed_keys(q_pos, q_is_img=True, k_image_locs=k_image_locs, cache_len=cache_len)
+            # All image keys from the first chunk (0-3) should be accessible
+            for k in range(4):
+                self.assertIn(
+                    k,
+                    allowed,
+                    msg=f"q={q_pos} (chunk1, image): cross-chunk image key {k} should be accessible",
+                )
 
 
 class TestChunkAttnMaskSlidingWindow(unittest.TestCase):

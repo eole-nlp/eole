@@ -441,32 +441,49 @@ class TransformerDecoder(DecoderBase):
 
         return attn_mask.unsqueeze(1)  # (B, 1, seq_len, MAX_T)
 
-    def _update_causal_mask(self, attn_mask, image_locations):
+    def _update_causal_mask(self, attn_mask, image_locations, k_image_locations=None):
+        """Update attn_mask so that image tokens can attend to other image tokens.
+
+        Args:
+            attn_mask (Tensor): ``(B, 1, q_len, k_len)`` bool mask, True = attend.
+            image_locations (Tensor): ``(B, q_len)`` bool, True = image token in
+                the query sequence.
+            k_image_locations (Tensor, optional): ``(B, k_loc_len)`` bool, True =
+                image token in the key sequence.  ``k_loc_len`` must satisfy
+                ``k_loc_len <= k_len``.  When ``None`` (the default), defaults to
+                ``image_locations`` — the square-mask case used during training
+                where query and key sequences are identical.
+
+        Returns:
+            Tensor: updated ``attn_mask`` with image-to-image positions forced to
+                ``True``.
         """
-        Update attn_mask so that image tokens attend only to other image tokens.
-        image_locations: (B, seq_len), bool, True = image token
-        attn_mask: (B, 1, seq_len, MAX_T), bool, True = attend
-        """
-        B, _, seq_len, MAX_T = attn_mask.shape
+        B, _, q_len, k_len = attn_mask.shape
         device = attn_mask.device
 
-        # token_type_ids: 1=image, 0=text
-        token_type_ids = image_locations.long()  # (B, seq_len)
+        if k_image_locations is None:
+            k_image_locations = image_locations
 
-        # Compare each token to each token
-        token_type_mask = token_type_ids.unsqueeze(1) == token_type_ids.unsqueeze(2)  # (B, seq_len, seq_len)
-        token_type_mask[token_type_ids == 0] = False
+        is_q_img = image_locations            # (B, q_len)
+        is_k_img = k_image_locations          # (B, k_loc_len)
+        k_loc_len = is_k_img.size(1)
 
-        # Expand to attn_mask shape (B, 1, seq_len, MAX_T)
-        full_mask = torch.zeros((B, 1, seq_len, MAX_T), dtype=torch.bool, device=device)
-        full_mask[:, :, :seq_len, :seq_len] = token_type_mask.unsqueeze(1)
+        # (B, q_len, k_loc_len): True where both tokens are image tokens
+        img_block = is_q_img.unsqueeze(2) & is_k_img.unsqueeze(1)
 
-        # Update attn_mask (True = attend)
-        attn_mask = attn_mask.masked_fill(full_mask, True)
-        return attn_mask
+        # Place into a (B, 1, q_len, k_len) mask, padding the remaining key
+        # positions (positions k_loc_len..k_len-1) with False.  This handles
+        # the training case where k_len == MAX_T >= seq_len == k_loc_len.
+        full_mask = torch.zeros((B, 1, q_len, k_len), dtype=torch.bool, device=device)
+        full_mask[:, :, :, :k_loc_len] = img_block.unsqueeze(1)
 
-    def _chunk_attn_mask(self, chunk_size, current_step, tgt_pad_mask, image_locations=None, prefix_len=None):
+        return attn_mask | full_mask
+
+    def _chunk_attn_mask(self, chunk_size, current_step, tgt_pad_mask, prefix_len=None):
         """Create an absolute-position attention mask for a prefill chunk.
+
+        Handles positional/causal masking only.  Image-token type masking is
+        applied separately via ``_update_causal_mask`` in ``_forward_eager``.
 
         Used for all chunks during prefill when a KV cache is present (both
         ``current_step == 0`` for the first chunk and ``current_step > 0`` for
@@ -483,10 +500,6 @@ class TransformerDecoder(DecoderBase):
                 on-device to avoid unnecessary host synchronisation.
             tgt_pad_mask (Tensor): target padding mask ``(B, 1, chunk_size)``,
                 True = padding token.
-            image_locations (Tensor, optional): ``(B, S_full)`` bool tensor
-                where True marks an image token over the full input sequence.
-                When provided, image tokens are allowed to attend to other
-                image tokens at any cached position (cross-chunk).
             prefix_len (Tensor, optional): ``(B,)`` int tensor with per-batch
                 prefix lengths.  When provided and ``self.LM_type == "prefix"``
                 prefix tokens are allowed to attend bidirectionally to every
@@ -524,7 +537,7 @@ class TransformerDecoder(DecoderBase):
             # q_pos: (chunk_size, 1) -> (1, chunk_size, 1) for broadcasting
             # k_pos: (1, cache_len)  -> (1, 1, cache_len) for broadcasting
             q_in_prefix = q_pos.view(1, chunk_size, 1) < plen  # (B, chunk_size, 1)
-            k_in_prefix = k_pos.view(1, 1, cache_len) < plen  # (B, 1, cache_len)
+            k_in_prefix = k_pos.view(1, 1, cache_len) < plen   # (B, 1, cache_len)
             # (chunk_size, cache_len) | (B, chunk_size, cache_len) = (B, chunk_size, cache_len)
             mask = mask.unsqueeze(0) | (q_in_prefix & k_in_prefix)
         else:
@@ -532,22 +545,10 @@ class TransformerDecoder(DecoderBase):
 
         # Apply the left-padding mask stored from _init_cache:
         # left_pad_attn_mask[b, j] is True when position j is not a pad token.
-
         # left_pad_attn_mask unsqueeze(1) is (B, 1, cache_len);
         # broadcasts with mask (B or 1, chunk_size, cache_len).
         mask = mask & self.left_pad_attn_mask[:, :cache_len].unsqueeze(1)
         # mask is now (B, chunk_size, cache_len)
-
-        # Apply image-token mask: image tokens may attend to other image tokens
-        # at any cached position (including tokens from previous chunks).
-        if image_locations is not None:
-            # Use advanced (gather-style) indexing so that current_step can
-            # remain a 0-d CUDA tensor without forcing a device-to-host sync.
-            idx = current_step + torch.arange(chunk_size, device=device)
-            is_q_img = image_locations[:, idx]  # (B, chunk_size)
-            is_k_img = image_locations[:, :cache_len]  # (B, cache_len)
-            img_block = is_q_img.unsqueeze(2) & is_k_img.unsqueeze(1)  # (B, chunk_size, cache_len)
-            mask = mask | img_block
 
         return mask.unsqueeze(1)  # (B, 1, chunk_size, cache_len)
 
@@ -570,9 +571,10 @@ class TransformerDecoder(DecoderBase):
             **kwargs: forwarded to ``_forward_eager`` unchanged except that
                 ``tgt_pad_mask`` is sliced per chunk, ``image_locations`` is
                 always passed as the full ``(B, S_full)`` tensor so that
-                ``_chunk_attn_mask`` can check cross-chunk image-to-image
-                attention (it slices query positions internally), and
-                ``prefix_len`` is forwarded to every chunk unchanged.
+                ``_update_causal_mask`` (called inside ``_forward_eager``) can
+                correctly compute cross-chunk image-to-image attention using
+                absolute query positions, and ``prefix_len`` is forwarded to
+                every chunk unchanged.
 
         Returns:
             (Tensor, dict): concatenated hidden-state output over all chunks
@@ -602,9 +604,10 @@ class TransformerDecoder(DecoderBase):
             chunk_kwargs["tgt_pad_mask"] = pad_mask_chunk
 
             if image_locations is not None:
-                # _chunk_attn_mask (called from _forward_eager for every chunk)
-                # expects the full image_locations tensor and slices query
-                # positions internally using current_step + arange(chunk_size).
+                # Always pass the full image_locations tensor; _forward_eager
+                # will slice query positions using absolute indices when it
+                # calls _update_causal_mask for cross-chunk image-to-image
+                # attention.
                 chunk_kwargs["image_locations"] = image_locations
 
             if prefix_len is not None:
@@ -625,18 +628,24 @@ class TransformerDecoder(DecoderBase):
                     all_cross_attns_layers = [[] for _ in chunk_attns["cross_attns"]]
                 for li, layer_attn in enumerate(chunk_attns["cross_attns"]):
                     all_cross_attns_layers[li].append(layer_attn)
+
         # Merge per-chunk attention tensors along the query (tgt) dimension.
         attns = {"std": torch.cat(all_std_attns, dim=1) if all_std_attns else None}
         if all_align_attns:
             attns["align"] = torch.cat(all_align_attns, dim=1)
         if all_cross_attns_layers is not None:
             attns["cross_attns"] = [torch.cat(layer_chunks, dim=2) for layer_chunks in all_cross_attns_layers]
+
         return torch.cat(all_emb_chunks, dim=1), attns
 
     def forward(self, emb, **kwargs):
         B, S, _ = emb.size()
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and S == 1:
             return self._forward_compile(emb, **kwargs)
+        # When sliding window attention is active and the prefill sequence is
+        # longer than the window, split it into window-sized chunks so that
+        # every token's effective receptive field matches what it will see
+        # during token-by-token generation.
         if self.sliding_window > 0 and S > self.sliding_window and self.cache_seqlens is not None:
             return self._forward_chunked_prefill(emb, **kwargs)
         return self._forward_eager(emb, **kwargs)
@@ -727,15 +736,36 @@ class TransformerDecoder(DecoderBase):
                 if self.cache_seqlens is not None:
                     # Prefill with KV cache (including chunked prefill chunk 0):
                     # use an absolute-position mask so the key dimension always
-                    # matches cache_len_tgt regardless of chunk size.
+                    # matches cache_len_tgt regardless of chunk size.  This also
+                    # avoids a device-to-host sync that `current_step > 0` would
+                    # trigger when current_step is a 0-d CUDA tensor.
+                    # _chunk_attn_mask handles positional/causal masking only;
+                    # image-type masking is applied separately below via
+                    # _update_causal_mask with correct absolute query positions.
                     attn_mask = self._chunk_attn_mask(
                         S,
                         current_step,
                         tgt_pad_mask,
-                        image_locations=image_locations,
                         prefix_len=prefix_len,
                     )
+                    if image_locations is not None:
+                        # Query tokens occupy absolute positions
+                        # [current_step, current_step + S); key tokens span the
+                        # full [0, cache_len_tgt).  Pass both sides explicitly so
+                        # cross-chunk image-to-image attention is handled
+                        # correctly (advanced indexing keeps current_step on
+                        # device — no host sync).
+                        cache_len = self.cache_len_tgt
+                        idx = current_step + torch.arange(S, device=tgt_pad_mask.device)
+                        attn_mask = self._update_causal_mask(
+                            attn_mask,
+                            image_locations[:, idx],
+                            image_locations[:, :cache_len],
+                        )
                 else:
+                    # Training path (no KV cache): _causal_attn_mask handles
+                    # the full sequence with MAX_T = seq_len (training) or
+                    # self.max_length (static-shape eval without cache).
                     attn_mask = self._causal_attn_mask(tgt_pad_mask, prefix_len=prefix_len)
                     if image_locations is not None:
                         attn_mask = self._update_causal_mask(attn_mask, image_locations)
