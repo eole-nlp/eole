@@ -47,9 +47,7 @@ def test_chunked_and_decoding_windows_are_equal():
     for step in range(cache_len):
         chunk_keys = _chunked_prefill_allowed_keys(step, cache_len, sliding_window)
         decode_keys = _decoding_allowed_keys(step, cache_len, sliding_window)
-        assert chunk_keys == decode_keys, (
-            f"step={step}: chunked={sorted(chunk_keys)} != decode={sorted(decode_keys)}"
-        )
+        assert chunk_keys == decode_keys, f"step={step}: chunked={sorted(chunk_keys)} != decode={sorted(decode_keys)}"
 
 
 def test_window_contains_exactly_sliding_window_tokens():
@@ -60,9 +58,9 @@ def test_window_contains_exactly_sliding_window_tokens():
     for step in range(cache_len):
         keys = _chunked_prefill_allowed_keys(step, cache_len, sliding_window)
         expected_count = min(sliding_window, step + 1)
-        assert len(keys) == expected_count, (
-            f"step={step}: expected {expected_count} keys, got {len(keys)}: {sorted(keys)}"
-        )
+        assert (
+            len(keys) == expected_count
+        ), f"step={step}: expected {expected_count} keys, got {len(keys)}: {sorted(keys)}"
 
 
 def test_off_by_one_would_produce_extra_token():
@@ -78,13 +76,11 @@ def test_off_by_one_would_produce_extra_token():
         correct = _chunked_prefill_allowed_keys(step, cache_len, sliding_window)
         wrong = _old_chunked_allowed(step, cache_len, sliding_window)
         # The wrong formula has one extra (older) token
-        assert len(wrong) == len(correct) + 1, (
-            f"step={step}: expected old formula to have 1 extra token"
-        )
+        assert len(wrong) == len(correct) + 1, f"step={step}: expected old formula to have 1 extra token"
         extra = wrong - correct
-        assert extra == {step - sliding_window}, (
-            f"step={step}: expected extra token at {step - sliding_window}, got {extra}"
-        )
+        assert extra == {
+            step - sliding_window
+        }, f"step={step}: expected extra token at {step - sliding_window}, got {extra}"
 
 
 def test_window_lower_bound_never_negative():
