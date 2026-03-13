@@ -534,7 +534,8 @@ class TransformerDecoder(DecoderBase):
 
         Returns:
             (Tensor, dict): concatenated hidden-state output over all chunks
-                and the attention dict from the last chunk.
+                and an attention dict whose tensors are concatenated across
+                all chunks along the query (tgt) dimension.
         """
         _, S, _ = emb.size()
         chunk_size = self.sliding_window
@@ -545,7 +546,9 @@ class TransformerDecoder(DecoderBase):
         prefix_len = kwargs.pop("prefix_len", None)
 
         all_emb_chunks = []
-        last_attns = {"std": None}
+        all_std_attns = []
+        all_align_attns = []
+        all_cross_attns_layers = None  # list-of-lists, one inner list per layer
 
         for i, start in enumerate(range(0, S, chunk_size)):
             end = min(start + chunk_size, S)
@@ -560,10 +563,25 @@ class TransformerDecoder(DecoderBase):
                 if prefix_len is not None:
                     chunk_kwargs["prefix_len"] = prefix_len
 
-            emb_chunk_out, last_attns = self._forward_eager(emb_chunk, **chunk_kwargs)
+            emb_chunk_out, chunk_attns = self._forward_eager(emb_chunk, **chunk_kwargs)
             all_emb_chunks.append(emb_chunk_out)
 
-        return torch.cat(all_emb_chunks, dim=1), last_attns
+            if chunk_attns.get("std") is not None:
+                all_std_attns.append(chunk_attns["std"])
+            if chunk_attns.get("align") is not None:
+                all_align_attns.append(chunk_attns["align"])
+            if chunk_attns.get("cross_attns") is not None:
+                if all_cross_attns_layers is None:
+                    all_cross_attns_layers = [[] for _ in chunk_attns["cross_attns"]]
+                for li, layer_attn in enumerate(chunk_attns["cross_attns"]):
+                    all_cross_attns_layers[li].append(layer_attn)
+        # Merge per-chunk attention tensors along the query (tgt) dimension.
+        attns = {"std": torch.cat(all_std_attns, dim=1) if all_std_attns else None}
+        if all_align_attns:
+            attns["align"] = torch.cat(all_align_attns, dim=1)
+        if all_cross_attns_layers is not None:
+            attns["cross_attns"] = [torch.cat(layer_chunks, dim=2) for layer_chunks in all_cross_attns_layers]
+        return torch.cat(all_emb_chunks, dim=1), attns
 
     def forward(self, emb, **kwargs):
         B, S, _ = emb.size()
