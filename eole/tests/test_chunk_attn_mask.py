@@ -583,12 +583,112 @@ class TestChunkAttnMaskImageLocationsPadding(unittest.TestCase):
     image_locations only covers the current sequence.
     """
 
-    def _update_causal_mask_cpu(self, attn_mask, q_img, k_img):
-        """Call the real _update_causal_mask via a minimal mock."""
+    def _update_causal_mask_cpu(self, attn_mask, q_img, k_image_locations=None):
+        """Call the real _update_causal_mask via a minimal mock.
+
+        Args:
+            attn_mask (Tensor): ``(B, 1, q_len, k_len)`` bool mask, True = attend.
+            q_img (Tensor): ``(B, q_len)`` bool image-token flags for queries.
+            k_image_locations (Tensor, optional): ``(B, k_loc_len)`` bool
+                image-token flags for keys.  When ``None``, defaults to
+                ``q_img`` (square case).
+
+        Returns:
+            Tensor: ``(B, 1, q_len, k_len)`` updated mask returned by the real
+                implementation.
+        """
         from eole.decoders.transformer import TransformerDecoder  # noqa: E402
 
         mock = types.SimpleNamespace()
-        return TransformerDecoder._update_causal_mask(mock, attn_mask, q_img, k_img)
+        return TransformerDecoder._update_causal_mask(mock, attn_mask, q_img, k_image_locations)
+
+    # ------------------------------------------------------------------
+    # Integration tests that call the real _update_causal_mask
+    # ------------------------------------------------------------------
+
+    def test_update_causal_mask_square_image_positions_opened(self):
+        """Square case (q_len == k_len): image-to-image pairs must be True
+        even when they were False in the causal attn_mask."""
+        batch = 1
+        seq_len = 4
+
+        # Start with a causal mask: lower-triangular True, upper-triangular False
+        attn_mask = torch.tril(torch.ones(seq_len, seq_len, dtype=torch.bool))
+        attn_mask = attn_mask.view(batch, 1, seq_len, seq_len)
+
+        # Mark positions 0 and 3 as image tokens
+        q_img = torch.tensor([[True, False, False, True]])  # (1, 4)
+
+        result = self._update_causal_mask_cpu(attn_mask, q_img)
+
+        # (0, 3) and (3, 0) should now be True (both image tokens)
+        self.assertTrue(result[0, 0, 0, 3].item(), "img-query 0 should attend to img-key 3")
+        self.assertTrue(result[0, 0, 3, 0].item(), "img-query 3 should attend to img-key 0")
+        # Non-image pair (1, 3) must remain as the causal mask dictated (False)
+        self.assertFalse(result[0, 0, 1, 3].item(), "non-img query 1 must not attend to img-key 3")
+        # Existing True entries must not be disturbed
+        self.assertTrue(result[0, 0, 2, 1].item(), "causal True must remain True")
+
+    def test_update_causal_mask_asymmetric_future_keys_not_opened(self):
+        """Asymmetric case (q_len < k_len, i.e., cross-chunk KV cache):
+        image positions at k indices beyond k_loc_len must NOT be opened up
+        because they correspond to unfilled (future) cache slots."""
+        batch = 1
+        q_len = 4  # current chunk has 4 queries
+        k_loc_len = 4  # image locs only cover the current chunk
+        k_len = 8  # full cache is larger (positions 4..7 are uninitialised)
+
+        # Causal mask: each query can only see positions up to its own index
+        attn_mask = torch.zeros(batch, 1, q_len, k_len, dtype=torch.bool)
+        for q in range(q_len):
+            attn_mask[0, 0, q, : q + 1] = True
+
+        # All positions in both query and key chunk are image tokens
+        q_img = torch.ones(batch, q_len, dtype=torch.bool)
+        k_image_locations = torch.ones(batch, k_loc_len, dtype=torch.bool)
+
+        result = self._update_causal_mask_cpu(attn_mask, q_img, k_image_locations)
+
+        # Image queries should attend to all image keys within k_loc_len
+        for q in range(q_len):
+            for k in range(k_loc_len):
+                self.assertTrue(
+                    result[0, 0, q, k].item(),
+                    msg=f"q={q} should attend to filled img-key k={k}",
+                )
+
+        # Future positions k >= k_loc_len must remain False (untouched)
+        future_slice = result[0, 0, :, k_loc_len:]
+        self.assertFalse(
+            future_slice.any().item(),
+            msg=f"No future key position (k>={k_loc_len}) should be opened by image logic",
+        )
+
+    def test_update_causal_mask_asymmetric_partial_image_keys(self):
+        """Asymmetric case where only SOME of the k_loc_len positions are image
+        tokens: only those positions should be opened for image queries."""
+        batch = 1
+        q_len = 3
+        k_loc_len = 3
+        k_len = 6  # positions 3..5 are uninitialized future cache slots
+
+        # Causal mask (all False for simplicity)
+        attn_mask = torch.zeros(batch, 1, q_len, k_len, dtype=torch.bool)
+
+        # Only position 1 is an image token in both query and key sequences
+        q_img = torch.tensor([[False, True, False]])  # (1, 3)
+        k_image_locations = torch.tensor([[False, True, False]])  # (1, 3)
+
+        result = self._update_causal_mask_cpu(attn_mask, q_img, k_image_locations)
+
+        # (q=1, k=1) should be True — both image tokens
+        self.assertTrue(result[0, 0, 1, 1].item(), "img-to-img pair must be True")
+        # (q=1, k=0) and (q=1, k=2) should still be False — not image tokens
+        self.assertFalse(result[0, 0, 1, 0].item())
+        self.assertFalse(result[0, 0, 1, 2].item())
+        # Future positions k >= k_loc_len must remain False
+        future_slice = result[0, 0, :, k_loc_len:]
+        self.assertFalse(future_slice.any().item(), "future keys must stay False")
 
     def test_padded_k_image_locations_no_shape_error(self):
         """Padding image_locations to cache_len before AND-ing with filled_mask
