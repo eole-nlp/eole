@@ -3,9 +3,9 @@ from eole.scorers import register_scorer
 from sacrebleu import corpus_bleu
 
 
-@register_scorer(metric="BLEU_en")
+@register_scorer(metric="BLEU")
 class BleuScorer(Scorer):
-    """BLEU scorer class for English."""
+    """BLEU scorer class."""
 
     def __init__(self, config):
         """Initialize necessary options for sentencepiece."""

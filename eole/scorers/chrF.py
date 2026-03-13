@@ -3,7 +3,7 @@ from eole.scorers import register_scorer
 from sacrebleu import corpus_chrf
 
 
-@register_scorer(metric="chrF")
+@register_scorer(metric="CHRF")
 class ChrFScorer(Scorer):
     """chrF scorer class."""
 
