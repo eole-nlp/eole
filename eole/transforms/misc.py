@@ -274,7 +274,7 @@ class SuffixTransform(Transform):
     def warm_up(self, vocabs=None):
         """Warm up to get suffix dictionary."""
         super().warm_up(None)
-        self.suffix_dict = self.get_suffix_dict(self.config)
+        self.suffix_dict = self.get_suffix_dict(self.full_config)
 
     def _append(self, example, suffix):
         """Prepend `suffix` to `tokens`."""
