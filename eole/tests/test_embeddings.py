@@ -8,7 +8,13 @@ from copy import deepcopy
 import torch
 import random
 from torch.nn.init import xavier_uniform_
-from eole.tests.utils_for_tests import product_dict
+
+
+def product_dict(**kwargs):
+    keys = kwargs.keys()
+    vals = kwargs.values()
+    for instance in itertools.product(*vals):
+        yield dict(zip(keys, instance))
 
 
 class TestEmbeddings(unittest.TestCase):

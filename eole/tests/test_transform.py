@@ -3,6 +3,7 @@
 import unittest
 
 import copy
+import random
 import yaml
 import math
 from argparse import Namespace
@@ -13,6 +14,7 @@ from eole.transforms import (
     TransformPipe,
 )
 from eole.transforms.bart import BARTNoising
+from eole.transforms.normalize import MosesPunctNormalizer
 from eole.config.run import TrainConfig, PredictConfig
 from eole.config.data import Dataset
 from eole.config.models import CustomModelConfig
@@ -785,3 +787,387 @@ class TestInsertMaskBeforePlaceholder(unittest.TestCase):
             ],
         }
         self.assertEqual(ex_in, ex_gold)
+
+
+class TestMosesPunctNormalizer(unittest.TestCase):
+    """Tests for the MosesPunctNormalizer utility class."""
+
+    def setUp(self):
+        self.normalizer = MosesPunctNormalizer()
+
+    def test_basic_normalization(self):
+        """Normalize removes extra whitespace."""
+        text = "Hello   world  ."
+        result = self.normalizer.normalize(text)
+        self.assertEqual(result, "Hello world .")
+
+    def test_unicode_quotes_normalized(self):
+        """Unicode typographic quotes are converted to ASCII."""
+        text = "\u201cHello\u201d"
+        result = self.normalizer.normalize(text)
+        self.assertNotIn("\u201c", result)
+        self.assertNotIn("\u201d", result)
+
+    def test_em_dash_normalized(self):
+        """Em-dash is replaced by a spaced hyphen."""
+        text = "word\u2014word"
+        result = self.normalizer.normalize(text)
+        self.assertIn("-", result)
+        self.assertNotIn("\u2014", result)
+
+    def test_en_dash_normalized(self):
+        """En-dash is replaced by a hyphen."""
+        text = "2000\u20132001"
+        result = self.normalizer.normalize(text)
+        self.assertNotIn("\u2013", result)
+
+    def test_ellipsis_normalized(self):
+        """Unicode ellipsis is expanded to three dots."""
+        text = "waiting\u2026"
+        result = self.normalizer.normalize(text)
+        self.assertIn("...", result)
+
+    def test_french_quotes(self):
+        """French guillemets are replaced by double quotes."""
+        text = "\u00AB bonjour \u00BB"
+        result = self.normalizer.normalize(text)
+        self.assertIn('"', result)
+        self.assertNotIn("\u00AB", result)
+        self.assertNotIn("\u00BB", result)
+
+    def test_pre_replace_unicode_punct(self):
+        """pre_replace_unicode_punct replaces fullwidth digits and punctuation."""
+        text = "\uff10\uff11\uff12"  # fullwidth 0, 1, 2
+        result = self.normalizer.normalize(text, pre_replace_unicode_punct=True)
+        self.assertIn("0", result)
+        self.assertIn("1", result)
+        self.assertIn("2", result)
+
+    def test_replace_unicode_punct_directly(self):
+        """replace_unicode_punct converts Chinese/fullwidth punctuation."""
+        text = "\uff0c\u3002"  # fullwidth comma, Chinese period
+        result = self.normalizer.replace_unicode_punct(text)
+        self.assertIn(",", result)
+
+    def test_post_remove_control_chars(self):
+        """post_remove_control_chars strips control characters."""
+        text = "hello\x00world"
+        result = self.normalizer.normalize(text, post_remove_control_chars=True)
+        self.assertNotIn("\x00", result)
+        self.assertIn("hello", result)
+        self.assertIn("world", result)
+
+    def test_de_number_normalization(self):
+        """German locale uses comma as decimal separator."""
+        text = "1\u00A02"  # non-breaking space between digits
+        result = self.normalizer.normalize(text, lang="de", norm_numbers=True)
+        self.assertIn(",", result)
+
+    def test_penn_mode_on_replaces_backtick(self):
+        """With Penn mode on, backtick is replaced by single quote."""
+        text = "`hello`"
+        result = self.normalizer.normalize(text, penn=True)
+        # In Penn mode NORMALIZE_UNICODE_IF_NOT_PENN substitutions are applied
+        self.assertNotIn("`", result)
+
+    def test_returns_string(self):
+        """normalize always returns a string."""
+        result = self.normalizer.normalize("")
+        self.assertIsInstance(result, str)
+
+
+class TestNormalizeTransform(unittest.TestCase):
+    """Tests for the NormalizeTransform pipeline class."""
+
+    @classmethod
+    def setUpClass(cls):
+        normalize_cls = get_transforms_cls(["normalize"])["normalize"]
+        opt = PredictConfig(
+            model_path=["dummy"],
+            src="dummy",
+            transforms_configs={
+                "normalize": {
+                    "src_lang": "en",
+                    "tgt_lang": "en",
+                    "penn": True,
+                    "norm_quote_commas": True,
+                    "norm_numbers": True,
+                    "pre_replace_unicode_punct": False,
+                    "post_remove_control_chars": False,
+                }
+            },
+        )
+        cls.transform = normalize_cls(opt)
+        cls.transform.warm_up()
+
+    def test_apply_normalizes_src_and_tgt(self):
+        """apply() normalizes both src and tgt strings."""
+        ex = {"src": "Hello   world .", "tgt": "Bonjour   monde ."}
+        result = self.transform.apply(ex, corpus_name="infer")
+        self.assertEqual(result["src"], "Hello world .")
+        self.assertEqual(result["tgt"], "Bonjour monde .")
+
+    def test_apply_requires_corpus_name(self):
+        """apply() raises ValueError when corpus_name is missing."""
+        ex = {"src": "Hello world .", "tgt": None}
+        with self.assertRaises(ValueError):
+            self.transform.apply(ex)
+
+    def test_apply_handles_none_tgt(self):
+        """apply() skips tgt normalization when tgt is None."""
+        ex = {"src": "Hello   world .", "tgt": None}
+        result = self.transform.apply(ex, corpus_name="infer")
+        self.assertIsNotNone(result)
+        self.assertIsNone(result["tgt"])
+        self.assertEqual(result["src"], "Hello world .")
+
+    def test_apply_requires_string_src(self):
+        """apply() raises AssertionError when src is a list (must run before tokenizer)."""
+        ex = {"src": ["Hello", "world", "."], "tgt": None}
+        with self.assertRaises(AssertionError):
+            self.transform.apply(ex, corpus_name="infer")
+
+    def test_warm_up_creates_infer_dicts(self):
+        """warm_up() populates 'infer' key in all language dicts."""
+        self.assertIn("infer", self.transform.src_lang_dict)
+        self.assertIn("infer", self.transform.tgt_lang_dict)
+
+
+class TestUpperCaseTransform(unittest.TestCase):
+    """Tests for the UpperCaseTransform."""
+
+    def _make_transform(self, ratio):
+        uppercase_cls = get_transforms_cls(["uppercase"])["uppercase"]
+        opt = PredictConfig(
+            model_path=["dummy"],
+            src="dummy",
+            transforms_configs={"uppercase": {"upper_corpus_ratio": ratio}},
+        )
+        t = uppercase_cls(opt)
+        t.warm_up()
+        return t
+
+    def test_apply_always_uppercases_at_ratio_one(self):
+        """With ratio=1.0 every example is uppercased."""
+        t = self._make_transform(ratio=1.0)
+        ex = {"src": "Hello world.", "tgt": "Bonjour monde."}
+        result = t.apply(copy.deepcopy(ex))
+        self.assertEqual(result["src"], "HELLO WORLD.")
+        self.assertEqual(result["tgt"], "BONJOUR MONDE.")
+
+    def test_apply_never_uppercases_at_ratio_zero(self):
+        """With ratio=0.0 no example is uppercased."""
+        t = self._make_transform(ratio=0.0)
+        ex = {"src": "Hello world.", "tgt": "Bonjour monde."}
+        result = t.apply(copy.deepcopy(ex))
+        self.assertEqual(result["src"], "Hello world.")
+        self.assertEqual(result["tgt"], "Bonjour monde.")
+
+    def test_apply_handles_none_tgt(self):
+        """apply() skips tgt when it is None."""
+        t = self._make_transform(ratio=1.0)
+        ex = {"src": "Hello world.", "tgt": None}
+        result = t.apply(copy.deepcopy(ex))
+        self.assertEqual(result["src"], "HELLO WORLD.")
+        self.assertIsNone(result["tgt"])
+
+    def test_apply_requires_string_src(self):
+        """apply() raises AssertionError when src is a list."""
+        t = self._make_transform(ratio=1.0)
+        ex = {"src": ["Hello", "world", "."], "tgt": None}
+        with self.assertRaises(AssertionError):
+            t.apply(ex)
+
+    def test_apply_unicode_normalization(self):
+        """Uppercasing applies NFD normalization and removes combining marks."""
+        t = self._make_transform(ratio=1.0)
+        # Greek lowercase 'α' uppercases to 'Α'
+        ex = {"src": "αβγ", "tgt": None}
+        result = t.apply(copy.deepcopy(ex))
+        self.assertEqual(result["src"], result["src"].upper())
+
+    def test_apply_random_sampling(self):
+        """With intermediate ratio, some examples are converted and some are not."""
+        t = self._make_transform(ratio=0.5)
+        rng = random.Random(42)
+        # Monkey-patch the module-level random.random used inside UpperCaseTransform.apply
+        import eole.transforms.uppercase as _umod
+
+        original_random = _umod.random.random
+        _umod.random.random = rng.random
+        try:
+            results = set()
+            ex_template = {"src": "Hello world.", "tgt": None}
+            for _ in range(100):
+                r = t.apply(copy.deepcopy(ex_template))
+                results.add(r["src"])
+            # Both uppercased and original forms should appear
+            self.assertGreater(len(results), 1)
+        finally:
+            _umod.random.random = original_random
+
+
+class TestFilterTooShortTransform(unittest.TestCase):
+    """Tests for the FilterTooShortTransform."""
+
+    def _make_transform(self, src_min=3, tgt_min=3):
+        cls = get_transforms_cls(["filtertooshort"])["filtertooshort"]
+        opt = PredictConfig(
+            model_path=["dummy"],
+            src="dummy",
+            transforms_configs={"filtertooshort": {"src_seq_length": src_min, "tgt_seq_length": tgt_min}},
+        )
+        t = cls(opt)
+        t.warm_up()
+        return t
+
+    def test_passes_long_enough_example(self):
+        """Example meeting the minimum length is returned unchanged."""
+        t = self._make_transform(src_min=2, tgt_min=2)
+        ex = {"src": ["Hello", "world", "."], "tgt": ["Bonjour", "monde", "."]}
+        result = t.apply(ex)
+        self.assertIs(result, ex)
+
+    def test_filters_short_src(self):
+        """Example with src shorter than minimum is filtered (returns None)."""
+        t = self._make_transform(src_min=5, tgt_min=1)
+        ex = {"src": ["Hi", "."], "tgt": ["Salut", "."]}
+        result = t.apply(ex)
+        self.assertIsNone(result)
+
+    def test_filters_short_tgt(self):
+        """Example with tgt shorter than minimum is filtered (returns None)."""
+        t = self._make_transform(src_min=1, tgt_min=5)
+        ex = {"src": ["Hello", "world", "."], "tgt": ["Hi"]}
+        result = t.apply(ex)
+        self.assertIsNone(result)
+
+    def test_requires_list_input(self):
+        """apply() raises AssertionError when src is a string (must run after tokenizer)."""
+        t = self._make_transform()
+        ex = {"src": "Hello world.", "tgt": ["Bonjour"]}
+        with self.assertRaises(AssertionError):
+            t.apply(ex)
+
+    def test_passes_when_tgt_is_none(self):
+        """Example with None tgt is only filtered on src length."""
+        t = self._make_transform(src_min=2, tgt_min=100)
+        ex = {"src": ["Hello", "world", "."], "tgt": None}
+        result = t.apply(ex)
+        # tgt is None so tgt length check is skipped; src is long enough
+        self.assertIs(result, ex)
+
+
+class TestSuffixTransform(unittest.TestCase):
+    """Tests for the SuffixTransform."""
+
+    @classmethod
+    def setUpClass(cls):
+        suffix_cls = get_transforms_cls(["suffix"])["suffix"]
+        corpora = yaml.safe_load(
+            """
+            trainset:
+                path_src: eole/tests/data/src-train.txt
+                path_tgt: eole/tests/data/tgt-train.txt
+                transforms: [suffix]
+                weight: 1
+                src_suffix: "｟_sf_src｠"
+                tgt_suffix: "｟_sf_tgt｠"
+        """
+        )
+        opt = TrainConfig(
+            data=corpora,
+            seed=-1,
+            src_vocab="dummy",
+            share_vocab=True,
+            model=CustomModelConfig(),
+        )
+        cls.transform = suffix_cls(opt)
+        cls.transform.warm_up()
+
+    def test_warm_up_creates_suffix_dict(self):
+        """warm_up() builds a suffix_dict containing the configured corpus."""
+        self.assertIn("trainset", self.transform.suffix_dict)
+
+    def test_apply_appends_suffix(self):
+        """apply() appends the configured suffix tokens to src and tgt."""
+        ex = {"src": ["Hello", "world", "."], "tgt": ["Bonjour", "le", "monde", "."]}
+        result = self.transform.apply(copy.deepcopy(ex), corpus_name="trainset")
+        self.assertEqual(result["src"][-1], "｟_sf_src｠")
+        self.assertEqual(result["tgt"][-1], "｟_sf_tgt｠")
+
+    def test_apply_requires_corpus_name(self):
+        """apply() raises ValueError when corpus_name is missing."""
+        ex = {"src": ["Hello", "world", "."], "tgt": None}
+        with self.assertRaises(ValueError):
+            self.transform.apply(ex)
+
+    def test_apply_unknown_corpus_raises(self):
+        """apply() raises ValueError for an unknown corpus name."""
+        ex = {"src": ["Hello", "world", "."], "tgt": None}
+        with self.assertRaises(ValueError):
+            self.transform.apply(ex, corpus_name="unknown_corpus")
+
+    def test_apply_requires_list_input(self):
+        """apply() raises AssertionError when src is a string."""
+        ex = {"src": "Hello world .", "tgt": None}
+        with self.assertRaises(AssertionError):
+            self.transform.apply(ex, corpus_name="trainset")
+
+
+class TestDocifyTransform(unittest.TestCase):
+    """Tests for the DocifyTransform."""
+
+    def _make_transform(self, doc_length=10, max_context=1):
+        cls = get_transforms_cls(["docify"])["docify"]
+        opt = PredictConfig(
+            model_path=["dummy"],
+            src="dummy",
+            transforms_configs={"docify": {"doc_length": doc_length, "max_context": max_context}},
+        )
+        t = cls(opt)
+        t.warm_up()
+        return t
+
+    def test_batch_apply_concatenates_short_segments(self):
+        """Short segments below doc_length are concatenated."""
+        t = self._make_transform(doc_length=20, max_context=2)
+        batch = [
+            ({"src": ["Hello", "world"], "tgt": ["Bonjour", "monde"]}, t, "c1"),
+            ({"src": ["Foo", "bar"], "tgt": ["Baz", "qux"]}, t, "c1"),
+        ]
+        result = t.batch_apply(batch)
+        # Two short segments should be merged into one doc
+        self.assertEqual(len(result), 1)
+
+    def test_batch_apply_splits_long_segments(self):
+        """Segments exceeding doc_length are kept separate."""
+        t = self._make_transform(doc_length=2, max_context=1)
+        long_src = ["word"] * 5
+        batch = [
+            ({"src": long_src, "tgt": long_src[:]}, t, "c1"),
+            ({"src": long_src[:], "tgt": long_src[:]}, t, "c1"),
+        ]
+        result = t.batch_apply(batch)
+        self.assertGreaterEqual(len(result), 2)
+
+    def test_apply_reverse_splits_on_sep(self):
+        """apply_reverse() splits on SEP token and returns a list of segments."""
+        from eole.constants import DefaultTokens
+
+        t = self._make_transform()
+        predicted = f"segment one {DefaultTokens.SEP} segment two"
+        result = t.apply_reverse(predicted)
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0], "segment one")
+        self.assertEqual(result[1], "segment two")
+
+    def test_batch_apply_max_context_zero_returns_unchanged(self):
+        """When max_context=0 the batch is returned as-is."""
+        t = self._make_transform(max_context=0)
+        batch = [
+            ({"src": ["Hello"], "tgt": ["Bonjour"]}, t, "c1"),
+        ]
+        result = t.batch_apply(batch)
+        self.assertIs(result, batch)
