@@ -1,6 +1,6 @@
 import os
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
 EOLE_TORCH_COMPILE = os.environ.get("EOLE_TORCH_COMPILE", "0") == "1"
 

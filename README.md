@@ -50,6 +50,10 @@ Of course you can train your own architecture (Decoder only, Encoder Only, or En
 
 ## Latest developments
 
+- **LM_scoring** Updated perplexity tool to compare the perplexity of a model family (ex: Qwen3.5 27B, 9B, 4B, ... using the same tokenizer)
+- **gguf conversion** Included for educational purpose - show how to convert a gguf quantized (or not) to Eole safetensor model keeping (almost) the same Quant
+- **Autoround support** Uses GPTQModel to support int4 quantization
+- **Comet scorer** You can now use both BLEU and COMET during validation to measure the improvement of training
 - **torch.compile compliant** amazing inference speed (vLLM level)
 - **high inference speed** using Flash Attention (decoding with in-place KVCache), Cuda kernels for RMSNorm, Rope, Activations - Triton very fast MoE, fused MLP Gate, fused KVQ Linear.
 - **prefixLM + split prompt/answer in src/tgt** optional method to feed your data
