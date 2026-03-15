@@ -15,7 +15,13 @@ Model
 
 .. autoclass:: eole.models.EncoderModel
     :members:
-    
+
+.. autoclass:: eole.models.model.VisionEncoderDecoderModel
+    :members:
+
+.. autoclass:: eole.models.model.AudioEncoderDecoderModel
+    :members:
+
 Trainer
 -------
 
@@ -35,4 +41,17 @@ Optimizer
 ---------
 
 .. autoclass:: eole.utils.Optimizer
+    :members:
+
+
+Inference Engine
+----------------
+
+.. autoclass:: eole.inference_engine.InferenceEngine
+    :members:
+
+.. autoclass:: eole.inference_engine.InferenceEnginePY
+    :members:
+
+.. autoclass:: eole.inference_engine.InferenceEngineCT2
     :members:

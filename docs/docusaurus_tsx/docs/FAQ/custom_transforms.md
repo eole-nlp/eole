@@ -48,7 +48,7 @@ class FilterTooLongTransform(Transform):
 ```
 
 Methods:
-- `_parse_opts` allows to parse options from the `config_model`;
+- `_parse_config` allows to parse options from the `config_model`;
 - `apply` is where the transform happens;
 - `_repr_args` is for clean logging purposes.
 

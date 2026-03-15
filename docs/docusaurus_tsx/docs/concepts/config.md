@@ -63,7 +63,7 @@ training:
     batch_size: 2048
     batch_type: tokens
     # Optimizer
-    model_dtype: "fp32"
+    compute_dtype: "fp32"
     optim: "adam"
     learning_rate: 2
     warmup_steps: 8000

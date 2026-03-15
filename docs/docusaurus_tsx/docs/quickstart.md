@@ -36,8 +36,6 @@ We need to build a **YAML configuration file** to specify the data that will be 
 ```yaml
 # toy_en_de.yaml
 
-## Where the samples will be written
-save_data: toy-ende/run/example
 ## Where the vocab(s) will be written
 src_vocab: toy-ende/run/example.vocab.src
 tgt_vocab: toy-ende/run/example.vocab.tgt
@@ -100,9 +98,7 @@ This configuration will run a default transformer model. It will run on a single
 
 Before the training process actually starts, it is possible to generate transformed samples to simplify any potentially required visual inspection. The number of sample lines to dump per corpus is set with the `-n_sample` flag.
 
-<!-- For more advanded models and parameters, see [other example configurations](https://github.com/OpenNMT/OpenNMT-py/tree/master/config) or the [FAQ](/docs/category/frequently-asked-questions). -->
-
-### Step 3: Translate
+### Step 3: Predict / Translate
 
 ```bash
 eole predict -model_path toy-ende/run/model -src toy-ende/src-test.txt -output toy-ende/pred_1000.txt -gpu 0 -verbose
@@ -120,42 +116,30 @@ For example you can download millions of parallel sentences for [translation](ht
 
 ### Step 1: Convert a model from Hugging Face Hub
 
-Several converters are provided for models 1) from Hugging Face hub: T5, Falcon, MPT, Openllama, Redpajama, Xgen or 2) the legacy Llama from Meta.
+EOLE provides a universal Hugging Face converter that supports most modern LLM architectures. To convert a model:
 
-See [here](/docs/concepts/command_line#model-conversion-tools) for conversion command line.
+```bash
+export EOLE_MODEL_DIR=<where_to_store_models>
+export HF_TOKEN=<your_hf_token>
 
-T5 (and variant Flan-T5), Llama and Openllama use Sentencepiece.
-Other models uses BPE, we had to reconstruct the BPE model and vocab file:
+eole convert HF --model_dir "meta-llama/Llama-3.1-8B-Instruct" \
+    --output $EOLE_MODEL_DIR/llama-3.1-8b-instruct \
+    --token $HF_TOKEN
+```
 
-[MPT bpe model](https://opennmt-models.s3.amazonaws.com/mosaic-MPT/mpt-model.bpe)
+See [here](/docs/concepts/command_line#model-conversion-tools) for all conversion command line options.
 
-[MPT vocab](https://opennmt-models.s3.amazonaws.com/mosaic-MPT/mpt.vocab)
-
-[Redpajama bpe model](https://opennmt-models.s3.amazonaws.com/redpajama/redpajama-model.bpe)
-
-[Redpajama vocab](https://opennmt-models.s3.amazonaws.com/redpajama/redpajama.vocab)
-
-[Falcon bpe model](https://opennmt-models.s3.amazonaws.com/falcon/falcon-model.bpe)
-
-[Falcon vocab](https://opennmt-models.s3.amazonaws.com/falcon/falcon.vocab)
-
-The command line to convert a model to OpenNMT-py is:
-
-Note: providing a HuggingFace repo id is supported in most conversion tools.
+Currently supported model families include: Llama, Mistral, Phi, Gemma, Qwen, Whisper (audio), and various vision-language models.
 
 ### Step 2: Prepare an inference.yaml config file
 
 Even though it is not mandatory, the best way to run inference is to use a config file; here is an example:
 
 ```yaml
-transforms: [sentencepiece]
-
-#### Subword
-src_subword_model: "/path_to/llama7B/tokenizer.model"
-tgt_subword_model: "/path_to/llama7B/tokenizer.model"
+# llama3-inference.yaml
 
 # Model info
-model_path: "/path_to/llama7B/llama7B-eole.pt"
+model_path: "/path_to/llama-3.1-8b-instruct"
 
 # Inference
 seed: 42
@@ -172,58 +156,37 @@ n_best: 1
 report_time: true
 ```
 
-or similarly for a model using BPE:
+For MMLU-style single-token scoring:
 
 ```yaml
-transforms: [onmt_tokenize]
+# mmlu-inference.yaml
 
-#### Subword
-src_subword_type: bpe
-src_subword_model: "/path_to/mpt7B/mpt-model.bpe"
-src_onmttok_kwargs: '{"mode": "conservative"}'
+model_path: "/path_to/my-model"
 
-tgt_subword_type: bpe
-tgt_subword_model: "/path_to/mpt7B/mpt-model.bpe"
-tgt_onmttok_kwargs: '{"mode": "conservative"}'
-gpt2_pretok: true
-# Model info
-model_path: "/path_to/mpt7B/mpt-eole.pt"
-
-# Inference
 seed: 42
 max_length: 1
 gpu: 0
 batch_type: sents
 batch_size: 1
 compute_dtype: fp16
-#random_sampling_topk: 40
-#random_sampling_topp: 0.75
-#random_sampling_temp: 0.8
 beam_size: 1
 report_time: true
 src: None
 tgt: None
 ```
 
-In this second example, we used `max_length: 1` and `src: None` `tgt: None` which is typically the configuration to be used in a scoring script like MMLU where it expects only 1 token as the answer.
+You can run the MMLU benchmark with:
 
-**WARNING**
-For inhomogeneous batches with many examples, the potentially high number of tokens inserted in the shortest examples leads to degraded results when attention layer quantization and flash attention are activated.
-In practice, in the inference configuration file, when `batch_size` is greater than 1,
-delete ‘linear\_values’, ‘linear\_query’, ‘linear\_keys’, ‘final\_linear’ from `quant_layers` and specify `self_attn_type: scaled-dot`.
-
-You can run this script with the following command line:
-
-```default
-eole tools run_mmlu --config myinference.yaml
+```bash
+eole tools run_mmlu --config mmlu-inference.yaml
 ```
 
 ### Step 3: Generate text
 
-Generating text is also easier with an inference config file (in which you can set max\_length or ramdom sampling settings):
-
-```default
-eole predict --config /path_to_config/llama7B/llama-inference.yaml --src /path_to_source/input.txt --output /path_to_target/output.txt
+```bash
+eole predict --config /path_to_config/llama3-inference.yaml \
+    --src /path_to_source/input.txt \
+    --output /path_to_target/output.txt
 ```
 
 ## How to finetune a pretrained LLM
@@ -232,12 +195,13 @@ See [Llama2 recipe](/docs/recipes/llama2/) for an end-to-end example.
 
 Note:
 
-If you want to enable the “zero-out prompt loss” mechanism to ignore the prompt when calculating the loss,
+If you want to enable the "zero-out prompt loss" mechanism to ignore the prompt when calculating the loss,
 you can add the `insert_mask_before_placeholder` transform as well as the `zero_out_prompt_loss` flag:
 
-```default
+```yaml
 transforms: [insert_mask_before_placeholder, sentencepiece, filtertoolong]
 zero_out_prompt_loss: true
 ```
 
-The default value for the response `response_pattern` used to locate the end of the prompt is “Response : ｟newline｠”, but you can choose another to align it with your training data.
+The default value for the response `response_pattern` used to locate the end of the prompt is "Response : ｟newline｠", but you can choose another to align it with your training data.
+
