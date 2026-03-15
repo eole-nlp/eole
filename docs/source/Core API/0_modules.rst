@@ -16,7 +16,7 @@ Embeddings
 Encoders
 ---------
 
-.. autoclass:: eole.encoders.EncoderBase
+.. autoclass:: eole.encoders.encoder.EncoderBase
     :members:
 
 .. autoclass:: eole.encoders.TransformerEncoder
@@ -31,11 +31,17 @@ Encoders
 .. autoclass:: eole.encoders.MeanEncoder
     :members:
 
+.. autoclass:: eole.encoders.VisionEncoder
+    :members:
+
+.. autoclass:: eole.encoders.AudioEncoder
+    :members:
+
 Decoders
 ---------
 
 
-.. autoclass:: eole.decoders.DecoderBase
+.. autoclass:: eole.decoders.decoder.DecoderBase
     :members:
     
 .. autoclass:: eole.decoders.TransformerDecoder

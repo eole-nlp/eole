@@ -25,10 +25,21 @@ Predictor Classes
 .. autoclass:: eole.predict.Encoder
     :members:
 
+.. autoclass:: eole.predict.AudioPredictor
+    :members:
+
+Streaming
+---------
+
+.. autoclass:: eole.predict.streamer.GenerationStreamer
+    :members:
 
 Decoding Strategies
 --------------------
-.. autoclass:: eole.predict.DecodeStrategy
+.. autoclass:: eole.predict.decode_strategy.DecodeStrategy
+    :members:
+
+.. autoclass:: eole.predict.beam_search.BeamSearchBase
     :members:
 
 .. autoclass:: eole.predict.BeamSearch

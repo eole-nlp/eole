@@ -12,11 +12,11 @@ description: Recap of command line utilities and how to call them.
 ### Main Entrypoints
 - **`build_vocab`**
 - **`train`**
-- **`translate`**
+- **`predict`**
 
 ### Model Conversion Tools
 - **`convert`** 
-  - Flavors: `xgen`, `redpajama`, `llama_legacy`, `falcon`, `mpt`, `HF`, `T5`
+  - Flavors: `HF` (universal Hugging Face converter), `T5`, `onmt_config` (legacy OpenNMT-py config migration)
 
 ### Model Management Tools
 - **`model`**
@@ -24,7 +24,7 @@ description: Recap of command line utilities and how to call them.
 
 ### Miscellaneous Tools (Mostly Legacy)
 - **`tools`**
-  - Subcommands: `LM_scoring`, `oracle_comet`, `run_mmlu`, `spm_to_vocab`, `mbr_bleu`, `embeddings_to_torch`, `oracle_bleu`
+  - Subcommands: `LM_scoring`, `oracle_comet`, `run_mmlu`, `spm_to_vocab`, `mbr_bleu`, `embeddings_to_torch`, `oracle_bleu`, `hellaswag`
 
 ## Usage
 
