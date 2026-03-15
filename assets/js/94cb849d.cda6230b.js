@@ -1,0 +1,1 @@
+"use strict";(globalThis.webpackChunkdocusaurus_tsx=globalThis.webpackChunkdocusaurus_tsx||[]).push([[8440],{4628(e){e.exports=JSON.parse('{"authors":[{"name":"Eole Team","title":"Maintainer","url":"https://github.com/eole-nlp","imageURL":"https://github.com/eole-nlp.png","key":"eole-team","page":null,"count":0}]}')}}]);
