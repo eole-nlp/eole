@@ -16,7 +16,7 @@ You can also control the compile mode with `EOLE_COMPILE_MODE`:
 |-------|-------------|
 | `0`   | Full compile (decoder as a whole with Cuda graphs) |
 | `1`   | Same as 0 but no cuda graphs |
-| `2`   | Deocder Layer compilation (faster to compile) with cuda graphs |
+| `2`   | Decoder Layer compilation (faster to compile) with cuda graphs |
 | `3`   | Same as 2 but no cuda graphs |
 
 ```bash
@@ -29,20 +29,20 @@ eole predict --config inference.yaml --src input.txt --output output.txt
 
 ## InferenceEngine
 
-EOLE provides an `InferenceEnginePY` class that manages the inference lifecycle, including:
+ EOLE provides an `InferenceEngine` Python API that manages the inference lifecycle, including:
 
-- A single dedicated inference thread (`eole-inference`) for serialized GPU access
-- Support for streaming token-by-token generation via `GenerationStreamer`
-- Continuous batching via `ContinuousBatchingManager`
+ - Managing GPU-bound inference work from the main application thread
+ - Support for non-streaming batch inference via `infer_list`
+ - Support for streaming token-by-token generation via `infer_list_stream`
 
 ### Example usage (Python API)
 
 ```python
 from eole.config.run import PredictConfig
-from eole.inference_engine import InferenceEngine
+from eole.inference_engine import InferenceEnginePY
 
 config = PredictConfig(model_path="/path/to/model", gpu=0, compute_dtype="fp16")
-engine = InferenceEngine(config)
+engine = InferenceEnginePY(config)
 
 results = engine.infer_list(["Hello, world!"])
 for result in results:

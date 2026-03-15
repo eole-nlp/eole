@@ -196,4 +196,4 @@ texinfo_documents = [
     ),
 ]
 
-github_doc_root = "https://github.com/eole-nlp/eole/tree/master/docs/"
+github_doc_root = "https://github.com/eole-nlp/eole/tree/main/docs/"
