@@ -2,7 +2,7 @@
 """
 setup.py for eole.
 
-eole/csrc/ is fully self-contained.
+csrc/ is fully self-contained.
 
 """
 from os import path

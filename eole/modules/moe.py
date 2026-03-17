@@ -176,7 +176,7 @@ class MoE(nn.Module):
 
     # ── Buffer growth helpers ─────────────────────────────────────────────────
 
-    def _maybe_grow_int4_buffers(self, M: int, K: int, I: int, H: int, dev, dt):  # noqaE741
+    def _maybe_grow_int4_buffers(self, M: int, K: int, I: int, H: int, dev, dt):  # noqa: E741
         """Grow int4 intermediate buffers if the current batch exceeds capacity."""
         num_pairs = M * K
         if (

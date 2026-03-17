@@ -450,7 +450,7 @@ if EOLE_TORCH_COMPILE:
 if EOLE_TORCH_COMPILE:
     if _CPP_OPS_AVAILABLE:
 
-        @custom_op("eole::moe_wna16_marlin_gemm", mutates_args={"c", "c_tmp"})
+        @custom_op("eole::moe_wna16_marlin_gemm", mutates_args={"c"})
         def _moe_wna16_marlin_gemm_kernel(
             a: torch.Tensor,
             c: torch.Tensor,
