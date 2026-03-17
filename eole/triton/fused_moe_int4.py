@@ -577,9 +577,6 @@ def fused_experts_marlin_impl(
     cache13: "torch.Tensor | None" = None,
     cache2: "torch.Tensor | None" = None,
     out: "torch.Tensor | None" = None,
-    sorted_ids_buf: "torch.Tensor | None" = None,
-    expert_ids_buf: "torch.Tensor | None" = None,
-    ntpp_buf: "torch.Tensor | None" = None,
     topk_ids_i32: "torch.Tensor | None" = None,
 ) -> torch.Tensor:
     """MoE forward pass using moe_wna16_marlin_gemm fused kernel.
@@ -601,8 +598,7 @@ def fused_experts_marlin_impl(
     b_q_type      : ScalarType
     num_experts   : int
     activation    : "silu" | "gelu" | "relu"
-    cache13/cache2/out/sorted_ids_buf/expert_ids_buf/ntpp_buf/topk_ids_i32:
-                    pre-allocated buffers (all optional, grown lazily in moe.py)
+    cache13/cache2/out/topk_ids_i32: pre-allocated buffers (optional, grown lazily in moe.py)
 
     Returns
     -------
@@ -628,9 +624,6 @@ def fused_experts_marlin_impl(
         topk_ids.view(M, topk),
         moe_block_size,
         num_experts,
-        pre_sorted_ids=sorted_ids_buf,
-        pre_expert_ids=expert_ids_buf,
-        pre_ntpp=ntpp_buf,
         pre_topk_ids_i32=topk_ids_i32,
     )
 

@@ -15,15 +15,6 @@ with open(path.join(this_directory, "README.md"), encoding="utf-8") as f:
 EOLE_CSRC = path.join(this_directory, "csrc")
 
 
-def _marlin_headers_vendored() -> bool:
-    required = [
-        path.join(EOLE_CSRC, "marlin_template.h"),
-        path.join(EOLE_CSRC, "eole_scalar_type.hpp"),
-        path.join(EOLE_CSRC, "quantization", "marlin", "marlin.cuh"),
-    ]
-    return all(path.isfile(f) for f in required)
-
-
 def get_ext_modules_and_cmdclass():
     try:
         import torch
@@ -56,25 +47,11 @@ def get_ext_modules_and_cmdclass():
         "csrc/rotary_embedding.cu",
         "csrc/activation_kernels.cu",
         "csrc/moe_align.cu",
+        "csrc/marlin_moe_wna16.cu",
         "csrc/bindings.cpp",
     ]
 
-    # ── Marlin MoE kernel (single TU, no generated files) ────────────────────
-    marlin_sources = []
-    include_dirs = []
-
-    if _marlin_headers_vendored():
-        marlin_sources = ["csrc/marlin_moe_wna16.cu"]
-        include_dirs = [EOLE_CSRC]
-        extra_defines = [("EOLE_MARLIN_MOE_AVAILABLE", None)]
-        print("[eole] Marlin MoE kernel: compiling marlin_moe_wna16.cu")
-    else:
-        import warnings
-
-        warnings.warn(
-            "Marlin headers not found in csrc/.\n" "Compiling without Marlin MoE support.",
-            RuntimeWarning,
-        )
+    include_dirs = [EOLE_CSRC]
 
     cxx_args = ["-O3", "-std=c++17"]
     nvcc_args = [
@@ -89,9 +66,8 @@ def get_ext_modules_and_cmdclass():
     ext_modules = [
         CUDAExtension(
             name="eole._ops",
-            sources=core_sources + marlin_sources,
+            sources=core_sources,
             include_dirs=include_dirs,
-            define_macros=extra_defines,
             extra_compile_args={"cxx": cxx_args, "nvcc": nvcc_args},
         )
     ]

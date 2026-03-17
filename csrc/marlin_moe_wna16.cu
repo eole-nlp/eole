@@ -152,9 +152,10 @@ static const CachedDeviceProps& get_device_props(int dev) {
   int major, minor;
   cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev);
   cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, dev);
-  TORCH_CHECK(major * 10 + minor >= 75,
-              "Marlin requires Turing (sm75) or newer.");
-  p.stages = (major == 7 && minor == 5) ? 2 : 4;
+  TORCH_CHECK(major * 10 + minor >= 80,
+              "Marlin requires Ampere (sm80) or newer.");
+  // Only 4-stage kernels are compiled/used; restrict to architectures that support them.
+  p.stages = 4;
   std::lock_guard<std::mutex> lk(g_dev_mutex);
   g_dev_cache[dev] = p;
   return g_dev_cache[dev];

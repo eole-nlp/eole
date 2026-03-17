@@ -73,9 +73,6 @@ def _moe_align_block_size(
     topk_ids: torch.Tensor,
     block_size: int,
     num_experts: int,
-    pre_sorted_ids: "torch.Tensor | None" = None,
-    pre_expert_ids: "torch.Tensor | None" = None,
-    pre_ntpp: "torch.Tensor | None" = None,
     pre_topk_ids_i32: "torch.Tensor | None" = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Build Marlin MoE routing structures using eole's own CUDA kernel.
@@ -85,7 +82,8 @@ def _moe_align_block_size(
     topk_ids     : (M, topk) int32/int64 – expert assignments
     block_size   : Marlin moe_block_size
     num_experts  : total number of experts
-    pre_*        : optional pre-allocated output buffers (grown lazily in moe.py)
+    pre_topk_ids_i32 : optional pre-allocated int32 buffer used only to avoid
+                       casting allocations when topk_ids arrives as int64
 
     Returns
     -------

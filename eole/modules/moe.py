@@ -171,13 +171,8 @@ class MoE(nn.Module):
         self._marlin_out_buf = None  # (BT, K_mar) output buffer
         self._marlin_buf_M_topk = 0  # M*topk capacity of current caches
 
-        # ── Marlin routing buffer cache (grown lazily) ────────────────────────
-        # Sized at worst-case block_size=64; pre-filled with sentinel at alloc.
-        self._marlin_sorted_ids_buf = None  # (M*topk + E*(MAX_BLOCK-1),) int32
-        self._marlin_expert_ids_buf = None  # (ceil(above/MAX_BLOCK)+1,) int32
-        self._marlin_ntpp_buf = None  # (1,) int32
         self._marlin_topk_ids_i32 = None  # (BT, topk) int32 – avoids .to(int32) alloc
-        self._marlin_routing_cap = 0  # capacity of routing buffers (sorted_ids length)
+        self._marlin_routing_cap = 0  # capacity of topk_ids_i32 buffer (BT*topk)
 
     # ── Buffer growth helpers ─────────────────────────────────────────────────
 
@@ -203,9 +198,6 @@ class MoE(nn.Module):
         M_topk = BT * topk_val
         I_mar = self._marlin_I
         K_mar = self._marlin_K
-        E = self._marlin_num_experts
-        _MAX_BLOCK = 64
-        _MIN_BLOCK = 8
 
         # ── Intermediate GEMM buffers ─────────────────────────────────────────
         if self._marlin_buf_M_topk < M_topk or self._marlin_cache13 is None or self._marlin_cache13.dtype != dt:
@@ -214,20 +206,10 @@ class MoE(nn.Module):
             self._marlin_out_buf = torch.empty(BT, K_mar, device=dev, dtype=dt)
             self._marlin_buf_M_topk = M_topk
 
-        # ── Routing buffers ───────────────────────────────────────────────────
-        routing_need = M_topk + E * (_MAX_BLOCK - 1)
-        if self._marlin_routing_cap < routing_need or self._marlin_sorted_ids_buf is None:
-            # Pre-fill with the worst-case sentinel (routing_need ≥ any M*topk)
-            # so stale entries beyond ntpp are always safe skip-sentinels.
-            self._marlin_sorted_ids_buf = torch.full((routing_need,), routing_need, dtype=torch.int32, device=dev)
-            max_blocks_worst = (routing_need + _MIN_BLOCK - 1) // _MIN_BLOCK + 1
-            self._marlin_expert_ids_buf = torch.zeros(max_blocks_worst, dtype=torch.int32, device=dev)
-            self._marlin_ntpp_buf = torch.zeros(1, dtype=torch.int32, device=dev)
-            self._marlin_routing_cap = routing_need
-
         # ── topk_ids int32 buffer ─────────────────────────────────────────────
-        if self._marlin_topk_ids_i32 is None or self._marlin_topk_ids_i32.numel() < BT * topk_val:
+        if self._marlin_routing_cap < BT * topk_val or self._marlin_topk_ids_i32 is None:
             self._marlin_topk_ids_i32 = torch.empty(BT, topk_val, dtype=torch.int32, device=dev)
+            self._marlin_routing_cap = BT * topk_val
 
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -403,9 +385,6 @@ class MoE(nn.Module):
                 cache13=self._marlin_cache13,
                 cache2=self._marlin_cache2,
                 out=self._marlin_out_buf[:BT, :],
-                sorted_ids_buf=self._marlin_sorted_ids_buf,
-                expert_ids_buf=self._marlin_expert_ids_buf,
-                ntpp_buf=self._marlin_ntpp_buf,
                 topk_ids_i32=self._marlin_topk_ids_i32[:BT, :],
             ).view(B, T, C)
         # ── Path 3: int4 Triton (GPTQ / AutoRound / AWQ) ─────────────────────
