@@ -1,5 +1,6 @@
 """
-Int4 MoE Triton kernels supporting GPTQ/AutoRound (K-packed) and AWQ (N-packed) formats.
+Int4 MoE Triton kernels supporting GPTQ/AutoRound (K-packed) and AWQ (N-packed) formats,
+plus a Marlin MoE path using moe_wna16_marlin_gemm kernel.
 
 Layout conventions
 ------------------
@@ -15,17 +16,40 @@ AWQ (KPACKED=False)
 
 where  K = in_features (H for W1, I for W2)
        N = out_features (2*I for W1, H for W2)
-
-For W1 (gate_up projection) the kernel simultaneously computes
-gate = W_gate @ x  and  up = W_up @ x,
-then applies gated SiLU/GELU/ReLU in-kernel.
-For W2 (down projection) the kernel applies a weighted atomic-add reduce
-directly into the output buffer.
 """
 
 import torch
+import torch.nn.functional as F
 import triton
 import triton.language as tl
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Import fused ops and Marlin GEMM from eole.ops (supports torch.compile)
+# ─────────────────────────────────────────────────────────────────────────────
+from eole.ops import silu_and_mul
+from eole.ops import gelu_and_mul
+from eole.ops import moe_wna16_marlin_gemm
+
+from eole.modules.moe_quant_utils import _moe_align_block_size  # noqa: E402
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Buffer view helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _view_cache(flat: torch.Tensor, *shape: int) -> torch.Tensor:
+    """Return a view of *flat* with the given *shape*.
+
+    The total number of elements in *shape* must be ≤ flat.numel().  This lets
+    two differently-shaped views share the same underlying storage (e.g. the W1
+    GEMM output and the W2 GEMM output both live in the same flat buffer since
+    they are never live at the same time).
+    """
+    n = 1
+    for s in shape:
+        n *= s
+    return flat[:n].view(*shape)
 
 
 # ---------------------------------------------------------------------------
@@ -327,51 +351,82 @@ def fused_experts_int4_impl(
     group_size: int = 128,
     kpacked: bool = True,
     activation: str = "silu",
+    # ── Pre-allocated buffers (grown lazily in moe.py) ────────────────────────
+    # Eliminates 5 GPU allocations per MoE layer per decode step.
+    # When None the function falls back to dynamic allocation.
+    intermediate_buf: "torch.Tensor | None" = None,  # flat, numel ≥ num_pairs * I
+    output_buf: "torch.Tensor | None" = None,  # (M, H) – zeroed in-place before use
+    expert_ids_buf: "torch.Tensor | None" = None,  # (num_pairs,) int32
+    token_ids_buf: "torch.Tensor | None" = None,  # (num_pairs,) int32
+    weights_buf: "torch.Tensor | None" = None,  # (num_pairs,) dtype
 ) -> torch.Tensor:
-    """
-    MoE forward pass with int4-quantised weights.
+    """MoE forward pass with int4-quantised weights (GPTQ/AWQ).
 
     Parameters
     ----------
     hidden_states : (M, H)
-    w1_qweight    : (E, H//8, 2I) if kpacked else (E, H, 2I//8)  – int32
-    w1_scales     : (E, H//group_size, 2I)                         – fp16/bf16
-    w1_qzeros     : (E, H//group_size, 2I//8)                      – int32
-    w2_qweight    : (E, I//8, H)  if kpacked else (E, I, H//8)    – int32
-    w2_scales     : (E, I//group_size, H)                          – fp16/bf16
-    w2_qzeros     : (E, I//group_size, H//8)                       – int32
+    w1_qweight    : (E, H//8, 2I) kpacked  or  (E, H, 2I//8) awq   – int32
+    w1_scales     : (E, H//gs, 2I)                                   – fp16/bf16
+    w1_qzeros     : (E, H//gs, 2I//8)                                – int32
+    w2_qweight    : (E, I//8, H)  kpacked  or  (E, I, H//8)  awq   – int32
+    w2_scales     : (E, I//gs, H)                                    – fp16/bf16
+    w2_qzeros     : (E, I//gs, H//8)                                 – int32
     topk_weights  : (M, K)
     topk_ids      : (M, K)
     group_size    : quantisation group size (default 128)
     kpacked       : True = GPTQ/AutoRound layout, False = AWQ layout
     activation    : "silu" | "gelu" | "relu"
+    intermediate_buf / output_buf / expert_ids_buf / token_ids_buf / weights_buf:
+                    optional pre-allocated buffers (see moe.py _maybe_grow_int4_buffers)
     """
     M, H = hidden_states.shape
     K = topk_ids.shape[1]
+    num_pairs = M * K
 
-    # Derive I (intermediate size) from stacked weight shape
     if kpacked:
-        double_I = w1_qweight.shape[2]  # (E, H//8, 2I)  → col dim = 2I
+        I = w1_qweight.shape[2] // 2  # (E, H//8, 2I) → col = 2I  # noqa E741
     else:
-        double_I = w1_qweight.shape[2] * 8  # (E, H, 2I//8)  → col dim = 2I//8
-
-    I = double_I // 2  # noqa: E741
+        I = w1_qweight.shape[2] * 8 // 2  # (E, H, 2I//8) → col*8 = 2I  # noqa E741
 
     device = hidden_states.device
     dtype = hidden_states.dtype
-    num_pairs = M * K
-
-    expert_ids = topk_ids.flatten().to(torch.int32)
-    token_ids = torch.arange(M, device=device, dtype=torch.int32).repeat_interleave(K)
-    weights = topk_weights.flatten()
-
     act_code = _ACTIVATION_MAP.get(activation.lower(), 0)
-
     BLOCK_N, BLOCK_K = 64, 64
 
-    # ── W1: gate+up projection + activation → intermediate ────────────────
-    intermediate = torch.empty((num_pairs, I), device=device, dtype=dtype)
+    # ── Routing vectors ───────────────────────────────────────────────────────
+    if expert_ids_buf is not None and expert_ids_buf.numel() >= num_pairs:
+        expert_ids = expert_ids_buf[:num_pairs]
+        expert_ids.copy_(topk_ids.flatten().to(torch.int32))
+    else:
+        expert_ids = topk_ids.flatten().to(torch.int32)
 
+    if token_ids_buf is not None and token_ids_buf.numel() >= num_pairs:
+        token_ids = token_ids_buf[:num_pairs]
+        # Fill with repeat-interleaved arange: [0,0,...,1,1,...,M-1,M-1,...]
+        token_ids.view(M, K).copy_(torch.arange(M, device=device, dtype=torch.int32).unsqueeze(1).expand(M, K))
+    else:
+        token_ids = torch.arange(M, device=device, dtype=torch.int32).repeat_interleave(K)
+
+    if weights_buf is not None and weights_buf.numel() >= num_pairs:
+        weights = weights_buf[:num_pairs]
+        weights.copy_(topk_weights.flatten())
+    else:
+        weights = topk_weights.flatten()
+
+    # ── Intermediate buffer ───────────────────────────────────────────────────
+    if intermediate_buf is not None and intermediate_buf.numel() >= num_pairs * I:
+        intermediate = intermediate_buf[: num_pairs * I].view(num_pairs, I)
+    else:
+        intermediate = torch.empty((num_pairs, I), device=device, dtype=dtype)
+
+    # ── Output buffer — must be zeroed; W2 uses atomic_add ───────────────────
+    if output_buf is not None and output_buf.numel() >= M * H:
+        final_output = output_buf[:M, :H] if output_buf.dim() == 2 else output_buf[: M * H].view(M, H)
+        final_output.zero_()
+    else:
+        final_output = torch.zeros((M, H), device=device, dtype=dtype)
+
+    # ── W1: gate+up projection + activation → intermediate ───────────────────
     grid_w1 = (num_pairs, triton.cdiv(I, BLOCK_N))
     _w1_int4_act_kernel[grid_w1](
         hidden_states,
@@ -381,25 +436,19 @@ def fused_experts_int4_impl(
         intermediate,
         expert_ids,
         token_ids,
-        # X strides
         hidden_states.stride(0),
         hidden_states.stride(1),
-        # Qw strides
         w1_qweight.stride(0),
         w1_qweight.stride(1),
         w1_qweight.stride(2),
-        # Sc strides
         w1_scales.stride(0),
         w1_scales.stride(1),
         w1_scales.stride(2),
-        # Qz strides
         w1_qzeros.stride(0),
         w1_qzeros.stride(1),
         w1_qzeros.stride(2),
-        # Y strides
         intermediate.stride(0),
         intermediate.stride(1),
-        # dims
         H=H,
         I=I,
         group_size=group_size,
@@ -412,9 +461,7 @@ def fused_experts_int4_impl(
         num_pairs=num_pairs,
     )
 
-    # ── W2: down projection + weighted reduce → output ────────────────────
-    final_output = torch.zeros((M, H), device=device, dtype=dtype)
-
+    # ── W2: down projection + weighted reduce → output ────────────────────────
     grid_w2 = (num_pairs, triton.cdiv(H, BLOCK_N))
     _w2_int4_reduce_kernel[grid_w2](
         intermediate,
@@ -425,25 +472,19 @@ def fused_experts_int4_impl(
         expert_ids,
         token_ids,
         weights,
-        # intermediate strides
         intermediate.stride(0),
         intermediate.stride(1),
-        # Qw strides
         w2_qweight.stride(0),
         w2_qweight.stride(1),
         w2_qweight.stride(2),
-        # Sc strides
         w2_scales.stride(0),
         w2_scales.stride(1),
         w2_scales.stride(2),
-        # Qz strides
         w2_qzeros.stride(0),
         w2_qzeros.stride(1),
         w2_qzeros.stride(2),
-        # output strides
         final_output.stride(0),
         final_output.stride(1),
-        # dims
         H=H,
         I=I,
         group_size=group_size,
@@ -456,3 +497,219 @@ def fused_experts_int4_impl(
     )
 
     return final_output
+
+
+# ---------------------------------------------------------------------------
+# Marlin MoE path using moe_wna16_marlin_gemm kernel
+# ---------------------------------------------------------------------------
+
+
+def _marlin_gemm(
+    a: torch.Tensor,
+    c: torch.Tensor,
+    qweight: torch.Tensor,
+    scales: torch.Tensor,
+    qzeros: torch.Tensor,
+    g_idx: torch.Tensor,
+    perm: torch.Tensor,
+    workspace: torch.Tensor,
+    sorted_token_ids: torch.Tensor,
+    expert_ids: torch.Tensor,
+    num_tokens_post_padded: torch.Tensor,
+    topk_weights: torch.Tensor,
+    moe_block_size: int,
+    top_k: int,
+    size_m: int,
+    size_n: int,
+    size_k: int,
+    b_q_type_id: int,
+) -> None:
+    """Thin wrapper around moe_wna16_marlin_gemm with fixed non-varying args."""
+    moe_wna16_marlin_gemm(
+        a,
+        c,
+        None,
+        qweight,
+        None,  # b_bias
+        scales,
+        None,  # b_act_input
+        None,  # b_global_scale
+        qzeros if qzeros.numel() > 0 else None,
+        g_idx if g_idx.numel() > 0 else None,
+        perm if perm.numel() > 0 else None,
+        workspace,
+        sorted_token_ids,
+        expert_ids,
+        num_tokens_post_padded,
+        topk_weights,
+        moe_block_size,
+        top_k,
+        False,  # mul_topk_weights – weights applied in final bmm
+        b_q_type_id,
+        size_m,
+        size_n,
+        size_k,
+        True,  # is_k_full
+        False,  # use_atomic_add
+        True,  # use_fp32_reduce
+        False,  # is_zp_float
+    )
+
+
+def fused_experts_marlin_impl(
+    hidden_states: torch.Tensor,
+    w1_qweight: torch.Tensor,
+    w1_scales: torch.Tensor,
+    w1_qzeros: torch.Tensor,
+    w1_g_idx: torch.Tensor,
+    w1_perm: torch.Tensor,
+    w2_qweight: torch.Tensor,
+    w2_scales: torch.Tensor,
+    w2_qzeros: torch.Tensor,
+    w2_g_idx: torch.Tensor,
+    w2_perm: torch.Tensor,
+    workspace: torch.Tensor,
+    topk_weights: torch.Tensor,
+    topk_ids: torch.Tensor,
+    b_q_type_id: int,
+    num_experts: int,
+    activation: str = "silu",
+    cache13: "torch.Tensor | None" = None,
+    cache2: "torch.Tensor | None" = None,
+    out: "torch.Tensor | None" = None,
+    sorted_ids_buf: "torch.Tensor | None" = None,
+    expert_ids_buf: "torch.Tensor | None" = None,
+    ntpp_buf: "torch.Tensor | None" = None,
+    topk_ids_i32: "torch.Tensor | None" = None,
+) -> torch.Tensor:
+    """MoE forward pass using moe_wna16_marlin_gemm fused kernel.
+
+    Parameters
+    ----------
+    hidden_states : (M, K)
+    w1_qweight    : (E, K//16, 4*I)    Marlin-tiled gate+up weight
+    w1_scales     : (E, K//gs, 2*I)
+    w1_qzeros     : (E, 0)             empty for symmetric quant
+    w1_g_idx      : (E, 0)             empty
+    w1_perm       : (E, 0)             empty
+    w2_qweight    : (E, I//16, 2*K)
+    w2_scales     : (E, I//gs, K)
+    w2_qzeros/g_idx/perm: (E, 0)       empty
+    workspace     : (sms*4,) int32
+    topk_weights  : (M, topk) float32
+    topk_ids      : (M, topk) int32/int64
+    b_q_type      : ScalarType
+    num_experts   : int
+    activation    : "silu" | "gelu" | "relu"
+    cache13/cache2/out/sorted_ids_buf/expert_ids_buf/ntpp_buf/topk_ids_i32:
+                    pre-allocated buffers (all optional, grown lazily in moe.py)
+
+    Returns
+    -------
+    (M, K) output tensor (= *out* when provided)
+    """
+    M, K = hidden_states.shape
+    topk = topk_ids.shape[1]
+    M_topk = M * topk
+    device = hidden_states.device
+    dtype = hidden_states.dtype
+
+    # I = intermediate size from W2 shape: w2_qweight (E, I//16, 2*K)
+    I = w2_qweight.size(1) * 16  # noqa: E741
+
+    topk_weights_f32 = topk_weights if topk_weights.dtype == torch.float32 else topk_weights.float()
+
+    # ── moe_block_size heuristic ──────────────────────────────
+    tpe = M * topk / max(num_experts, 1)
+    moe_block_size = next((bs for bs in [8, 16, 32, 48, 64] if tpe / bs < 0.9), 64)
+
+    # ── Routing structures ────────────────────────────────────
+    sorted_token_ids, expert_ids, num_tokens_post_padded = _moe_align_block_size(
+        topk_ids.view(M, topk),
+        moe_block_size,
+        num_experts,
+        pre_sorted_ids=sorted_ids_buf,
+        pre_expert_ids=expert_ids_buf,
+        pre_ntpp=ntpp_buf,
+        pre_topk_ids_i32=topk_ids_i32,
+    )
+
+    # ── Intermediate buffers ──────────────────────────────────
+    need13 = M_topk * max(2 * I, K)
+    need2 = M_topk * I
+    if cache13 is None or cache13.numel() < need13:
+        cache13 = torch.empty(need13, device=device, dtype=dtype)
+    if cache2 is None or cache2.numel() < need2:
+        cache2 = torch.empty(need2, device=device, dtype=dtype)
+
+    cache_w1 = _view_cache(cache13, M_topk, 2 * I)
+    cache_w2 = _view_cache(cache13, M_topk, K)
+    cache_act = _view_cache(cache2, M_topk, I)
+
+    # ── W1: gate+up projection ─────────────────────────────────────────────
+    _marlin_gemm(
+        hidden_states,
+        cache_w1,
+        w1_qweight,
+        w1_scales,
+        w1_qzeros,
+        w1_g_idx,
+        w1_perm,
+        workspace,
+        sorted_token_ids,
+        expert_ids,
+        num_tokens_post_padded,
+        topk_weights_f32,
+        moe_block_size,
+        topk,
+        M,
+        2 * I,
+        K,
+        b_q_type_id,
+    )
+
+    # ── Gated activation ───────────────────────────────────────────────────
+    act_str = activation.lower()
+    if act_str == "silu":
+        silu_and_mul(cache_act, cache_w1)
+    elif act_str == "gelu":
+        gelu_and_mul(cache_act, cache_w1)
+    else:
+        gate, up = cache_w1[:, :I], cache_w1[:, I:]
+        torch.mul(F.relu(gate), up, out=cache_act)
+
+    # ── W2: down projection ────────────────────────────────────────────────
+    _marlin_gemm(
+        cache_act,
+        cache_w2,
+        w2_qweight,
+        w2_scales,
+        w2_qzeros,
+        w2_g_idx,
+        w2_perm,
+        workspace,
+        sorted_token_ids,
+        expert_ids,
+        num_tokens_post_padded,
+        topk_weights_f32,
+        moe_block_size,
+        1,
+        M_topk,
+        K,
+        I,
+        b_q_type_id,
+    )
+
+    # ── Weighted reduction: (M*topk, K) → (M, K) ──────────────────────────
+    # Routing weights are applied here via bmm rather than inside the kernel,
+    # avoiding the kernel indexing topk_weights with padding sentinels (OOB).
+    if out is None:
+        out = torch.empty((M, K), device=device, dtype=dtype)
+
+    torch.bmm(
+        topk_weights_f32.to(dtype).unsqueeze(1),  # (M, 1, topk)
+        cache_w2.reshape(M, topk, K),  # (M, topk, K)
+        out=out.unsqueeze(1),  # (M, 1, K) → same storage as out
+    )
+
+    return out
