@@ -114,6 +114,14 @@ INST_BF16_U4B8(256, 2, 16, 4, false, 4)
 INST_BF16_U4B8(128, 2,  8, 4, false, 4)
 INST_BF16_U4B8(128, 2,  4, 8, false, 4)
 
+// ── Prefill tm=3 (moe_block_size=48) ──────────────────────────────────────
+INST_FP16_U4B8(256, 3, 16, 4, false, 4)
+INST_FP16_U4B8(128, 3,  8, 4, false, 4)
+INST_FP16_U4B8(128, 3,  4, 8, false, 4)
+INST_BF16_U4B8(256, 3, 16, 4, false, 4)
+INST_BF16_U4B8(128, 3,  4, 8, false, 4)
+INST_BF16_U4B8(256, 3,  8, 4, false, 4)
+
 // ── Prefill tm=4 ──────────────────────────────────────────────────────────────
 INST_FP16_U4B8(256, 4, 16, 4, false, 4)
 INST_FP16_U4B8(128, 4,  8, 4, false, 4)
@@ -353,9 +361,13 @@ MarlinFuncPtr get_marlin_kernel(
     if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,2,16,4,false))return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,2,16,4,false);
     if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,2,8,4,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,2,8,4,false);
     if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,2,4,8,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,2,4,8,false);
+    if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,3,16,4,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,3,16,4,false);
+    if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,3, 8,4,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,3, 8,4,false);
+    if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,3, 4,8,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,3, 4,8,false);
     if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,4,16,4,false))return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,4,16,4,false);
     if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,4,8,4,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,4,8,4,false);
     if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,4,4,8,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,4,4,8,false);
+
   }
 
   // bfloat16 + uint4b8
@@ -369,6 +381,9 @@ MarlinFuncPtr get_marlin_kernel(
     if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,2,16,4,false))return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,2,16,4,false);
     if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,2,8,4,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,2,8,4,false);
     if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,2,4,8,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,2,4,8,false);
+    if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,3,16,4,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,3,16,4,false);
+    if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,3, 8,4,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,3, 8,4,false);
+    if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,3, 4,8,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,3, 4,8,false);
     if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,4,16,4,false))return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,4,16,4,false);
     if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,4,8,4,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,4,8,4,false);
     if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,4,4,8,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,4,4,8,false);
