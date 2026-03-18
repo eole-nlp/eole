@@ -8,7 +8,7 @@ from torch.distributed import all_reduce
 
 try:
     from eole.triton.fused_moe import fused_experts_impl
-    from eole.triton.fused_moe_int4 import fused_experts_int4_impl
+    from eole.triton.fused_moe_int4 import fused_experts_int4_impl, fused_experts_marlin_impl
 
     _triton_moe = True
 except ImportError:
@@ -18,25 +18,18 @@ from eole.modules.moe_quant_utils import (
     detect_expert_quant_type,
     stack_gptq_moe_weights,
     stack_awq_moe_weights,
+    stack_marlin_moe_weights,
 )
 
 
 def naive_moe(x, topk_weights, topk_ids, K, experts):
     """
-        Original EOLE Code
-        x: (N = BT*K, hidden)  tokens in flat ordering: token0:k0, token0:k1, token1:k0, ...
-        topk_weights: (BT, K)
-        topk_ids: (BT, K)
-        K: num_experts_per_token
-        experts: nn.ModuleList
-
-    [2025-11-21 13:35:29,773 INFO] Subsequent prediction time including all (s): 152.35
-    [2025-11-21 13:35:29,773 INFO] Average prediction time (ms): 6925.0
-    [2025-11-21 13:35:29,773 INFO] Tokens per second: 106.2
-    with fused gate
-    [2025-11-22 13:12:40,557 INFO] Subsequent prediction time including all (s): 140.64
-    [2025-11-22 13:12:40,557 INFO] Average prediction time (ms): 6392.7
-    [2025-11-22 13:12:40,557 INFO] Tokens per second: 115.2
+    Original EOLE Code
+    x: (N = BT*K, hidden)  tokens in flat ordering: token0:k0, token0:k1, token1:k0, ...
+    topk_weights: (BT, K)
+    topk_ids: (BT, K)
+    K: num_experts_per_token
+    experts: nn.ModuleList
     """
     flat_topk_ids = topk_ids.view(-1)  # (BT*K)
     y = torch.empty_like(x)
@@ -49,48 +42,33 @@ def naive_moe(x, topk_weights, topk_ids, K, experts):
 
 def vectorized_moe(x, topk_weights, topk_ids, K, experts):
     """
-        Vectorized version x1.6 faster
-        x: (N = BT*K, hidden)  tokens in flat ordering: token0:k0, token0:k1, token1:k0, ...
-        topk_weights: (BT, K)
-        topk_ids: (BT, K)
-        K: num_experts_per_token
-        experts: nn.ModuleList
-
-    [2025-11-22 12:16:20,890 INFO] Subsequent prediction time including all (s): 73.50
-    [2025-11-22 12:16:20,890 INFO] Average prediction time (ms): 3340.9
-    [2025-11-22 12:16:20,890 INFO] Tokens per second: 220.1
-    with fused gate
-    [2025-11-22 12:24:38,864 INFO] Subsequent prediction time including all (s): 64.12
-    [2025-11-22 12:24:38,864 INFO] Average prediction time (ms): 2914.6
-    [2025-11-22 12:24:38,864 INFO] Tokens per second: 252.6
+    Vectorized version x1.6 faster
+    x: (N = BT*K, hidden)  tokens in flat ordering: token0:k0, token0:k1, token1:k0, ...
+    topk_weights: (BT, K)
+    topk_ids: (BT, K)
+    K: num_experts_per_token
+    experts: nn.ModuleList
     """
-
     flat_topk_ids = topk_ids.view(-1)  # (BT*K)
     BTK = flat_topk_ids.size(0)
     hidden = x.size(1)
     if BTK == 0:
         return x.new_empty((0, hidden))
 
-    # ---- Sort tokens by expert ID ----
     sort_order = torch.argsort(flat_topk_ids)
     sorted_experts = flat_topk_ids[sort_order].tolist()
     run_starts = [0] + [i for i in range(1, BTK) if sorted_experts[i] != sorted_experts[i - 1]]
     run_ends = run_starts[1:] + [BTK]
 
-    # ---- Buffer for outputs in sorted order ----
     y_flat = torch.empty_like(x)  # (BT*K, hidden)
 
-    # ---- Process each expert once per run ----
     for s, e in zip(run_starts, run_ends):
         expert_id = sorted_experts[s]
         routed_positions = sort_order[s:e]
-        inp = x[routed_positions]
-        y_flat[routed_positions] = experts[expert_id](inp)
+        y_flat[routed_positions] = experts[expert_id](x[routed_positions])
 
-    # ---- to (BT, K, hidden) and weighted combine ----
     y = y_flat.view(BTK // K, K, hidden)
     y = (y * topk_weights.unsqueeze(-1)).sum(dim=1)
-
     return y
 
 
@@ -135,6 +113,7 @@ class MoE(nn.Module):
         self.activation_function = next(
             (a for a in ("gelu", "relu", "silu") if a in model_config.mlp_activation_fn), None
         )
+
         # fp16 fast-path cache (plain nn.Linear)
         self._w1 = None
         self._w2 = None
@@ -150,6 +129,89 @@ class MoE(nn.Module):
         self._kpacked = None  # True = GPTQ, False = AWQ
 
         self._quant_weights_initialized = False
+
+        # ── int4 intermediate buffer cache (grown lazily) ─────────────────────
+        # Eliminates 5 GPU allocations per MoE layer per decode step:
+        #   intermediate  (num_pairs, I)
+        #   final_output  (M, H)
+        #   expert_ids    (num_pairs,) int32
+        #   token_ids     (num_pairs,) int32
+        #   weights       (num_pairs,) dtype
+        self._int4_intermediate_buf = None
+        self._int4_output_buf = None
+        self._int4_expert_ids_buf = None
+        self._int4_token_ids_buf = None
+        self._int4_weights_buf = None
+        self._int4_buf_num_pairs = 0
+
+        # ── Marlin MoE weight cache ───────────────────────────────────────────
+        self._w1_marlin = None  # (E, K//16, 4*I) int32
+        self._w1_marlin_scales = None  # (E, K//gs, 2*I) fp16
+        self._w1_marlin_qzeros = None  # (E, 0) – empty for sym quant
+        self._w1_marlin_g_idx = None  # (E, 0) – empty
+        self._w1_marlin_perm = None  # (E, 0) – empty
+        self._w2_marlin = None  # (E, I//16, 2*K) int32
+        self._w2_marlin_scales = None  # (E, I//gs, K) fp16
+        self._w2_marlin_qzeros = None  # (E, 0) – empty
+        self._w2_marlin_g_idx = None  # (E, 0) – empty
+        self._w2_marlin_perm = None  # (E, 0) – empty
+        self._marlin_workspace = None  # shared Marlin workspace tensor
+        self._marlin_scalar_type_id = None  # int, e.g. uint4b8.id
+        self._marlin_num_experts = None  # int
+        self._marlin_I = None  # per-stream intermediate size
+        self._marlin_K = None  # model hidden size
+
+        # ── Marlin intermediate buffer cache (grown lazily) ───────────────────
+        # cache13: flat buffer shared by W1 output (M*topk, 2*I) and
+        #          W2 output (M*topk, K) via non-overlapping views.
+        # cache2:  activation output (M*topk, I).
+        # out_buf: final reduced output (BT, K_mar).
+        self._marlin_cache13 = None  # flat buffer: cap ≥ M*topk*max(2*I, K)
+        self._marlin_cache2 = None  # flat buffer: cap ≥ M*topk*I
+        self._marlin_out_buf = None  # (BT, K_mar) output buffer
+        self._marlin_buf_M_topk = 0  # M*topk capacity of current caches
+
+        self._marlin_topk_ids_i32 = None  # (BT, topk) int32 – avoids .to(int32) alloc
+        self._marlin_routing_cap = 0  # capacity of topk_ids_i32 buffer (BT*topk)
+
+    # ── Buffer growth helpers ─────────────────────────────────────────────────
+
+    def _maybe_grow_int4_buffers(self, M: int, K: int, I: int, H: int, dev, dt):  # noqa: E741
+        """Grow int4 intermediate buffers if the current batch exceeds capacity."""
+        num_pairs = M * K
+        if (
+            self._int4_buf_num_pairs < num_pairs
+            or self._int4_intermediate_buf is None
+            or self._int4_intermediate_buf.dtype != dt
+        ):
+            self._int4_intermediate_buf = torch.empty(num_pairs * I, device=dev, dtype=dt)
+            # output_buf is zeroed in-place before each use (W2 uses atomic_add).
+            # Allocate with empty rather than zeros; zero_ is called per-call.
+            self._int4_output_buf = torch.empty(M, H, device=dev, dtype=dt)
+            self._int4_expert_ids_buf = torch.empty(num_pairs, dtype=torch.int32, device=dev)
+            self._int4_token_ids_buf = torch.empty(num_pairs, dtype=torch.int32, device=dev)
+            self._int4_weights_buf = torch.empty(num_pairs, device=dev, dtype=dt)
+            self._int4_buf_num_pairs = num_pairs
+
+    def _maybe_grow_marlin_buffers(self, BT: int, topk_val: int, dev, dt):
+        """Grow intermediate and routing buffers if the current batch exceeds capacity."""
+        M_topk = BT * topk_val
+        I_mar = self._marlin_I
+        K_mar = self._marlin_K
+
+        # ── Intermediate GEMM buffers ─────────────────────────────────────────
+        if self._marlin_buf_M_topk < M_topk or self._marlin_cache13 is None or self._marlin_cache13.dtype != dt:
+            self._marlin_cache13 = torch.empty(M_topk * max(2 * I_mar, K_mar), device=dev, dtype=dt)
+            self._marlin_cache2 = torch.empty(M_topk * I_mar, device=dev, dtype=dt)
+            self._marlin_out_buf = torch.empty(BT, K_mar, device=dev, dtype=dt)
+            self._marlin_buf_M_topk = M_topk
+
+        # ── topk_ids int32 buffer ─────────────────────────────────────────────
+        if self._marlin_routing_cap < BT * topk_val or self._marlin_topk_ids_i32 is None:
+            self._marlin_topk_ids_i32 = torch.empty(BT, topk_val, dtype=torch.int32, device=dev)
+            self._marlin_routing_cap = BT * topk_val
+
+    # ─────────────────────────────────────────────────────────────────────────
 
     def _maybe_fuse_gates(self):
         """Fuse all expert gates, executed only once."""
@@ -173,7 +235,6 @@ class MoE(nn.Module):
         w2_list = []
 
         for e in self.experts:
-            # --- W1 (gate_up + up) ---
             Wg = e.gate_up_proj.weight.to(device=device, dtype=dtype)
             Wu = getattr(e, "up_proj", None)
             if Wu is not None:
@@ -183,11 +244,9 @@ class MoE(nn.Module):
                 W1 = Wg  # Only gate_up_proj is available
             w1_list.append(W1.unsqueeze(0))
 
-            # --- W2 (down_proj) ---
             W2 = e.down_proj.weight.to(device=device, dtype=dtype)
             w2_list.append(W2.unsqueeze(0))
 
-        # stack all experts -> (num_experts, ...)
         self._w1 = torch.cat(w1_list, dim=0)
         self._w2 = torch.cat(w2_list, dim=0)
 
@@ -230,7 +289,29 @@ class MoE(nn.Module):
             ) = stack_awq_moe_weights(self.experts, device)
             self._kpacked = False
 
-        # Unknown quant type → silently fall through to vectorized_moe.
+        elif quant_type == "marlin":
+            (
+                self._w1_marlin,
+                self._w1_marlin_scales,
+                self._w1_marlin_qzeros,
+                self._w1_marlin_g_idx,
+                self._w1_marlin_perm,
+                self._w2_marlin,
+                self._w2_marlin_scales,
+                self._w2_marlin_qzeros,
+                self._w2_marlin_g_idx,
+                self._w2_marlin_perm,
+                self._marlin_workspace,
+                _num_bits,
+                self._marlin_scalar_type_id,
+                _group_size,
+            ) = stack_marlin_moe_weights(self.experts, device)
+            self._marlin_num_experts = len(self.experts)
+
+            # w1_marlin: (E, K//16, 4*I) → K = shape[1]*16 (per-expert hidden size)
+            # w2_marlin: (E, I//16, 2*K) → I = shape[1]*16 (per-stream intermediate)
+            self._marlin_K = self._w1_marlin.shape[1] * 16
+            self._marlin_I = self._w2_marlin.shape[1] * 16
 
     def forward(self, x):
 
@@ -245,7 +326,7 @@ class MoE(nn.Module):
         # flatten only token dimension, but keep track
         x_flat = x.view(-1, C)
 
-        # ---- GATE ----
+        # ── Gate ──────────────────────────────────────────────────────────────
         scores = self.gate(x_flat)  # (BT, num_experts)
 
         if self.parallel_gpu > 1:
@@ -266,8 +347,8 @@ class MoE(nn.Module):
             # clamp prevents a theoretical zero-sum when all selected logits are tiny.
             expert_weights = expert_weights / expert_weights.sum(dim=-1, keepdim=True).clamp(min=1e-9)
 
+        # ── Path 1: fp16 Triton ───────────────────────────────────────────────
         if not self.training and self._w1 is not None:
-            # Triton fastpath - requires nn.Linear
             y = fused_experts_impl(
                 hidden_states=x_flat,
                 w1=self._w1,
@@ -276,8 +357,46 @@ class MoE(nn.Module):
                 topk_ids=expert_indices,
                 activation=self.activation_function,
             ).view(B, T, C)
+        # ── Path 2: Marlin MoE ───────────────────────────────────────────
+        elif not self.training and self._w1_marlin is not None:
+            topk_val = K  # number of experts per token
+            BT = x_flat.shape[0]  # number of (batch * seq) tokens
+
+            self._maybe_grow_marlin_buffers(BT, topk_val, x_flat.device, x_flat.dtype)
+
+            y = fused_experts_marlin_impl(
+                hidden_states=x_flat,
+                w1_qweight=self._w1_marlin,
+                w1_scales=self._w1_marlin_scales,
+                w1_qzeros=self._w1_marlin_qzeros,
+                w1_g_idx=self._w1_marlin_g_idx,
+                w1_perm=self._w1_marlin_perm,
+                w2_qweight=self._w2_marlin,
+                w2_scales=self._w2_marlin_scales,
+                w2_qzeros=self._w2_marlin_qzeros,
+                w2_g_idx=self._w2_marlin_g_idx,
+                w2_perm=self._w2_marlin_perm,
+                workspace=self._marlin_workspace,
+                topk_weights=expert_weights,
+                topk_ids=expert_indices,
+                b_q_type_id=self._marlin_scalar_type_id,
+                num_experts=self._marlin_num_experts,
+                activation=self.activation_function or "silu",
+                cache13=self._marlin_cache13,
+                cache2=self._marlin_cache2,
+                out=self._marlin_out_buf[:BT, :],
+                topk_ids_i32=self._marlin_topk_ids_i32[:BT, :],
+            ).view(B, T, C)
+        # ── Path 3: int4 Triton (GPTQ / AutoRound / AWQ) ─────────────────────
         elif not self.training and self._w1_qweight is not None:
-            # Path 2: int4 Triton (GPTQ / AutoRound / AWQ)
+            BT = x_flat.shape[0]
+            topk_val = K
+            # Derive I from w2_qweight shape:
+            #   kpacked (GPTQ): (E, I//8, H)  → I = shape[1] * 8
+            #   awq:            (E, I,    H//8)→ I = shape[1]
+            I_int4 = self._w2_qweight.shape[1] * 8 if self._kpacked else self._w2_qweight.shape[1]
+            self._maybe_grow_int4_buffers(BT, topk_val, I_int4, C, x_flat.device, x_flat.dtype)
+
             y = fused_experts_int4_impl(
                 hidden_states=x_flat,
                 w1_qweight=self._w1_qweight,
@@ -291,7 +410,13 @@ class MoE(nn.Module):
                 group_size=self._group_size,
                 kpacked=self._kpacked,
                 activation=self.activation_function or "silu",
+                intermediate_buf=self._int4_intermediate_buf,
+                output_buf=self._int4_output_buf,
+                expert_ids_buf=self._int4_expert_ids_buf,
+                token_ids_buf=self._int4_token_ids_buf,
+                weights_buf=self._int4_weights_buf,
             ).view(B, T, C)
+        # ── Path 4: vectorized fallback ───────────────────────────────────────
         else:
             x_flat = x_flat.repeat_interleave(K, dim=0)  # (BTK, C)
             y = vectorized_moe(x_flat, expert_weights, expert_indices, K, self.experts).view(B, T, C)
@@ -302,7 +427,7 @@ class MoE(nn.Module):
             y = self._grouped.forward_tokens(x_flat, expert_weights, expert_indices, K).view(B, T, C)
             """
 
-        # optional shared experts
+        # ── Optional shared experts ───────────────────────────────────────────
         if self.shared_experts is not None:
             shared_out = self.shared_experts(x)
             if self.shared_expert_gate is not None:

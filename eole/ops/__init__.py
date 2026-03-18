@@ -444,6 +444,311 @@ if EOLE_TORCH_COMPILE:
             raise RuntimeError("gptq_marlin_gemm is not available.")
 
 
+# ── MoE Marlin GEMM availability ─────────────────────────────────────────────
+# Uses eole's own compiled kernel exclusively (marlin_moe_wna16.cu).
+
+if EOLE_TORCH_COMPILE:
+    if _CPP_OPS_AVAILABLE:
+
+        @custom_op("eole::moe_wna16_marlin_gemm", mutates_args={"c"})
+        def _moe_wna16_marlin_gemm_kernel(
+            a: torch.Tensor,
+            c: torch.Tensor,
+            c_tmp: Optional[torch.Tensor],
+            b_q_weight: torch.Tensor,
+            b_bias: Optional[torch.Tensor],
+            b_scales: torch.Tensor,
+            b_act_input: Optional[torch.Tensor],
+            b_global_scale: Optional[torch.Tensor],
+            b_zeros: Optional[torch.Tensor],
+            g_idx: Optional[torch.Tensor],
+            perm: Optional[torch.Tensor],
+            workspace: torch.Tensor,
+            sorted_token_ids: torch.Tensor,
+            expert_ids: torch.Tensor,
+            num_tokens_post_padded: torch.Tensor,
+            topk_weights: torch.Tensor,
+            moe_block_size: int,
+            top_k: int,
+            mul_topk_weights: bool,
+            b_q_type_id: int,
+            size_m: int,
+            size_n: int,
+            size_k: int,
+            is_k_full: bool = True,
+            use_atomic_add: bool = False,
+            use_fp32_reduce: bool = True,
+            is_zp_float: bool = False,
+        ) -> None:
+            _ops.moe_wna16_marlin_gemm(
+                a,
+                c,
+                c_tmp,
+                b_q_weight,
+                b_bias,
+                b_scales,
+                b_act_input,
+                b_global_scale,
+                b_zeros,
+                g_idx,
+                perm,
+                workspace,
+                sorted_token_ids,
+                expert_ids,
+                num_tokens_post_padded,
+                topk_weights,
+                moe_block_size,
+                top_k,
+                mul_topk_weights,
+                b_q_type_id,
+                size_m,
+                size_n,
+                size_k,
+                is_k_full,
+                use_atomic_add,
+                use_fp32_reduce,
+                is_zp_float,
+            )
+
+        @_moe_wna16_marlin_gemm_kernel.register_fake
+        def _(
+            a,
+            c,
+            c_tmp,
+            b_q_weight,
+            b_bias,
+            b_scales,
+            b_act_input,
+            b_global_scale,
+            b_zeros,
+            g_idx,
+            perm,
+            workspace,
+            sorted_token_ids,
+            expert_ids,
+            num_tokens_post_padded,
+            topk_weights,
+            moe_block_size,
+            top_k,
+            mul_topk_weights,
+            b_q_type_id,
+            size_m,
+            size_n,
+            size_k,
+            is_k_full=True,
+            use_atomic_add=False,
+            use_fp32_reduce=True,
+            is_zp_float=False,
+        ):
+            return None  # void: c is mutated in-place
+
+        def moe_wna16_marlin_gemm(
+            a,
+            c,
+            c_tmp,
+            b_q_weight,
+            b_bias,
+            b_scales,
+            b_act_input,
+            b_global_scale,
+            b_zeros,
+            g_idx,
+            perm,
+            workspace,
+            sorted_token_ids,
+            expert_ids,
+            num_tokens_post_padded,
+            topk_weights,
+            moe_block_size,
+            top_k,
+            mul_topk_weights,
+            b_q_type_id: int,
+            size_m,
+            size_n,
+            size_k,
+            is_k_full=True,
+            use_atomic_add=False,
+            use_fp32_reduce=True,
+            is_zp_float=False,
+        ) -> None:
+            _moe_wna16_marlin_gemm_kernel(
+                a,
+                c,
+                c_tmp,
+                b_q_weight,
+                b_bias,
+                b_scales,
+                b_act_input,
+                b_global_scale,
+                b_zeros,
+                g_idx,
+                perm,
+                workspace,
+                sorted_token_ids,
+                expert_ids,
+                num_tokens_post_padded,
+                topk_weights,
+                moe_block_size,
+                top_k,
+                mul_topk_weights,
+                b_q_type_id,
+                size_m,
+                size_n,
+                size_k,
+                is_k_full,
+                use_atomic_add,
+                use_fp32_reduce,
+                is_zp_float,
+            )
+
+        @custom_op("eole::moe_align_block_size", mutates_args={})
+        def _moe_align_block_size_kernel(
+            topk_ids: torch.Tensor,
+            num_experts: int,
+            block_size: int,
+        ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            num_tokens = topk_ids.numel()
+            max_padded = num_tokens + num_experts * (block_size - 1)
+            max_blocks = (max_padded + block_size - 1) // block_size
+            device = topk_ids.device
+            sorted_ids = torch.empty(max_padded, dtype=torch.int32, device=device)
+            expert_ids = torch.empty(max_blocks, dtype=torch.int32, device=device)
+            ntpp = torch.empty(1, dtype=torch.int32, device=device)
+            _ops.moe_align_block_size(
+                topk_ids,
+                num_experts,
+                block_size,
+                sorted_ids,
+                expert_ids,
+                ntpp,
+            )
+            return sorted_ids, expert_ids, ntpp
+
+        @_moe_align_block_size_kernel.register_fake
+        def _(topk_ids, num_experts, block_size):
+            num_tokens = topk_ids.numel()
+            max_padded = num_tokens + num_experts * (block_size - 1)
+            max_blocks = (max_padded + block_size - 1) // block_size
+            device = topk_ids.device
+            return (
+                torch.empty(max_padded, dtype=torch.int32, device=device),
+                torch.empty(max_blocks, dtype=torch.int32, device=device),
+                torch.empty(1, dtype=torch.int32, device=device),
+            )
+
+        def moe_align_block_size(
+            topk_ids: torch.Tensor,
+            num_experts: int,
+            block_size: int,
+        ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            return _moe_align_block_size_kernel(topk_ids, num_experts, block_size)
+
+    else:
+
+        def moe_wna16_marlin_gemm(*args, **kwargs):
+            raise RuntimeError(
+                "moe_wna16_marlin_gemm is not available: " "eole._ops was not compiled with the Marlin MoE kernel. "
+            )
+
+        def moe_align_block_size(*args, **kwargs):
+            raise RuntimeError("moe_align_block_size is not available.")
+
+else:
+    # Non-compile path
+    if _CPP_OPS_AVAILABLE:
+
+        def moe_wna16_marlin_gemm(
+            a,
+            c,
+            c_tmp,
+            b_q_weight,
+            b_bias,
+            b_scales,
+            b_act_input,
+            b_global_scale,
+            b_zeros,
+            g_idx,
+            perm,
+            workspace,
+            sorted_token_ids,
+            expert_ids,
+            num_tokens_post_padded,
+            topk_weights,
+            moe_block_size,
+            top_k,
+            mul_topk_weights,
+            b_q_type_id: int,
+            size_m,
+            size_n,
+            size_k,
+            is_k_full=True,
+            use_atomic_add=False,
+            use_fp32_reduce=True,
+            is_zp_float=False,
+        ) -> None:
+            _ops.moe_wna16_marlin_gemm(
+                a,
+                c,
+                c_tmp,
+                b_q_weight,
+                b_bias,
+                b_scales,
+                b_act_input,
+                b_global_scale,
+                b_zeros,
+                g_idx,
+                perm,
+                workspace,
+                sorted_token_ids,
+                expert_ids,
+                num_tokens_post_padded,
+                topk_weights,
+                moe_block_size,
+                top_k,
+                mul_topk_weights,
+                b_q_type_id,
+                size_m,
+                size_n,
+                size_k,
+                is_k_full,
+                use_atomic_add,
+                use_fp32_reduce,
+                is_zp_float,
+            )
+
+        def moe_align_block_size(
+            topk_ids: torch.Tensor,
+            num_experts: int,
+            block_size: int,
+        ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            num_tokens = topk_ids.numel()
+            max_padded = num_tokens + num_experts * (block_size - 1)
+            max_blocks = (max_padded + block_size - 1) // block_size
+            device = topk_ids.device
+            sorted_ids = torch.empty(max_padded, dtype=torch.int32, device=device)
+            expert_ids = torch.empty(max_blocks, dtype=torch.int32, device=device)
+            ntpp = torch.empty(1, dtype=torch.int32, device=device)
+            _ops.moe_align_block_size(
+                topk_ids,
+                num_experts,
+                block_size,
+                sorted_ids,
+                expert_ids,
+                ntpp,
+            )
+            return sorted_ids, expert_ids, ntpp
+
+    else:
+
+        def moe_wna16_marlin_gemm(*args, **kwargs):
+            raise RuntimeError(
+                "moe_wna16_marlin_gemm is not available: " "eole._ops was not compiled with the Marlin MoE kernel. "
+            )
+
+        def moe_align_block_size(*args, **kwargs):
+            raise RuntimeError("moe_align_block_size is not available.")
+
+
 # ============================================================================
 # Exports
 # ============================================================================
@@ -455,4 +760,6 @@ __all__ = [
     "gelu_and_mul",
     "gelu_tanh_and_mul",
     "gptq_marlin_gemm",
+    "moe_align_block_size",
+    "moe_wna16_marlin_gemm",
 ]
