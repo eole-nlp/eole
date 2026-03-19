@@ -226,6 +226,10 @@ class MarlinQuantLinear(nn.Module):
         if x.dtype != self.scales.dtype:
             replace_parameter(self, "scales", self.scales.to(dtype=x.dtype))
 
+        # Sync bias dtype with input (kernel expects bias to match activation dtype)
+        if self.bias is not None and x.dtype != self.bias.dtype:
+            replace_parameter(self, "bias", self.bias.to(dtype=x.dtype))
+
         return apply_gptq_marlin_linear(
             input=x,
             weight=self.qweight,

@@ -50,7 +50,7 @@ def marlin_permute_scales(s: torch.Tensor, size_k: int, size_n: int, group_size:
 
 
 def marlin_sort_g_idx(g_idx: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    g_idx_sort_indices = torch.argsort(g_idx).to(torch.int)
+    g_idx_sort_indices = torch.argsort(g_idx)
     return g_idx[g_idx_sort_indices], g_idx_sort_indices
 
 

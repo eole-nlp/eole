@@ -360,7 +360,7 @@ if EOLE_TORCH_COMPILE:
     # ============================================================================
     if _CPP_OPS_AVAILABLE:
 
-        @custom_op("eole::gptq_marlin_gemm", mutates_args={})
+        @custom_op("eole::gptq_marlin_gemm", mutates_args={"c"})
         def gptq_marlin_gemm(
             a: torch.Tensor,
             c: Optional[torch.Tensor],
