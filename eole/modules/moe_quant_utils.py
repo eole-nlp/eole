@@ -7,7 +7,7 @@ Supported backends
 ------------------
 * AutoGPTQ / AutoRound  – QuantLinear   (K-packed int4, kpacked=True)
 * AutoAWQ               – WQLinear_GEMM (N-packed int4, kpacked=False)
-* gptqmodel Marlin      – MarlinQuantLinear  (Marlin tiled layout)
+* Marlin-compatible     – MarlinQuantLinear  (Marlin tiled layout)
 
 Tensor layout after stacking (E = num_experts, gs = group_size)
 ----------------------------------------------------------------
@@ -27,7 +27,7 @@ AWQ (kpacked=False):
   w2_scales   (E, I//gs, H)       fp16/bf16
   w2_qzeros   (E, I//gs, H//8)    int32
 
-Marlin (after gptqmodel post_init, for use with moe_wna16_marlin_gemm):
+Marlin (after MarlinQuantLinear.post_init(), for use with moe_wna16_marlin_gemm):
   w1_qweight  (E, K//16, 4*I)     int32   – gate+up concatenated along N dim
   w1_scales   (E, K//gs, 2*I)     fp16    – gate+up scales concatenated
   w2_qweight  (E, I//16, 2*K)     int32
@@ -47,7 +47,8 @@ import torch
 
 _DEFAULT_SM_COUNT_FALLBACK = 160
 
-# Marlin scalar type IDs as used by gptqmodel_marlin_kernels.
+# Marlin scalar type IDs (must match eole/csrc/quantization/marlin/eole_scalar_type.hpp and
+# eole/modules/marlin_scalar_type.py).
 MARLIN_UINT4B8_TYPE_ID = 4  # uint4b8: 4-bit unsigned with bias 8 (symmetric int4)
 MARLIN_UINT8B128_TYPE_ID = 5  # uint8b128: 8-bit unsigned with bias 128 (symmetric int8)
 
@@ -116,7 +117,7 @@ def detect_expert_quant_type(experts) -> str:
     Inspect the first expert gate_up_proj and return one of:
       'gptq'   – AutoGPTQ / AutoRound  (K-packed int4)
       'awq'    – AutoAWQ               (N-packed int4)
-      'marlin' – gptqmodel MarlinQuantLinear moe_wna16_marlin_gemm
+      'marlin' – MarlinQuantLinear moe_wna16_marlin_gemm
                  (uses fused Marlin MoE kernel)
       'fp16'   – plain nn.Linear / anything else
     """
@@ -127,7 +128,7 @@ def detect_expert_quant_type(experts) -> str:
     module_path = type(layer).__module__
     classname = type(layer).__name__
 
-    if "gptqmodel" in module_path:
+    if classname == "MarlinQuantLinear":
         return "marlin"
 
     if classname == "QuantLinear" and hasattr(layer, "qweight"):
@@ -353,7 +354,7 @@ def stack_fp16_moe_weights(experts, device: torch.device):
 
 
 def stack_marlin_moe_weights(experts, device: torch.device):
-    """Stack per-expert gptqmodel MarlinQuantLinear weights for moe_wna16_marlin_gemm.
+    """Stack per-expert MarlinQuantLinear weights for moe_wna16_marlin_gemm.
 
     After ``post_init()`` each ``MarlinQuantLinear`` stores weights in the
     Marlin tile format (``gptq_marlin_repack`` applied).  For int4 symmetric

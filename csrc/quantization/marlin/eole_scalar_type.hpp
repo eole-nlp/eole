@@ -100,4 +100,13 @@ static constexpr ScalarType kU4       = ScalarType::kU4;
 static constexpr ScalarType kU8       = ScalarType::kU8;
 static constexpr ScalarType kS4       = ScalarType::kS4;
 
+// ScalarTypeId convenience aliases used for kernel dispatch in marlin_dense.cu
+// and marlin_moe_wna16.cu.  Defined here once to avoid duplication.
+inline constexpr ScalarTypeId FP16_ID   = kFloat16.id();
+inline constexpr ScalarTypeId BF16_ID   = kBFloat16.id();
+inline constexpr ScalarTypeId U4B8_ID   = kU4B8.id();
+inline constexpr ScalarTypeId U8B128_ID = kU8B128.id();
+inline constexpr ScalarTypeId U4_ID     = kU4.id();
+inline constexpr ScalarTypeId U8_ID     = kU8.id();
+
 }  // namespace vllm
