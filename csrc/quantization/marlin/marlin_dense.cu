@@ -9,6 +9,8 @@
  */
 
 #include "marlin_kernel.h"   // deps + MARLIN_KERNEL_PARAMS + namespace marlin { Marlin<> }
+#include "marlin_kernel_shapes.h"
+#include "marlin_type_ids.h"
 
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
@@ -27,16 +29,6 @@ __global__ void permute_cols_kernel(
     int size_m, int size_k, int lda, int block_rows);
 
 using MarlinFuncPtr = void (*)(MARLIN_KERNEL_PARAMS);
-
-// ── ScalarTypeId constants ────────────────────────────────────────────────────
-// Defined once in eole_scalar_type.hpp (namespace vllm); imported here.
-
-using vllm::FP16_ID;
-using vllm::BF16_ID;
-using vllm::U4B8_ID;
-using vllm::U8B128_ID;
-using vllm::U4_ID;
-using vllm::U8_ID;
 
 // ── Thread / exec config ──────────────────────────────────────────────────────
 
@@ -157,25 +149,22 @@ MarlinFuncPtr get_marlin_kernel(
 #define K(A,B,C,S,TH,TM_,TN_,TK_,M8_,GB_,ZPF_) \
   Marlin<A, B, C, S, TH, TM_, TN_, TK_, M8_, pipe_stages, GB_, ZPF_, /*is_moe=*/false>
 
+#define DISPATCH_U4B8_FP16(TH,TM_,TN_,TK_,M8_,GB_) \
+  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,TH,TM_,TN_,TK_,M8_,GB_,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,TH,TM_,TN_,TK_,M8_,GB_,false);
+#define DISPATCH_U4B8_BF16(TH,TM_,TN_,TK_,M8_,GB_) \
+  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,TH,TM_,TN_,TK_,M8_,GB_,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,TH,TM_,TN_,TK_,M8_,GB_,false);
+#define DISPATCH_U8B128_FP16(TH,TM_,TN_,TK_,M8_,GB_) \
+  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,TH,TM_,TN_,TK_,M8_,GB_,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,TH,TM_,TN_,TK_,M8_,GB_,false);
+#define DISPATCH_U8B128_BF16(TH,TM_,TN_,TK_,M8_,GB_) \
+  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,TH,TM_,TN_,TK_,M8_,GB_,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,TH,TM_,TN_,TK_,M8_,GB_,false);
+#define DISPATCH_U4_FP16_ZP(TH,TM_,TN_,TK_,M8_,GB_) \
+  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,TH,TM_,TN_,TK_,M8_,GB_,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,TH,TM_,TN_,TK_,M8_,GB_,false);
+
   // ── FP16 weight types ────────────────────────────────────────────────────
   // uint4b8  (symmetric 4-bit), fp16 activations
   // Group layouts: -1 (per-col), 2, 4, 8 blocks; act-order (gb=0)
 #define ENUMERATE_U4B8_FP16(GB) \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,1, 8,8,true, GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,1, 8,8,true, GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,1, 8,4,true, GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,1, 8,4,true, GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,1, 4,8,true, GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,1, 4,8,true, GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,1, 8,8,false,GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,1, 8,8,false,GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,1, 8,4,false,GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,1, 8,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,1, 4,8,false,GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,1, 4,8,false,GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,2,16,4,false,GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,2,16,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,2, 8,4,false,GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,2, 8,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,2, 4,8,false,GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,2, 4,8,false,GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,3,16,4,false,GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,3,16,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,3, 8,4,false,GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,3, 8,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,3, 4,8,false,GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,3, 4,8,false,GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,4,16,4,false,GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,256,4,16,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,4, 8,4,false,GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,4, 8,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,4, 4,8,false,GB,false)) return K(FP16_ID,U4B8_ID,FP16_ID,FP16_ID,128,4, 4,8,false,GB,false);
+  MARLIN_FOR_EACH_SHAPE_WITH_GB(DISPATCH_U4B8_FP16, GB)
 
   ENUMERATE_U4B8_FP16(-1)
   ENUMERATE_U4B8_FP16(2)
@@ -185,21 +174,7 @@ MarlinFuncPtr get_marlin_kernel(
 
   // ── BF16 weight types ────────────────────────────────────────────────────
 #define ENUMERATE_U4B8_BF16(GB) \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,1, 8,8,true, GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,1, 8,8,true, GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,1, 8,4,true, GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,1, 8,4,true, GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,1, 4,8,true, GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,1, 4,8,true, GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,1, 8,8,false,GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,1, 8,8,false,GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,1, 8,4,false,GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,1, 8,4,false,GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,1, 4,8,false,GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,1, 4,8,false,GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,2,16,4,false,GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,2,16,4,false,GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,2, 8,4,false,GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,2, 8,4,false,GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,2, 4,8,false,GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,2, 4,8,false,GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,3,16,4,false,GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,3,16,4,false,GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,3, 8,4,false,GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,3, 8,4,false,GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,3, 4,8,false,GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,3, 4,8,false,GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,4,16,4,false,GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,256,4,16,4,false,GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,4, 8,4,false,GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,4, 8,4,false,GB,false); \
-  if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,4, 4,8,false,GB,false)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,128,4, 4,8,false,GB,false);
+  MARLIN_FOR_EACH_SHAPE_WITH_GB(DISPATCH_U4B8_BF16, GB)
 
   ENUMERATE_U4B8_BF16(-1)
   ENUMERATE_U4B8_BF16(2)
@@ -209,21 +184,7 @@ MarlinFuncPtr get_marlin_kernel(
 
   // ── uint8b128 (symmetric 8-bit) ──────────────────────────────────────────
 #define ENUMERATE_U8B128_FP16(GB) \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,256,1, 8,8,true, GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,256,1, 8,8,true, GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,1, 8,4,true, GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,1, 8,4,true, GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,1, 4,8,true, GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,1, 4,8,true, GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,256,1, 8,8,false,GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,256,1, 8,8,false,GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,1, 8,4,false,GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,1, 8,4,false,GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,1, 4,8,false,GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,1, 4,8,false,GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,256,2,16,4,false,GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,256,2,16,4,false,GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,2, 8,4,false,GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,2, 8,4,false,GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,2, 4,8,false,GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,2, 4,8,false,GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,256,3,16,4,false,GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,256,3,16,4,false,GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,3, 8,4,false,GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,3, 8,4,false,GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,3, 4,8,false,GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,3, 4,8,false,GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,256,4,16,4,false,GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,256,4,16,4,false,GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,4, 8,4,false,GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,4, 8,4,false,GB,false); \
-  if (MATCH(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,4, 4,8,false,GB,false)) return K(FP16_ID,U8B128_ID,FP16_ID,FP16_ID,128,4, 4,8,false,GB,false);
+  MARLIN_FOR_EACH_SHAPE_WITH_GB(DISPATCH_U8B128_FP16, GB)
 
   ENUMERATE_U8B128_FP16(-1)
   ENUMERATE_U8B128_FP16(2)
@@ -231,21 +192,7 @@ MarlinFuncPtr get_marlin_kernel(
   ENUMERATE_U8B128_FP16(8)
 
 #define ENUMERATE_U8B128_BF16(GB) \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,256,1, 8,8,true, GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,256,1, 8,8,true, GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,1, 8,4,true, GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,1, 8,4,true, GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,1, 4,8,true, GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,1, 4,8,true, GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,256,1, 8,8,false,GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,256,1, 8,8,false,GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,1, 8,4,false,GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,1, 8,4,false,GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,1, 4,8,false,GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,1, 4,8,false,GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,256,2,16,4,false,GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,256,2,16,4,false,GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,2, 8,4,false,GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,2, 8,4,false,GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,2, 4,8,false,GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,2, 4,8,false,GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,256,3,16,4,false,GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,256,3,16,4,false,GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,3, 8,4,false,GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,3, 8,4,false,GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,3, 4,8,false,GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,3, 4,8,false,GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,256,4,16,4,false,GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,256,4,16,4,false,GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,4, 8,4,false,GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,4, 8,4,false,GB,false); \
-  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,4, 4,8,false,GB,false)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,128,4, 4,8,false,GB,false);
+  MARLIN_FOR_EACH_SHAPE_WITH_GB(DISPATCH_U8B128_BF16, GB)
 
   ENUMERATE_U8B128_BF16(-1)
   ENUMERATE_U8B128_BF16(2)
@@ -255,21 +202,7 @@ MarlinFuncPtr get_marlin_kernel(
   // ── Asymmetric (u4 with zero-points, fp16 only / is_zp_float=false) ──────
   // group_blocks=4 is the most common for AWQ/GPTQ asymmetric
 #define ENUMERATE_U4_FP16_ZP(GB) \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,256,1, 8,8,true, GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,256,1, 8,8,true, GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,1, 8,4,true, GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,1, 8,4,true, GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,1, 4,8,true, GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,1, 4,8,true, GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,256,1, 8,8,false,GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,256,1, 8,8,false,GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,1, 8,4,false,GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,1, 8,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,1, 4,8,false,GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,1, 4,8,false,GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,256,2,16,4,false,GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,256,2,16,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,2, 8,4,false,GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,2, 8,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,2, 4,8,false,GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,2, 4,8,false,GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,256,3,16,4,false,GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,256,3,16,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,3, 8,4,false,GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,3, 8,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,3, 4,8,false,GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,3, 4,8,false,GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,256,4,16,4,false,GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,256,4,16,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,4, 8,4,false,GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,4, 8,4,false,GB,false); \
-  if (MATCH(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,4, 4,8,false,GB,false)) return K(FP16_ID,U4_ID,FP16_ID,FP16_ID,128,4, 4,8,false,GB,false);
+  MARLIN_FOR_EACH_SHAPE_WITH_GB(DISPATCH_U4_FP16_ZP, GB)
 
   ENUMERATE_U4_FP16_ZP(-1)
   ENUMERATE_U4_FP16_ZP(2)
@@ -278,6 +211,11 @@ MarlinFuncPtr get_marlin_kernel(
 
 #undef MATCH
 #undef K
+#undef DISPATCH_U4B8_FP16
+#undef DISPATCH_U4B8_BF16
+#undef DISPATCH_U8B128_FP16
+#undef DISPATCH_U8B128_BF16
+#undef DISPATCH_U4_FP16_ZP
 #undef ENUMERATE_U4B8_FP16
 #undef ENUMERATE_U4B8_BF16
 #undef ENUMERATE_U8B128_FP16

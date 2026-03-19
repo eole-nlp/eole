@@ -47,7 +47,7 @@ import torch
 
 _DEFAULT_SM_COUNT_FALLBACK = 160
 
-# Marlin scalar type IDs (must match eole/csrc/eole_scalar_type.hpp and
+# Marlin scalar type IDs (must match eole/csrc/quantization/marlin/eole_scalar_type.hpp and
 # eole/modules/marlin_scalar_type.py).
 MARLIN_UINT4B8_TYPE_ID = 4  # uint4b8: 4-bit unsigned with bias 8 (symmetric int4)
 MARLIN_UINT8B128_TYPE_ID = 5  # uint8b128: 8-bit unsigned with bias 128 (symmetric int8)

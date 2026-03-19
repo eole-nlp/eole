@@ -2,7 +2,8 @@
 eole/modules/marlin_scalar_type.py
 
 Scalar type definitions for Marlin quantization.
-The ``id`` values must match ``eole/csrc/eole_scalar_type.hpp::ScalarType::from_id()``.
+The ``id`` values must match
+``eole/csrc/quantization/marlin/eole_scalar_type.hpp::ScalarType::from_id()``.
 """
 
 from dataclasses import dataclass
@@ -31,7 +32,7 @@ class ScalarType:
 class _ScalarTypes:
     """Named scalar types used by Marlin kernels.
 
-    IDs must match ``eole/csrc/eole_scalar_type.hpp``::
+    IDs must match ``eole/csrc/quantization/marlin/eole_scalar_type.hpp``::
 
         kU4B8   = {  4, 4, false, "uint4b8"  }   ← symmetric int4
         kU8B128 = {  5, 8, false, "uint8b128" }   ← symmetric int8

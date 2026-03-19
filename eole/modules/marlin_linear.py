@@ -45,9 +45,9 @@ class MarlinQuantLinear(nn.Module):
     """Quantized linear layer using the Marlin kernel.
 
     Weights are stored in GPTQ column-packed format initially and repacked
-    into Marlin tiled format during ``post_init()``.  Inference is performed
-    via the MoE Marlin GEMM kernel with trivial (single-expert) routing,
-    which is already compiled into ``eole._ops``.
+    into Marlin tiled format during ``post_init()``. Inference is performed
+    via the dense Marlin GEMM kernel (``gptq_marlin_gemm``) implemented in
+    eole's CUDA ops (no MoE routing overhead).
 
     Parameters
     ----------
@@ -85,6 +85,14 @@ class MarlinQuantLinear(nn.Module):
             raise ValueError(f"Unsupported quantization config: bits={bits}, sym={sym}")
 
         # Validate shape requirements
+        if in_features % _MIN_IN_FEATURES_MULT != 0:
+            raise NotImplementedError(
+                f"MarlinQuantLinear: in_features={in_features} must be divisible by "
+                f"{_MIN_IN_FEATURES_MULT} (Marlin tile size). "
+                f"For layers with non-aligned dimensions, use the PyTorch or Triton backend "
+                f"by setting sym=False or force_pytorch=True."
+            )
+
         if out_features % _MIN_OUT_FEATURES_MULT != 0:
             raise NotImplementedError(
                 f"MarlinQuantLinear: out_features={out_features} must be divisible by "
