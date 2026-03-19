@@ -47,6 +47,8 @@ def get_ext_modules_and_cmdclass():
         "csrc/rotary_embedding.cu",
         "csrc/activation_kernels.cu",
         "csrc/moe_align.cu",
+        "csrc/marlin_repack.cu",
+        "csrc/marlin_dense.cu",
         "csrc/marlin_moe_wna16.cu",
         "csrc/bindings.cpp",
     ]
