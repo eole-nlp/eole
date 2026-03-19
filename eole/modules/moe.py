@@ -8,7 +8,8 @@ from torch.distributed import all_reduce
 
 try:
     from eole.triton.fused_moe import fused_experts_impl
-    from eole.triton.fused_moe_int4 import fused_experts_int4_impl, fused_experts_marlin_impl
+    from eole.triton.fused_moe_int4 import fused_experts_int4_impl
+    from eole.modules.fused_moe_marlin import fused_experts_marlin_impl
 
     _triton_moe = True
 except ImportError:
