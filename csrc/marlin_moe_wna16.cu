@@ -1,10 +1,6 @@
 /*
- * Eole-NLP – Marlin MoE GEMM kernel
- * Adapted from vLLM's moe/marlin_moe/ops.cu (Apache-2.0).
+ * Eole-NLP – Marlin MoE GEMM kernel (adapted from vLLM)
  * Copyright (C) Marlin.2024 Elias Frantar / Neural Magic.
- *
- * Self-contained single translation unit.  No kernel_selector.h,
- * no generate_kernels.py, no vLLM Python or shared-library dependency.
  *
  * Only the Marlin<> instantiations actually used by typical Marlin MoE
  * inference (group_size=128, fp16/bf16, uint4b8/uint8b128, Ampere+) are
@@ -17,51 +13,19 @@
  *   4. c_tmp_or_none – optional pre-allocated fp32 scratch buffer.
  */
 
-#ifndef MARLIN_NAMESPACE_NAME
-  #define MARLIN_NAMESPACE_NAME marlin_moe_wna16
-#endif
-
-// ── Our own scalar-type header (no vLLM dependency) ──────────────────────────
-// Defines vllm::ScalarType so marlin_template.h compiles unchanged.
-#include "eole_scalar_type.hpp"
-
-// MARLIN_KERNEL_PARAMS: the parameter list shared by all Marlin<> variants.
-// Defined here so we don't need kernel.h from vLLM.
-#define MARLIN_KERNEL_PARAMS                                              \
-  const int4* __restrict__ A,    const int4* __restrict__ B,             \
-  int4* __restrict__ C,          int4* __restrict__ C_tmp,               \
-  const int4* __restrict__ b_bias_ptr,                                   \
-  const float* __restrict__ a_scales_ptr,                                \
-  const int4* __restrict__ scales_ptr,                                   \
-  const uint16_t* __restrict__ global_scale_ptr,                         \
-  const int4* __restrict__ zp_ptr,  const int* __restrict__ g_idx,       \
-  const int32_t* __restrict__ sorted_token_ids_ptr,                      \
-  const int32_t* __restrict__ expert_ids_ptr,                            \
-  const int32_t* __restrict__ num_tokens_past_padded_ptr,                \
-  const float* __restrict__ topk_weights_ptr,                            \
-  int top_k, bool mul_topk_weights, int num_groups,                      \
-  int prob_m, int prob_n, int prob_k,                                    \
-  int* locks, bool has_bias, bool use_atomic_add, bool use_fp32_reduce
-
-// ── Marlin kernel implementation (vendored from vLLM csrc) ───────────────────
-// marlin_template.h defines the Marlin<> template.  Including it here causes
-// implicit instantiation of every specialisation we reference below.
-#include "marlin_template.h"
+#include "marlin_kernel.h"   // deps + MARLIN_KERNEL_PARAMS + namespace marlin { Marlin<> }
 
 #include <mutex>
 #include <unordered_map>
 
-// Convenience aliases for ScalarTypeId values
-static constexpr vllm::ScalarTypeId FP16_ID  = vllm::kFloat16.id();
-static constexpr vllm::ScalarTypeId BF16_ID  = vllm::kBFloat16.id();
-static constexpr vllm::ScalarTypeId U4B8_ID  = vllm::kU4B8.id();
-static constexpr vllm::ScalarTypeId U8B128_ID = vllm::kU8B128.id();
+namespace marlin {
 
-// Some headers define tile_size / min_thread_n / max_thread_n / min_thread_k /
-// default_threads / div_ceil inside MARLIN_NAMESPACE_NAME; pull them out here.
-namespace MARLIN_NAMESPACE_NAME {
+// ScalarTypeId convenience aliases.
+using vllm::FP16_ID;
+using vllm::BF16_ID;
+using vllm::U4B8_ID;
+using vllm::U8B128_ID;
 
-__global__ void MarlinDefault(MARLIN_KERNEL_PARAMS){};
 using MarlinFuncPtr = void (*)(MARLIN_KERNEL_PARAMS);
 
 // =============================================================================
@@ -81,7 +45,7 @@ using MarlinFuncPtr = void (*)(MARLIN_KERNEL_PARAMS);
 
 #define INST(A, B, C, S, TH, TM, TN, TK, M8, ST, GB)            \
   template __global__ void Marlin<A, B, C, S,                    \
-      TH, TM, TN, TK, M8, ST, GB, false>(MARLIN_KERNEL_PARAMS);
+      TH, TM, TN, TK, M8, ST, GB, /*is_zp_float=*/false, /*is_moe=*/true>(MARLIN_KERNEL_PARAMS);
 
 // Macros for the two common dtype/weight-type combinations
 #define INST_FP16_U4B8(TH, TM, TN, TK, M8, ST) \
@@ -330,9 +294,9 @@ bool valid_config(thread_config_t const& th, int tm_blocks, int prob_m,
 
 // =============================================================================
 // Kernel dispatch
-// Returns the instantiated kernel matching the given config, or MarlinDefault.
+// Returns the instantiated kernel matching the given config, or nullptr.
 // Only the instantiations compiled above are reachable; any other combination
-// returns MarlinDefault and is skipped by determine_exec_config.
+// returns nullptr and is skipped by determine_exec_config.
 // =============================================================================
 
 MarlinFuncPtr get_marlin_kernel(
@@ -341,14 +305,14 @@ MarlinFuncPtr get_marlin_kernel(
     int threads, int tm, int tn, int tk,
     bool m8, int stages, int gb, bool is_zp_float)
 {
-  if (is_zp_float || stages != 4 || gb != 8) return MarlinDefault;
+  if (is_zp_float || stages != 4 || gb != 8) return nullptr;
 
 #define MATCH(A,B,C,S,TH,TM_,TN_,TK_,M8_) \
   (a_id==(A) && b_id==(B) && c_id==(C) && s_id==(S) && \
    threads==(TH) && tm==(TM_) && tn==(TN_) && tk==(TK_) && m8==(M8_))
 
 #define K(A,B,C,S,TH,TM_,TN_,TK_,M8_) \
-  Marlin<A, B, C, S, TH, TM_, TN_, TK_, M8_, 4, 8, false>
+  Marlin<A, B, C, S, TH, TM_, TN_, TK_, M8_, /*stages=*/4, /*group_blocks=*/8, /*is_zp_float=*/false, /*is_moe=*/true>
 
   // fp16 + uint4b8
   if (a_id==FP16_ID && b_id==U4B8_ID && c_id==FP16_ID && s_id==FP16_ID) {
@@ -391,7 +355,7 @@ MarlinFuncPtr get_marlin_kernel(
 
 #undef MATCH
 #undef K
-  return MarlinDefault;
+  return nullptr;
 }
 
 exec_config_t determine_exec_config(
@@ -425,7 +389,7 @@ exec_config_t determine_exec_config(
                                th.num_threads, tm_blocks,
                                th.thread_n/16, th.thread_k/16,
                                m8, stages, gb, is_zp_float);
-    if (k == MarlinDefault) continue;  // not instantiated, skip
+    if (k == nullptr) continue;  // not instantiated, skip
 
     int rs    = get_kernel_regs(k) * th.num_threads * 4;
     int allow = min(dev_regs/rs, max_smem/(cs+1536));
@@ -550,7 +514,7 @@ void marlin_mm(
                                   th.num_threads, tm_blocks,
                                   thread_n/16, thread_k/16,
                                   m8, stages, gb, is_zp_float);
-  TORCH_CHECK(kernel != MarlinDefault,
+  TORCH_CHECK(kernel != nullptr,
               "Marlin kernel not compiled for this config. "
               "Add the required instantiation in marlin_moe_wna16.cu.");
 
@@ -565,7 +529,7 @@ void marlin_mm(
   // clang-format on
 }
 
-}  // namespace MARLIN_NAMESPACE_NAME
+}  // namespace marlin
 
 // =============================================================================
 // Public entry point – registered in bindings.cpp
@@ -599,9 +563,10 @@ torch::Tensor moe_wna16_marlin_gemm(
     int64_t thread_n        = -1,
     int64_t blocks_per_sm   = -1)
 {
+  using namespace marlin;
   int dev = a.get_device();
-  const MARLIN_NAMESPACE_NAME::CachedDeviceProps& dp =
-      MARLIN_NAMESPACE_NAME::get_device_props(dev);
+  const marlin::CachedDeviceProps& dp =
+      marlin::get_device_props(dev);
   int sms = dp.sms;
 
   // Derive a_type / c_type ids from tensor dtypes
@@ -650,10 +615,10 @@ torch::Tensor moe_wna16_marlin_gemm(
   }
 
   TORCH_CHECK(a.size(0)==size_m && a.size(1)==size_k);
-  TORCH_CHECK(size_k % MARLIN_NAMESPACE_NAME::tile_size == 0);
-  TORCH_CHECK((size_k/MARLIN_NAMESPACE_NAME::tile_size)==b_q_weight.size(1));
-  TORCH_CHECK(b_q_weight.size(2)%MARLIN_NAMESPACE_NAME::tile_size==0);
-  TORCH_CHECK(size_n==(b_q_weight.size(2)/MARLIN_NAMESPACE_NAME::tile_size)*pack_factor,
+  TORCH_CHECK(size_k % marlin::tile_size == 0);
+  TORCH_CHECK((size_k/marlin::tile_size)==b_q_weight.size(1));
+  TORCH_CHECK(b_q_weight.size(2)%marlin::tile_size==0);
+  TORCH_CHECK(size_n==(b_q_weight.size(2)/marlin::tile_size)*pack_factor,
               "size_n mismatch");
   TORCH_CHECK(a.device().is_cuda() && a.is_contiguous());
   TORCH_CHECK(b_q_weight.device().is_cuda() && b_q_weight.is_contiguous());
@@ -686,7 +651,7 @@ torch::Tensor moe_wna16_marlin_gemm(
   if (use_fp32_reduce && !use_atomic_add) {
     long max_ctmp = std::min(
         (long)size_n * sorted_token_ids.size(0),
-        (long)sms * 4 * moe_block_size * MARLIN_NAMESPACE_NAME::max_thread_n);
+        (long)sms * 4 * moe_block_size * marlin::max_thread_n);
     if (moe_block_size==8) max_ctmp*=2;
     if (c_tmp_or_none.has_value()) {
       c_tmp = c_tmp_or_none.value();
@@ -751,12 +716,12 @@ torch::Tensor moe_wna16_marlin_gemm(
   } else { b_zeros = torch::empty({0}, opts); }
   bool has_zp = b_zeros.size(-1)>0;
 
-  int max_n_tiles = size_n / MARLIN_NAMESPACE_NAME::min_thread_n;
+  int max_n_tiles = size_n / marlin::min_thread_n;
   int min_ws = std::min(max_n_tiles*(int)(sorted_token_ids.size(0)/moe_block_size), sms*4);
   TORCH_CHECK(workspace.numel()>=min_ws,
               "workspace too small: need ",min_ws," got ",workspace.numel());
 
-  MARLIN_NAMESPACE_NAME::marlin_mm(
+  marlin::marlin_mm(
       a.data_ptr(),           b_q_weight.data_ptr(),
       c.data_ptr(),           c_tmp.data_ptr(),
       b_bias.data_ptr(),      a_scales.data_ptr(),

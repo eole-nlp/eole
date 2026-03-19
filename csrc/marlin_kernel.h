@@ -1,6 +1,8 @@
 /*
- * Modified by Neural Magic
- * Copyright (C) Marlin.2024 Elias Frantar
+ * marlin_kernel.h – single Marlin GEMM kernel header (MoE and dense).
+ *
+ * Both marlin_moe_wna16.cu and marlin_dense.cu include this header and
+ * open a single "namespace marlin {}" for their dispatch code.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,16 +15,16 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */
-
-/*
+ *
  * Adapted from https://github.com/IST-DASLab/marlin
  */
 
-#ifndef MARLIN_NAMESPACE_NAME
-  #define MARLIN_NAMESPACE_NAME marlin_dense
-#endif
+#pragma once
 
+// ── Dependencies (global scope) ───────────────────────────────────────────────
+// These headers also open/close "namespace marlin" for constants and types
+// (default MARLIN_NAMESPACE_NAME = marlin from marlin.cuh).
+#include "eole_scalar_type.hpp"
 #include "quantization/marlin/marlin.cuh"
 #include "quantization/marlin/marlin_dtypes.cuh"
 #include "quantization/marlin/dequant.h"
@@ -33,49 +35,29 @@
                     std::is_same<scalar_t, nv_bfloat16>::value, \
                 "only float16 and bfloat16 is supported");
 
-namespace MARLIN_NAMESPACE_NAME {
+// ── Kernel parameter list ─────────────────────────────────────────────────────
+// Shared by both the MoE (is_moe=true) and dense (is_moe=false) Marlin<>
+// instantiations.  The 6 MoE routing parameters are passed as nullptr/0 by
+// the dense launcher; all MoE-specific code paths are guarded by
+// `if constexpr (is_moe)` and elided at zero runtime cost.
+#define MARLIN_KERNEL_PARAMS                                                   \
+  const int4* __restrict__ A, const int4* __restrict__ B,                     \
+      int4* __restrict__ C, int4* __restrict__ C_tmp,                         \
+      const int4* __restrict__ b_bias_ptr,                                     \
+      const float* __restrict__ a_scales_ptr,                                  \
+      const int4* __restrict__ scales_ptr,                                     \
+      const uint16_t* __restrict__ global_scale_ptr,                           \
+      const int4* __restrict__ zp_ptr, const int* __restrict__ g_idx,         \
+      const int32_t* __restrict__ sorted_token_ids_ptr,                        \
+      const int32_t* __restrict__ expert_ids_ptr,                              \
+      const int32_t* __restrict__ num_tokens_past_padded_ptr,                  \
+      const float* __restrict__ topk_weights_ptr,                              \
+      int top_k, bool mul_topk_weights,                                        \
+      int num_groups, int prob_m, int prob_n, int prob_k, int* locks,          \
+      bool has_bias, bool use_atomic_add, bool use_fp32_reduce
 
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 750
-
-template <typename scalar_t,  // compute dtype, half or nv_float16
-          const vllm::ScalarTypeId b_type_id,  // weight MarlinScalarType id
-          const int threads,          // number of threads in a threadblock
-          const int thread_m_blocks,  // number of 16x16 blocks in the m
-                                      // dimension (batchsize) of the
-                                      // threadblock
-          const int thread_n_blocks,  // same for n dimension (output)
-          const int thread_k_blocks,  // same for k dimension (reduction)
-          const bool m_block_size_8,  // whether m_block_size == 8
-                                      // only works when thread_m_blocks == 1
-          const int stages,  // number of stages for the async global->shared
-                             // fetch pipeline
-          const bool has_act_order,  // whether act_order is enabled
-          const int group_blocks,    // number of consecutive 16x16 blocks
-                                     // with a separate quantization scale
-          const bool is_zp_float     // is zero point of float16 type?
-          >
-__global__ void Marlin(
-    const int4* __restrict__ A,  // fp16 input matrix of shape mxk
-    const int4* __restrict__ B,  // 4bit quantized weight matrix of shape kxn
-    int4* __restrict__ C,        // fp16 output buffer of shape mxn
-    int4* __restrict__ C_tmp,    // fp32 tmp output buffer (for reduce)
-    const int4* __restrict__ scales_ptr,  // fp16 quantization scales of shape
-                                          // (k/groupsize)xn
-    const int4* __restrict__ zp_ptr,      // 4bit packed zero-points of shape
-                                          // (k/groupsize)x(n/pack_factor)
-    const int* __restrict__ g_idx,        // int32 group indices of shape k
-    int num_groups,         // number of scale groups per output channel
-    int prob_m,             // batch dimension m
-    int prob_n,             // output dimension n
-    int prob_k,             // reduction dimension k
-    int* locks,             // extra global storage for barrier synchronization
-    bool use_atomic_add,    // whether to use atomic add to reduce
-    bool use_fp32_reduce    // whether to use fp32 global reduce
-) {}
-
-}  // namespace MARLIN_NAMESPACE_NAME
-
-#else
+// ── namespace marlin – device helpers + unified Marlin<> kernel template ──────
+namespace marlin {
 
 // Instruction for loading a full 16x16 matrix fragment of operand A from shared
 // memory, directly in tensor core layout.
@@ -239,7 +221,8 @@ template <const vllm::ScalarTypeId a_type_id,  // A ScalarType id
                              // fetch pipeline
           const int group_blocks,  // number of consecutive 16x16 blocks
                                    // with a separate quantization scale
-          const bool is_zp_float   // is zero point of float16 type?
+          const bool is_zp_float,  // is zero point of float16 type?
+          const bool is_moe         // true=MoE routing, false=dense sequential
           >
 __global__ void Marlin(
     const int4* __restrict__ A,  // fp16 input matrix of shape mxk
@@ -259,6 +242,13 @@ __global__ void Marlin(
     const int4* __restrict__ zp_ptr,
     // int32 group indices of shape k
     const int* __restrict__ g_idx,
+    // MoE routing params (only accessed when is_moe == true):
+    const int32_t* __restrict__ sorted_token_ids_ptr,        // moe sorted_ids
+    const int32_t* __restrict__ expert_ids_ptr,              // moe expert ids
+    const int32_t* __restrict__ num_tokens_past_padded_ptr,  // moe num tokens
+    const float* __restrict__ topk_weights_ptr,              // moe top weights
+    int top_k,              // num of experts per token
+    bool mul_topk_weights,  // mul topk weights or not
     int num_groups,         // number of scale groups per output channel
     int prob_m,             // batch dimension m
     int prob_n,             // output dimension n
@@ -291,10 +281,12 @@ __global__ void Marlin(
     return;
   #endif
 
-  // Dense kernel: no MoE routing pointer reads (removed 6 parameters:
-  // sorted_token_ids_ptr, expert_ids_ptr, num_tokens_past_padded_ptr,
-  // topk_weights_ptr, top_k, mul_topk_weights — see marlin_template.h for
-  // the MoE version with full routing).
+  constexpr int moe_block_size = m_block_size_8 ? 8 : (16 * thread_m_blocks);
+  int num_tokens_past_padded = 0;
+  if constexpr (is_moe) {
+    num_tokens_past_padded = num_tokens_past_padded_ptr[0];
+  }
+
   #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
   constexpr bool use_fp16_accum = a_type_id == vllm::kFloat16.id();
   #else
@@ -360,9 +352,13 @@ __global__ void Marlin(
                   : prob_n * prob_k / group_size / (pack_factor * 4);
   const int b_bias_expert_stride = prob_n / 8;
 
-  // Dense: parallel = number of moe_block_size-sized row blocks covering prob_m
-  constexpr int moe_block_size = m_block_size_8 ? 8 : (16 * thread_m_blocks);
-  int parallel = div_ceil(prob_m, moe_block_size);
+  // parallel: num valid row-blocks (MoE: from padded token count; dense: ceil(prob_m))
+  int parallel;
+  if constexpr (is_moe) {
+    parallel = num_tokens_past_padded / moe_block_size;
+  } else {
+    parallel = div_ceil(prob_m, moe_block_size);
+  }
 
   int k_tiles = prob_k / 16 / thread_k_blocks;
   int n_tiles = prob_n / 16 / thread_n_blocks;
@@ -406,14 +402,31 @@ __global__ void Marlin(
 
   int par_id = 0;
   int block_id = -1;
-  // Dense: single implicit expert — no expert routing, B_expert_off always 0.
+  // MoE routing state (unused in dense path; compiler elides):
+  int64_t expert_id = 0;  // MoE: current expert id (use int64 to avoid overflow)
+  int old_expert_id = 0;  // MoE: previous expert id (for pointer delta)
   int64_t B_expert_off = 0;
 
   float* sh_a_s = reinterpret_cast<float*>(sh);
-  // Dense: no routing buffers (sh_block_sorted_ids / sh_rd_block_sorted_ids /
-  // sh_block_topk_weights removed). sh_new starts right after the optional
-  // per-row a_scales scratch area.
-  int4* sh_new = sh + (is_a_8bit ? (4 * thread_m_blocks) : 0);
+  // MoE routing shared-memory pointers.
+  // Dense path: initialized to nullptr; never accessed (compiler elides).
+  int4* sh_block_sorted_ids_int4 = nullptr;
+  int32_t* sh_block_sorted_ids = nullptr;
+  int32_t* sh_rd_block_sorted_ids = nullptr;
+  c_scalar_t2* sh_block_topk_weights = nullptr;
+  int4* sh_new;
+  if constexpr (is_moe) {
+    sh_block_sorted_ids_int4 = sh + (is_a_8bit ? (4 * thread_m_blocks) : 0);
+    int4* sh_rd_sorted_int4   = sh_block_sorted_ids_int4 + moe_block_size / 4;
+    int4* sh_topk_weights_int4 = sh_rd_sorted_int4 + moe_block_size / 4;
+    // sh_topk_weights_int4 needs (moe_block_size / 4); pad to 256-byte alignment
+    sh_new = sh_topk_weights_int4 + moe_block_size / 2;
+    sh_block_sorted_ids   = reinterpret_cast<int*>(sh_block_sorted_ids_int4);
+    sh_rd_block_sorted_ids = reinterpret_cast<int*>(sh_rd_sorted_int4);
+    sh_block_topk_weights  = reinterpret_cast<c_scalar_t2*>(sh_topk_weights_int4);
+  } else {
+    sh_new = sh + (is_a_8bit ? (4 * thread_m_blocks) : 0);
+  }
 
   int32_t block_num_valid_tokens = 0;
   int32_t locks_off = 0;
@@ -428,25 +441,120 @@ __global__ void Marlin(
     locks_off = (iters * blockIdx.x) / k_tiles - 1;
   }
 
-  // Dense: read_moe_block_data — compute valid token count without routing loads.
-  // For block block_id covering rows [block_id*moe_block_size,
-  // (block_id+1)*moe_block_size), valid tokens = min(moe_block_size, prob_m -
-  // block_id*moe_block_size).
-  auto read_moe_block_data = [&](int b_id) {
-    block_num_valid_tokens = min(moe_block_size, prob_m - b_id * moe_block_size);
+  int prob_m_top_k = 0;
+  if constexpr (is_moe) {
+    prob_m_top_k = prob_m * top_k;
+  }
+  // read_moe_block_data: load routing data for given block_id.
+  // MoE: async-loads sorted_token_ids, counts valid tokens, builds rd table.
+  // Dense: block_num_valid_tokens = min(moe_block_size, remaining rows).
+  auto read_moe_block_data = [&](int block_id) {
+    if constexpr (is_moe) {
+      block_num_valid_tokens = moe_block_size;
+
+      cp_async4_pred(sh_block_sorted_ids_int4 + threadIdx.x,
+                     reinterpret_cast<const int4*>(sorted_token_ids_ptr) +
+                         (block_id * moe_block_size / 4 + threadIdx.x),
+                     threadIdx.x < moe_block_size / 4);
+
+      cp_async_fence();
+      cp_async_wait<0>();
+
+      __syncthreads();
+
+      if (threadIdx.x >= threads - 32) {
+        constexpr int size_per_thread = div_ceil(moe_block_size, 32);
+        int lane_id = threadIdx.x - (threads - 32);
+
+        int local_count = 0;
+    #pragma unroll
+        for (int i = 0; i < size_per_thread; i++) {
+          int j = lane_id * size_per_thread + i;
+          if (j < moe_block_size) {
+            int idx = sh_block_sorted_ids[j];
+            if (idx < prob_m_top_k) local_count++;
+          }
+        }
+
+    #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
+
+        if constexpr (moe_block_size >= 16)
+          local_count += __shfl_down_sync(0xFFFFFFFF, local_count, 16);
+        if constexpr (moe_block_size >= 8)
+          local_count += __shfl_down_sync(0xFFFFFFFF, local_count, 8);
+        if constexpr (moe_block_size >= 4)
+          local_count += __shfl_down_sync(0xFFFFFFFF, local_count, 4);
+        if constexpr (moe_block_size >= 2)
+          local_count += __shfl_down_sync(0xFFFFFFFF, local_count, 2);
+
+        local_count += __shfl_down_sync(0xFFFFFFFF, local_count, 1);
+        block_num_valid_tokens = local_count;
+    #else
+        block_num_valid_tokens = __reduce_add_sync(0xffffffff, local_count);
+    #endif
+
+        if (lane_id == 0)
+          reinterpret_cast<int*>(sh_new)[0] = block_num_valid_tokens;
+      }
+
+      if (threadIdx.x < moe_block_size) {
+        int idx = sh_block_sorted_ids[threadIdx.x];
+        sh_rd_block_sorted_ids[threadIdx.x] = idx / top_k;
+
+        if (mul_topk_weights) {
+          idx = idx < prob_m_top_k ? idx : 0;
+          c_scalar_t2 topk_weight_val =
+              Cdtype::num2num2(Cdtype::float2num(topk_weights_ptr[idx]));
+          if constexpr (b_type == vllm::kFE2M1f && s_type == vllm::kFE4M3fn) {
+            topk_weight_val = __hmul2(topk_weight_val, global_scale);
+          }
+          sh_block_topk_weights[threadIdx.x] = topk_weight_val;
+        }
+      }
+
+      __syncthreads();
+
+      block_num_valid_tokens = reinterpret_cast<int*>(sh_new)[0];
+      __syncthreads();
+    } else {
+      // Dense: valid tokens = rows remaining in this block.
+      block_num_valid_tokens = min(moe_block_size, prob_m - block_id * moe_block_size);
+    }
   };
 
-  // Dense: update_next_moe_block_data — advance to next row block.
-  // No expert routing: B/scales/zp pointers never change.
+  // update_next_moe_block_data: advance to the next block.
+  // MoE: reads expert routing table, advances B/scales/zp/g_idx/bias pointers.
+  // Dense: block pointers are fixed; only update global_scale if needed.
   auto update_next_moe_block_data = [&]() {
     if (par_id >= parallel) return;
 
+    if constexpr (is_moe) { old_expert_id = expert_id; }
     block_id = par_id;
+    if constexpr (is_moe) { expert_id = expert_ids_ptr[block_id]; }
 
     if constexpr (b_type == vllm::kFE2M1f && s_type == vllm::kFE4M3fn) {
-      if (global_scale_ptr != nullptr) {
-        uint16_t val = global_scale_ptr[0];
+      if constexpr (is_moe) {
+        uint16_t val = global_scale_ptr[expert_id];
         global_scale = Cdtype::num2num2(*reinterpret_cast<c_scalar_t*>(&val));
+      } else {
+        if (global_scale_ptr != nullptr) {
+          uint16_t val = global_scale_ptr[0];
+          global_scale = Cdtype::num2num2(*reinterpret_cast<c_scalar_t*>(&val));
+        }
+      }
+    }
+
+    if constexpr (is_moe) {
+      B_expert_off = expert_id * prob_n * prob_k / (pack_factor * 4);
+      scales_ptr += (expert_id - old_expert_id) * scales_expert_stride;
+      if constexpr (has_zp) {
+        zp_ptr += (expert_id - old_expert_id) * zp_expert_stride;
+      }
+      if constexpr (has_act_order) {
+        g_idx += (expert_id - old_expert_id) * prob_k;
+      }
+      if (has_bias) {
+        b_bias_ptr += (expert_id - old_expert_id) * b_bias_expert_stride;
       }
     }
 
@@ -492,8 +600,12 @@ __global__ void Marlin(
       for (int i = 0; i < m_per_thread; i++) {
         int row = threads / threads_per_m * i + threadIdx.x / threads_per_m;
         if (row < block_num_valid_tokens) {
-          // Dense: direct sequential row (no MoE routing table lookup)
-          int64_t sorted_row = block_id * moe_block_size + row;
+          int64_t sorted_row;
+          if constexpr (is_moe) {
+            sorted_row = sh_block_sorted_ids[row];
+          } else {
+            sorted_row = block_id * moe_block_size + row;
+          }
           int col = slice_col * 16 * thread_n_blocks / 8 +
                     threadIdx.x % threads_per_m;
           C[sorted_row * prob_n / 8 + col] = {0, 0, 0, 0};
@@ -514,10 +626,15 @@ __global__ void Marlin(
     }
     if (is_a_8bit && (first_init || slice_col == 0)) {
       __syncthreads();
-      // Dense: row index = block_id * moe_block_size + threadIdx.x
-      cp_async1_ca_pred(&sh_a_s[threadIdx.x],
-                        &a_scales_ptr[block_id * moe_block_size + threadIdx.x],
-                        threadIdx.x < block_num_valid_tokens);
+      if constexpr (is_moe) {
+        cp_async1_ca_pred(&sh_a_s[threadIdx.x],
+                          &a_scales_ptr[sh_rd_block_sorted_ids[threadIdx.x]],
+                          threadIdx.x < block_num_valid_tokens);
+      } else {
+        cp_async1_ca_pred(&sh_a_s[threadIdx.x],
+                          &a_scales_ptr[block_id * moe_block_size + threadIdx.x],
+                          threadIdx.x < block_num_valid_tokens);
+      }
     }
   };
 
@@ -530,10 +647,15 @@ __global__ void Marlin(
       update_next_moe_block_data();
       if (is_a_8bit) {
         __syncthreads();
-        // Dense: row index = block_id * moe_block_size + threadIdx.x
-        cp_async1_ca_pred(&sh_a_s[threadIdx.x],
-                          &a_scales_ptr[block_id * moe_block_size + threadIdx.x],
-                          threadIdx.x < block_num_valid_tokens);
+        if constexpr (is_moe) {
+          cp_async1_ca_pred(&sh_a_s[threadIdx.x],
+                            &a_scales_ptr[sh_rd_block_sorted_ids[threadIdx.x]],
+                            threadIdx.x < block_num_valid_tokens);
+        } else {
+          cp_async1_ca_pred(&sh_a_s[threadIdx.x],
+                            &a_scales_ptr[block_id * moe_block_size + threadIdx.x],
+                            threadIdx.x < block_num_valid_tokens);
+        }
       }
     }
   };
@@ -869,10 +991,14 @@ __global__ void Marlin(
   #pragma unroll
       for (int i = 0; i < a_sh_wr_iters; i++) {
         int row = a_gl_rd_delta_i / a_gl_stride * i + a_gl_rd_row;
-        // Dense: direct sequential row from current block (no routing table)
         int64_t sorted_row = 0;
-        if (!m_block_size_8 || row < 8)
-          sorted_row = block_id * moe_block_size + row;
+        if (!m_block_size_8 || row < 8) {
+          if constexpr (is_moe) {
+            sorted_row = sh_rd_block_sorted_ids[row];
+          } else {
+            sorted_row = block_id * moe_block_size + row;
+          }
+        }
         int64_t true_idx =
             sorted_row * a_gl_stride + a_gl_rd_col + a_gl_rd_delta_o * a_off;
         cp_async4_pred(&sh_a_stage[a_sh_wr_trans[i]], &A[true_idx],
@@ -1532,8 +1658,12 @@ __global__ void Marlin(
           c_idx =
               c_gl_wr + c_gl_wr_delta_o * (i / 2) + c_gl_wr_delta_i * (i % 2);
         if (c_idx / c_gl_stride < block_num_valid_tokens) {
-          // Dense: direct sequential row (no MoE routing lookup)
-          int64_t sorted_row = block_id * moe_block_size + c_idx / c_gl_stride;
+          int64_t sorted_row;
+          if constexpr (is_moe) {
+            sorted_row = sh_block_sorted_ids[c_idx / c_gl_stride];
+          } else {
+            sorted_row = block_id * moe_block_size + c_idx / c_gl_stride;
+          }
           int64_t true_idx = sorted_row * c_gl_stride + c_idx % c_gl_stride;
           if constexpr (is_a_8bit) {
             int2* sh_red_int2 = reinterpret_cast<int2*>(sh_red);
@@ -1590,8 +1720,12 @@ __global__ void Marlin(
           c_idx =
               c_gl_wr + c_gl_wr_delta_o * (i / 2) + c_gl_wr_delta_i * (i % 2);
         if (c_idx / c_gl_stride < block_num_valid_tokens) {
-          // Dense: direct sequential row (no MoE routing lookup)
-          int64_t sorted_row = block_id * moe_block_size + c_idx / c_gl_stride;
+          int64_t sorted_row;
+          if constexpr (is_moe) {
+            sorted_row = sh_block_sorted_ids[c_idx / c_gl_stride];
+          } else {
+            sorted_row = block_id * moe_block_size + c_idx / c_gl_stride;
+          }
           int64_t true_idx = sorted_row * c_gl_stride + c_idx % c_gl_stride;
           if constexpr (is_a_8bit) {
             int2* c_int2 = reinterpret_cast<int2*>(C);
@@ -1709,8 +1843,14 @@ __global__ void Marlin(
       }
 
       if constexpr (b_type == vllm::kFE2M1f && s_type == vllm::kFE4M3fn) {
-        // Dense: always apply global scale (no mul_topk_weights gating)
-        res = __hmul2(res, global_scale);
+        // Dense always applies global scale; MoE only applies when not mul_topk_weights.
+        if constexpr (is_moe) {
+          if (!mul_topk_weights) {
+            res = __hmul2(res, global_scale);
+          }
+        } else {
+          res = __hmul2(res, global_scale);
+        }
       }
       if (has_bias && last) {
         c_scalar_t2 tmp_bias = b_bias[0];
@@ -1769,16 +1909,35 @@ __global__ void Marlin(
          i++) {
       int row = c_gl_wr / c_gl_stride;
       if (row < block_num_valid_tokens) {
-        // Dense: direct sequential row (no MoE routing or topk weight)
-        int64_t sorted_row = block_id * moe_block_size + row;
+        int64_t sorted_row;
+        if constexpr (is_moe) {
+          sorted_row = sh_block_sorted_ids[row];
+        } else {
+          sorted_row = block_id * moe_block_size + row;
+        }
         int64_t true_idx = sorted_row * c_gl_stride + c_gl_wr % c_gl_stride;
+        c_scalar_t2* C_half2 = reinterpret_cast<c_scalar_t2*>(&C[true_idx]);
+        c_scalar_t2* sh_red_half2 = reinterpret_cast<c_scalar_t2*>(&sh_red[c_sh_rd]);
+        if constexpr (is_moe) {
+          c_scalar_t2 topk_weight_score;
+          if (mul_topk_weights) topk_weight_score = sh_block_topk_weights[row];
+          if (mul_topk_weights) {
+  #pragma unroll
+            for (int a = 0; a < 4; a++) {
+              sh_red_half2[a] = __hmul2(sh_red_half2[a], topk_weight_score);
+            }
+          }
+        }
         if (use_atomic_add && slice_count > 1) {
-          c_scalar_t2* C_half2 = reinterpret_cast<c_scalar_t2*>(&C[true_idx]);
-          c_scalar_t2* sh_red_half2 =
-              reinterpret_cast<c_scalar_t2*>(&sh_red[c_sh_rd]);
   #pragma unroll
           for (int a = 0; a < 4; a++) {
             atomicAdd(&C_half2[a], sh_red_half2[a]);
+          }
+        } else if constexpr (is_moe) {
+          if (mul_topk_weights) {
+            C[true_idx] = *reinterpret_cast<int4*>(sh_red_half2);
+          } else {
+            C[true_idx] = sh_red[c_sh_rd];
           }
         } else {
           C[true_idx] = sh_red[c_sh_rd];
@@ -2120,8 +2279,6 @@ __global__ void Marlin(
   }
 }
 
-}  // namespace MARLIN_NAMESPACE_NAME
 
-#endif
-
+}  // namespace marlin
 

@@ -3,18 +3,12 @@
  * Adapted from gptqmodel/gptqmodel_ext/marlin/gptq_marlin.cu (Apache-2.0).
  * Original: https://github.com/ModelCloud/GPTQModel
  *
- * Key difference from the MoE path: no sorted_token_ids / expert_ids / ntpp
- * tensors — rows of A are addressed directly and sequentially, eliminating
- * per-call tensor allocations and routing kernel overhead.
- *
- * The marlin_dense_template.h file is the eole Marlin kernel with MoE routing
- * stripped.  Its Marlin<> template takes ScalarTypeId non-type parameters
- * (not typename) matching the same convention as marlin_template.h.
+ * The dense path uses the unified Marlin<> kernel (is_moe=false).  The 6 MoE
+ * routing parameters are present in the signature but are passed as nullptr/0
+ * and are never accessed – if constexpr(is_moe==false) elides them entirely.
  */
 
-#define MARLIN_NAMESPACE_NAME marlin_dense
-#include "eole_scalar_type.hpp"
-#include "marlin_dense_template.h"
+#include "marlin_kernel.h"   // deps + MARLIN_KERNEL_PARAMS + namespace marlin { Marlin<> }
 
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
@@ -24,40 +18,25 @@
 #include <optional>
 #include <type_traits>
 
-using marlin_dense::default_threads;
-namespace marlin_dense {
+namespace marlin {
 
 __global__ void permute_cols_kernel(
     int4 const* __restrict__ a_int4_ptr,
     int const* __restrict__ perm_int_ptr,
     int4* __restrict__ out_int4_ptr,
     int size_m, int size_k, int lda, int block_rows);
-    
-// ── Kernel parameters macro (must match Marlin<> signature) ──────────────────
 
-#define MARLIN_DENSE_KERNEL_PARAMS                                           \
-  const int4* __restrict__ A, const int4* __restrict__ B,                   \
-      int4* __restrict__ C, int4* __restrict__ C_tmp,                       \
-      const int4* __restrict__ b_bias_ptr,                                   \
-      const float* __restrict__ a_scales_ptr,                               \
-      const int4* __restrict__ scales_ptr,                                  \
-      const uint16_t* __restrict__ global_scale_ptr,                        \
-      const int4* __restrict__ zp_ptr, const int* __restrict__ g_idx,       \
-      int num_groups, int prob_m, int prob_n, int prob_k, int* locks,        \
-      bool has_bias, bool use_atomic_add, bool use_fp32_reduce
-
-using MarlinFuncPtr = void (*)(MARLIN_DENSE_KERNEL_PARAMS);
-
-__global__ void MarlinDefault(MARLIN_DENSE_KERNEL_PARAMS) {}
+using MarlinFuncPtr = void (*)(MARLIN_KERNEL_PARAMS);
 
 // ── ScalarTypeId constants ────────────────────────────────────────────────────
+// Defined once in eole_scalar_type.hpp (namespace vllm); imported here.
 
-static constexpr vllm::ScalarTypeId FP16_ID   = vllm::kFloat16.id();
-static constexpr vllm::ScalarTypeId BF16_ID   = vllm::kBFloat16.id();
-static constexpr vllm::ScalarTypeId U4B8_ID   = vllm::kU4B8.id();
-static constexpr vllm::ScalarTypeId U8B128_ID = vllm::kU8B128.id();
-static constexpr vllm::ScalarTypeId U4_ID     = vllm::kU4.id();
-static constexpr vllm::ScalarTypeId U8_ID     = vllm::kU8.id();
+using vllm::FP16_ID;
+using vllm::BF16_ID;
+using vllm::U4B8_ID;
+using vllm::U8B128_ID;
+using vllm::U4_ID;
+using vllm::U8_ID;
 
 // ── Thread / exec config ──────────────────────────────────────────────────────
 
@@ -160,7 +139,7 @@ bool is_valid_config(thread_config_t const& th_config, int thread_m_blocks,
 }
 
 // ── Kernel selection ──────────────────────────────────────────────────────────
-// The Marlin<> template in marlin_dense_template.h takes ScalarTypeId non-type
+// The Marlin<> template from marlin_kernel.h takes ScalarTypeId non-type
 // parameters (a_type_id, b_type_id, c_type_id, s_type_id, ...).
 // We enumerate instantiations via MATCH/K macros (same style as MoE dispatch).
 
@@ -176,7 +155,7 @@ MarlinFuncPtr get_marlin_kernel(
    m8==(M8_) && group_blocks==(GB_) && is_zp_float==(ZPF_))
 
 #define K(A,B,C,S,TH,TM_,TN_,TK_,M8_,GB_,ZPF_) \
-  Marlin<A, B, C, S, TH, TM_, TN_, TK_, M8_, pipe_stages, GB_, ZPF_>
+  Marlin<A, B, C, S, TH, TM_, TN_, TK_, M8_, pipe_stages, GB_, ZPF_, /*is_moe=*/false>
 
   // ── FP16 weight types ────────────────────────────────────────────────────
   // uint4b8  (symmetric 4-bit), fp16 activations
@@ -305,7 +284,7 @@ MarlinFuncPtr get_marlin_kernel(
 #undef ENUMERATE_U8B128_BF16
 #undef ENUMERATE_U4_FP16_ZP
 
-  return MarlinDefault;
+  return nullptr;
 }
 
 // ── Exec config selection ─────────────────────────────────────────────────────
@@ -339,7 +318,7 @@ exec_config_t determine_exec_config(
                                     th.num_threads, thread_m_blocks,
                                     th.thread_n / 16, th.thread_k / 16,
                                     m_block_size_8, group_blocks, is_zp_float);
-    if (kernel == MarlinDefault) continue;
+    if (kernel == nullptr) continue;
     return {1, th};
   }
   return best;
@@ -446,7 +425,7 @@ void marlin_mm(const void* A, const void* B, void* C, void* C_tmp,
                                     thread_n_blocks, thread_k_blocks,
                                     m_block_size_8, group_blocks, is_zp_float);
 
-    TORCH_CHECK(kernel != MarlinDefault,
+    TORCH_CHECK(kernel != nullptr,
                 "Unsupported dense Marlin shape MNK=[", prob_m, ",", prob_n,
                 ",", prob_k, "]");
 
@@ -460,6 +439,9 @@ void marlin_mm(const void* A, const void* B, void* C, void* C_tmp,
         A_ptr, B_ptr, C_ptr, C_tmp_ptr, bias_ptr,
         /*a_scales_ptr=*/nullptr,
         s_ptr, /*global_scale_ptr=*/nullptr, zp_ptr, g_idx_ptr,
+        /*sorted_token_ids_ptr=*/nullptr, /*expert_ids_ptr=*/nullptr,
+        /*num_tokens_past_padded_ptr=*/nullptr, /*topk_weights_ptr=*/nullptr,
+        /*top_k=*/0, /*mul_topk_weights=*/false,
         num_groups, prob_m_split, prob_n, prob_k, locks,
         has_bias, part_use_atomic_add, use_fp32_reduce);
 
@@ -508,7 +490,7 @@ __global__ void permute_cols_kernel(
   }
 }
 
-}  // namespace marlin_dense
+}  // namespace marlin
 
 // ── Host entry point ──────────────────────────────────────────────────────────
 
@@ -531,7 +513,7 @@ torch::Tensor gptq_marlin_gemm(
     bool                                    use_atomic_add,
     bool                                    use_fp32_reduce,
     bool                                    is_zp_float) {
-  using namespace marlin_dense;
+  using namespace marlin;
 
   vllm::ScalarType b_q_type = vllm::ScalarType::from_id(b_q_type_id);
   int pack_factor = 32 / b_q_type.size_bits();
@@ -622,7 +604,7 @@ torch::Tensor gptq_marlin_gemm(
 
   auto stream = at::cuda::getCurrentCUDAStream(a.get_device()).stream();
 
-  marlin_dense::marlin_mm(
+  marlin::marlin_mm(
       a.data_ptr(), b_q_weight.data_ptr(), c.data_ptr(), c_tmp.data_ptr(),
       has_bias  ? b_bias.data_ptr()   : nullptr,
       b_scales.data_ptr(),
