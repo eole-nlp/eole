@@ -189,7 +189,7 @@ class AudioPredictor(Translator):
                 device=device,
             )
         self.tgt_file_prefix = "tgt" in batch
-        return Translator.predict_batch(self, batch, attn_debug)
+        return Translator.predict_batch(self, batch, attn_debug, streamer)
 
     @staticmethod
     def _compression_ratio(text: str) -> float:
@@ -338,6 +338,7 @@ class AudioPredictor(Translator):
         attn_debug=False,
         align_debug=False,
         phrase_table="",
+        streamer=None,
     ):
         """Override _predict to dispatch between timestamp-seeking and
         fallback batch modes for audio data."""
@@ -348,6 +349,7 @@ class AudioPredictor(Translator):
                 attn_debug=attn_debug,
                 align_debug=align_debug,
                 phrase_table=phrase_table,
+                streamer=streamer,
             )
 
         all_scores = []
@@ -395,6 +397,7 @@ class AudioPredictor(Translator):
                     attn_debug=attn_debug,
                     align_debug=align_debug,
                     phrase_table=phrase_table,
+                    streamer=streamer,
                 )
 
         end_time = time()

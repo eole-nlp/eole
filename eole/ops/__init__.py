@@ -360,7 +360,7 @@ if EOLE_TORCH_COMPILE:
     # ============================================================================
     if _CPP_OPS_AVAILABLE:
 
-        @custom_op("eole::gptq_marlin_gemm", mutates_args={"c"})
+        @custom_op("eole::gptq_marlin_gemm", mutates_args={"workspace"})
         def gptq_marlin_gemm(
             a: torch.Tensor,
             c: Optional[torch.Tensor],
@@ -436,7 +436,7 @@ if EOLE_TORCH_COMPILE:
     # ============================================================================
     if _CPP_OPS_AVAILABLE:
 
-        @custom_op("eole::moe_wna16_marlin_gemm", mutates_args={"c"})
+        @custom_op("eole::moe_wna16_marlin_gemm", mutates_args={"c", "workspace"})
         def moe_wna16_marlin_gemm(
             a: torch.Tensor,
             c: torch.Tensor,

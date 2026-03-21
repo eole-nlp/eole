@@ -222,18 +222,13 @@ class MarlinQuantLinear(nn.Module):
         if x.shape[0] == 0:
             return torch.empty((0, self.out_features), dtype=x.dtype, device=x.device)
 
-        # Sync scales dtype with input
-        if x.dtype != self.scales.dtype:
-            replace_parameter(self, "scales", self.scales.to(dtype=x.dtype))
-
-        # Sync bias dtype with input (kernel expects bias to match activation dtype)
-        if self.bias is not None and x.dtype != self.bias.dtype:
-            replace_parameter(self, "bias", self.bias.to(dtype=x.dtype))
+        scales = self.scales.to(dtype=x.dtype)
+        bias = self.bias.to(dtype=x.dtype) if self.bias is not None else None
 
         return apply_gptq_marlin_linear(
             input=x,
             weight=self.qweight,
-            weight_scale=self.scales,
+            weight_scale=scales,
             weight_zp=self.qzeros,
             g_idx=self.g_idx,
             g_idx_sort_indices=self.g_idx_sort_indices,
@@ -242,7 +237,7 @@ class MarlinQuantLinear(nn.Module):
             output_size_per_partition=self.out_features,
             input_size_per_partition=self.in_features,
             is_k_full=self.is_k_full,
-            bias=self.bias,
+            bias=bias,
             use_fp32_reduce=True,
             use_atomics=False,
         )
