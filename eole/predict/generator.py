@@ -97,8 +97,40 @@ class GeneratorLM(Inference):
         if fn_tile is not None:
             log_probs = fn_tile(log_probs)
             self.model.decoder.map_state(fn_tile)
-            log_probs = log_probs[:, -1, :]
         return log_probs
+
+    # Not used for now but might be better to run warmup at model loading
+    # at least for batch size 1 - would avoid to do it at first request
+    def warmup_compile(self):
+        """Pre-initialize CUDA graph infrastructure in the calling thread.
+
+        Must be called from the thread that will later run inference so that
+        PyTorch's CUDA-graph C++ thread-local storage (TLS) is initialized
+        there.  ``infer_list_stream`` uses a ``ThreadPoolExecutor`` whose
+        ``initializer`` calls this method, ensuring every worker thread has
+        its TLS set up before it accepts any inference work.
+        """
+        if not EOLE_TORCH_COMPILE:
+            return
+        if not hasattr(self.model, "decoder") or self.model.decoder is None:
+            return
+        decoder = self.model.decoder
+        device = self._dev
+        try:
+            dtype = next(self.model.parameters()).dtype
+        except StopIteration:
+            return
+
+        H = decoder.hidden_size
+        # Single sequence, single token — the shape used by the decode loop.
+        dummy_emb = torch.zeros(1, 1, H, device=device, dtype=dtype)
+        dummy_pad_mask = torch.zeros(1, 1, 1, dtype=torch.bool, device=device)
+        decoder.max_length = self.max_length
+        print("[WARMUP COMPILE]: ", self.max_length)
+        with torch.no_grad():
+            decoder._init_cache(dummy_emb, dummy_pad_mask)
+            decoder._compile_decoder(emb=dummy_emb, tgt_pad_mask=dummy_pad_mask)
+            decoder._disable_cache()
 
     def _predict_batch_with_strategy(self, batch, decode_strategy, streamer=None):
         """Predict a batch of sentences step by step using cache.

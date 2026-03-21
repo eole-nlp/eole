@@ -112,17 +112,6 @@ class TransformerDecoderLayer(nn.Module):
         self.hidden_size = decoder_config.hidden_size
 
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
-            self._compile_decoder()
-
-    def _compile_decoder(
-        self,
-        layer_in=None,
-        enc_out=None,
-        src_pad_mask=None,
-        position_embeddings=None,
-        cache_seqlens=None,
-    ):
-        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
             self._forward_compile = torch.compile(
                 self._forward_eager,
                 fullgraph=True,
@@ -132,6 +121,15 @@ class TransformerDecoderLayer(nn.Module):
                     "triton.cudagraphs": EOLE_COMPILE_MODE == "2",
                 },
             )
+
+    def _compile_decoder(
+        self,
+        layer_in=None,
+        enc_out=None,
+        src_pad_mask=None,
+        position_embeddings=None,
+        cache_seqlens=None,
+    ):
         if layer_in is not None:
             # assumes that _init_cache was before warmup and tiling along beam_size
             B = cache_seqlens.size(0)
@@ -357,18 +355,17 @@ class TransformerDecoder(DecoderBase):
         self._disable_cache()
 
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"]:
-            self._compile_decoder()
+            self._forward_compile = torch.compile(
+                self._forward_eager,
+                fullgraph=True,
+                dynamic=False,
+                options={
+                    "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
+                    "triton.cudagraphs": EOLE_COMPILE_MODE == "0",
+                },
+            )
 
     def _compile_decoder(self, emb=None, enc_out=None, src_pad_mask=None, tgt_pad_mask=None, fn_tile=None):
-        self._forward_compile = torch.compile(
-            self._forward_eager,
-            fullgraph=True,
-            dynamic=False,
-            options={
-                "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
-                "triton.cudagraphs": EOLE_COMPILE_MODE == "0",
-            },
-        )
 
         if emb is not None and tgt_pad_mask is not None:
             B = self.cache_seqlens.size(0)
