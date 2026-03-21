@@ -34,7 +34,7 @@ class GeneratorLM(Inference):
                 token-by-token output streaming.
         """
         batch_size = batch["srclen"].size(0)
-        max_length = 0 if scoring else self.max_length - batch["srclen"].max()
+        max_length = 0 if scoring else self.max_length
         with torch.no_grad():
             if self.top_k != 0 or self.top_p != 0:
                 decode_strategy = GreedySearchLM(
@@ -125,8 +125,7 @@ class GeneratorLM(Inference):
         # Single sequence, single token — the shape used by the decode loop.
         dummy_emb = torch.zeros(1, 1, H, device=device, dtype=dtype)
         dummy_pad_mask = torch.zeros(1, 1, 1, dtype=torch.bool, device=device)
-        decoder.max_length = self.max_length
-        print("[WARMUP COMPILE]: ", self.max_length)
+        decoder.kvcache_maxsize = self.max_length
         with torch.no_grad():
             decoder._init_cache(dummy_emb, dummy_pad_mask)
             decoder._compile_decoder(emb=dummy_emb, tgt_pad_mask=dummy_pad_mask)
@@ -188,7 +187,12 @@ class GeneratorLM(Inference):
             else:
                 emb = self.model.tgt_emb(src, step=0)
             tgt_pad_mask = src.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
-            self.model.decoder.max_length = self.max_length
+            if prefill_length > self.context_length:
+                self._log("context_length not set or too small, adjusting to 64000 tokens for torch compile fixed size")
+                self.context_length = 64000
+            self.model.decoder.kvcache_maxsize = (
+                self.context_length if self.context_length > 0 else prefill_length + self.max_length
+            )
             self.model.decoder._init_cache(emb, tgt_pad_mask)
             self.model.decoder.map_state(fn_tile)
             if EOLE_COMPILE_MODE in ["0", "1"]:
@@ -215,6 +219,7 @@ class GeneratorLM(Inference):
                 beg_time = time()
 
             for step in range(decode_strategy.max_length):
+
                 decoder_input = src if step == 0 else decode_strategy.current_predictions.view(-1, 1)
 
                 log_probs, attn = self._decode_and_generate(

@@ -346,7 +346,7 @@ class TransformerDecoder(DecoderBase):
         self.dynamic_shapes = getattr(running_config, "dynamic_shapes", not EOLE_TORCH_COMPILE)
         if self.dynamic_shapes is None:
             self.dynamic_shapes = not EOLE_TORCH_COMPILE
-        self.max_length = getattr(running_config, "max_length", 256)
+        self.kvcache_maxsize = getattr(running_config, "context_length")
         self.left_pad_attn_mask = None
         self.position_indices = None
         self.cache_seqlens = None
@@ -413,7 +413,7 @@ class TransformerDecoder(DecoderBase):
     def _causal_attn_mask(self, tgt_pad_mask, prefix_len=None):
         B, _, seq_len = tgt_pad_mask.size()
         device = tgt_pad_mask.device
-        MAX_T = seq_len if (self.training or self.dynamic_shapes) else self.max_length
+        MAX_T = seq_len if (self.training or self.dynamic_shapes) else self.kvcache_maxsize
 
         # Add triangular future_mask and pad_mask, result mask in (B, T, T).
         future_mask = torch.tril(
@@ -639,10 +639,11 @@ class TransformerDecoder(DecoderBase):
             and device != torch.device("cpu")
         )
 
+        print("[init cache]: prefix length: ", l, "kvcache_maxsize: ", self.kvcache_maxsize)
         if self.dynamic_shapes:
             self.cache_len_tgt = l  # kv cache starts at target length and grows
         else:
-            self.cache_len_tgt = self.max_length  # kv cache is set to max and remains static
+            self.cache_len_tgt = self.kvcache_maxsize  # kv cache is set to max and remains static
 
         # We find the index of the first non-pad token (the first '0' or 'False')
         # If the first token is NOT a pad, this returns 0.

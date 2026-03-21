@@ -94,7 +94,7 @@ class Inference(object):
         self.n_best = config.n_best
         self.max_length = config.max_length
         self.max_length_ratio = config.max_length_ratio
-        self.max_new_tokens = 0
+        self.context_length = config.context_length
 
         self.beam_size = config.beam_size
         self.temperature = config.temperature

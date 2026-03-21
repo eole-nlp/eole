@@ -5,14 +5,13 @@ models:
   path: "${EOLE_MODEL_DIR}/qwen3.5-9B-Q4"
   preload: true
   config:
-    max_length: 64000
+    context_length: 64000
     top_k: 0 #20
     top_p: 0.0 #0.6
     temperature: 1.0
     beam_size: 1
     n_best: 1
     length_penalty: avg
-    #block_ngram_repeat: 3
     report_time: true
     profile: false
     self_attn_backend: "flash"
