@@ -346,7 +346,7 @@ class TransformerDecoder(DecoderBase):
         self.dynamic_shapes = getattr(running_config, "dynamic_shapes", not EOLE_TORCH_COMPILE)
         if self.dynamic_shapes is None:
             self.dynamic_shapes = not EOLE_TORCH_COMPILE
-        self.kvcache_maxsize = getattr(running_config, "context_length")
+        self.kvcache_maxsize = getattr(running_config, "context_length", 0)
         self.left_pad_attn_mask = None
         self.position_indices = None
         self.cache_seqlens = None
