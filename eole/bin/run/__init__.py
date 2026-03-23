@@ -34,10 +34,8 @@ class RunBin(BaseBin):
         config_dict.update(stuff_to_update)
 
         # pop extra fields added by argparse, not supported in pydantic configs
-        if "bin" in config_dict.keys():
-            config_dict.pop("bin")
-        if "config" in config_dict.keys():
-            config_dict.pop("config")
+        for _key in ("bin", "sub_bin", "config"):
+            config_dict.pop(_key, None)
 
         config = cls.config_class(**config_dict)
         return config

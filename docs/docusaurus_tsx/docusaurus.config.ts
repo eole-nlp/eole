@@ -3,7 +3,7 @@ import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
-  title: 'Eole - 👷‍♂️🚧 Work In Progress',
+  title: 'Eole',
   tagline: 'Open language modeling toolkit based on PyTorch.',
   favicon: 'img/eole-logo.ico',
 

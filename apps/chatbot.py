@@ -92,7 +92,7 @@ def stream_chat_completions(
                 continue
             delta_content = chunk.get("choices", [{}])[0].get("delta", {}).get("content")
             if delta_content:
-                yield delta_content
+                yield delta_content.replace("｟newline｠", "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +272,7 @@ def build_app(default_api_url: str, default_model: str) -> gr.Blocks:
             accumulated = ""
             token_count = 0
             start = time.time()
+            first_token_time = None
             try:
                 for chunk in stream_chat_completions(
                     api_url=api_url,
@@ -287,6 +288,8 @@ def build_app(default_api_url: str, default_model: str) -> gr.Blocks:
                     # Each SSE chunk corresponds to approximately one token in
                     # typical LLM streaming; counting chunks is a better proxy
                     # than splitting by whitespace.
+                    if first_token_time is None:
+                        first_token_time = time.time()  # start of decode phase
                     token_count += 1
                     history[-1]["content"] = accumulated
                     yield history, ""
@@ -296,7 +299,7 @@ def build_app(default_api_url: str, default_model: str) -> gr.Blocks:
                 yield history, ""
                 return
 
-            elapsed = time.time() - start
+            elapsed = time.time() - (first_token_time or start)
             # Estimate prompt token count: ~4 characters per token is a common
             # rule-of-thumb approximation across most BPE-based tokenizers.
             prompt_text = " ".join(m["content"] for m in messages)

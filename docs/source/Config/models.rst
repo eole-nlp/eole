@@ -19,7 +19,16 @@ Transformer
 .. autopydantic_model:: eole.config.models.TransformerDecoderConfig
 .. autopydantic_model:: eole.config.models.TransformerModelConfig
 .. autopydantic_model:: eole.config.models.TransformerLMModelConfig
+.. autopydantic_model:: eole.config.models.TransformerEncoderModelConfig
+.. autopydantic_model:: eole.config.models.VisionTransformerLMModelConfig
+.. autopydantic_model:: eole.config.models.WhisperModelConfig
 
+
+Vision / Audio Encoders
+-----------------------
+
+.. autopydantic_model:: eole.config.models.VisionEncoderConfig
+.. autopydantic_model:: eole.config.models.AudioEncoderConfig
 
 
 RNN
@@ -38,3 +47,4 @@ CNN
 .. autopydantic_model:: eole.config.models.CnnEncoderConfig
 .. autopydantic_model:: eole.config.models.CnnDecoderConfig
 .. autopydantic_model:: eole.config.models.CnnModelConfig
+

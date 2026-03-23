@@ -14,8 +14,8 @@ except (ImportError, ModuleNotFoundError) as e:
     warnings.warn(
         f"Could not import eole._ops C++ extension: {e}. "
         "Custom CUDA/C++ operations (rms_norm, rotary_embedding, silu_and_mul, "
-        "gelu_and_mul, gelu_tanh_and_mul) will not be available. "
-        "Make sure the extension is properly compiled.",
+        "gelu_and_mul, gelu_tanh_and_mul, gptq_marlin_gemm, moe_wna16_marlin_gemm) "
+        "will not be available. Make sure the extension is properly compiled.",
         RuntimeWarning,
         stacklevel=2,
     )
@@ -128,7 +128,7 @@ if EOLE_TORCH_COMPILE:
             block_table: torch.Tensor | None = None,
             softmax_scale: float | None = None,
             causal: bool = False,
-            window_size: tuple[int, int] = (-1, -1),  # Accept tuple here!
+            window_size: tuple[int, int] = (-1, -1),  # Accept tuple here
             softcap: float = 0.0,
             rotary_interleaved: bool = True,
             alibi_slopes: torch.Tensor | None = None,
@@ -141,9 +141,7 @@ if EOLE_TORCH_COMPILE:
             Args:
                 window_size: Tuple of (left, right) window sizes.
             """
-            # Split tuple into separate args for custom_op
             window_size_left, window_size_right = window_size
-
             return _flash_attn_kvcache(
                 q=q,
                 k_cache=k_cache,
@@ -189,7 +187,6 @@ if EOLE_TORCH_COMPILE:
 
         @rms_norm.register_fake
         def _(out, input, weight, epsilon, gemma=False):
-            # Mutates out in-place, returns None
             return None
 
     else:
@@ -215,7 +212,6 @@ if EOLE_TORCH_COMPILE:
 
         @rotary_embedding.register_fake
         def _(positions, query, key, head_size, cos_sin_cache, is_neox=True):
-            # Mutates query and key in-place, returns None
             return None
 
     else:
@@ -237,7 +233,6 @@ if EOLE_TORCH_COMPILE:
 
         @silu_and_mul.register_fake
         def _(out, input):
-            # Mutates out in-place, returns None
             return None
 
     else:
@@ -259,7 +254,6 @@ if EOLE_TORCH_COMPILE:
 
         @gelu_and_mul.register_fake
         def _(out, input):
-            # Mutates out in-place, returns None
             return None
 
     else:
@@ -281,7 +275,6 @@ if EOLE_TORCH_COMPILE:
 
         @gelu_tanh_and_mul.register_fake
         def _(out, input):
-            # Mutates out in-place, returns None
             return None
 
     else:
@@ -289,50 +282,86 @@ if EOLE_TORCH_COMPILE:
         def gelu_tanh_and_mul(*args, **kwargs):
             raise RuntimeError("gelu_tanh_and_mul is not available. The eole._ops C++ extension is not loaded.")
 
-else:
-    # NO EOLE_TORCH_COMPILE, we take the native cuda kernel without wrappers for performance
-    if _FLASH_ATTN_AVAILABLE:
-        flash_attn_kvcache = flash_attn.flash_attn_with_kvcache
-    else:
-        flash_attn_kvcache = None
-
-    # Export C++ ops directly without wrapping
+    # ============================================================================
+    # MoE align block size
+    # ============================================================================
     if _CPP_OPS_AVAILABLE:
-        rms_norm = _ops.rms_norm
-        rotary_embedding = _ops.rotary_embedding
-        silu_and_mul = _ops.silu_and_mul
-        gelu_and_mul = _ops.gelu_and_mul
-        gelu_tanh_and_mul = _ops.gelu_tanh_and_mul
+
+        @custom_op("eole::moe_align_block_size", mutates_args={})
+        def moe_align_block_size(
+            topk_ids: torch.Tensor,
+            num_experts: int,
+            block_size: int,
+        ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            num_tokens = topk_ids.numel()
+            max_padded = num_tokens + num_experts * (block_size - 1)
+            max_blocks = (max_padded + block_size - 1) // block_size
+            device = topk_ids.device
+            sorted_ids = torch.empty(max_padded, dtype=torch.int32, device=device)
+            expert_ids = torch.empty(max_blocks, dtype=torch.int32, device=device)
+            ntpp = torch.empty(1, dtype=torch.int32, device=device)
+            _ops.moe_align_block_size(
+                topk_ids,
+                num_experts,
+                block_size,
+                sorted_ids,
+                expert_ids,
+                ntpp,
+            )
+            return sorted_ids, expert_ids, ntpp
+
+        @moe_align_block_size.register_fake
+        def _(topk_ids, num_experts, block_size):
+            num_tokens = topk_ids.numel()
+            max_padded = num_tokens + num_experts * (block_size - 1)
+            max_blocks = (max_padded + block_size - 1) // block_size
+            device = topk_ids.device
+            return (
+                torch.empty(max_padded, dtype=torch.int32, device=device),
+                torch.empty(max_blocks, dtype=torch.int32, device=device),
+                torch.empty(1, dtype=torch.int32, device=device),
+            )
+
     else:
 
-        def _unavailable_op(name):
-            def wrapper(*args, **kwargs):
-                raise RuntimeError(f"{name} is not available. The eole._ops C++ extension is not loaded.")
+        def moe_align_block_size(*args, **kwargs):
+            raise RuntimeError("moe_align_block_size is not available.")
 
-            return wrapper
+    # ============================================================================
+    # GPTQ Marlin Repack
+    # ============================================================================
+    if _CPP_OPS_AVAILABLE:
 
-        rms_norm = _unavailable_op("rms_norm")
-        rotary_embedding = _unavailable_op("rotary_embedding")
-        silu_and_mul = _unavailable_op("silu_and_mul")
-        gelu_and_mul = _unavailable_op("gelu_and_mul")
-        gelu_tanh_and_mul = _unavailable_op("gelu_tanh_and_mul")
+        @custom_op("eole::gptq_marlin_repack", mutates_args={})
+        def gptq_marlin_repack(
+            b_q_weight: torch.Tensor,
+            perm: torch.Tensor,
+            size_k: int,
+            size_n: int,
+            num_bits: int,
+        ) -> torch.Tensor:
+            return _ops.gptq_marlin_repack(b_q_weight, perm, size_k, size_n, num_bits)
 
+        @gptq_marlin_repack.register_fake
+        def _(b_q_weight, perm, size_k, size_n, num_bits):
+            # Marlin tile layout: rows = size_k // 16, cols = size_n * (num_bits // 2)
+            # which is equivalent to the original pack layout; preserve dtype.
+            rows = size_k // 16
+            cols = size_n * num_bits // 2
+            return b_q_weight.new_empty((rows, cols))
 
-# ============================================================================
-# GPTQ Marlin GEMM
-# ============================================================================
-try:
-    import gptqmodel_marlin_kernels as _marlin_kernels
+    else:
 
-    _MARLIN_AVAILABLE = True
-except (ImportError, ModuleNotFoundError):
-    _MARLIN_AVAILABLE = False
+        def gptq_marlin_repack(*args, **kwargs):
+            raise RuntimeError("gptq_marlin_repack is not available. The eole._ops C++ extension is not loaded.")
 
-if EOLE_TORCH_COMPILE:
-    if _MARLIN_AVAILABLE:
+    # ============================================================================
+    # GPTQ Marlin GEMM (dense)
+    # ============================================================================
+    if _CPP_OPS_AVAILABLE:
 
-        @custom_op("eole::gptq_marlin_gemm", mutates_args={})
-        def _gptq_marlin_gemm_kernel(
+        @custom_op("eole::gptq_marlin_gemm", mutates_args={"workspace"})
+        def gptq_marlin_gemm(
             a: torch.Tensor,
             c: Optional[torch.Tensor],
             b_q_weight: torch.Tensor,
@@ -343,16 +372,16 @@ if EOLE_TORCH_COMPILE:
             g_idx: Optional[torch.Tensor],
             perm: Optional[torch.Tensor],
             workspace: torch.Tensor,
-            b_q_type_id: int,  # ScalarType.id — already an int
+            b_q_type_id: int,
             size_m: int,
             size_n: int,
             size_k: int,
             is_k_full: bool = True,
             use_atomic_add: bool = False,
-            use_fp32_reduce: bool = False,
+            use_fp32_reduce: bool = True,
             is_zp_float: bool = False,
         ) -> torch.Tensor:
-            return _marlin_kernels.gptq_marlin_gemm(
+            return _ops.gptq_marlin_gemm(
                 a,
                 c,
                 b_q_weight,
@@ -373,7 +402,7 @@ if EOLE_TORCH_COMPILE:
                 is_zp_float,
             )
 
-        @_gptq_marlin_gemm_kernel.register_fake
+        @gptq_marlin_gemm.register_fake
         def _(
             a,
             c,
@@ -391,33 +420,203 @@ if EOLE_TORCH_COMPILE:
             size_k,
             is_k_full=True,
             use_atomic_add=False,
-            use_fp32_reduce=False,
+            use_fp32_reduce=True,
             is_zp_float=False,
         ):
-            return torch.empty(size_m, size_n, dtype=a.dtype, device=a.device)
+            # Output shape is [size_m, size_n], same dtype as activations.
+            return a.new_empty((size_m, size_n))
 
-        # Patch at the Python wrapper level, extracting .id before the custom op
-        def _patched_gptq_marlin_gemm(
+    else:
+
+        def gptq_marlin_gemm(*args, **kwargs):
+            raise RuntimeError("gptq_marlin_gemm is not available. The eole._ops C++ extension is not loaded.")
+
+    # ============================================================================
+    # MoE GPTQ Marlin GEMM
+    # ============================================================================
+    if _CPP_OPS_AVAILABLE:
+
+        @custom_op("eole::moe_wna16_marlin_gemm", mutates_args={"c", "workspace"})
+        def moe_wna16_marlin_gemm(
+            a: torch.Tensor,
+            c: torch.Tensor,
+            c_tmp: Optional[torch.Tensor],
+            b_q_weight: torch.Tensor,
+            b_bias: Optional[torch.Tensor],
+            b_scales: torch.Tensor,
+            b_act_input: Optional[torch.Tensor],
+            b_global_scale: Optional[torch.Tensor],
+            b_zeros: Optional[torch.Tensor],
+            g_idx: Optional[torch.Tensor],
+            perm: Optional[torch.Tensor],
+            workspace: torch.Tensor,
+            sorted_token_ids: torch.Tensor,
+            expert_ids: torch.Tensor,
+            num_tokens_post_padded: torch.Tensor,
+            topk_weights: torch.Tensor,
+            moe_block_size: int,
+            top_k: int,
+            mul_topk_weights: bool,
+            b_q_type_id: int,
+            size_m: int,
+            size_n: int,
+            size_k: int,
+            is_k_full: bool = True,
+            use_atomic_add: bool = False,
+            use_fp32_reduce: bool = True,
+            is_zp_float: bool = False,
+        ) -> None:
+            _ops.moe_wna16_marlin_gemm(
+                a,
+                c,
+                c_tmp,
+                b_q_weight,
+                b_bias,
+                b_scales,
+                b_act_input,
+                b_global_scale,
+                b_zeros,
+                g_idx,
+                perm,
+                workspace,
+                sorted_token_ids,
+                expert_ids,
+                num_tokens_post_padded,
+                topk_weights,
+                moe_block_size,
+                top_k,
+                mul_topk_weights,
+                b_q_type_id,
+                size_m,
+                size_n,
+                size_k,
+                is_k_full,
+                use_atomic_add,
+                use_fp32_reduce,
+                is_zp_float,
+            )
+
+        @moe_wna16_marlin_gemm.register_fake
+        def _(
             a,
             c,
+            c_tmp,
             b_q_weight,
             b_bias,
             b_scales,
-            global_scale,
+            b_act_input,
+            b_global_scale,
             b_zeros,
             g_idx,
             perm,
             workspace,
-            b_q_type,
+            sorted_token_ids,
+            expert_ids,
+            num_tokens_post_padded,
+            topk_weights,
+            moe_block_size,
+            top_k,
+            mul_topk_weights,
+            b_q_type_id,
             size_m,
             size_n,
             size_k,
             is_k_full=True,
             use_atomic_add=False,
-            use_fp32_reduce=False,
+            use_fp32_reduce=True,
             is_zp_float=False,
         ):
-            return _gptq_marlin_gemm_kernel(
+            return None  # void: c is mutated in-place
+
+    else:
+
+        def moe_wna16_marlin_gemm(*args, **kwargs):
+            raise RuntimeError(
+                "moe_wna16_marlin_gemm is not available: " "eole._ops was not compiled with the Marlin MoE kernel."
+            )
+
+else:
+    # NO EOLE_TORCH_COMPILE — use native CUDA kernels directly for performance.
+    if _FLASH_ATTN_AVAILABLE:
+        flash_attn_kvcache = flash_attn.flash_attn_with_kvcache
+    else:
+        flash_attn_kvcache = None
+
+    if _CPP_OPS_AVAILABLE:
+        rms_norm = _ops.rms_norm
+        rotary_embedding = _ops.rotary_embedding
+        silu_and_mul = _ops.silu_and_mul
+        gelu_and_mul = _ops.gelu_and_mul
+        gelu_tanh_and_mul = _ops.gelu_tanh_and_mul
+    else:
+
+        def _unavailable_op(name):
+            def wrapper(*args, **kwargs):
+                raise RuntimeError(f"{name} is not available. The eole._ops C++ extension is not loaded.")
+
+            return wrapper
+
+        rms_norm = _unavailable_op("rms_norm")
+        rotary_embedding = _unavailable_op("rotary_embedding")
+        silu_and_mul = _unavailable_op("silu_and_mul")
+        gelu_and_mul = _unavailable_op("gelu_and_mul")
+        gelu_tanh_and_mul = _unavailable_op("gelu_tanh_and_mul")
+
+    # ── Dense Marlin GEMM ─────────────────────────────────────────────────────
+    if _CPP_OPS_AVAILABLE:
+
+        def moe_align_block_size(
+            topk_ids: torch.Tensor,
+            num_experts: int,
+            block_size: int,
+        ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            num_tokens = topk_ids.numel()
+            max_padded = num_tokens + num_experts * (block_size - 1)
+            max_blocks = (max_padded + block_size - 1) // block_size
+            device = topk_ids.device
+            sorted_ids = torch.empty(max_padded, dtype=torch.int32, device=device)
+            expert_ids = torch.empty(max_blocks, dtype=torch.int32, device=device)
+            ntpp = torch.empty(1, dtype=torch.int32, device=device)
+            _ops.moe_align_block_size(
+                topk_ids,
+                num_experts,
+                block_size,
+                sorted_ids,
+                expert_ids,
+                ntpp,
+            )
+            return sorted_ids, expert_ids, ntpp
+
+        def gptq_marlin_repack(
+            b_q_weight: torch.Tensor,
+            perm: torch.Tensor,
+            size_k: int,
+            size_n: int,
+            num_bits: int,
+        ) -> torch.Tensor:
+            return _ops.gptq_marlin_repack(b_q_weight, perm, size_k, size_n, num_bits)
+
+        def gptq_marlin_gemm(
+            a: torch.Tensor,
+            c: Optional[torch.Tensor],
+            b_q_weight: torch.Tensor,
+            b_bias: Optional[torch.Tensor],
+            b_scales: torch.Tensor,
+            global_scale: Optional[torch.Tensor],
+            b_zeros: Optional[torch.Tensor],
+            g_idx: Optional[torch.Tensor],
+            perm: Optional[torch.Tensor],
+            workspace: torch.Tensor,
+            b_q_type_id: int,
+            size_m: int,
+            size_n: int,
+            size_k: int,
+            is_k_full: bool = True,
+            use_atomic_add: bool = False,
+            use_fp32_reduce: bool = True,
+            is_zp_float: bool = False,
+        ) -> torch.Tensor:
+            return _ops.gptq_marlin_gemm(
                 a,
                 c,
                 b_q_weight,
@@ -428,7 +627,66 @@ if EOLE_TORCH_COMPILE:
                 g_idx,
                 perm,
                 workspace,
-                b_q_type.id,  # extract here so custom_op only sees an int
+                b_q_type_id,
+                size_m,
+                size_n,
+                size_k,
+                is_k_full,
+                use_atomic_add,
+                use_fp32_reduce,
+                is_zp_float,
+            )
+
+        def moe_wna16_marlin_gemm(
+            a,
+            c,
+            c_tmp,
+            b_q_weight,
+            b_bias,
+            b_scales,
+            b_act_input,
+            b_global_scale,
+            b_zeros,
+            g_idx,
+            perm,
+            workspace,
+            sorted_token_ids,
+            expert_ids,
+            num_tokens_post_padded,
+            topk_weights,
+            moe_block_size,
+            top_k,
+            mul_topk_weights,
+            b_q_type_id: int,
+            size_m,
+            size_n,
+            size_k,
+            is_k_full=True,
+            use_atomic_add=False,
+            use_fp32_reduce=True,
+            is_zp_float=False,
+        ) -> None:
+            _ops.moe_wna16_marlin_gemm(
+                a,
+                c,
+                c_tmp,
+                b_q_weight,
+                b_bias,
+                b_scales,
+                b_act_input,
+                b_global_scale,
+                b_zeros,
+                g_idx,
+                perm,
+                workspace,
+                sorted_token_ids,
+                expert_ids,
+                num_tokens_post_padded,
+                topk_weights,
+                moe_block_size,
+                top_k,
+                mul_topk_weights,
+                b_q_type_id,
                 size_m,
                 size_n,
                 size_k,
@@ -440,8 +698,19 @@ if EOLE_TORCH_COMPILE:
 
     else:
 
+        def moe_align_block_size(*args, **kwargs):
+            raise RuntimeError("moe_align_block_size is not available.")
+
+        def gptq_marlin_repack(*args, **kwargs):
+            raise RuntimeError("gptq_marlin_repack is not available: eole._ops C++ extension not loaded.")
+
         def gptq_marlin_gemm(*args, **kwargs):
-            raise RuntimeError("gptq_marlin_gemm is not available.")
+            raise RuntimeError("gptq_marlin_gemm is not available. The eole._ops C++ extension is not loaded.")
+
+        def moe_wna16_marlin_gemm(*args, **kwargs):
+            raise RuntimeError(
+                "moe_wna16_marlin_gemm is not available: " "eole._ops was not compiled with the Marlin MoE kernel."
+            )
 
 
 # ============================================================================
@@ -454,5 +723,8 @@ __all__ = [
     "silu_and_mul",
     "gelu_and_mul",
     "gelu_tanh_and_mul",
+    "moe_align_block_size",
+    "gptq_marlin_repack",
     "gptq_marlin_gemm",
+    "moe_wna16_marlin_gemm",
 ]

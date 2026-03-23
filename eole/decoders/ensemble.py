@@ -25,8 +25,19 @@ class EnsembleDecoderOutput(object):
         """
         return EnsembleDecoderOutput([x.squeeze(dim) for x in self.model_dec_outs])
 
+    def dim(self):
+        """Delegate dim() to the first model's output."""
+        return self.model_dec_outs[0].dim()
+
+    def size(self, *args):
+        """Delegate size() to the first model's output."""
+        return self.model_dec_outs[0].size(*args)
+
     def __getitem__(self, index):
-        return self.model_dec_outs[index]
+        if isinstance(index, int):
+            return self.model_dec_outs[index]
+        # Tensor-style indexing (e.g. [:, -1:, :]) – apply to each model output.
+        return EnsembleDecoderOutput([x[index] for x in self.model_dec_outs])
 
 
 class EnsembleSrcEmb(nn.Module):

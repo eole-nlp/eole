@@ -1,11 +1,16 @@
 # EOLE
 
+## Latest: Chatbot in streaming mode - 60-65 tok/sec with Qwen3.5-27B-int4 (on RTX 5090)
+
+[Screencast from 2026-03-15 14-04-56.webm](https://github.com/user-attachments/assets/206632fd-a0a0-4189-a899-ba32343181fb)
+
+
 [![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://eole-nlp.github.io/eole)
 
 Open language modeling toolkit based on [PyTorch](https://pytorch.org)  (initially spun-off of OpenNMT-py)
 
 
-## New !!!! - Added Torch compile and Cudagraphs - as fast as vLLM / faster than CT2 on GPU. see [results](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md)
+## Top inference speed with torch.compile and Cudagraphs - as fast as vLLM / faster than CT2 on GPU. see [results](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md)
 
 Just reproduce with your own hardware:
 ```
@@ -29,6 +34,8 @@ Our goal is to provide a comprehensive yet compact and modular codebase for expe
 
 ## HF Models supported
 
+- **Qwen3.5 family** Including vision - Including Autoround (GPTQ quant)
+- **Whisper** see full detail and example in [recipe](https://github.com/eole-nlp/eole/tree/main/recipes/whisper)
 - **tencent/HunyuanOCR** End-to-End OCR model by Tencent. Uses more image token vs Deepseek but smaller LM. Results are impressive. (see [recipe](https://github.com/eole-nlp/eole/tree/main/recipes/hunyuanocr))
 - **deepseek-ai/DeepSeek-OCR** For now takes any image and rescales to 1024x1024 before processing - Gundam mode not implemented yet) - pdf_ocr to mmd replicated - check recipes
 - **tencent/Hunyuan-MT-7B** SOTA NMT at WMT25, better than Towerplus-9B and EuroLLM-9B
@@ -37,12 +44,16 @@ Our goal is to provide a comprehensive yet compact and modular codebase for expe
 - **Mistral-3.1-24B-instruct** supports all Mistral AI models (text and image input) - includes Ministral 3, Mixtral, Mathstral
 - **meta-llama/Llama-3.X** models
 - **microsoft/Phi-2/3** models
-- **openai/whisper** models
+
 
 Of course you can train your own architecture (Decoder only, Encoder Only, or EncoderDecoder Model)
 
 ## Latest developments
 
+- **LM_scoring** Updated perplexity tool to compare the perplexity of a model family (ex: Qwen3.5 27B, 9B, 4B, ... using the same tokenizer)
+- **gguf conversion** Included for educational purpose - show how to convert a gguf quantized (or not) to Eole safetensor model keeping (almost) the same Quant
+- **Autoround support** Uses GPTQModel to support int4 quantization
+- **Comet scorer** You can now use both BLEU and COMET during validation to measure the improvement of training
 - **torch.compile compliant** amazing inference speed (vLLM level)
 - **high inference speed** using Flash Attention (decoding with in-place KVCache), Cuda kernels for RMSNorm, Rope, Activations - Triton very fast MoE, fused MLP Gate, fused KVQ Linear.
 - **prefixLM + split prompt/answer in src/tgt** optional method to feed your data

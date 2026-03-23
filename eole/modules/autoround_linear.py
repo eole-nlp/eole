@@ -1,81 +1,7 @@
-import gc
 import torch
-import threading
 import torch.nn as nn
 from torch.cuda import is_available as cuda_is_available
-from eole import EOLE_TORCH_COMPILE
-from eole.ops import _MARLIN_AVAILABLE
-
-_marlin_preflight_done = False
-
-
-def _preflight_marlin_import():
-    """Import gptqmodel marlin and retroactively patch any pre-existing triton.Autotuner instances.
-
-    gptqmodel's nogil_patcher replaces triton.Autotuner.__init__ and .run() with thread-safe
-    versions.  The patched __init__ adds three instance attributes that the patched run()
-    requires:
-
-      _cache       – a dict alias for the existing ``cache`` dict (for lock-protected access)
-      _cache_lock  – a threading.RLock() for cache serialisation across threads
-      _cache_futures – a dict for in-flight autotuning work items
-
-    Instances created before gptqmodel is imported (e.g. FLA's @triton.autotune kernels in
-    fla/modules/convolution.py, or eole's own fused_moe.py kernels) are missing all three
-    attributes.  When gptqmodel's background thread later calls the patched run(), it crashes
-    on the first missing attribute.
-
-    This function:
-    1. Imports gptqmodel marlin (side effect: replaces Autotuner.__init__ and .run()).
-    2. Walks all live Python objects via gc and fully back-fills the three attributes on any
-       Autotuner instance that was created before the patch.
-
-    Because the patching is retroactive and order-independent it works regardless of whether
-    triton / FLA / eole's own triton kernels were imported before this function runs.
-
-    A module-level flag ensures the gc scan executes at most once per process.
-
-    Safe to call unconditionally: silently returns if gptqmodel is not installed or CUDA
-    is unavailable.
-    """
-    global _marlin_preflight_done
-    if _marlin_preflight_done:
-        return
-    if not cuda_is_available():
-        return
-    try:
-        # side effect: patches triton.Autotuner
-        from gptqmodel.nn_modules.qlinear.marlin import MarlinQuantLinear  # noqa
-    except ImportError:
-        return
-
-    # Retroactively apply the same attribute additions that gptqmodel's patched_init performs,
-    # to every Autotuner instance that was created before the patch ran.
-    import warnings
-
-    try:
-        from triton.runtime.autotuner import Autotuner
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", FutureWarning)
-            for obj in gc.get_objects():
-                if isinstance(obj, Autotuner) and not hasattr(obj, "_cache_lock"):
-                    # Mirror what gptqmodel's patched_init does for pre-existing instances:
-                    cache_map = getattr(obj, "cache", {})
-                    obj._cache = dict(cache_map)
-                    obj.cache = obj._cache
-                    obj._cache_lock = threading.RLock()
-                    obj._cache_futures = {}
-    except (ImportError, AttributeError):
-        pass
-
-    if EOLE_TORCH_COMPILE and _MARLIN_AVAILABLE:
-        import gptqmodel.utils.marlin as _marlin_utils
-        from eole.ops import _patched_gptq_marlin_gemm
-
-        _marlin_utils.gptq_marlin_gemm = _patched_gptq_marlin_gemm
-
-    _marlin_preflight_done = True
+from eole.ops import _CPP_OPS_AVAILABLE
 
 
 def replace_autoround_linear(
@@ -94,7 +20,7 @@ def replace_autoround_linear(
     - Otherwise: qzeros stored directly (direct zero-point).
 
     Backend preference order:
-    1. Marlin CUDA kernels (requires CUDA + gptqmodel, sym=True only) — fastest
+    1. Marlin CUDA kernels (requires CUDA + eole._ops, sym=True only) — fastest
     2. Triton GPU kernels (requires CUDA + triton) — fast GPU kernels
     3. PyTorch fallback — works everywhere
 
@@ -224,16 +150,9 @@ def _get_autoround_quant_linear_cls(use_gptq_zp: bool, sym: bool = True, force_p
     """Return the best available QuantLinear class for AutoRound inference.
 
     Preference order:
-    1. Marlin CUDA kernels (requires CUDA + gptqmodel, sym=True only) — fastest
+    1. Marlin CUDA kernels (requires CUDA + eole._ops, sym=True only) — fastest
     2. Triton kernels (requires CUDA + triton) — fast GPU kernels
     3. PyTorch fallback — works everywhere
-
-    IMPORTANT: when Marlin is desired, ensure gptqmodel is imported before any
-    triton-based library (e.g. FLA) creates triton.Autotuner instances.  In eole
-    this is done by calling _preflight_marlin_import() in NNModel.build() before
-    build_blocks() runs.  gptqmodel's nogil_patcher patches Autotuner at import
-    time; if it runs after FLA has already created instances those instances will
-    be missing the _cache_lock attribute the patched run() requires.
 
     Args:
         use_gptq_zp: use GPTQ-style zero-point packing.
@@ -244,13 +163,10 @@ def _get_autoround_quant_linear_cls(use_gptq_zp: bool, sym: bool = True, force_p
         (QuantLinear class, use_marlin: bool)
     """
     if not force_pytorch and cuda_is_available():
-        if sym:
-            try:
-                from gptqmodel.nn_modules.qlinear.marlin import MarlinQuantLinear
+        if sym and _CPP_OPS_AVAILABLE:
+            from eole.modules.marlin_linear import MarlinQuantLinear
 
-                return MarlinQuantLinear, True
-            except ImportError:
-                pass
+            return MarlinQuantLinear, True
         try:
             if use_gptq_zp:
                 from auto_round_extension.triton.qlinear_tritonv2_zp import QuantLinear

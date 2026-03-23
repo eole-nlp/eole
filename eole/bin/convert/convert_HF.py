@@ -315,7 +315,7 @@ def build_config_dict(hf):
             "rms_norm_eps",
             config.get("layer_norm_epsilon", config.get("layer_norm_eps", 1e-5)),
         ),
-        "sliding_window": config.get("sliding_window", 0) or 4096,
+        "sliding_window": config.get("sliding_window") or 0,
         "num_experts": config.get("num_local_experts", config.get("n_routed_experts", config.get("num_experts", 0))),
         "num_shared_experts": config.get("n_shared_experts", 1 if config.get("shared_expert_intermediate_size") else 0),
         "first_k_dense_replace": config.get("first_k_dense_replace", 0),
@@ -502,7 +502,7 @@ def build_config_dict(hf):
 
     # patch sliding window
     if model_config["sliding_window"] is None:
-        model_config["sliding_window"] = 4096
+        model_config["sliding_window"] = 0
 
     # Populate embeddings
     model_config["embeddings"].update(

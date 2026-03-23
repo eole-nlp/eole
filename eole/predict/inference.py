@@ -94,6 +94,7 @@ class Inference(object):
         self.n_best = config.n_best
         self.max_length = config.max_length
         self.max_length_ratio = config.max_length_ratio
+        self.context_length = config.context_length
 
         self.beam_size = config.beam_size
         self.temperature = config.temperature
@@ -469,11 +470,11 @@ class Inference(object):
                 score_res += [item for _, item in sorted(processed_bucket.items())]
                 processed_bucket = {}
             batch_data = self.predict_batch(batch, attn_debug=False, scoring=True)
-            batch_gold_scores = batch_data["gold_score"].cpu().numpy().tolist()
+            batch_gold_scores = batch_data["gold_score"].cpu().float().numpy().tolist()
             batch_tgt_lengths = batch["tgtlen"].cpu().numpy().tolist()
             batch_inds_in_bucket = batch["ind_in_bucket"]
             if self.return_gold_log_probs:
-                batch_gold_log_probs = batch_data["gold_log_probs"].cpu().numpy().tolist()
+                batch_gold_log_probs = batch_data["gold_log_probs"].cpu().float().numpy().tolist()
             else:
                 batch_gold_log_probs = [None for i, _ in enumerate(batch_inds_in_bucket)]
             for i, ind in enumerate(batch_inds_in_bucket):
@@ -592,10 +593,11 @@ class Inference(object):
             attn = dec_attn["std"]
         else:
             attn = None
+        if step == 0 and dec_out.dim() == 3 and dec_out.size(1) > 1:
+            dec_out = dec_out[:, -1:, :]
         scores = self.model.generator(dec_out.squeeze(1))
         log_probs = log_softmax(scores, dim=-1)  # we keep float16 if FP16
-        # returns [(batch_size x beam_size) , vocab ] when 1 step
-        # or [batch_size, tgt_len, vocab ] when full sentence
+        # returns [(batch_size x beam_size), vocab_size]
         return log_probs, attn
 
     def predict_batch(self, batch, attn_debug, streamer=None):

@@ -2,6 +2,29 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.5.2
+
+* Support Qwen3.5-27B/9B/4B/2B/0.8B by @vince62s in https://github.com/eole-nlp/eole/pull/329
+* Add Whisper speech-to-text model support with HF conversion, timestamp-seeking, and word-level timestamps by @dameikle in https://github.com/eole-nlp/eole/pull/328
+* Make triton fused_moe import optional so MoE module loads on platforms without triton (e.g. macOS) by @dameikle in https://github.com/eole-nlp/eole/pull/332
+* Support Intel/autoround - gptqmodel by @vince62s in https://github.com/eole-nlp/eole/pull/331
+* Add streamer by @vince62s in https://github.com/eole-nlp/eole/pull/333
+* Support gguf conversion and inference by @vince62s in https://github.com/eole-nlp/eole/pull/334
+* fix #327 (large model saving) by @vince62s in https://github.com/eole-nlp/eole/pull/335
+* fix lora tensor_parallel training by @vince62s in https://github.com/eole-nlp/eole/pull/336
+* fix #223 by @vince62s in https://github.com/eole-nlp/eole/pull/337
+* Support Comet scorer by @vince62s in https://github.com/eole-nlp/eole/pull/338
+* fix #107 by @vince62s in https://github.com/eole-nlp/eole/pull/339
+* fix #312 by @vince62s in https://github.com/eole-nlp/eole/pull/341
+* add scorer chrF/chrF++ by @yjymosheng in https://github.com/eole-nlp/eole/pull/297
+* LM scoring / Perplexity  by @vince62s in https://github.com/eole-nlp/eole/pull/342
+* few fixes by @vince62s in https://github.com/eole-nlp/eole/pull/343
+* docs update by @vince62s in https://github.com/eole-nlp/eole/pull/344
+* yarn.lock renewal by @vince62s in https://github.com/eole-nlp/eole/pull/345
+
+## New Contributors
+* @yjymosheng made their first contribution in https://github.com/eole-nlp/eole/pull/297
+
 ## 0.5.1
 
 * stupid bug by @vince62s in https://github.com/eole-nlp/eole/pull/321

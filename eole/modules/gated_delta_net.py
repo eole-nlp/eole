@@ -88,7 +88,6 @@ except ImportError:
     chunk_gated_delta_rule = None
     fused_recurrent_gated_delta_rule = None
 
-
 # ---------------------------------------------------------------------------
 # Pure-PyTorch fallback kernels
 # ---------------------------------------------------------------------------
@@ -431,9 +430,13 @@ class GatedDeltaNet(nn.Module):
             key = key.repeat_interleave(n_rep, dim=2)
 
         # Discretise decay / gate
-        dt = F.softplus(a + self.dt_bias)  # (B, S, num_v_heads)
-        A = -torch.exp(self.A_log.float())  # (num_v_heads,)
-        g = dt * A.view(1, 1, -1)  # (B, S, num_v_heads)
+        # dt = F.softplus(a + self.dt_bias)  # (B, S, num_v_heads)
+        # A = -torch.exp(self.A_log.float())  # (num_v_heads,)
+        # g = dt * A.view(1, 1, -1)  # (B, S, num_v_heads)
+
+        # If the model is loaded in fp16, without the .float() here, A might be -inf
+        g = -self.A_log.float().exp() * F.softplus(a.float() + self.dt_bias)
+
         beta = torch.sigmoid(b)  # (B, S, num_v_heads)
 
         # At padding positions, q/k/v are already zeroed (hidden_states was zeroed above).
