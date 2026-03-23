@@ -486,7 +486,7 @@ class InferenceEnginePY(InferenceEngine):
     def terminate(self):
         """Terminate all worker processes and the inference thread pool."""
         if hasattr(self, "_thread_pool"):
-            self._thread_pool.shutdown(wait=False)
+            self._thread_pool.shutdown(wait=True)
 
         if self.config.world_size <= 1:
             return

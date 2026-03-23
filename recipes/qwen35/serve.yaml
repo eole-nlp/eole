@@ -1,8 +1,8 @@
 models_root: "." # used only for HF downloads for now, but might override $EOLE_MODEL_DIR at some point
 models:
 # local model
-- id: "qwen3.5-9B-Q4"
-  path: "${EOLE_MODEL_DIR}/qwen3.5-9B-Q4"
+- id: "qwen3.5-9B"
+  path: "${EOLE_MODEL_DIR}/qwen3.5-9B"
   preload: true
   config:
     context_length: 64000

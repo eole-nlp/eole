@@ -650,7 +650,7 @@ def _anthropic_messages_to_openai(messages: list, system=None) -> list:
                         "type": "function",
                         "function": {
                             "name": tool_name,
-                            "arguments": json.dumps(tool_input, ensure_ascii=False),
+                            "arguments": tool_input,
                         },
                     }
                 )
@@ -675,7 +675,7 @@ def _anthropic_messages_to_openai(messages: list, system=None) -> list:
         if tool_calls:
             msg_out: dict = {"role": role}
             # Include any preceding text as content (or null if none)
-            msg_out["content"] = "\n".join(text_parts) if text_parts else None
+            msg_out["content"] = "\n".join(text_parts) if text_parts else ""
             msg_out["tool_calls"] = tool_calls
             openai_messages.append(msg_out)
         elif text_parts:

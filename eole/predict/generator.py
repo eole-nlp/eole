@@ -187,12 +187,10 @@ class GeneratorLM(Inference):
             else:
                 emb = self.model.tgt_emb(src, step=0)
             tgt_pad_mask = src.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
-            if prefill_length > self.context_length:
+            if prefill_length > self.context_length or self.context_length < self.max_length:
                 self._log("context_length not set or too small, adjusting to 64000 tokens for torch compile fixed size")
-                self.context_length = 64000
-            self.model.decoder.kvcache_maxsize = (
-                self.context_length if self.context_length > 0 else prefill_length + self.max_length
-            )
+                self.context_length = max(64000, prefill_length + self.max_length)  # a bit hard-coded but fine for now
+            self.model.decoder.kvcache_maxsize = self.context_length
             self.model.decoder._init_cache(emb, tgt_pad_mask)
             self.model.decoder.map_state(fn_tile)
             if EOLE_COMPILE_MODE in ["0", "1"]:
