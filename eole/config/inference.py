@@ -48,6 +48,12 @@ class DecodingConfig(Config):
         "Set to 0 to disable ratio-based length capping.",
         ge=0,
     )
+    context_length: int = Field(
+        default=0,
+        description="Maximum context length (prefill + generated tokens). "
+        "Used for KV cache sizing. Set to 0 to auto-compute from max_new_tokens and actual prefill length.",
+        ge=0,
+    )
     block_ngram_repeat: int = Field(default=0, description="Block repetition of ngrams during decoding.")
     ignore_when_blocking: List[str] = Field(
         default=[],

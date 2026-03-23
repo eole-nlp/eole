@@ -112,17 +112,6 @@ class TransformerDecoderLayer(nn.Module):
         self.hidden_size = decoder_config.hidden_size
 
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
-            self._compile_decoder()
-
-    def _compile_decoder(
-        self,
-        layer_in=None,
-        enc_out=None,
-        src_pad_mask=None,
-        position_embeddings=None,
-        cache_seqlens=None,
-    ):
-        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
             self._forward_compile = torch.compile(
                 self._forward_eager,
                 fullgraph=True,
@@ -132,6 +121,15 @@ class TransformerDecoderLayer(nn.Module):
                     "triton.cudagraphs": EOLE_COMPILE_MODE == "2",
                 },
             )
+
+    def _compile_decoder(
+        self,
+        layer_in=None,
+        enc_out=None,
+        src_pad_mask=None,
+        position_embeddings=None,
+        cache_seqlens=None,
+    ):
         if layer_in is not None:
             # assumes that _init_cache was before warmup and tiling along beam_size
             B = cache_seqlens.size(0)
@@ -348,7 +346,7 @@ class TransformerDecoder(DecoderBase):
         self.dynamic_shapes = getattr(running_config, "dynamic_shapes", not EOLE_TORCH_COMPILE)
         if self.dynamic_shapes is None:
             self.dynamic_shapes = not EOLE_TORCH_COMPILE
-        self.max_length = getattr(running_config, "max_length", 256)
+        self.kvcache_maxsize = getattr(running_config, "context_length", 4096)
         self.left_pad_attn_mask = None
         self.position_indices = None
         self.cache_seqlens = None
@@ -357,18 +355,17 @@ class TransformerDecoder(DecoderBase):
         self._disable_cache()
 
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"]:
-            self._compile_decoder()
+            self._forward_compile = torch.compile(
+                self._forward_eager,
+                fullgraph=True,
+                dynamic=False,
+                options={
+                    "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
+                    "triton.cudagraphs": EOLE_COMPILE_MODE == "0",
+                },
+            )
 
     def _compile_decoder(self, emb=None, enc_out=None, src_pad_mask=None, tgt_pad_mask=None, fn_tile=None):
-        self._forward_compile = torch.compile(
-            self._forward_eager,
-            fullgraph=True,
-            dynamic=False,
-            options={
-                "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
-                "triton.cudagraphs": EOLE_COMPILE_MODE == "0",
-            },
-        )
 
         if emb is not None and tgt_pad_mask is not None:
             B = self.cache_seqlens.size(0)
@@ -416,7 +413,7 @@ class TransformerDecoder(DecoderBase):
     def _causal_attn_mask(self, tgt_pad_mask, prefix_len=None):
         B, _, seq_len = tgt_pad_mask.size()
         device = tgt_pad_mask.device
-        MAX_T = seq_len if (self.training or self.dynamic_shapes) else self.max_length
+        MAX_T = seq_len if (self.training or self.dynamic_shapes) else self.kvcache_maxsize
 
         # Add triangular future_mask and pad_mask, result mask in (B, T, T).
         future_mask = torch.tril(
@@ -645,7 +642,7 @@ class TransformerDecoder(DecoderBase):
         if self.dynamic_shapes:
             self.cache_len_tgt = l  # kv cache starts at target length and grows
         else:
-            self.cache_len_tgt = self.max_length  # kv cache is set to max and remains static
+            self.cache_len_tgt = self.kvcache_maxsize  # kv cache is set to max and remains static
 
         # We find the index of the first non-pad token (the first '0' or 'False')
         # If the first token is NOT a pad, this returns 0.

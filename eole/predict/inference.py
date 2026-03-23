@@ -94,6 +94,7 @@ class Inference(object):
         self.n_best = config.n_best
         self.max_length = config.max_length
         self.max_length_ratio = config.max_length_ratio
+        self.context_length = config.context_length
 
         self.beam_size = config.beam_size
         self.temperature = config.temperature
@@ -592,10 +593,11 @@ class Inference(object):
             attn = dec_attn["std"]
         else:
             attn = None
+        if step == 0 and dec_out.dim() == 3 and dec_out.size(1) > 1:
+            dec_out = dec_out[:, -1:, :]
         scores = self.model.generator(dec_out.squeeze(1))
         log_probs = log_softmax(scores, dim=-1)  # we keep float16 if FP16
-        # returns [(batch_size x beam_size) , vocab ] when 1 step
-        # or [batch_size, tgt_len, vocab ] when full sentence
+        # returns [(batch_size x beam_size), vocab_size]
         return log_probs, attn
 
     def predict_batch(self, batch, attn_debug, streamer=None):
