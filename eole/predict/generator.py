@@ -198,9 +198,7 @@ class GeneratorLM(Inference):
                     original_max = rope_cfg.original_max_position_embeddings or _DEFAULT_CONTEXT_LENGTH
                 except AttributeError:
                     original_max = _DEFAULT_CONTEXT_LENGTH
-                self._log(
-                    f"context_length too small, adjusting to {original_max} tokens for torch compile fixed size"
-                )
+                self._log(f"context_length too small, adjusting to {original_max} tokens for torch compile fixed size")
                 self.context_length = max(original_max, prefill_length + self.max_length)
             self.model.decoder.kvcache_maxsize = self.context_length
             self.model.decoder._init_cache(emb, tgt_pad_mask)
