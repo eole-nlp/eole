@@ -331,6 +331,7 @@ def build_config_dict(hf):
         "rope_config": {
             "rotary_interleave": False,
             "rotary_theta": config.get("rope_theta", config.get("rope_parameters", {}).get("rope_theta", 10000)),
+            "original_max_position_embeddings": config.get("max_position_embeddings", 8192),
         },
         "embeddings": {},  # Populated later
     }

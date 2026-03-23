@@ -5,10 +5,10 @@ models:
   path: "${EOLE_MODEL_DIR}/qwen3.5-9B"
   preload: true
   config:
-    context_length: 64000
-    top_k: 0 #20
-    top_p: 0.0 #0.6
-    temperature: 1.0
+    context_length: 131072
+    top_k: 20 #20
+    top_p: 0.95 #0.6
+    temperature: 0.6
     beam_size: 1
     n_best: 1
     length_penalty: avg
@@ -20,6 +20,8 @@ models:
     fuse_gate: false
     with_score: false
     estim_only: false
+    prefill_cache_size: 100
+    prefill_chunk_size: 2048
 #    specific to serve.py
 #    batch_size: 8
 #    batch_timeout: 0.1

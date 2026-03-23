@@ -212,9 +212,9 @@ class RotaryPosition(nn.Module):
         # 4. Initialize cos_sin placeholder
         self.register_buffer("cos_sin", torch.zeros(1), persistent=False)
 
-        # Pre-allocate 32k for 1D to prevent initial graph recompiles
+        # Pre-allocate based on model context length for 1D to prevent initial graph recompiles
         if mode == "1d":
-            self.update(32768)
+            self.update(rope_config.original_max_position_embeddings)
 
     def init_2d_inv_freq(self, inv_freq):
         """

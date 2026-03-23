@@ -54,6 +54,22 @@ class DecodingConfig(Config):
         "Used for KV cache sizing. Set to 0 to auto-compute from max_new_tokens and actual prefill length.",
         ge=0,
     )
+    prefill_chunk_size: int = Field(
+        default=0,
+        description="When > 0, long prompts are split into chunks of this size during prefill "
+        "so that KV computations can be cached and reused across requests that share the same "
+        "prefix.  Has no effect when sliding_window is already set (the sliding window size "
+        "is used as the chunk size in that case).  Set to 0 to disable chunked prefill.",
+        ge=0,
+    )
+    prefill_cache_size: int = Field(
+        default=0,
+        description="Maximum number of chunk-prefix entries kept in the prefill KV cache. "
+        "Each entry stores the hidden-state output and per-layer KV tensors for one chunk "
+        "of tokens on CPU.  Set to 0 to disable the cache (chunked prefill will still split "
+        "the prompt but will not reuse results across requests).",
+        ge=0,
+    )
     block_ngram_repeat: int = Field(default=0, description="Block repetition of ngrams during decoding.")
     ignore_when_blocking: List[str] = Field(
         default=[],
