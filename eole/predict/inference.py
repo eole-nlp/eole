@@ -586,6 +586,9 @@ class Inference(object):
             tgt_pad_mask=tgt_pad_mask,
             image_locations=image_locations,
             pos_ids_2d=pos_ids_2d,
+            # Pass raw token IDs so _forward_chunked_prefill can compute
+            # rolling cache keys for the prefill KV cache.
+            src_ids=decoder_in if step == 0 else None,
         )
 
         # Generator forward.

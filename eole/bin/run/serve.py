@@ -1010,6 +1010,69 @@ class Model(object):
         self.loaded = False
         logger.info(f"Unloaded model {self.model_id}")
 
+    def get_model_limits(self):
+        """
+        Return ``(max_tokens, max_input_tokens)`` for this model.
+
+        *max_tokens* is the maximum number of generation tokens (``max_length``
+        from the inference config).
+
+        *max_input_tokens* is the maximum number of tokens that fit in the
+        context window before generation.  It is derived from the effective
+        context length:
+
+        1. If ``context_length`` is set explicitly in the inference config, use
+           that value.
+        2. Otherwise fall back to ``original_max_position_embeddings`` from the
+           model's RoPE configuration.
+        3. If neither is available, default to 0 (unknown).
+
+        Returns:
+            tuple[int, int]: ``(max_tokens, max_input_tokens)``
+        """
+        if not self.loaded or self.engine is None:
+            return 0, 0
+        predictor = getattr(self.engine, "predictor", None)
+        max_tokens = int(getattr(predictor, "max_length", 0) or 0)
+        context_length = int(getattr(predictor, "context_length", 0) or 0)
+        if context_length <= 0:
+            # Fall back to original_max_position_embeddings from rope config
+            rope = getattr(getattr(predictor, "model", None), "decoder", None)
+            rope = getattr(rope, "rope", None)
+            rope_cfg = getattr(getattr(rope, "model_config", None), "rope_config", None)
+            context_length = int(getattr(rope_cfg, "original_max_position_embeddings", 0) or 0)
+        max_input_tokens = max(0, context_length - max_tokens)
+        return max_tokens, max_input_tokens
+
+    def count_tokens(self, text: str) -> int:
+        """
+        Count the number of tokens in *text* using the model's tokenizer.
+
+        The method walks the engine's transform pipeline to find the first
+        ``TokenizerTransform`` and uses it to tokenize the string.  If no
+        tokenizer is found (e.g. the model uses whitespace splitting), it falls
+        back to ``estimate_tokens`` (≈4 chars per token).
+
+        Args:
+            text (str): The text to tokenize.
+
+        Returns:
+            int: Token count.
+        """
+        from eole.transforms.tokenize import TokenizerTransform
+
+        if not self.loaded or self.engine is None:
+            return estimate_tokens(text)
+        transform_pipe = getattr(self.engine, "transform_pipe", None)
+        if transform_pipe is not None:
+            for transform in getattr(transform_pipe, "transforms", []):
+                if isinstance(transform, TokenizerTransform):
+                    try:
+                        return len(transform._tokenize(text, side="src"))
+                    except Exception:
+                        break
+        return estimate_tokens(text)
+
     def apply_chat_template(self, inputs, tools=None, tool_choice=None):
         """
         Render the model input based on the model chat template
@@ -1440,6 +1503,122 @@ def create_app(config_file):
     # Anthropic Messages API endpoints
     # -----------------------------------------------------------------------
 
+    def _anthropic_model_info(model_id: str, model_obj: "Model") -> dict:
+        """Return a single Anthropic-format model descriptor."""
+        max_tokens, max_input_tokens = model_obj.get_model_limits()
+        return {
+            "id": model_id,
+            "type": "model",
+            "display_name": model_id,
+            "created_at": "1970-01-01T00:00:00Z",
+            "max_input_tokens": max_input_tokens,
+            "max_tokens": max_tokens,
+        }
+
+    @app.get("/v1/models")
+    @app.get("/anthropic/v1/models")
+    async def anthropic_list_models():
+        """
+        Anthropic-compatible model listing endpoint.
+
+        Returns the list of models currently configured on this server with
+        their context-window limits (``max_input_tokens``) and maximum
+        generation budget (``max_tokens``).
+        """
+        data = []
+        for model_id, model_obj in server.models.items():
+            if model_obj.loaded:
+                data.append(_anthropic_model_info(model_id, model_obj))
+        return {"data": data}
+
+    @app.get("/v1/models/{model_id:path}")
+    @app.get("/anthropic/v1/models/{model_id:path}")
+    async def anthropic_get_model(model_id: str):
+        """
+        Anthropic-compatible single-model info endpoint.
+
+        Accepts any ``model_id`` string.  If the id is not found in the server
+        configuration the first available model is used (mirrors the alias
+        resolution in the ``/v1/messages`` endpoint).
+
+        Returns an Anthropic-format model descriptor with ``max_input_tokens``
+        and ``max_tokens`` derived from the model's inference configuration.
+        """
+        from fastapi.responses import JSONResponse as _JSONResponse
+
+        if model_id in server.models:
+            resolved_id = model_id
+        elif server.models:
+            resolved_id = next(iter(server.models))
+        else:
+            return _JSONResponse(
+                status_code=404,
+                content={
+                    "type": "error",
+                    "error": {
+                        "type": "not_found_error",
+                        "message": f"Model '{model_id}' not found",
+                    },
+                },
+            )
+        model_obj = server.models[resolved_id]
+        if not model_obj.loaded:
+            await server.maybe_load_model(resolved_id)
+        return _anthropic_model_info(resolved_id, model_obj)
+
+    @app.post("/v1/messages/count_tokens")
+    @app.post("/anthropic/v1/messages/count_tokens")
+    async def anthropic_count_tokens(request: AnthropicMessagesRequest):
+        """
+        Anthropic-compatible token-counting endpoint.
+
+        Applies the chat template and counts the resulting tokens using the
+        model's own tokenizer (falling back to a 4-chars-per-token estimate
+        when a transform-based tokenizer is not configured).
+
+        Returns::
+
+            {"input_tokens": <int>}
+        """
+        from fastapi.responses import JSONResponse as _JSONResponse
+
+        model_id = request.model
+        if model_id not in server.models:
+            if server.models:
+                resolved_id = next(iter(server.models))
+            else:
+                return _JSONResponse(
+                    status_code=404,
+                    content={
+                        "type": "error",
+                        "error": {
+                            "type": "not_found_error",
+                            "message": f"Model '{model_id}' not found",
+                        },
+                    },
+                )
+        else:
+            resolved_id = model_id
+
+        await server.maybe_load_model(resolved_id)
+        model_obj = server.models[resolved_id]
+        if not model_obj.loaded:
+            model_obj.load()
+
+        openai_messages = _anthropic_messages_to_openai(request.messages, request.system)
+        template_tools = None
+        template_tool_choice = None
+        if request.tools:
+            template_tools = _anthropic_tools_to_openai(request.tools)
+            template_tool_choice = "auto"
+        chat_input = model_obj.apply_chat_template(
+            openai_messages,
+            tools=template_tools,
+            tool_choice=template_tool_choice,
+        )
+        input_tokens = model_obj.count_tokens(chat_input)
+        return {"input_tokens": input_tokens}
+
     @app.post("/v1/messages", response_model=AnthropicMessagesResponse)
     @app.post("/anthropic/v1/messages", response_model=AnthropicMessagesResponse)
     async def anthropic_messages(request: AnthropicMessagesRequest):
@@ -1530,6 +1709,28 @@ def create_app(config_file):
                 tools=template_tools,
                 tool_choice=template_tool_choice,
             )
+
+            # ----------------------------------------------------------------
+            # Guard: reject requests that exceed the model's context window
+            # ----------------------------------------------------------------
+            _max_tokens, _max_input_tokens = model_obj.get_model_limits()
+            if _max_input_tokens > 0:
+                input_token_count = model_obj.count_tokens(chat_input)
+                if input_token_count > _max_input_tokens:
+                    return _JSONResponse(
+                        status_code=400,
+                        content={
+                            "type": "error",
+                            "error": {
+                                "type": "invalid_request_error",
+                                "message": (
+                                    f"Input length ({input_token_count} tokens) exceeds the model's "
+                                    f"maximum context window ({_max_input_tokens} input tokens). "
+                                    "Please reduce the length of the messages."
+                                ),
+                            },
+                        },
+                    )
 
             # ----------------------------------------------------------------
             # Streaming path

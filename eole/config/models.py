@@ -211,6 +211,14 @@ class TransformerConfig(Config):
     encoder/decoder values with model values if relevant.
     """
 
+    max_position_embeddings: int = Field(
+        default=8192,
+        description="Model's maximum position embeddings (designed training capacity). "
+        "At inference the user may set context_length ≤ max_position_embeddings to reduce "
+        "KV-cache and RoPE table size; setting context_length > max_position_embeddings raises an error. "
+        "For 'dynamic' NTK scaling without an explicit alpha, the scaling factor is derived from "
+        "context_length / original_max_position_embeddings at init time (torch.compile-compatible).",
+    )
     sliding_window: int = Field(default=0, description="Sliding window for transformer self-attention.")
     heads: int = Field(default=8, description="Number of heads for transformer self-attention.")
     transformer_ff: int = Field(default=2048, description="Size of hidden transformer feed-forward.")

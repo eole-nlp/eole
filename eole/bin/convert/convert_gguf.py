@@ -761,6 +761,7 @@ def build_model_config(meta: GGUFMetadata, linear_blocks: frozenset = frozenset(
             "rotary_interleave": False,
             "rotary_theta": rope_base,
         },
+        "max_position_embeddings": meta.context_length,
         "embeddings": {
             "position_encoding_type": PositionEncodingType.Rotary,
             "n_positions": 0,

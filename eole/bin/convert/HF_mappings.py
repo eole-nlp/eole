@@ -309,6 +309,7 @@ MODEL_OVERRIDES = {
                     "tmax_index": 1,
                     "rotary_interleave": False,
                 },
+                "max_position_embeddings": 131072,
             },
         },
     },
@@ -362,6 +363,7 @@ MODEL_OVERRIDES = {
                     "tmax_index": 1,
                     "rotary_interleave": False,
                 },
+                "max_position_embeddings": 131072,
             },
             "encoder": {
                 "mlp_activation_fn": "gelu-tanh",

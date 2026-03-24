@@ -158,7 +158,6 @@ class MultiHeadedAttention(torch.nn.Module):
             self.alibi = AlibiPositionalBias(self.heads)
 
         self.maybe_ckpt = checkpoint if "mha" in getattr(running_config, "use_ckpting", []) else lambda f, x: f(x)
-        self.causal = True
         if getattr(running_config, "self_attn_backend", "") == "flash":
             from eole.ops import _FLASH_ATTN_AVAILABLE, flash_attn_kvcache
 
@@ -504,11 +503,10 @@ class SelfMHA(MultiHeadedAttention):
                     cache_seqlens=cache_seqlens,
                     cache_leftpad=self.cache_leftpad,
                     softmax_scale=self.scale,
-                    causal=self.causal,
+                    causal=query.size(1) > 1,
                     rotary_interleaved=self.rotary_interleave,
                     window_size=self.window_size,
                 )
-                self.causal = False
                 context = blhd_to_bld(context)
                 if self.q_gating and hasattr(self, "_attn_gate"):
                     context = context * self._attn_gate
