@@ -316,6 +316,7 @@ def build_config_dict(hf):
             config.get("layer_norm_epsilon", config.get("layer_norm_eps", 1e-5)),
         ),
         "sliding_window": config.get("sliding_window") or 0,
+        "max_position_embeddings": config.get("max_position_embeddings", 8192),
         "num_experts": config.get("num_local_experts", config.get("n_routed_experts", config.get("num_experts", 0))),
         "num_shared_experts": config.get("n_shared_experts", 1 if config.get("shared_expert_intermediate_size") else 0),
         "first_k_dense_replace": config.get("first_k_dense_replace", 0),
@@ -331,7 +332,6 @@ def build_config_dict(hf):
         "rope_config": {
             "rotary_interleave": False,
             "rotary_theta": config.get("rope_theta", config.get("rope_parameters", {}).get("rope_theta", 10000)),
-            "original_max_position_embeddings": config.get("max_position_embeddings", 8192),
         },
         "embeddings": {},  # Populated later
     }
@@ -551,7 +551,7 @@ def build_config_dict(hf):
                 "low_freq_factor": config["rope_scaling"].get("low_freq_factor", 1.0),
                 "high_freq_factor": config["rope_scaling"].get("high_freq_factor", 4.0),
                 "original_max_position_embeddings": config["rope_scaling"].get(
-                    "original_max_position_embeddings", config.get("max_position_embeddings", 8192)
+                    "original_max_position_embeddings", None
                 ),
             }
         )

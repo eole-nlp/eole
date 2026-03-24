@@ -283,6 +283,8 @@ class TransformerDecoderLayer(nn.Module):
         if self.full_context_alignment:
             # return _, (B, Q_len, K_len)
             _, attns = self.forward(layer_in, **kwargs)
+        if attns is None:
+            return None
         if self.alignment_heads > 0:
             attns = attns[:, : self.alignment_heads, :, :].contiguous()
         # layer average attention across heads, get ``(B, Q, K)``
@@ -303,11 +305,11 @@ class TransformerDecoderLayer(nn.Module):
 
 
 class TransformerDecoder(DecoderBase):
-    """The Transformer encoder from "Attention is All You Need"
+    """The Transformer decoder from "Attention is All You Need"
     :cite:`DBLP:journals/corr/VaswaniSPUJGKP17`
 
     Args:
-        decoder_config (eole.config.TransformerEncoderConfig): full encoder config
+        decoder_config (eole.config.TransformerDecoderConfig): full encoder config
         running_config (TrainingConfig / InferenceConfig)
     """
 
@@ -320,9 +322,18 @@ class TransformerDecoder(DecoderBase):
         self.alignment_layer = decoder_config.alignment_layer
         self.with_cross_attn = decoder_config.with_cross_attn
         self.sliding_window = decoder_config.sliding_window
-        self.rope = build_rope(decoder_config)
+        context_length = getattr(running_config, "context_length", 0) or 0
+        _model_max_pos = getattr(decoder_config, "max_position_embeddings", 8192) or 8192
+        if context_length > _model_max_pos:
+            raise ValueError(
+                f"context_length ({context_length}) exceeds the model's "
+                f"max_position_embeddings ({_model_max_pos}). "
+                "Reduce context_length to be within the model's capacity."
+            )
+        self.kvcache_maxsize = context_length if context_length > 0 else _model_max_pos
+        self.rope = build_rope(decoder_config, ctx_len=self.kvcache_maxsize)
         if hasattr(decoder_config, "rope_config") and getattr(decoder_config.rope_config, "interleave_local", 0) > 0:
-            self.rope_local = build_rope(decoder_config, variant="local")
+            self.rope_local = build_rope(decoder_config, variant="local", ctx_len=self.kvcache_maxsize)
         else:
             self.rope_local = None
         self.interleave_local = getattr(decoder_config.rope_config, "interleave_local", 0) or 1
@@ -347,7 +358,6 @@ class TransformerDecoder(DecoderBase):
         self.dynamic_shapes = getattr(running_config, "dynamic_shapes", not EOLE_TORCH_COMPILE)
         if self.dynamic_shapes is None:
             self.dynamic_shapes = not EOLE_TORCH_COMPILE
-        self.kvcache_maxsize = getattr(running_config, "context_length", 4096)
         self.left_pad_attn_mask = None
         self.position_indices = None
         self.cache_seqlens = None
@@ -678,8 +688,9 @@ class TransformerDecoder(DecoderBase):
             # ----------------------------------------------------------
             cache_keys = None
             if use_cache:
+                src_ids_chunk_cpu = src_ids[:, start:end].cpu()
                 # Compute an independent rolling-hash key for each sequence.
-                cache_keys = [self._prefill_cache.compute_key(src_ids[b, start:end], prev_keys[b]) for b in range(B)]
+                cache_keys = [self._prefill_cache.compute_key(src_ids_chunk_cpu[b], prev_keys[b]) for b in range(B)]
                 # A "full hit" means every sequence in the batch has a valid
                 # cache entry so _forward_eager can be skipped entirely.
                 cached_results = [self._prefill_cache.get(k) for k in cache_keys]
@@ -950,7 +961,7 @@ class TransformerDecoder(DecoderBase):
             attn_mask = None
             cache_slice = None  # triggers flash decoding
             if S > 1 and self.has_linear_attn:
-                lin_attn_mask = ~tgt_pad_mask[:, 0, :] if self.has_linear_attn else None
+                lin_attn_mask = ~tgt_pad_mask[:, 0, :]
             else:
                 lin_attn_mask = None
 
@@ -997,7 +1008,7 @@ class TransformerDecoder(DecoderBase):
         # we take the first head
         top_attn = None if attn is None else attn[:, 0, :, :].contiguous()
         attns = {"std": top_attn}
-        if with_align:
+        if with_align and self.alignment_layer < len(attn_aligns):
             attns["align"] = attn_aligns[self.alignment_layer]  # `(B, Q, K)`
         if all_cross_attns is not None:
             attns["cross_attns"] = all_cross_attns

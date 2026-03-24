@@ -81,7 +81,7 @@ class PrefillCache:
 
         Args:
             token_ids: 1-D integer tensor ``(chunk_len,)`` of token IDs.
-                The tensor is moved to CPU internally if necessary.
+                if Tensor on GPU will be moved to CPU internally if necessary.
             prev_key: Raw-bytes key returned by the previous chunk call,
                 or ``None`` for the very first chunk.
 

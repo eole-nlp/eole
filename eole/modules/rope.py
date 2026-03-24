@@ -18,10 +18,10 @@ class NoOpPosition:
         return None
 
 
-def build_rope(model_config, mode="1d", variant="global"):
+def build_rope(model_config, mode="1d", variant="global", ctx_len=0):
     """Build RoPE with optional cuda acceleration."""
     if model_config.position_encoding_type == PositionEncodingType.Rotary:
-        return RotaryPosition(model_config, mode=mode, variant=variant)
+        return RotaryPosition(model_config, mode=mode, variant=variant, ctx_len=ctx_len)
     else:
         return NoOpPosition()
 
@@ -156,7 +156,7 @@ class RotaryPosition(nn.Module):
     and to support future enhancements, such as additional scaling types.
     """
 
-    def __init__(self, model_config, mode="1d", variant="global"):
+    def __init__(self, model_config, mode="1d", variant="global", ctx_len=0):
         """
         Initializes the RotaryPosition module.
 
@@ -188,9 +188,21 @@ class RotaryPosition(nn.Module):
         self.rotary_interleave = rope_config.rotary_interleave
         self.rotary_theta = rope_config.rotary_theta if variant == "global" else rope_config.rotary_theta_local
 
-        # 1. Base Inverse Frequencies (calculated in FP32)
-        if getattr(rope_config, "scaling_type", None) in ["dynamic", "xdrope"] and getattr(rope_config, "alpha", None):
-            base = self.rotary_theta * (rope_config.alpha ** (rotary_dim / (rotary_dim - 2)))
+        scaling_type = getattr(rope_config, "scaling_type", None)
+        explicit_alpha = getattr(rope_config, "alpha", None)
+        model_max_len = getattr(model_config, "max_position_embeddings", None) or 0
+
+        effective_max_len = ctx_len if ctx_len > 0 else model_max_len
+
+        if scaling_type in ["dynamic", "xdrope"] and explicit_alpha:
+            base = self.rotary_theta * (explicit_alpha ** (rotary_dim / (rotary_dim - 2)))
+        elif scaling_type == "dynamic" and not explicit_alpha:
+            orig_len = getattr(rope_config, "original_max_position_embeddings", None) or model_max_len
+            if effective_max_len > orig_len:
+                derived_alpha = effective_max_len / orig_len
+                base = self.rotary_theta * (derived_alpha ** (rotary_dim / (rotary_dim - 2)))
+            else:
+                base = self.rotary_theta
         else:
             base = self.rotary_theta
 
@@ -204,9 +216,9 @@ class RotaryPosition(nn.Module):
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
         # 3. Apply Scaling Logic (In-place on FP32 buffer)
-        if getattr(rope_config, "scaling_type", None) == "llama3":
+        if scaling_type == "llama3":
             self.llama3_scaling()
-        elif getattr(rope_config, "scaling_type", None) == "gemma3" and variant == "global":
+        elif scaling_type == "gemma3" and variant == "global":
             self.gemma3_scaling()
 
         # 4. Initialize cos_sin placeholder
@@ -214,7 +226,7 @@ class RotaryPosition(nn.Module):
 
         # Pre-allocate based on model context length for 1D to prevent initial graph recompiles
         if mode == "1d":
-            self.update(rope_config.original_max_position_embeddings)
+            self.update(effective_max_len)
 
     def init_2d_inv_freq(self, inv_freq):
         """

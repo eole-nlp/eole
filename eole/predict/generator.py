@@ -9,11 +9,6 @@ from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
 from time import time
 
 
-# Fallback context length used when the model's rope config does not expose
-# original_max_position_embeddings (e.g. very old converted checkpoints).
-_DEFAULT_CONTEXT_LENGTH = 64000
-
-
 class GeneratorLM(Inference):
     @classmethod
     def validate_task(cls, task):
@@ -192,15 +187,6 @@ class GeneratorLM(Inference):
             else:
                 emb = self.model.tgt_emb(src, step=0)
             tgt_pad_mask = src.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
-            if prefill_length > self.context_length or self.context_length < self.max_length:
-                try:
-                    rope_cfg = self.model.decoder.rope.model_config.rope_config
-                    original_max = rope_cfg.original_max_position_embeddings or _DEFAULT_CONTEXT_LENGTH
-                except AttributeError:
-                    original_max = _DEFAULT_CONTEXT_LENGTH
-                self._log(f"context_length too small, adjusting to {original_max} tokens for torch compile fixed size")
-                self.context_length = max(original_max, prefill_length + self.max_length)
-            self.model.decoder.kvcache_maxsize = self.context_length
             self.model.decoder._init_cache(emb, tgt_pad_mask)
             self.model.decoder.map_state(fn_tile)
             if EOLE_COMPILE_MODE in ["0", "1"]:
