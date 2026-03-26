@@ -351,10 +351,10 @@ class Optimizer:
             use_amp=use_amp,
         )
 
-        # Initialize GradScaler for AMP
+        # Initialize GradScaler for AMP using the model's device
         if use_amp:
-            # Modern API: torch.amp.GradScaler with device specification
-            optimizer._scaler = GradScaler("cuda")
+            device_type = next(model.parameters()).device.type
+            optimizer._scaler = GradScaler(device_type)
 
         if optim_state_dict:
             optimizer.load_state_dict(optim_state_dict)
