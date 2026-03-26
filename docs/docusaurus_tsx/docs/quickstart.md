@@ -101,7 +101,7 @@ Before the training process actually starts, it is possible to generate transfor
 ### Step 3: Predict / Translate
 
 ```bash
-eole predict -model_path toy-ende/run/model -src toy-ende/src-test.txt -output toy-ende/pred_1000.txt -gpu 0 -verbose
+eole predict -model_path toy-ende/run/model -src toy-ende/src-test.txt -output toy-ende/pred_1000.txt -gpu_ranks 0 -verbose
 ```
 
 Now you have a model which you can use to predict on new data. We do this by running beam search. This will output predictions into `toy-ende/pred_1000.txt`.
