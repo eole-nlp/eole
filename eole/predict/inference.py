@@ -58,11 +58,11 @@ class Inference(object):
         # (output_type='text'). Now it scan all transforms and set
         # id_tokenization=True if any transform has output_type='ids'.
         if len(config.transforms) > 0:
-            for transform_name in config.transforms:
-                transform_cls = AVAILABLE_TRANSFORMS.get(transform_name, None)
-                if getattr(transform_cls, "output_type", None) == "ids":
-                    id_tokenization = True
-                    break
+            id_tokenization = any(
+                getattr(AVAILABLE_TRANSFORMS.get(t), "output_type", None) == "ids"
+                for t in config.transforms
+            )
+
 
         self.model = model
         if hasattr(self.model, "decoder") and self.model.decoder is not None:
