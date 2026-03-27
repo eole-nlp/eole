@@ -57,10 +57,9 @@ class Inference(object):
         # huggingface_tokenize (output_type='ids') with filtertoolong
         # (output_type='text'). Now it scan all transforms and set
         # id_tokenization=True if any transform has output_type='ids'.
-        if len(config.transforms) > 0:
-            id_tokenization = any(
-                getattr(AVAILABLE_TRANSFORMS.get(t), "output_type", None) == "ids" for t in config.transforms
-            )
+        id_tokenization = any(
+            getattr(AVAILABLE_TRANSFORMS.get(t), "output_type", None) == "ids" for t in config.transforms
+        )
 
         self.model = model
         if hasattr(self.model, "decoder") and self.model.decoder is not None:
