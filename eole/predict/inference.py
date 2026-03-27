@@ -50,10 +50,19 @@ class Inference(object):
         else:
             image_token_id = 10
             image_token_id_list = []
+
+        # Check all transforms for id_tokenization flag.
+        # Previously, only the last transform's output_type was checked,
+        # which caused incorrect behavior when combining transforms like
+        # huggingface_tokenize (output_type='ids') with filtertoolong
+        # (output_type='text'). Now it scan all transforms and set
+        # id_tokenization=True if any transform has output_type='ids'.
         if len(config.transforms) > 0:
-            tail_transform_cls = AVAILABLE_TRANSFORMS.get(config.transforms[-1], None)
-            if getattr(tail_transform_cls, "output_type", None) == "ids":
-                id_tokenization = True
+            for transform_name in config.transforms:
+                transform_cls = AVAILABLE_TRANSFORMS.get(transform_name, None)
+                if getattr(transform_cls, "output_type", None) == "ids":
+                    id_tokenization = True
+                    break
 
         self.model = model
         if hasattr(self.model, "decoder") and self.model.decoder is not None:
