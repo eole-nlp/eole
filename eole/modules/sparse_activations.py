@@ -9,6 +9,7 @@ import torch
 from torch.autograd import Function
 from torch.amp import custom_fwd, custom_bwd
 import torch.nn as nn
+from eole.utils.misc import get_device_type
 
 
 def _make_ix_like(input, dim=0):
@@ -43,7 +44,7 @@ def _threshold_and_support(input, dim=0):
 
 class SparsemaxFunction(Function):
     @staticmethod
-    @custom_fwd(device_type="cuda")
+    @custom_fwd(device_type=get_device_type())
     def forward(ctx, input, dim=0):
         """sparsemax: normalizing sparse transform (a la softmax)
 
@@ -63,7 +64,7 @@ class SparsemaxFunction(Function):
         return output
 
     @staticmethod
-    @custom_bwd(device_type="cuda")
+    @custom_bwd(device_type=get_device_type())
     def backward(ctx, grad_output):
         supp_size, output = ctx.saved_tensors
         dim = ctx.dim
