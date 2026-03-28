@@ -415,8 +415,6 @@ class BaseModel(nn.Module):
                 )
             mark_lora = True
         if hasattr(running_config, "lora_embedding") and running_config.lora_embedding:
-            if running_config.freeze_encoder or running_config.freeze_decoder:
-                raise ValueError("Cannot use LoRa with Enc/Dec-oder freezing")  # TODO move this to config validation
             logger.info("Adding LoRa Embeddings")
             # same, trying inplace
             replace_lora_embedding(self, r=running_config.lora_rank, lora_alpha=running_config.lora_alpha)

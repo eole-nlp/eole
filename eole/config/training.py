@@ -317,4 +317,7 @@ class TrainingConfig(
             self.compute_dtype != torch.int8
         ), "int8 compute_dtype is currently only used for inference dynamic quantization"
 
+        if self.lora_embedding and (self.freeze_encoder or self.freeze_decoder):
+            raise ValueError("Cannot use LoRa embedding with Enc/Dec-oder freezing")
+
         return self
