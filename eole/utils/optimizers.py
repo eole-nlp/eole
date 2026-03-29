@@ -94,12 +94,19 @@ def _build_sparse_adam_optimizer(
     """Build sparse Adam optimizer for embeddings."""
     dense_params = []
     sparse_params = []
+    sparse_param_names = set()
+
+    for module_name, module in model.named_modules():
+        if isinstance(module, torch.nn.Embedding) and getattr(module, "sparse", False):
+            for param_name, param in module.named_parameters():
+                if param.requires_grad:
+                    full_name = f"{module_name}.{param_name}" if module_name else param_name
+                    sparse_param_names.add(full_name)
 
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        # TODO: Find a better way to check for sparse gradients
-        if "embed" in name:
+        if name in sparse_param_names:
             sparse_params.append(param)
         else:
             dense_params.append(param)
