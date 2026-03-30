@@ -97,9 +97,15 @@ def _read_vocab_file(vocab_path, min_count):
             has_count = len(first_line) == 2 and first_line[-1].strip().isdigit()
             if has_count:
                 vocab = []
-                for line in lines:
-                    if int(line.split(None, 1)[1]) >= min_count:
-                        vocab.append(line.split(None, 1)[0])
+                for i, line in enumerate(lines, start=1):
+                    parts = line.split("\t", 1)
+                    if len(parts) != 2:
+                        raise ValueError(
+                            f"Invalid vocab format at line {i} in {vocab_path}: "
+                            f"expected 'token count', got '{line}'"
+                        )
+                    if int(parts[1]) >= min_count:
+                        vocab.append(parts[0])
             else:
                 vocab = lines
             return vocab
