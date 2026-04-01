@@ -629,54 +629,51 @@ def build_config_dict(hf):
             extra_config = quant_config.get("extra_config", {})
             target_bits = quant_config.get("bits", 4)
             if extra_config:
-                # Build a reverse map: HF sub-path → eole leaf module name
-                # by inverting the decoder section of KEY_MAPS for this architecture.
-                # e.g. eole ".linear_attn.in_proj_a." ← HF ".linear_attn.in_proj_a."
-                #      eole ".self_attn.linear_query." ← HF ".self_attn.q_proj."
-                decoder_map = KEY_MAPS.get(arch, {}).get("decoder", {})
-                decoder_layer_prefix = KEY_MAPS.get(arch, {}).get("decoder_layer_prefix", "model.layers.")
-                # How many dot-separated components make up the layer prefix
-                # e.g. "model.language_model.layers." → 3
-                prefix_depth = len(decoder_layer_prefix.rstrip(".").split("."))
+                excluded_parent_modules: set[str] = set()
 
-                hf_sub_to_eole_leaf: dict[str, str] = {}
+                # Build reverse map: HF module name → eole module name
+                # e.g., "shared_expert" (HF) → "shared_experts" (eole)
+                decoder_map = KEY_MAPS.get(arch, {}).get("decoder", {})
+                hf_to_eole_map = {}
+
                 for eole_key, hf_val in decoder_map.items():
                     if not isinstance(eole_key, str):
                         continue
                     hf_suffix = hf_val[0] if isinstance(hf_val, tuple) else hf_val
                     if not isinstance(hf_suffix, str):
                         continue
-                    # Strip surrounding dots: ".linear_attn.in_proj_a." → "linear_attn.in_proj_a"
-                    hf_sub = hf_suffix.strip(".")
-                    # Take the last component of the eole key as the leaf name:
-                    # ".linear_attn.in_proj_a." → "in_proj_a"
-                    eole_leaf = eole_key.strip(".").split(".")[-1]
-                    if hf_sub:
-                        hf_sub_to_eole_leaf[hf_sub] = eole_leaf
+                    eole_parts = [p for p in eole_key.strip(".").split(".") if p and not p.isdigit()]
+                    hf_parts = [p for p in hf_suffix.strip(".").split(".") if p and not p.isdigit()]
+                    for hp, ep in zip(hf_parts, eole_parts):  # ← pairwise, not cartesian
+                        hf_to_eole_map[hp] = ep
 
-                excluded_modules: set[str] = set()
+                # ── Fix 2: look one level deeper (sub_parts[1]) instead of sub_parts[0] ────
                 for hf_path, layer_cfg in extra_config.items():
-                    bits_val = layer_cfg.get("bits", target_bits)
-                    if bits_val < 16 and not layer_cfg.get("dtype", "").startswith("float"):
+                    if ".*" in hf_path:
                         continue
-                    parts = hf_path.split(".")
-                    # Need at least prefix + layer_index + one module component
-                    if len(parts) <= prefix_depth + 1:
-                        continue
-                    # Strip "model.language_model.layers.{i}." → remaining module sub-path
-                    sub_parts = parts[prefix_depth + 1 :]  # +1 skips the layer index digit
 
-                    # Try progressively shorter sub-paths (longest first) to find
-                    # the deepest matching entry in the decoder map.
-                    # e.g. ["linear_attn", "in_proj_a"] → try "linear_attn.in_proj_a" first,
-                    #      then "linear_attn" — stops at first match.
-                    for length in range(len(sub_parts), 0, -1):
-                        candidate = ".".join(sub_parts[:length])
-                        if candidate in hf_sub_to_eole_leaf:
-                            eole_leaf = hf_sub_to_eole_leaf[candidate]
-                            if eole_leaf in training_config["quant_layers"]:
-                                training_config["quant_layers"].remove(eole_leaf)
-                            break
+                    bits_val = layer_cfg.get("bits", target_bits)
+                    data_type = layer_cfg.get("data_type", "")
+
+                    if not (bits_val < 16 and not data_type.lower().startswith(("float", "fp"))):
+                        parts = hf_path.split(".")
+                        if "layers" not in hf_path:
+                            continue
+                        try:
+                            layer_idx_pos = [i for i, p in enumerate(parts) if p == "layers"][0]
+                            # parts after "layers" and the layer index, e.g. ['mlp', 'shared_expert_gate']
+                            sub_parts = [p for p in parts[layer_idx_pos + 2 :] if p and not p.isdigit()]
+                            # ↑ +2 skips "layers" and the numeric index
+                            # We want the submodule *inside* the top-level block (mlp, …),
+                            # so take index 1 when available, otherwise fall back to index 0.
+                            hf_module_name = sub_parts[1] if len(sub_parts) >= 2 else sub_parts[0]
+                            eole_module_name = hf_to_eole_map.get(hf_module_name, hf_module_name)
+                            excluded_parent_modules.add(eole_module_name)
+                        except (IndexError, ValueError):
+                            continue
+
+                if excluded_parent_modules:
+                    training_config["quant_exclude_modules"] = sorted(list(excluded_parent_modules))
             params = ["qweight", "qzeros", "scales"] + ["weight", "bias"]
         elif quant_config.get("quant_method") == "gptq":
             # GPTQ models use the same tensor format as AutoRound GPTQ-packing.
@@ -959,6 +956,138 @@ class _StreamingTensorStore:
         os.remove(self._tmp_path)
 
 
+def _collect_all_source_keys(hf):
+    """Collect all tensor keys present in the source HuggingFace checkpoint(s).
+
+    For sharded models (with a weight-map index file) the key names are read
+    directly from the already-loaded JSON index so no additional file I/O is
+    required.  For single-file checkpoints the file is opened once to obtain
+    its key listing.
+
+    Args:
+        hf (HuggingfaceFiles): Source model files dataclass.
+
+    Returns:
+        set: All tensor key names found across every source checkpoint file.
+    """
+    if hf.wmap_path is not None:
+        # The weight-map already contains every tensor key as a dict key.
+        return set(hf.wmap["weight_map"].keys())
+    else:
+        ckpt = hf.get_load_ckpt(*os.path.split(hf.model_path))
+        if isinstance(ckpt, dict):
+            return set(ckpt.keys())
+        else:
+            with safetensors.safe_open(ckpt, framework="pt", device="cpu") as f:
+                return set(f.keys())
+
+
+def check_conversion_completeness(all_src_keys, consumed_src_keys):
+    """Check that every source checkpoint tensor was accounted for during conversion.
+
+    Tensors that exist in the source checkpoints but were never read and stored
+    in any output shard are printed as warnings.
+
+    Args:
+        all_src_keys (set): All tensor keys from the source checkpoint(s).
+        consumed_src_keys (set): Source keys that contributed to at least one
+            output tensor.
+
+    Returns:
+        set: Source keys that were not converted (empty when everything matched).
+    """
+    unconverted = all_src_keys - consumed_src_keys
+    if unconverted:
+        print("\nWARNING: %d source tensor(s) were not converted:" % len(unconverted))
+        for key in sorted(unconverted):
+            print("  - %s" % key)
+    else:
+        print("\nAll source tensors were successfully converted.")
+    return unconverted
+
+
+def check_conversion_equality(hf, conversion_details, target_dtype):
+    """Verify that every converted tensor in the output matches its source.
+
+    For each entry in *conversion_details* the corresponding source tensor is
+    reloaded from disk, the same transformation that was applied during
+    conversion is re-applied, and the result is compared element-wise with the
+    tensor that was written to the output shard.  Any mismatch is reported.
+
+    Args:
+        hf (HuggingfaceFiles): Source model files dataclass (used to reload
+            source tensors).
+        conversion_details (list[dict]): One dict per written output tensor,
+            each containing:
+            - ``shard_path``  – path of the output safetensors shard file
+            - ``eole_key``    – tensor key inside that shard
+            - ``srckey``      – full tensor key in the source checkpoint
+            - ``srcmap``      – optional eval-string transformation (or None)
+            - ``context``     – variable bindings for the eval string
+            - ``special``     – optional post-transform tag (e.g. "unsqueeze(0)")
+        target_dtype: Target torch dtype applied during conversion, or None.
+
+    Returns:
+        list[tuple]: ``(eole_key, reason)`` pairs for every mismatch found.
+            Empty when all tensors matched.
+    """
+    mismatches = []
+    print("\nVerifying converted tensor equality (%d tensors)..." % len(conversion_details))
+    for detail in conversion_details:
+        shard_path = detail["shard_path"]
+        eole_key = detail["eole_key"]
+        srckey = detail["srckey"]
+        srcmap = detail["srcmap"]
+        context = detail["context"]
+        special = detail["special"]
+
+        # Reload the source tensor from the appropriate checkpoint file.
+        if hf.wmap_path is not None:
+            ckpt_name = hf.wmap["weight_map"].get(srckey)
+            if ckpt_name is None:
+                mismatches.append((eole_key, "source key '%s' not found in weight map" % srckey))
+                continue
+            ckpt = hf.get_load_ckpt(hf.base_dir, ckpt_name)
+        else:
+            ckpt = hf.get_load_ckpt(*os.path.split(hf.model_path))
+
+        src = get_weight(ckpt, srckey)
+        if src is None:
+            mismatches.append((eole_key, "source tensor '%s' could not be loaded" % srckey))
+            continue
+
+        # Re-apply the same transformation used during conversion.
+        if srcmap is not None:
+            src = eval("w" + srcmap, {"w": src, **context}).contiguous()
+
+        # Re-apply any special post-transform.
+        if special == "unsqueeze(0)":
+            src = src.unsqueeze(0)
+
+        # Cast to the same dtype that was applied during conversion.
+        if target_dtype is not None:
+            src = src.to(target_dtype)
+
+        # Load the corresponding tensor from the saved output shard.
+        with safetensors.safe_open(shard_path, framework="pt", device="cpu") as f:
+            if eole_key not in f.keys():
+                mismatches.append((eole_key, "key not found in output shard '%s'" % shard_path))
+                continue
+            tgt = f.get_tensor(eole_key)
+
+        # Element-wise comparison.
+        if not torch.equal(src, tgt):
+            mismatches.append((eole_key, "values differ between source (after transform) and output"))
+
+    if mismatches:
+        print("\nERROR: %d converted tensor(s) do not match their source:" % len(mismatches))
+        for key, reason in mismatches:
+            print("  - %s: %s" % (key, reason))
+    else:
+        print("All %d converted tensors match their source." % len(conversion_details))
+    return mismatches
+
+
 def build_shards(model_config, hf, args, params):
     """
     Build sharded model files from HuggingFace checkpoint.
@@ -975,6 +1104,11 @@ def build_shards(model_config, hf, args, params):
     """
     shard_checkpoints, shard_layer_ranges = get_shards_map(model_config, hf, args.nshards)
     target_dtype = TORCH_DTYPES[args.dtype] if args.dtype is not None else None
+
+    # Collect every tensor key present in the source checkpoint(s) upfront.
+    all_src_keys = _collect_all_source_keys(hf)
+    consumed_src_keys = set()
+    conversion_details = []
 
     for shard in range(args.nshards):
 
@@ -1005,21 +1139,34 @@ def build_shards(model_config, hf, args, params):
                     continue
                 w = get_weight(checkpoint, srckey)
                 if w is not None:
+                    consumed_src_keys.add(srckey)
+                    context = {
+                        "hidden_size": model_config["hidden_size"],
+                        "transformer_ff": model_config["transformer_ff"],
+                    }
                     if srcmap is not None:
                         w = eval(
                             "w" + srcmap,
-                            {
-                                "w": w,
-                                "hidden_size": model_config["hidden_size"],
-                                "transformer_ff": model_config["transformer_ff"],
-                            },
+                            {"w": w, **context},
                         ).contiguous()
                     if target_dtype is not None:
                         w = w.to(target_dtype)
+                    special = None
                     if target == "encoder.class_embedding.weight":
                         eole_safetensor[target] = w.unsqueeze(0)
+                        special = "unsqueeze(0)"
                     else:
                         eole_safetensor[target] = w
+                    conversion_details.append(
+                        {
+                            "shard_path": output_path,
+                            "eole_key": target,
+                            "srckey": srckey,
+                            "srcmap": srcmap,
+                            "context": context,
+                            "special": special,
+                        }
+                    )
             return eole_safetensor
 
         if shard == 0:
@@ -1071,24 +1218,27 @@ def build_shards(model_config, hf, args, params):
                             w = _layer_tensor_cache[full_srckey]
 
                             if w is not None:
+                                consumed_src_keys.add(full_srckey)
                                 if srcmap is not None:
                                     hidden_size = (
                                         model_config["hidden_size"]
                                         if section.startswith("decoder")
                                         else model_config["encoder"]["hidden_size"]
                                     )
+                                    context = {
+                                        "hidden_size": hidden_size,
+                                        "transformer_ff": model_config["transformer_ff"],
+                                        "moe_transformer_ff": model_config.get("decoder", {}).get(
+                                            "moe_transformer_ff",
+                                            model_config.get("moe_transformer_ff", 0),
+                                        ),
+                                    }
                                     w = eval(
                                         "w" + srcmap,
-                                        {
-                                            "w": w,
-                                            "hidden_size": hidden_size,
-                                            "transformer_ff": model_config["transformer_ff"],
-                                            "moe_transformer_ff": model_config.get("decoder", {}).get(
-                                                "moe_transformer_ff",
-                                                model_config.get("moe_transformer_ff", 0),
-                                            ),
-                                        },
+                                        {"w": w, **context},
                                     ).contiguous()
+                                else:
+                                    context = {}
                                 if target_dtype is not None:
                                     w = w.to(target_dtype)
                                 target1 = target
@@ -1097,10 +1247,22 @@ def build_shards(model_config, hf, args, params):
                                 eole_key = eole_prefix + str(i) + target1
                                 if eole_key not in eole_safetensor.keys():
                                     eole_safetensor[eole_key] = w
+                                    conversion_details.append(
+                                        {
+                                            "shard_path": output_path,
+                                            "eole_key": eole_key,
+                                            "srckey": full_srckey,
+                                            "srcmap": srcmap,
+                                            "context": context,
+                                            "special": None,
+                                        }
+                                    )
                 _layer_tensor_cache.clear()
 
         print("Saving output model shard: %d" % shard)
         eole_safetensor.save(output_path)
+
+    return all_src_keys, consumed_src_keys, conversion_details
 
 
 def check_sentencepiece_tokenizer(hf):
@@ -1234,6 +1396,22 @@ class LlamaHFConverter(BaseBin):
             choices=["hf", "onmt"],
             help="Specify which tokenizer should be used by default.",
         )
+        parser.add_argument(
+            "--check-tensors",
+            action="store_true",
+            default=False,
+            help=(
+                "After conversion, verify completeness (every source tensor "
+                "was consumed) and equality (every output tensor matches its "
+                "source after the same transform)."
+            ),
+        )
+        parser.add_argument(
+            "--config-only",
+            action="store_true",
+            default=False,
+            help=("Skip weight conversion entirely and only write config.json " "to the output directory."),
+        )
 
     @classmethod
     def run(cls, args):
@@ -1307,8 +1485,15 @@ class LlamaHFConverter(BaseBin):
         # Save vocab files to output model directory
         save_vocab(vocabs, src_vocab, args.output)
 
-        # Build shards
-        build_shards(model_config, hf, args, params)
+        # Build shards (skipped when --config-only is set)
+        if not args.config_only:
+            all_src_keys, consumed_src_keys, conversion_details = build_shards(model_config, hf, args, params)
+
+            # Post-conversion validation (opt-in via --check-tensors)
+            if args.check_tensors:
+                target_dtype = TORCH_DTYPES[args.dtype] if args.dtype is not None else None
+                check_conversion_completeness(all_src_keys, consumed_src_keys)
+                check_conversion_equality(hf, conversion_details, target_dtype)
 
         # Build eole config and save to output model directory
         config = TrainConfig(
