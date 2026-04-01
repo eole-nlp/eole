@@ -104,7 +104,15 @@ def _read_vocab_file(vocab_path, min_count):
                             f"Invalid vocab format at line {i} in {vocab_path}: "
                             f"expected 'token count', got '{line}'"
                         )
-                    if int(parts[1]) >= min_count:
+                    count_str = parts[1].strip()
+                    try:
+                        count = int(count_str)
+                    except ValueError as e:
+                        raise ValueError(
+                            f"Invalid count value at line {i} in {vocab_path}: "
+                            f"expected integer, got {parts[1]!r}"
+                        ) from e
+                    if count >= min_count:
                         vocab.append(parts[0])
             else:
                 vocab = lines
