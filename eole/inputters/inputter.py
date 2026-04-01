@@ -93,7 +93,7 @@ def _read_vocab_file(vocab_path, min_count):
             lines = [line.decode("utf-8") for line in f.read().split(b"\n")]
             lines = lines[:-1]
 
-            first_line = lines[0].split('\t', 1)
+            first_line = lines[0].split("\t", 1)
             has_count = len(first_line) == 2 and first_line[-1].strip().isdigit()
             if has_count:
                 vocab = []
@@ -109,8 +109,7 @@ def _read_vocab_file(vocab_path, min_count):
                         count = int(count_str)
                     except ValueError as e:
                         raise ValueError(
-                            f"Invalid count value at line {i} in {vocab_path}: "
-                            f"expected integer, got {parts[1]!r}"
+                            f"Invalid count value at line {i} in {vocab_path}: " f"expected integer, got {parts[1]!r}"
                         ) from e
                     if count >= min_count:
                         vocab.append(parts[0])
