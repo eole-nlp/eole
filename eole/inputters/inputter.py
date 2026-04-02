@@ -99,12 +99,18 @@ def _read_vocab_file(vocab_path, min_count):
                 vocab = []
                 for i, line in enumerate(lines, start=1):
                     parts = line.split("\t", 1)
-                    if len(parts) != 2:
+                    token = parts[0]
+                    if not token:
                         raise ValueError(
                             f"Invalid vocab format at line {i} in {vocab_path}: "
-                            f"expected 'token count', got '{line}'"
+                            f"expected 'token count' but token is empty, got '{line}'"
                         )
                     count_str = parts[1].strip()
+                    if not count_str:
+                        raise ValueError(
+                            f"Invalid vocab format at line {i} in {vocab_path}: "
+                            f"expected 'token count' but count is empty, got '{line}'"
+                        )
                     try:
                         count = int(count_str)
                     except ValueError as e:
@@ -112,7 +118,7 @@ def _read_vocab_file(vocab_path, min_count):
                             f"Invalid count value at line {i} in {vocab_path}: " f"expected integer, got {parts[1]!r}"
                         ) from e
                     if count >= min_count:
-                        vocab.append(parts[0])
+                        vocab.append(token)
             else:
                 vocab = lines
             return vocab
