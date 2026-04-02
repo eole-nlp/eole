@@ -64,8 +64,8 @@ def _add_test(param_setting, methodname, idx):
 
 test_wrong_vocab = [
     # (content, expected_line, expected_error_msg)
-    ("\t100\n", 1, "token is empty'"),
-    ("test\t\n", 1, "count is empty'"),
+    ("\t100\n", 1, "token is empty"),
+    ("test\t\n", 1, "count is empty"),
 ]
 
 
