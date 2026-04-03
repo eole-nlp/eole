@@ -1,5 +1,6 @@
 """Vision adapters for multimodal models."""
 
+import math
 import torch
 import torch.nn as nn
 
@@ -237,6 +238,124 @@ class Gemma3MultiModalProjector(BaseVisionAdapter):
         x = x.transpose(1, 2).view(b, d, h, h)
         x = self.pool(x).flatten(2).transpose(1, 2).contiguous()
         return self.w_in(self.norm(x)).type_as(x)
+
+
+class Gemma4MultiModalProjector(BaseVisionAdapter):
+    """
+    Multi-modal projector used in Gemma 4 models.
+
+    Downsamples the vision encoder patch grid using average pooling with a
+    fixed kernel size (pooling_kernel_size, typically 3 for Gemma4), then
+    scales by sqrt(hidden_size) (matching Gemma4VisionPooler), followed by
+    RMS normalization (no learnable scale, matching Gemma4MultimodalEmbedder)
+    and a linear projection.
+    Unlike Gemma3MultiModalProjector this uses pooling_kernel_size directly
+    from the config instead of deriving it from image_size, supporting
+    variable-resolution inputs.
+    """
+
+    def __init__(self, model_config, running_config=None):
+        super().__init__()
+        from eole.modules.rmsnorm import RMSNormNoScale
+
+        in_dim = model_config.encoder.hidden_size
+        out_dim = model_config.decoder.hidden_size
+        kernel = model_config.encoder.pooling_kernel_size
+        # patch_size needed for exact patch-grid recovery from pixel dimensions
+        self.patch_size = model_config.encoder.patch_size or 16
+        self.pool_kernel_size = kernel
+
+        self.w_in = nn.Linear(in_dim, out_dim, bias=False)
+        # HF Gemma4MultimodalEmbedder uses Gemma4RMSNorm(with_scale=False):
+        # plain RMS normalisation with no learnable scale weight.
+        self.norm = RMSNormNoScale(in_dim)
+        self.pool = nn.AvgPool2d(kernel, stride=kernel)
+        self.root_hidden_size = math.sqrt(in_dim)
+
+        # Gemma4: optional output standardization (std_bias/std_scale).
+        # HF applies this after the pooler, before norm + linear projection.
+        if getattr(model_config.encoder, "standardize", False):
+            self.register_buffer("std_bias", torch.zeros(in_dim))
+            self.register_buffer("std_scale", torch.ones(in_dim))
+        else:
+            self.std_bias = None
+            self.std_scale = None
+
+    def forward(self, x, image_sizes=None):
+        """
+        Args:
+            x: Vision encoder output of shape (1, sum_i N_i, D) for packed
+               multi-image inputs, or (B, N, D) for uniform single images.
+               The encoder concatenates all images into a single sequence
+               dimension (batch=1), so we must split by image_sizes.
+            image_sizes: Tensor of shape (B, 2) with (H_px, W_px) per image.
+
+        Returns:
+            Tensor of shape (B, tokens_after_pool, decoder_hidden_size).
+        """
+        _, _, d = x.shape
+
+        def _pool_single_image(img_seq: torch.Tensor, h_p: int, w_p: int) -> torch.Tensor:
+            if h_p <= 0 or w_p <= 0:
+                raise ValueError(f"Patch grid dimensions must be positive, got ({h_p}, {w_p})")
+            if h_p % self.pool_kernel_size != 0 or w_p % self.pool_kernel_size != 0:
+                raise ValueError(f"Patch grid ({h_p}, {w_p}) not divisible by pooling kernel {self.pool_kernel_size}")
+            # (N, D) -> (1, D, H, W) -> pool -> (1, pooled_tokens, D)
+            xi = img_seq.transpose(0, 1).reshape(1, d, h_p, w_p)
+            return self.pool(xi).flatten(2).transpose(1, 2)
+
+        if image_sizes is not None and len(image_sizes) > 0:
+            grids = compute_patch_grid(image_sizes.tolist(), self.patch_size)
+            counts = [h_p * w_p for h_p, w_p in grids]
+
+            pooled_parts = []
+            if x.size(0) == 1:
+                # Packed: x = (1, sum_i N_i, D)
+                if sum(counts) != x.size(1):
+                    raise ValueError(
+                        f"Packed vision sequence length mismatch: got {x.size(1)}"
+                        f"expected {sum(counts)} (sum of {counts}) from image_sizes"
+                    )
+                seq = x.squeeze(0)
+                start = 0
+                for (h_p, w_p), n_i in zip(grids, counts):
+                    img_seq = seq[start : start + n_i]
+                    start += n_i
+                    pooled_parts.append(_pool_single_image(img_seq, h_p, w_p))
+            elif x.size(0) == len(grids):
+                # Non-packed: x = (B, N_i, D) with one image per batch row
+                for i, ((h_p, w_p), n_i) in enumerate(zip(grids, counts)):
+                    if x.size(1) != n_i:
+                        raise ValueError(
+                            f"Non-packed sequence length mismatch at image {i}: got {x.size(1)}, expected {n_i}"
+                        )
+                    pooled_parts.append(_pool_single_image(x[i], h_p, w_p))
+            else:
+                raise ValueError(f"Unexpected vision tensor shape {tuple(x.shape)} for {len(grids)} images")
+
+            pooled = torch.cat(pooled_parts, dim=0)
+        else:
+            # No image_sizes: fall back to square grids with validation.
+            b, n, d_in = x.shape
+            h_p = int(n**0.5)
+            if h_p * h_p != n:
+                raise ValueError(
+                    f"Cannot infer square patch grid: sequence length {n} is not a perfect square"
+                    f"provide image_sizes for non-square grids"
+                )
+            if h_p % self.pool_kernel_size != 0:
+                raise ValueError(
+                    f"Inferred patch grid ({h_p}, {h_p}) not divisible by pooling kernel {self.pool_kernel_size}"
+                )
+            xi = x.transpose(1, 2).reshape(b, d_in, h_p, h_p)
+            pooled = self.pool(xi).flatten(2).transpose(1, 2)
+        # Scale by sqrt(hidden_size) to match HF Gemma4VisionPooler behaviour.
+        pooled = pooled * self.root_hidden_size
+        # Gemma4: optional standardization after pooler, matching HF order.
+        if self.std_bias is not None:
+            pooled = (pooled - self.std_bias) * self.std_scale
+        # Apply RMS norm + linear projection.
+        return self.w_in(self.norm(pooled)).type_as(pooled)
 
 
 class DeepSeekOCRProjector(BaseVisionAdapter):

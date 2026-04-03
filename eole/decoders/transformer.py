@@ -33,7 +33,7 @@ class TransformerDecoderLayer(nn.Module):
         self.alignment_heads = decoder_config.alignment_heads
         self.ffn_layernorm = decoder_config.ffn_layernorm
 
-        # Determine the layer type for hybrid architectures (e.g. Qwen3.5).
+        # Determine the layer type for hybrid architectures (e.g. Qwen3.5, Gemma4).
         layer_types = getattr(decoder_config, "layer_types", None)
         if layer_types is not None and idx < len(layer_types):
             self.layer_type = layer_types[idx]
@@ -51,8 +51,25 @@ class TransformerDecoderLayer(nn.Module):
             self.self_attn = None
             self.context_attn = None
         else:
+            # For full_attention layers in Gemma4-style hybrid models, use a
+            # modified config with global_head_dim / global_heads_kv / no sliding window.
+            if self.layer_type == "full_attention" and getattr(decoder_config, "global_head_dim", None) is not None:
+                update = {
+                    "head_dim": getattr(decoder_config, "global_head_dim", None),
+                    "heads_kv": getattr(decoder_config, "global_heads_kv", None),
+                    "sliding_window": 0,
+                }
+                rope_config = getattr(decoder_config, "rope_config", None)
+                if rope_config is not None:
+                    rotary_dim_global = getattr(rope_config, "rotary_dim_global", 0)
+                    if rotary_dim_global > 0:
+                        new_rope_config = rope_config.model_copy(update={"rotary_dim": rotary_dim_global})
+                        update["rope_config"] = new_rope_config
+                attn_config = decoder_config.model_copy(update=update)
+            else:
+                attn_config = decoder_config
             self.self_attn = SelfMHA(
-                decoder_config,
+                attn_config,
                 running_config=running_config,
             )
         if decoder_config.with_cross_attn:
@@ -112,6 +129,11 @@ class TransformerDecoderLayer(nn.Module):
         self.compiled_shapes = set()
         self.hidden_size = decoder_config.hidden_size
 
+        # Gemma4 per-layer scalar (initialized to 1 so it is a no-op for all other models).
+        # In HF it is a registered buffer applied as `hidden_states *= self.layer_scalar`
+        # at the very end of every decoder layer's forward pass.
+        self.register_buffer("layer_scalar", torch.ones(1), persistent=True)
+
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
             self._forward_compile = torch.compile(
                 self._forward_eager,
@@ -147,14 +169,17 @@ class TransformerDecoderLayer(nn.Module):
             self.compiled_shapes.add((B, S))
 
     def _forward_ffn_layernorm(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
+        """Gemma style"""
         kwargs.pop("return_attn", None)
         ff_in = layer_in + self.post_attention_layernorm(self_attn)
         ff_in2 = self.pre_feedforward_layernorm(ff_in)
         ff_in2 = self.mlp(ff_in2)
         layer_out = ff_in + self.post_feedforward_layernorm(ff_in2)
+        layer_out = layer_out * self.layer_scalar
         return layer_out, attns
 
     def _forward_parallel_residual(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
+        """Phi style"""
         enc_out = kwargs.pop("enc_out", None)
         src_pad_mask = kwargs.pop("src_pad_mask", None)
         return_attn = kwargs.pop("return_attn", False)
@@ -177,6 +202,7 @@ class TransformerDecoderLayer(nn.Module):
         return self_attn + self.mlp(ff_in), attns
 
     def _forward_cross_attn(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
+        """EncoderDecoder style"""
         enc_out = kwargs.pop("enc_out", None)
         src_pad_mask = kwargs.pop("src_pad_mask", None)
         return_attn = kwargs.pop("return_attn", False)
@@ -198,13 +224,14 @@ class TransformerDecoderLayer(nn.Module):
         return self_attn + self.mlp(ff_in), attns
 
     def _forward_linear_attn(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
-        """Forward pass for linear attention (GatedDeltaNet) layers."""
+        """Qwen3.5 style (GatedDeltaNet) layers."""
         # Note: self_attn here is already the output of linear_attn (set by _forward_eager)
         self_attn.add_(layer_in)
         ff_in = self.post_attention_layernorm(self_attn)
         return self_attn + self.mlp(ff_in), attns
 
     def _forward_no_cross_attn(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
+        """Regular decoder only"""
         kwargs.pop("return_attn", None)
         self_attn.add_(layer_in)
         ff_in = self.post_attention_layernorm(self_attn)
@@ -212,6 +239,7 @@ class TransformerDecoderLayer(nn.Module):
 
     def forward(self, layer_in, **kwargs):
         if layer_in.size(1) > 1:
+            # prefill or training no compile
             return self._forward_eager(layer_in, **kwargs)
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
             return self._forward_compile(layer_in, **kwargs)
@@ -352,6 +380,9 @@ class TransformerDecoder(DecoderBase):
         self.has_linear_attn = any(
             getattr(layer, "layer_type", "full_attention") == "linear_attention" for layer in self.transformer_layers
         )
+        self.has_sliding_attn = any(
+            getattr(layer, "layer_type", "") == "sliding_attention" for layer in self.transformer_layers
+        )
         self.self_attn_backend = getattr(running_config, "self_attn_backend", "flash")
         self.position_encoding_type = decoder_config.position_encoding_type
         self.flash = False
@@ -432,7 +463,7 @@ class TransformerDecoder(DecoderBase):
         for layer in self.transformer_layers:
             layer.update_dropout(dropout, attention_dropout)
 
-    def _causal_attn_mask(self, tgt_pad_mask, prefix_len=None):
+    def _causal_attn_mask(self, tgt_pad_mask, prefix_len=None, use_sliding_window=True):
         B, _, seq_len = tgt_pad_mask.size()
         device = tgt_pad_mask.device
         MAX_T = seq_len if (self.training or self.dynamic_shapes) else self.kvcache_maxsize
@@ -442,7 +473,7 @@ class TransformerDecoder(DecoderBase):
             torch.ones((MAX_T, MAX_T), device=tgt_pad_mask.device, dtype=torch.bool),
             diagonal=0,
         )
-        if self.sliding_window > 0:
+        if use_sliding_window and self.sliding_window > 0:
             # Use "- sliding_window + 1" to match the chunked-prefill path
             # (_chunk_attn_mask: k >= q - sliding_window + 1) and the single-step
             # decoding path (start = current_step - sliding_window + 1), giving a
@@ -504,7 +535,7 @@ class TransformerDecoder(DecoderBase):
 
         return attn_mask | full_mask
 
-    def _chunk_attn_mask(self, chunk_size, current_step, tgt_pad_mask, prefix_len=None):
+    def _chunk_attn_mask(self, chunk_size, current_step, tgt_pad_mask, prefix_len=None, use_sliding_window=True):
         """Create an absolute-position attention mask for a prefill chunk.
 
         Handles positional/causal masking only.  Image-token type masking is
@@ -530,6 +561,9 @@ class TransformerDecoder(DecoderBase):
                 prefix tokens are allowed to attend bidirectionally to every
                 other prefix token, mirroring the logic of
                 ``_causal_attn_mask``.
+            use_sliding_window (bool): Whether to apply the sliding window
+                constraint.  Pass ``False`` to get a full causal mask (used
+                for full_attention layers in hybrid models like Gemma4).
 
         Returns:
             Tensor: boolean mask ``(B, 1, chunk_size, cache_len_tgt)``,
@@ -547,7 +581,7 @@ class TransformerDecoder(DecoderBase):
         # Causal constraint: key position must not exceed query position
         mask = k_pos <= q_pos  # (chunk_size, cache_len)
 
-        if self.sliding_window > 0:
+        if use_sliding_window and self.sliding_window > 0:
             # Sliding window: key position must be within the window.
             # Use "- sliding_window + 1" to match the single-step decoding path
             # (start = current_step - sliding_window + 1), giving a window of
@@ -795,9 +829,8 @@ class TransformerDecoder(DecoderBase):
 
     def forward(self, emb, **kwargs):
         B, S, _ = emb.size()
-        # Pop src_ids early; it is only consumed by _forward_chunked_prefill
-        # for cache key computation and must not be forwarded to _forward_eager.
         src_ids = kwargs.pop("src_ids", None)
+
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and S == 1:
             return self._forward_compile(emb, **kwargs)
         # Determine the effective chunk size for chunked prefill.
@@ -871,14 +904,27 @@ class TransformerDecoder(DecoderBase):
 
         if self.rope_local is not None:
             position_embeddings_local = self.rope_local.cos_sin
-            pos_emb_list = [
-                (
-                    position_embeddings_local[pos_ids_1d]
-                    if (i + 1) % self.interleave_local
-                    else position_embeddings[pos_ids_1d]
-                )
-                for i in range(len(self.transformer_layers))
-            ]
+            if self.has_sliding_attn:
+                # Gemma4-style: use layer_types to select rope per layer
+                # "sliding_attention" → local rope, "full_attention" → global rope
+                pos_emb_list = [
+                    (
+                        position_embeddings_local[pos_ids_1d]
+                        if layer.layer_type == "sliding_attention"
+                        else position_embeddings[pos_ids_1d]
+                    )
+                    for layer in self.transformer_layers
+                ]
+            else:
+                # Legacy interleave_local approach (e.g. Gemma3)
+                pos_emb_list = [
+                    (
+                        position_embeddings_local[pos_ids_1d]
+                        if (i + 1) % self.interleave_local
+                        else position_embeddings[pos_ids_1d]
+                    )
+                    for i in range(len(self.transformer_layers))
+                ]
         elif position_embeddings is not None:
             pos_emb_list = [position_embeddings[pos_ids_1d]] * len(self.transformer_layers)
         else:
@@ -906,6 +952,12 @@ class TransformerDecoder(DecoderBase):
                         tgt_pad_mask,
                         prefix_len=prefix_len,
                     )
+                    # For hybrid sliding/full attention models, also compute a full
+                    # (no-sliding-window) mask for full_attention layers.
+                    if self.has_sliding_attn:
+                        attn_mask_full = self._chunk_attn_mask(
+                            S, current_step, tgt_pad_mask, prefix_len=prefix_len, use_sliding_window=False
+                        )
                     if image_locations is not None:
                         # Query tokens occupy absolute positions
                         # [current_step, current_step + S); key tokens span the
@@ -940,13 +992,25 @@ class TransformerDecoder(DecoderBase):
                             image_locations[:, q_abs_positions],
                             k_img_full & filled_mask,
                         )
+                        if self.has_sliding_attn:
+                            attn_mask_full = self._update_causal_mask(
+                                attn_mask_full,
+                                image_locations[:, q_abs_positions],
+                                k_img_full & filled_mask,
+                            )
                 else:
                     # Training path (no KV cache): _causal_attn_mask handles
                     # the full sequence with MAX_T = seq_len (training) or
                     # self.max_length (static-shape eval without cache).
                     attn_mask = self._causal_attn_mask(tgt_pad_mask, prefix_len=prefix_len)
+                    if self.has_sliding_attn:
+                        attn_mask_full = self._causal_attn_mask(
+                            tgt_pad_mask, prefix_len=prefix_len, use_sliding_window=False
+                        )
                     if image_locations is not None:
                         attn_mask = self._update_causal_mask(attn_mask, image_locations)
+                        if self.has_sliding_attn:
+                            attn_mask_full = self._update_causal_mask(attn_mask_full, image_locations)
                 lin_attn_mask = ~tgt_pad_mask[:, 0, :] if self.has_linear_attn else None
             else:
                 # at decoding _init_cache must be called and init these
@@ -956,9 +1020,15 @@ class TransformerDecoder(DecoderBase):
                     start = torch.clamp(current_step - self.sliding_window + 1, min=0)
                     valid = valid & (self.position_indices >= start)
                 attn_mask = valid.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, MAX_T or Dynamic Cache Len)
+                if self.has_sliding_attn:
+                    # full_attention layers: no sliding window restriction
+                    valid_full = self.position_indices <= self.cache_seqlens.view(-1, 1)
+                    valid_full = valid_full & self.left_pad_attn_mask
+                    attn_mask_full = valid_full.unsqueeze(1).unsqueeze(2)
                 lin_attn_mask = None
         else:
             attn_mask = None
+            attn_mask_full = None
             cache_slice = None  # triggers flash decoding
             if S > 1 and self.has_linear_attn:
                 lin_attn_mask = ~tgt_pad_mask[:, 0, :]
@@ -969,9 +1039,13 @@ class TransformerDecoder(DecoderBase):
         attn_aligns = []
 
         for layer, pos_emb in zip(self.transformer_layers, pos_emb_list):
-            layer_attn_mask = (
-                lin_attn_mask if (lin_attn_mask is not None and layer.layer_type == "linear_attention") else attn_mask
-            )
+            if lin_attn_mask is not None and layer.layer_type == "linear_attention":
+                layer_attn_mask = lin_attn_mask
+            elif self.has_sliding_attn and layer.layer_type == "full_attention":
+                layer_attn_mask = attn_mask_full
+            else:
+                layer_attn_mask = attn_mask
+
             emb, attn = layer(
                 emb.clone() if (EOLE_COMPILE_MODE == "2" and EOLE_TORCH_COMPILE) else emb,
                 enc_out=enc_out,

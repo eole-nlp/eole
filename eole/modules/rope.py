@@ -94,6 +94,63 @@ def apply_rotary_pos_emb_xdrope(
     return q_out, k_out
 
 
+def apply_rotary_emb_multidim(query: Tensor, key: Tensor, cos_sin: Tensor, ndim: int = 2) -> Tuple[Tensor, Tensor]:
+    """Apply multidimensional RoPE matching HF's apply_multidimensional_rope.
+
+    Each spatial dimension gets its own rotate_half within a contiguous chunk
+    of the head, rather than the standard approach that pairs the first half
+    of the head with the second half.
+
+    cos_sin layout (shape ``(S, head_dim)``):
+      ``cos_sin[:, :D]`` = cos values = ``[cos_dim0_freqs, cos_dim1_freqs, ...]``
+      ``cos_sin[:, D:]`` = sin values = ``[sin_dim0_freqs, sin_dim1_freqs, ...]``
+
+    where ``D = head_dim // 2``, and each spatial dimension contributes
+    ``D // ndim`` frequency entries.
+
+    The rotation for spatial dimension *i* is applied to the contiguous
+    block ``query[..., i*chunk : (i+1)*chunk]`` (chunk = head_dim // ndim)
+    using only the matching ``D // ndim`` cos/sin entries.
+
+    Args:
+        query: ``(B, S, H, head_dim)``
+        key:   ``(B, S, Hk, head_dim)``
+        cos_sin: ``(S, head_dim)`` as described above.
+        ndim: number of spatial dimensions (default 2 for vision 2D RoPE).
+
+    Returns:
+        Rotated query and key, same shapes as input.
+    """
+    B, S, H, head_dim = query.shape
+    _, _, Hk, _ = key.shape
+
+    chunk_size = head_dim // ndim  # e.g. 32 for head_dim=64, ndim=2
+    half_chunk = chunk_size // 2  # e.g. 16
+    D = head_dim // 2  # total cos (or sin) width
+    freq_per_dim = D // ndim  # cos/sin entries per spatial dim (e.g. 16)
+
+    cos_full = cos_sin[None, :, None, :D]  # (1, S, 1, D)
+    sin_full = cos_sin[None, :, None, D:]  # (1, S, 1, D)
+
+    q_parts: list[Tensor] = []
+    k_parts: list[Tensor] = []
+    for i in range(ndim):
+        qi = query[..., i * chunk_size : (i + 1) * chunk_size]  # (B,S,H,chunk)
+        ki = key[..., i * chunk_size : (i + 1) * chunk_size]  # (B,S,Hk,chunk)
+
+        ci = cos_full[..., i * freq_per_dim : (i + 1) * freq_per_dim]  # (1,S,1,fpd)
+        si = sin_full[..., i * freq_per_dim : (i + 1) * freq_per_dim]
+
+        # rotate_half within chunk: pair (j, j+half_chunk) for j in [0, half_chunk)
+        q1, q2 = qi[..., :half_chunk], qi[..., half_chunk:]
+        k1, k2 = ki[..., :half_chunk], ki[..., half_chunk:]
+
+        q_parts.append(torch.cat([q1 * ci - q2 * si, q2 * ci + q1 * si], dim=-1))
+        k_parts.append(torch.cat([k1 * ci - k2 * si, k2 * ci + k1 * si], dim=-1))
+
+    return torch.cat(q_parts, dim=-1), torch.cat(k_parts, dim=-1)
+
+
 def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bool) -> Tuple[Tensor, Tensor]:
 
     B, S, H, D = query.shape
@@ -184,7 +241,13 @@ class RotaryPosition(nn.Module):
         self.dim_per_head = model_config.dim_per_head
 
         rope_config = model_config.rope_config
-        rotary_dim = rope_config.rotary_dim if rope_config.rotary_dim != 0 else self.dim_per_head
+        # For global (full_attention) layers: use rotary_dim_global if set (Gemma4 proportional rope)
+        rotary_dim_global = getattr(rope_config, "rotary_dim_global", 0)
+        partial_rotary_factor = getattr(rope_config, "partial_rotary_factor", 0.0)
+        if variant == "global" and rotary_dim_global > 0:
+            rotary_dim = rotary_dim_global
+        else:
+            rotary_dim = rope_config.rotary_dim if rope_config.rotary_dim != 0 else self.dim_per_head
         self.rotary_interleave = rope_config.rotary_interleave
         self.rotary_theta = rope_config.rotary_theta if variant == "global" else rope_config.rotary_theta_local
 
@@ -206,7 +269,18 @@ class RotaryPosition(nn.Module):
         else:
             base = self.rotary_theta
 
-        inv_freq = 1.0 / (base ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
+        # Proportional RoPE (Gemma4 full_attention): inv_freq has global_head_dim//2 entries where the
+        # first rope_angles entries are non-zero and the remaining nope_dim entries are zero.  This means
+        # the cos/sin table covers ALL global_head_dim dimensions; zero-freq dims get cos=1, sin=0 → identity.
+        # This exactly matches HF's _compute_proportional_rope_parameters.
+        if variant == "global" and partial_rotary_factor > 0.0:
+            full_head_dim = getattr(model_config, "global_head_dim", 0) or self.dim_per_head
+            rope_angles = int(partial_rotary_factor * full_head_dim / 2)
+            nope_dim = full_head_dim // 2 - rope_angles
+            inv_freq_rotated = 1.0 / (base ** (torch.arange(0, 2 * rope_angles, 2).float() / full_head_dim))
+            inv_freq = torch.cat([inv_freq_rotated, torch.zeros(nope_dim)], dim=0)
+        else:
+            inv_freq = 1.0 / (base ** (torch.arange(0, rotary_dim, 2).float() / rotary_dim))
 
         # 2. Handle 2D Expansion
         if mode == "2d":
@@ -231,34 +305,52 @@ class RotaryPosition(nn.Module):
     def init_2d_inv_freq(self, inv_freq):
         """
         Initialize 2d inverse frequencies for 2D rotary embeddings.
-        Two styles are supported:
-        * **Pixtral** (``temporal_patch_size == 1``): height uses even-indexed
-          base frequencies (``inv_freq[::2]``), width uses odd-indexed ones
-          (``inv_freq[1::2]``).
+        Three styles are supported:
+        * **Pixtral** (``temporal_patch_size == 1``, ``multidimensional_rope == False``):
+          height uses even-indexed base frequencies (``inv_freq[::2]``),
+          width uses odd-indexed ones (``inv_freq[1::2]``).
         * **Qwen VL** (``temporal_patch_size > 1``): both height and width use
           the same even-indexed base frequencies (``inv_freq[::2]``), matching
           HF's ``VisionRotaryEmbedding`` which applies the full frequency set
           to each spatial dimension independently.
+        * **Gemma4 vision** (``multidimensional_rope == True``): both spatial
+          dimensions use the *same* base frequencies, and the order is
+          (col/x first, row/y second) to match HF's
+          ``apply_multidimensional_rope`` which assigns the first head-dim
+          chunk to x and the second to y.
         """
         max_patches_per_side = self.model_config.image_size // self.model_config.patch_size
         h = torch.arange(max_patches_per_side, device=inv_freq.device)
         w = torch.arange(max_patches_per_side, device=inv_freq.device)
-        freqs_h = torch.outer(h, inv_freq[::2]).float()
-        # Qwen VL uses the same base frequencies for both spatial dimensions.
-        # Pixtral interleaves even/odd frequencies between height and width.
-        if getattr(self.model_config, "temporal_patch_size", 1) > 1:
-            freqs_w = torch.outer(w, inv_freq[::2]).float()
+        multidimensional = getattr(self.model_config.rope_config, "multidimensional_rope", False)
+        if multidimensional:
+            # Gemma4 vision: same frequencies for both dims, col-first order.
+            base_freqs = inv_freq[::2]
+            freqs_h = torch.outer(h, base_freqs).float()
+            freqs_w = torch.outer(w, base_freqs).float()
+            # HF convention: x/col = first chunk, y/row = second chunk
+            inv_freq_2d = torch.cat(
+                [
+                    freqs_w[None, :, :].repeat(max_patches_per_side, 1, 1),  # col/x first
+                    freqs_h[:, None, :].repeat(1, max_patches_per_side, 1),  # row/y second
+                ],
+                dim=-1,
+            ).reshape(-1, self.dim_per_head // 2)
         else:
-            freqs_w = torch.outer(w, inv_freq[1::2]).float()
-        inv_freq_2d = torch.cat(
-            [
-                freqs_h[:, None, :].repeat(1, max_patches_per_side, 1),  # Use repeat, not expand
-                freqs_w[None, :, :].repeat(max_patches_per_side, 1, 1),
-            ],
-            dim=-1,
-        ).reshape(
-            -1, self.dim_per_head // 2
-        )  # Match original output shape
+            freqs_h = torch.outer(h, inv_freq[::2]).float()
+            # Qwen VL uses the same base frequencies for both spatial dimensions.
+            # Pixtral interleaves even/odd frequencies between height and width.
+            if getattr(self.model_config, "temporal_patch_size", 1) > 1:
+                freqs_w = torch.outer(w, inv_freq[::2]).float()
+            else:
+                freqs_w = torch.outer(w, inv_freq[1::2]).float()
+            inv_freq_2d = torch.cat(
+                [
+                    freqs_h[:, None, :].repeat(1, max_patches_per_side, 1),  # Use repeat, not expand
+                    freqs_w[None, :, :].repeat(max_patches_per_side, 1, 1),
+                ],
+                dim=-1,
+            ).reshape(-1, self.dim_per_head // 2)
         return inv_freq_2d
 
     def llama3_scaling(self):

@@ -1,3 +1,4 @@
+import math
 import numpy as np
 from PIL import Image, ImageOps
 from typing import Optional, Union
@@ -9,6 +10,7 @@ from eole.utils.logging import logger
 DATASET_MEAN = {
     "llava": (0.48145466, 0.4578275, 0.40821073),
     "gemma3": (0.5, 0.5, 0.5),
+    "gemma4": (0.5, 0.5, 0.5),
     "deepseekocr": (0.5, 0.5, 0.5),
     "hunyuanocr": (0.48145466, 0.4578275, 0.40821073),
     # Qwen3VL / Qwen3.5VL: from preprocessor_config.json image_mean
@@ -18,6 +20,7 @@ DATASET_MEAN = {
 DATASET_STD = {
     "llava": (0.26862954, 0.26130258, 0.27577711),
     "gemma3": (0.5, 0.5, 0.5),
+    "gemma4": (0.5, 0.5, 0.5),
     "deepseekocr": (0.5, 0.5, 0.5),
     "hunyuanocr": (0.26862954, 0.26130258, 0.27577711),
     # Qwen3VL / Qwen3.5VL: from preprocessor_config.json image_std
@@ -27,6 +30,7 @@ DATASET_STD = {
 RESAMPLE = {
     "llava": Image.BICUBIC,
     "gemma3": Image.BILINEAR,
+    "gemma4": Image.BICUBIC,
     "deepseekocr": Image.BILINEAR,
     "hunyuanocr": Image.BILINEAR,
     "qwen3_5vl": Image.BICUBIC,
@@ -35,6 +39,7 @@ RESAMPLE = {
 SQUARE = {
     "llava": False,
     "gemma3": True,
+    "gemma4": False,
     "deepseekocr": True,
     "hunyuanocr": False,
     "qwen3_5vl": False,
@@ -283,7 +288,14 @@ def to_channel_dimension_format(
     return image
 
 
-def process_image(image_path, adapter="llava", image_patch_size=16, image_size=1024):
+def process_image(
+    image_path,
+    adapter="llava",
+    image_patch_size=16,
+    image_size=1024,
+    pooling_kernel_size=1,
+    mm_tokens_per_image=280,
+):
     if isinstance(image_path, Image.Image):
         PILimage = image_path
     else:
@@ -294,6 +306,35 @@ def process_image(image_path, adapter="llava", image_patch_size=16, image_size=1
     if adapter in ["deepseekocr", "gemma3"]:
         # padding
         PILimage = ImageOps.pad(PILimage, (image_size, image_size), color=(127, 127, 127))
+    elif adapter == "gemma4":
+        # Aspect-ratio-preserving resize matching HF's
+        # get_aspect_ratio_preserving_size().
+        # The resize target is determined by a patch budget
+        # (mm_tokens_per_image * pooling_kernel_size²) rather than a max
+        # pixel dimension, so both small and large images are resized to
+        # fit within the budget while preserving the aspect ratio.
+        stride = image_patch_size * pooling_kernel_size
+        orig_w, orig_h = PILimage.size
+        max_soft_tokens = mm_tokens_per_image  # e.g. 280
+        max_patches = max_soft_tokens * (pooling_kernel_size**2)
+        target_px = max_patches * (image_patch_size**2)
+        total_px = orig_h * orig_w
+        factor = math.sqrt(target_px / total_px) if total_px > 0 else 1.0
+        ideal_h = factor * orig_h
+        ideal_w = factor * orig_w
+        new_h = max(stride, int(math.floor(ideal_h / stride)) * stride)
+        new_w = max(stride, int(math.floor(ideal_w / stride)) * stride)
+        # Clamp so we never exceed the max_patches budget.
+        max_side = (max_patches // (pooling_kernel_size**2)) * stride
+        if new_h == 0:
+            new_h = stride
+            new_w = min(int(math.floor(orig_w / max(orig_h, 1))) * stride, max_side) or stride
+        if new_w == 0:
+            new_w = stride
+            new_h = min(int(math.floor(orig_h / max(orig_w, 1))) * stride, max_side) or stride
+        PILimage = PILimage.resize((new_w, new_h), resample=RESAMPLE[adapter], reducing_gap=None)
+        w = new_w // image_patch_size
+        h = new_h // image_patch_size
     else:
         # resize
         w, h = image_to_num_tokens(
@@ -319,6 +360,12 @@ def process_image(image_path, adapter="llava", image_patch_size=16, image_size=1
         image_tokens[-1] = "[IMG_END]"
     elif adapter == "gemma3":
         image_tokens = "<start_of_image>" + "<image_soft_token>" * 256 + "<end_of_image>"
+    elif adapter == "gemma4":
+        # Number of soft tokens after average pooling: each pool tile covers
+        # (pooling_kernel_size × pooling_kernel_size) vision patches.
+        w_tokens = w // pooling_kernel_size
+        h_tokens = h // pooling_kernel_size
+        image_tokens = "<|image>" + "<|image|>" * (w_tokens * h_tokens) + "<image|>"
     elif adapter == "deepseekocr":
         # sam patches are 16 (hardcoded in original implementation)
         # for a 1024x1024 image it means patches of 64x64

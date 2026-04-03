@@ -201,6 +201,25 @@ class RotaryPositionConfig(Config):
         default=0,
         description="tmax indexing, 0 for all cases except gemma 3 = 1",
     )
+    rotary_dim_global: int = Field(
+        default=0,
+        description="Rotary dimension for global (full_attention) layers when different from rotary_dim. "
+        "Used by Gemma4 where full_attention layers use a smaller rotary dimension "
+        "(partial_rotary_factor * global_head_dim). 0 means use rotary_dim or dim_per_head.",
+    )
+    partial_rotary_factor: float = Field(
+        default=0.0,
+        description="Fraction of global_head_dim used for rotation in 'proportional' RoPE (Gemma4 full_attention). "
+        "When > 0, the inv_freq is computed with global_head_dim as denominator and zero-padded so that "
+        "cos/sin covers all global_head_dim dimensions (zero-freq dims get identity rotation). "
+        "0.0 means standard full rotation (no partial rotation).",
+    )
+    multidimensional_rope: bool = Field(
+        default=False,
+        description="Use multidimensional RoPE application matching HF's apply_multidimensional_rope "
+        "(Gemma4 vision encoder). Splits the head into spatial chunks and applies rotate_half "
+        "within each chunk, rather than pairing first-half/second-half as standard RoPE does.",
+    )
 
 
 class TransformerConfig(Config):
@@ -263,6 +282,9 @@ class TransformerConfig(Config):
         default=False,
     )
     key_norm: bool = Field(
+        default=False,
+    )
+    value_norm: bool = Field(
         default=False,
     )
     qk_norm_post_rope: bool = Field(
@@ -377,9 +399,19 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
     )
     layer_types: List[str] | None = Field(
         default=None,
-        description="Per-layer types for hybrid architectures (e.g. Qwen3.5). "
-        "Supported values: 'full_attention', 'linear_attention'. "
+        description="Per-layer types for hybrid architectures (e.g. Qwen3.5, Gemma4). "
+        "Supported values: 'full_attention', 'sliding_attention', 'linear_attention'. "
         "When None, all layers use full attention.",
+    )
+    global_head_dim: int | None = Field(
+        default=None,
+        description="Head dimension for 'full_attention' layers when different from head_dim. "
+        "Used by Gemma4 where full_attention layers use a larger head_dim than sliding_attention layers.",
+    )
+    global_heads_kv: int | None = Field(
+        default=None,
+        description="Number of KV heads for 'full_attention' layers when different from heads_kv. "
+        "Used by Gemma4. When None, falls back to heads_kv.",
     )
     linear_conv_kernel_dim: int = Field(
         default=4,
@@ -482,6 +514,7 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
 
     encoder_sam: bool = False  # True for DeepSeekOCR (Segment Anything Model as 1st step)
     use_class_embedding: bool = False
+    pooling_kernel_size: int = 1  # avg-pool kernel for vision adapter (1=no pool, 3=Gemma4)
 
     # Qwen3.5 VL / Qwen3 VL style options
     temporal_patch_size: int = Field(
@@ -495,6 +528,18 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
         "(Qwen3.5 VL uses 2304 = 48×48). When set together with "
         "position_encoding_type=Rotary both absolute embeddings and "
         "2D RoPE are applied.",
+    )
+    position_embedding_size: int | None = Field(
+        default=None,
+        description="Size of the learnable 2D position embedding table per axis "
+        "(Gemma4 uses 10240). When set, a parameter of shape "
+        "[2, position_embedding_size, hidden_size] is created and added to "
+        "patch embeddings using (x, y) patch coordinates.",
+    )
+    standardize: bool = Field(
+        default=False,
+        description="When True, apply learned std_bias/std_scale normalization "
+        "to the encoder output (Gemma4 31B dense model).",
     )
 
 

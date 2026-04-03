@@ -213,6 +213,17 @@ class VisionEncoder(EncoderBase):
         else:
             self.pos_embed = None
 
+        # Gemma4: learnable 2D position embedding table of shape
+        # [2, position_embedding_size, hidden_size] added to patch embeddings.
+        # Each axis (x and y) is looked up independently via one-hot and summed.
+        # Initialized with ones to match HF's Gemma4PreTrainedModel._init_weights
+        # (pre-trained weights will overwrite this at load time).
+        pos_emb_size = getattr(encoder_config, "position_embedding_size", None)
+        if pos_emb_size:
+            self.position_embedding_table = nn.Parameter(torch.ones(2, pos_emb_size, encoder_config.hidden_size))
+        else:
+            self.position_embedding_table = None
+
         # Patch conv: Conv3D when temporal_patch_size > 1, Conv2D otherwise
         if encoder_config.temporal_patch_size > 1:
             self.patch_conv = nn.Conv3d(
@@ -259,6 +270,9 @@ class VisionEncoder(EncoderBase):
             self.post_layernorm = nn.LayerNorm(encoder_config.hidden_size, eps=encoder_config.norm_eps)
         else:
             self.post_layernorm = None
+
+        # Gemma4 standardization (std_bias/std_scale) is applied after pooling
+        # in the adapter (Gemma4MultiModalProjector), not here in the encoder.
 
     @property
     def device(self):
@@ -497,6 +511,22 @@ class VisionEncoder(EncoderBase):
                 [self._interp_pos_embed(p.shape[-2], p.shape[-1]) for p in patch_embeds_list],
                 dim=0,
             )
+            patch_embeds = patch_embeds + pos_emb
+
+        # Gemma4: add learned 2D position embeddings via position_embedding_table.
+        # positions is a list of 1D tensors with flat indices (row * max_width + col)
+        # produced by position_ids_in_meshgrid.  Convert back to (row, col) coords
+        # so each axis can be looked up independently in the [2, P, H] table.
+        if self.position_embedding_table is not None:
+            all_flat = torch.cat(positions, dim=0).to(self.device)  # (total_patches,)
+            max_width = self.encoder_config.image_size // self.encoder_config.patch_size
+            P = self.position_embedding_table.shape[1]
+            row = all_flat // max_width  # height / row coordinate
+            col = all_flat % max_width  # width / col coordinate
+            row_hot = F.one_hot(row, num_classes=P).to(self.position_embedding_table.dtype)  # (N, P)
+            col_hot = F.one_hot(col, num_classes=P).to(self.position_embedding_table.dtype)  # (N, P)
+            # HF's position_embedding_table: index 0 = x/col, index 1 = y/row
+            pos_emb = col_hot @ self.position_embedding_table[0] + row_hot @ self.position_embedding_table[1]
             patch_embeds = patch_embeds + pos_emb
 
         # Add batch dimension

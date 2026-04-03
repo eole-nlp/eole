@@ -11,8 +11,9 @@ from torch.distributed import all_reduce
 from eole.constants import PositionEncodingType
 from .relative_position_bias import relative_matmul, gen_relative_positions, compute_bias
 from .alibi_position_bias import AlibiPositionalBias
-from .rope import apply_rotary_emb, apply_rotary_pos_emb_xdrope
+from .rope import apply_rotary_emb, apply_rotary_emb_multidim, apply_rotary_pos_emb_xdrope
 from eole.constants import LayerNorm
+from eole.ops import _sdpa
 
 
 # Help functions to split model dim per head
@@ -118,6 +119,10 @@ class MultiHeadedAttention(torch.nn.Module):
             self.q_norm = LayerNorm[model_config.layer_norm](model_config.head_dim, eps=model_config.norm_eps)
         if model_config.key_norm:
             self.k_norm = LayerNorm[model_config.layer_norm](model_config.head_dim, eps=model_config.norm_eps)
+        if model_config.value_norm:
+            from eole.modules.rmsnorm import RMSNormNoScale
+
+            self.v_norm = RMSNormNoScale(model_config.head_dim, eps=model_config.norm_eps)
         self.qk_norm_post_rope = model_config.qk_norm_post_rope
 
         self.final_linear = skip_init(
@@ -127,7 +132,7 @@ class MultiHeadedAttention(torch.nn.Module):
             bias=model_config.add_final_linear_bias,
         )
         self.is_decoder = is_decoder
-        self.scale = self.attn_scaling**-0.5 if self.is_decoder and self.attn_scaling is not None else None
+        self.scale = self.attn_scaling**-0.5 if self.attn_scaling is not None else None
         self.relative_positions_buckets = model_config.relative_positions_buckets
         self.kcache, self.vcache, self.cache_leftpad = None, None, None
         self.sliding_window = model_config.sliding_window
@@ -154,6 +159,7 @@ class MultiHeadedAttention(torch.nn.Module):
                 self.rotary_dim = model_config.rope_config.rotary_dim
             self.rotary_interleave = model_config.rope_config.rotary_interleave
             self.xdrope_section = model_config.rope_config.xdrope_section
+            self.multidimensional_rope = model_config.rope_config.multidimensional_rope
         elif self.position_encoding_type == PositionEncodingType.Alibi:
             self.alibi = AlibiPositionalBias(self.heads)
 
@@ -267,6 +273,9 @@ class MultiHeadedAttention(torch.nn.Module):
         value = bld_to_blhd(value, self.dim_per_head)
         query = bld_to_blhd(query, self.dim_per_head)
 
+        if hasattr(self, "v_norm"):
+            value = self.v_norm(value)
+
         if not self.qk_norm_post_rope:
             if hasattr(self, "q_norm"):
                 query = self.q_norm(query)
@@ -285,6 +294,8 @@ class MultiHeadedAttention(torch.nn.Module):
                     self.xdrope_section,
                     interleave=self.rotary_interleave,
                 )
+            elif getattr(self, "multidimensional_rope", False):
+                query, key = apply_rotary_emb_multidim(query, key, position_embeddings)
             else:
                 query, key = apply_rotary_emb(query, key, position_embeddings, interleave=self.rotary_interleave)
             if self.qk_norm_post_rope:
@@ -339,15 +350,14 @@ class MultiHeadedAttention(torch.nn.Module):
         ):
 
             # Apply pytorch scaled_dot_product_attention (expects b, h, l, d)
-            attn_output = F.scaled_dot_product_attention(
-                query.transpose(1, 2),
-                key.transpose(1, 2),
-                value.transpose(1, 2),
+            attn_output = _sdpa(
+                query,
+                key,
+                value,
                 attn_mask=attn_mask,
                 dropout_p=self.dropout_p,
                 scale=self.scale,
-            ).transpose(1, 2)
-            # Transpose back to b, l, h, d
+            )
             attn = None
         else:
             # Manual attention computation
@@ -455,7 +465,6 @@ class SelfMHA(MultiHeadedAttention):
         cache_seqlens: (B,) - current position for each sequence (assumed uniform)
         cache_slice: tensor of position indices to update
         """
-
         self.kcache[:, cache_slice, :, :] = key
         self.vcache[:, cache_slice, :, :] = value
 
