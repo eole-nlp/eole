@@ -791,6 +791,8 @@ class _LazyKeyMaps(dict):
     def __contains__(self, arch):
         # All known arches are "in" the map, even if not yet built
         return arch in MODEL_OVERRIDES
+
+
 """
     def __getitem__(self, arch):
         # Always return a fresh copy so callers can't corrupt the cache
