@@ -1,5 +1,7 @@
 """ Modules for prediction """
 
+import os
+
 from eole.predict.translator import Translator
 from eole.predict.generator import GeneratorLM
 from eole.predict.encoder import Encoder
@@ -26,14 +28,38 @@ def get_infer_class(model_config):
         return Translator
 
 
+def _is_hf_model_id(model_path: str) -> bool:
+    """Return True if *model_path* looks like a HuggingFace model ID.
+
+    A path is treated as an HF model ID when it satisfies all of:
+
+    * it is not an absolute filesystem path (does not start with ``/``),
+    * it is not a relative path that begins with ``.`` (e.g. ``./model``),
+    * it contains exactly one ``/`` separator (``owner/model-name`` format),
+    * and it does **not** exist as a local filesystem path.
+
+    This avoids misclassifying local directories that happen to contain a
+    ``/`` separator (e.g. ``/mnt/models/llama``).
+    """
+    s = str(model_path)
+    if os.path.isabs(s) or s.startswith("."):
+        return False
+    return "/" in s and not os.path.exists(s)
+
+
 def build_predictor(config, device_id=0, report_score=True, logger=None):
     # right now config is a full (non nested) PredictConfig
 
     if len(config.model_path) > 1:
         # Ensemble case
         model, vocabs, model_config = EnsembleModel.for_inference(config, device_id)
+    elif _is_hf_model_id(config.model_path[0]):
+        # Direct HuggingFace inference — no pre-conversion required
+        from eole.models.hf_loader import load_hf_model
+
+        model, vocabs, model_config = load_hf_model(config, device_id)
     else:
-        # Single model case
+        # Single EOLE model case
         model_class = get_model_class(config.model)
         model, vocabs, model_config = model_class.for_inference(config, device_id)
 

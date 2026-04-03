@@ -27,17 +27,12 @@ from tokenizers.processors import TemplateProcessing
 # Eole Imports
 from eole.bin import BaseBin, register_bin
 from eole.config import recursive_model_fields_set
-from eole.config.run import TrainConfig
-from eole.config.training import TrainingConfig
 from eole.constants import DefaultTokens, TORCH_DTYPES, PositionEncodingType
 from eole.inputters.inputter import vocabs_to_dict
-
 from eole.bin.convert.HF_mappings import (
     KEY_MAPS,
     ACT_TABLE,
     LN_TABLE,
-    ARCH_TABLE,
-    TOK_TABLE,
 )
 
 
@@ -1415,51 +1410,25 @@ class LlamaHFConverter(BaseBin):
 
     @classmethod
     def run(cls, args):
-        hf = HuggingfaceFiles.fetch(args)
+        from eole.models.hf_loader import build_train_config
 
-        # Build eole compatible configs from HF config
-        model_config, training_config, params = build_config_dict(hf)
-        gpt2_pretok = False
+        hf = HuggingfaceFiles.fetch(args)
 
         # Deduce dtype from args or config, or default to fp16
         compute_dtype = args.dtype or hf.config.get("torch_dtype") or "fp16"
 
-        # Check tokenizer and vocab related configuration
-        (
-            add_bos_token,
-            chat_template,
-            optional_eos,
-            mapped_tokens,
-        ) = check_tokenizer_config(hf)
-        vocabs = check_special_tokens(hf)
-        # TODO: could we have a better condition to check for sentencepiece/bpe?
-        if hf.tokenizer_model is not None:  # sentencepiece mode
-            src_subword_type = "sentencepiece"
-            src_vocab, tokenizer_basename = check_sentencepiece_tokenizer(hf)
-        else:  # BPE mode - we leverage the HF tokenizer.json info
-            src_subword_type = "bpe"
-            src_vocab, tokenizer_basename, vocabs, gpt2_pretok = check_bpe_tokenizer(hf, vocabs, args.output)
-
-        # Configure transforms
-        match TOK_TABLE[hf.arch], args.tokenizer:
-            case "huggingface_tokenize", "hf":
-                transforms = ["huggingface_tokenize"]
-                transforms_configs = {
-                    TOK_TABLE[hf.arch]: {"path": hf.tokenizer_json},
-                }
-            case _:
-                transforms = ["onmt_tokenize", "filtertoolong"]
-                transforms_configs = {
-                    "filtertoolong": {"src_seq_length": 512, "tgt_seq_length": 512},
-                    "onmt_tokenize": {
-                        "src_subword_type": src_subword_type,
-                        "src_subword_model": os.path.join("${MODEL_PATH}", tokenizer_basename),
-                        "gpt2_pretok": gpt2_pretok,
-                        "mapped_tokens": mapped_tokens,
-                    },
-                }
+        # Build eole config and vocab using the shared helper
+        train_config, vocabs, params, model_config, inference_dict = build_train_config(
+            hf,
+            args.output,
+            tokenizer_pref=args.tokenizer,
+            dtype=compute_dtype,
+            use_env_path=True,
+        )
 
         # Strip tokenizer post_processor for Whisper models.
+        # This must happen after build_train_config() (which writes the BPE/tokenizer
+        # artifacts) so we can save a cleaned version over the original.
         if hf.arch == "WhisperForConditionalGeneration" and hf.tokenizer_json:
             tokenizer = Tokenizer.from_file(hf.tokenizer_json)
             tokenizer.post_processor = TemplateProcessing(
@@ -1469,21 +1438,10 @@ class LlamaHFConverter(BaseBin):
             )
             clean_tokenizer_path = os.path.join(args.output, "tokenizer.json")
             tokenizer.save(clean_tokenizer_path)
-            transforms_configs["huggingface_tokenize"]["path"] = clean_tokenizer_path
             print("Stripped tokenizer post_processor for Whisper model")
 
-        if hf.config.get("decoder_start_token_id", None) is not None:
-            vocabs["decoder_start_token"] = src_vocab.ids_to_tokens[hf.config["decoder_start_token_id"]]
-        elif add_bos_token:
-            vocabs["decoder_start_token"] = vocabs["specials"]["bos_token"]
-        else:
-            vocabs["decoder_start_token"] = ""
-
-        # Check HF generation config for default settings
-        generation_config_dict = check_generation_config(hf)
-
         # Save vocab files to output model directory
-        save_vocab(vocabs, src_vocab, args.output)
+        save_vocab(vocabs, vocabs["src"], args.output)
 
         # Build shards (skipped when --config-only is set)
         if not args.config_only:
@@ -1495,48 +1453,19 @@ class LlamaHFConverter(BaseBin):
                 check_conversion_completeness(all_src_keys, consumed_src_keys)
                 check_conversion_equality(hf, conversion_details, target_dtype)
 
-        # Build eole config and save to output model directory
-        config = TrainConfig(
-            data=None,
-            skip_empty_level="silent",
-            save_data=None,
-            n_sample=0,
-            src_vocab=None,
-            tgt_vocab=None,
-            share_vocab=True,
-            src_vocab_size=hf.vocab_size,
-            tgt_vocab_size=hf.vocab_size,
-            vocab_size_multiple=8,
-            decoder_start_token=vocabs["decoder_start_token"],
-            **vocabs["specials"],
-            transforms=transforms,
-            transforms_configs=transforms_configs,
-            model=ARCH_TABLE[hf.arch](
-                **model_config,
-                huggingface_model=get_huggingface_model(args),
-            ),
-            training=TrainingConfig(
-                compute_dtype=compute_dtype,
-                batch_size=896,
-                batch_size_multiple=1,
-                batch_type="tokens",
-                normalization="tokens",
-                accum_count=[32],
-                accum_steps=[0],
-                valid_batch_size=256,
-                **training_config,
-            ),
-        )
         # Grab only explicitly set fields to save in the model's json config
-        config_dict = recursive_model_fields_set(config)
+        config_dict = recursive_model_fields_set(train_config)
+
+        # Whisper-specific: update the tokenizer path in the serialised config to
+        # point at the cleaned tokenizer.json (post_processor stripped above).
+        if hf.arch == "WhisperForConditionalGeneration" and hf.tokenizer_json:
+            (
+                config_dict.setdefault("transforms_configs", {})
+                .setdefault("huggingface_tokenize", {})
+                .__setitem__("path", clean_tokenizer_path)
+            )
 
         # Add inference related settings for transparent default behaviour
-        inference_dict = {
-            "optional_eos": optional_eos,
-            # TODO: map other settings from HF decoding_config.json
-            **generation_config_dict,
-            **chat_template,
-        }
         config_dict["inference"] = inference_dict
 
         with open(os.path.join(args.output, "config.json"), "w", encoding="utf-8") as f:
