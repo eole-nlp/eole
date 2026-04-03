@@ -780,11 +780,27 @@ MODEL_OVERRIDES = {
     },
 }
 
-# Combine base mappings with overrides
-# KEY_MAPS = {model: {**BASE_KEY_MAP, **overrides} for model, overrides in MODEL_OVERRIDES.items()}
-KEY_MAPS = {
-    model: recursive_update_dict(deepcopy(BASE_KEY_MAP), overrides, {}) for model, overrides in MODEL_OVERRIDES.items()
-}
+
+class _LazyKeyMaps(dict):
+    def __missing__(self, arch):
+        overrides = MODEL_OVERRIDES.get(arch, {})
+        value = recursive_update_dict(deepcopy(BASE_KEY_MAP), overrides, {}, silent=True)
+        self[arch] = value
+        return value
+
+    def __contains__(self, arch):
+        # All known arches are "in" the map, even if not yet built
+        return arch in MODEL_OVERRIDES
+
+
+"""
+    def __getitem__(self, arch):
+        # Always return a fresh copy so callers can't corrupt the cache
+        return deepcopy(super().__getitem__(arch) if arch in self else self.__missing__(arch))
+"""
+
+KEY_MAPS = _LazyKeyMaps()
+
 
 # Layer norm type
 LN_TABLE = defaultdict(

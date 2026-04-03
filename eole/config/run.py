@@ -111,8 +111,16 @@ class PredictConfig(
     src_subword_vocab: str | None = None  # patch for CT2 inference engine (to improve later)
     model: ModelConfig | None = None
     model_path: str | List[str] = Field(
-        description="Path to model .pt file(s). " "Multiple models can be specified for ensemble decoding."
+        description="Path to model .pt file(s). "
+        "Multiple models can be specified for ensemble decoding. "
+        "Also accepts a HuggingFace model ID (e.g. ``org/model-name``) to run "
+        "inference directly without a prior conversion step."
     )  # some specific (mapping to "models") in legacy code, need to investigate
+    hf_token: str | None = Field(
+        default=None,
+        description="HuggingFace access token for gated or private models. "
+        "Only used when ``model_path`` is a HuggingFace model ID.",
+    )
     src: str = Field(description="Source file to decode (one line per sequence).")
     tgt: str | None = Field(
         default=None,
@@ -143,8 +151,22 @@ class PredictConfig(
     def _update_with_model_config(self):
         # Note: in case of ensemble decoding, grabbing the first model's
         # config and artifacts by default
-        os.environ["MODEL_PATH"] = self.model_path[0]
-        config_path = os.path.join(self.model_path[0], "config.json")
+
+        # When model_path is a HuggingFace model ID (no local directory yet),
+        # skip the local-config loading entirely.  All config/vocab/weight
+        # loading will happen later inside load_hf_model() at inference time.
+        # Use the same detection logic as _is_hf_model_id() in eole/predict/__init__.py.
+        first_path = self.model_path[0]
+        if (
+            not os.path.isabs(first_path)
+            and not first_path.startswith(".")
+            and "/" in first_path
+            and not os.path.exists(first_path)
+        ):
+            return
+
+        os.environ["MODEL_PATH"] = first_path
+        config_path = os.path.join(first_path, "config.json")
         if os.path.exists(config_path):
             with open(config_path) as f:
                 config_dict = json.loads(os.path.expandvars(f.read()))

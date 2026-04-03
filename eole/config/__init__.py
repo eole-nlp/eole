@@ -78,7 +78,7 @@ def recursive_model_fields_set(model):
     return reorder_fields(fields)
 
 
-def recursive_update_dict(_dict, new_dict, defaults):
+def recursive_update_dict(_dict, new_dict, defaults, silent=False):
     # patch to allow populating previously none keys
     # (e.g. data in finetuned HF converted model)
     if _dict is None:
@@ -89,11 +89,11 @@ def recursive_update_dict(_dict, new_dict, defaults):
             # keep info from checkpoint
             continue
         if isinstance(v, dict):
-            _dict[k] = recursive_update_dict(_dict.get(k, {}), v, defaults.get(k, {}))
+            _dict[k] = recursive_update_dict(_dict.get(k, {}), v, defaults.get(k, {}), silent=silent)
         else:
             default = defaults.get(k, None) if isinstance(defaults, dict) else None
             previous_v = _dict.get(k, default)
-            if v != previous_v:
+            if v != previous_v and not silent and previous_v is not None:
                 logger.info(f"Option: {k}, value: {v}, overriding model: {previous_v}")
             _dict[k] = v
     return _dict
