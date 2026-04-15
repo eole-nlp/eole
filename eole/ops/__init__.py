@@ -21,16 +21,21 @@ except (ImportError, ModuleNotFoundError) as e:
         stacklevel=2,
     )
 try:
-    import flash_attn  # .cute
+    import flash_attn.cute
 
     _FLASH_ATTN_AVAILABLE = True
-except (ImportError, ModuleNotFoundError) as e:
-    _FLASH_ATTN_AVAILABLE = False
-    warnings.warn(
-        f"Could not import flash_attn: {e}. " "Make sure you install flash attention.",
-        RuntimeWarning,
-        stacklevel=2,
-    )
+except (ImportError, ModuleNotFoundError):
+    try:
+        import flash_attn
+
+        _FLASH_ATTN_AVAILABLE = True
+    except (ImportError, ModuleNotFoundError) as e:
+        _FLASH_ATTN_AVAILABLE = False
+        warnings.warn(
+            f"Could not import flash_attn: {e}. " "Make sure you install flash attention.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
 
 if EOLE_TORCH_COMPILE:
@@ -537,7 +542,7 @@ if EOLE_TORCH_COMPILE:
             )
 
     # ============================================================================
-    # Wrapped SDPA (for head_dim > 128, not supported by flash)
+    # Wrapped SDPA (transpose may break contiguous needed for torch.compile)
     # ============================================================================
 
     @custom_op("eole::_sdpa", mutates_args=())
