@@ -1931,7 +1931,7 @@ class GGUFConverter(BaseBin):
                 json.dump(vocab_dict, fh, indent=2, ensure_ascii=False)
             with open(os.path.join(args.output, "vocab.txt"), "w", encoding="utf-8") as fh:
                 for tok in vocab_dict["src"]:
-                    fh.write(tok + "\n")
+                    fh.write(tok.replace("\n", DefaultTokens.SEP) + "\n")
 
         # ------------------------------------------------------------------
         # Detect hybrid-model block layout (linear vs. full attention)

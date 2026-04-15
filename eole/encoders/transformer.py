@@ -24,6 +24,7 @@ class TransformerEncoderLayer(nn.Module):
         super().__init__()
 
         self.parallel_residual = encoder_config.parallel_residual
+        self.ffn_layernorm = encoder_config.ffn_layernorm
         self.dropout_p = getattr(running_config, "dropout", [0.0])[0] if running_config else 0.0
 
         # Layer components
@@ -39,6 +40,13 @@ class TransformerEncoderLayer(nn.Module):
         self.post_attention_layernorm = LayerNorm[encoder_config.layer_norm](
             encoder_config.hidden_size, eps=encoder_config.norm_eps
         )
+        if self.ffn_layernorm:
+            self.pre_feedforward_layernorm = LayerNorm[encoder_config.layer_norm](
+                encoder_config.hidden_size, eps=encoder_config.norm_eps
+            )
+            self.post_feedforward_layernorm = LayerNorm[encoder_config.layer_norm](
+                encoder_config.hidden_size, eps=encoder_config.norm_eps
+            )
         self.mlp = MLP(encoder_config, running_config=running_config)
 
     def forward(
@@ -66,6 +74,15 @@ class TransformerEncoderLayer(nn.Module):
         )
         if self.dropout_p > 0:
             self_attn = self.dropout(self_attn)
+
+        if self.ffn_layernorm:
+            # Gemma4-style: post_attention_layernorm applied to attn output BEFORE residual,
+            # then separate pre/post feedforward layernorms wrap the MLP block.
+            self_attn = self.post_attention_layernorm(self_attn)
+            out = layer_in + self_attn
+            ff_pre = self.pre_feedforward_layernorm(out)
+            ff_out = self.post_feedforward_layernorm(self.mlp(ff_pre))
+            return out + ff_out
 
         # apply residual
         self_attn.add_(layer_in)

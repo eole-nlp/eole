@@ -1,6 +1,7 @@
 from torch.library import custom_op
 from typing import Optional
 import torch
+import torch.nn.functional as F
 import warnings
 from eole import EOLE_TORCH_COMPILE
 
@@ -20,16 +21,21 @@ except (ImportError, ModuleNotFoundError) as e:
         stacklevel=2,
     )
 try:
-    import flash_attn
+    import flash_attn.cute
 
     _FLASH_ATTN_AVAILABLE = True
-except (ImportError, ModuleNotFoundError) as e:
-    _FLASH_ATTN_AVAILABLE = False
-    warnings.warn(
-        f"Could not import flash_attn: {e}. " "Make sure you install flash attention.",
-        RuntimeWarning,
-        stacklevel=2,
-    )
+except (ImportError, ModuleNotFoundError):
+    try:
+        import flash_attn
+
+        _FLASH_ATTN_AVAILABLE = True
+    except (ImportError, ModuleNotFoundError) as e:
+        _FLASH_ATTN_AVAILABLE = False
+        warnings.warn(
+            f"Could not import flash_attn: {e}. " "Make sure you install flash attention.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
 
 if EOLE_TORCH_COMPILE:
@@ -535,6 +541,33 @@ if EOLE_TORCH_COMPILE:
                 "moe_wna16_marlin_gemm is not available: " "eole._ops was not compiled with the Marlin MoE kernel."
             )
 
+    # ============================================================================
+    # Wrapped SDPA (transpose may break contiguous needed for torch.compile)
+    # ============================================================================
+
+    @custom_op("eole::_sdpa", mutates_args=())
+    def _sdpa(
+        q: torch.Tensor,  # (b, l, h, d) — transpose happens inside
+        k: torch.Tensor,
+        v: torch.Tensor,
+        attn_mask: torch.Tensor | None = None,
+        dropout_p: float = 0.0,
+        scale: float | None = None,
+    ) -> torch.Tensor:
+
+        return F.scaled_dot_product_attention(
+            q.transpose(1, 2),
+            k.transpose(1, 2),
+            v.transpose(1, 2),
+            attn_mask=attn_mask,
+            dropout_p=dropout_p,
+            scale=scale,
+        ).transpose(1, 2)
+
+    @_sdpa.register_fake
+    def _(q, k, v, attn_mask=None, dropout_p=0.0, scale=None):
+        return torch.empty_like(q)
+
 else:
     # NO EOLE_TORCH_COMPILE — use native CUDA kernels directly for performance.
     if _FLASH_ATTN_AVAILABLE:
@@ -712,6 +745,17 @@ else:
                 "moe_wna16_marlin_gemm is not available: " "eole._ops was not compiled with the Marlin MoE kernel."
             )
 
+    def _sdpa(q, k, v, attn_mask=None, dropout_p=0.0, scale=None):
+
+        return F.scaled_dot_product_attention(
+            q.transpose(1, 2),
+            k.transpose(1, 2),
+            v.transpose(1, 2),
+            attn_mask=attn_mask,
+            dropout_p=dropout_p,
+            scale=scale,
+        ).transpose(1, 2)
+
 
 # ============================================================================
 # Exports
@@ -727,4 +771,5 @@ __all__ = [
     "gptq_marlin_repack",
     "gptq_marlin_gemm",
     "moe_wna16_marlin_gemm",
+    "_sdpa",
 ]

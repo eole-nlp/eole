@@ -608,7 +608,7 @@ class BaseModel(nn.Module):
     def _maybe_warn_missing_parameter(self, module_name, param_name, module, buffers_list):
         """Conditionally warn about a missing parameter with helpful context."""
         full_name = f"{module_name}.{param_name}"
-        skip_patterns = ["lora", "slopes", "rope", "g_idx"]
+        skip_patterns = ["lora", "slopes", "rope", "g_idx", "layer_scalar"]
         if any(p in full_name or p in param_name for p in skip_patterns):
             return
         logger.info(f"Missing key in safetensors checkpoint: {full_name}")

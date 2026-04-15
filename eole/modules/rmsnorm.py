@@ -106,6 +106,28 @@ class RMSNorm(torch.nn.Module):
         return f"{tuple(self.weight.shape)}, eps={self.eps}"
 
 
+class RMSNormNoScale(torch.nn.Module):
+    """RMSNorm without a learnable scale weight.
+
+    Equivalent to Gemma4RMSNorm(with_scale=False): normalizes to unit RMS
+    but applies no per-dimension learned scaling.  Used for Gemma4 v_norm.
+    """
+
+    def __init__(self, hidden_size: int, eps: float = 1e-5):
+        super().__init__()
+        self.eps = eps
+
+    def forward(self, hidden_states):
+        inp_dtype = hidden_states.dtype
+        x = hidden_states.to(torch.float32)
+        variance = x.pow(2).mean(-1, keepdim=True)
+        x = x * torch.rsqrt(variance + self.eps)
+        return x.to(inp_dtype)
+
+    def extra_repr(self):
+        return f"eps={self.eps}"
+
+
 class GemmaRMSNorm(RMSNorm):
 
     def forward(self, hidden_states):

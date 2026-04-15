@@ -26,11 +26,12 @@ from tokenizers.processors import TemplateProcessing
 
 # Eole Imports
 from eole.bin import BaseBin, register_bin
-from eole.config import recursive_model_fields_set
+from eole.config import recursive_model_fields_set, recursive_update_dict
 from eole.constants import DefaultTokens, TORCH_DTYPES, PositionEncodingType
 from eole.inputters.inputter import vocabs_to_dict
 from eole.bin.convert.HF_mappings import (
     KEY_MAPS,
+    MODEL_OVERRIDES,
     ACT_TABLE,
     LN_TABLE,
 )
@@ -328,20 +329,15 @@ def build_config_dict(hf):
             "rotary_interleave": False,
             "rotary_theta": config.get("rope_theta", config.get("rope_parameters", {}).get("rope_theta", 10000)),
         },
-        "embeddings": {},  # Populated later
+        "embeddings": {
+            "position_encoding_type": PositionEncodingType.Rotary,
+            "n_positions": 0,
+        },
     }
-    if model_config["num_experts"] == 1:
+    if model_config["num_experts"] == 1 or model_config["num_experts"] is None:
         model_config["num_experts"] = 0
 
-    # For Qwen3.5 MoE: use shared_expert_intermediate_size as shared expert FF size
-    # (overrides the default moe_transformer_ff * num_shared_experts calculation in MoE.__init__)
-    if config.get("shared_expert_intermediate_size") and arch in [
-        "Qwen3_5MoeForConditionalGeneration",
-    ]:
-        model_config["moe_transformer_ff"] = config["moe_intermediate_size"]
-        model_config.setdefault("decoder", {})["moe_transformer_ff"] = config["moe_intermediate_size"]
-
-    # Vision encoder
+    # Vision encoder base fields (common to all VLMs with a vision_config)
     if vision_config is not None:
         model_config["encoder"] = {
             "layers": vision_config.get("num_hidden_layers", 24),  # hard-coded for mistral-community/pixtral-12b
@@ -359,93 +355,19 @@ def build_config_dict(hf):
                 "head_dim", vision_config.get("hidden_size", 0) // vision_config.get("num_attention_heads", 1)
             ),
         }
-    if arch in ["LlavaForConditionalGeneration", "Mistral3ForConditionalGeneration"]:
-        model_config["encoder"].update(
-            {
-                "mlp_activation_fn": model_config["mlp_activation_fn"],
-                "layer_norm": model_config["layer_norm"],
-                "norm_eps": model_config["norm_eps"],
-                "rope_config": {
-                    "rotary_theta": vision_config["rope_theta"],
-                    "rotary_interleave": False,
-                },
-            }
-        )
-        model_config["adapter_bias"] = other_config.get("multimodal_projector_bias", False)
-        model_config["projector_activation_fn"] = other_config.get("projector_hidden_act", "gelu")
-        model_config["spatial_merge_size"] = other_config.get("spatial_merge_size", None)
 
-    if arch == "Gemma3ForConditionalGeneration":
-        if model_config.get("head_dim", None) is None:
-            model_config["head_dim"] = 256  # src/transformers/models/gemma3/configuration_gemma3.py#L61
-        if model_config.get("heads_kv", None) is None:
-            model_config["heads_kv"] = 4
-        if model_config.get("heads", None) is None:
-            model_config["heads"] = 8
-        model_config["encoder"].update(
-            {
-                "n_positions": (vision_config["image_size"] // vision_config["patch_size"]) ** 2,
-                # head related stuff patched to match 1152 dim of siglip
-                # https://github.com/huggingface/transformers/blob/main/src/transformers/models/siglip/modeling_siglip.py#L399-L402
-                "mm_tokens_per_image": hf.config["mm_tokens_per_image"],
-                "image_token_id": hf.config["image_token_index"],
-            }
-        )
+    # Apply arch-specific config overrides via the unified config_from_hf callable.
+    # Each arch in MODEL_OVERRIDES may provide a config_from_hf(top, text, vis) -> dict
+    # function that returns a partial config dict to be deep-merged here.
+    config_fn = MODEL_OVERRIDES.get(arch, {}).get("config_from_hf", None)
+    if config_fn is not None:
+        arch_config = config_fn(other_config, config, vision_config)
+        if arch_config:
+            model_config = recursive_update_dict(model_config, arch_config, {})
 
-    if arch in ["DeepseekOCRForCausalLM"]:
-        model_config["encoder"].update(
-            {
-                "n_positions": (
-                    vision_config["width"]["clip-l-14-224"]["image_size"]
-                    // vision_config["width"]["clip-l-14-224"]["patch_size"]
-                )
-                ** 2
-                + 1,
-                "patch_size": vision_config["width"]["clip-l-14-224"].get("patch_size", 14),
-                "heads": vision_config["width"]["clip-l-14-224"].get("heads"),
-                "heads_kv": vision_config["width"]["clip-l-14-224"].get("heads"),
-            }
-        )
-
-    if arch in ["HunYuanVLForConditionalGeneration"]:
-        model_config["encoder"].update({})
-        model_config["spatial_merge_size"] = vision_config.get("spatial_merge_size", None)
-
-    # Whisper encoder-decoder
+    # Whisper: remove rope_config (not used) and extract generation settings
     if arch == "WhisperForConditionalGeneration":
-        # Whisper uses separate encoder/decoder configs in a flat HF config
-        model_config["layers"] = config.get("decoder_layers", config.get("num_hidden_layers"))
-        model_config["hidden_size"] = config.get("d_model")
-        model_config["heads"] = config.get("decoder_attention_heads")
-        model_config["heads_kv"] = config.get("decoder_attention_heads")
-        model_config["transformer_ff"] = config.get("decoder_ffn_dim")
-        model_config["encoder"] = {
-            "layers": config.get("encoder_layers"),
-            "hidden_size": config.get("d_model"),
-            "heads": config.get("encoder_attention_heads"),
-            "heads_kv": config.get("encoder_attention_heads"),
-            "transformer_ff": config.get("encoder_ffn_dim"),
-            "num_mel_bins": config.get("num_mel_bins", 80),
-            "max_source_positions": config.get("max_source_positions", 1500),
-            "layer_norm": "standard",
-            "norm_eps": 1e-5,
-            "mlp_activation_fn": "gelu",
-            "add_qkvbias": True,
-            "add_key_bias": False,
-            "add_final_linear_bias": True,
-            "add_ffnbias": True,
-            "position_encoding_type": None,
-        }
-        max_target_positions = config.get("max_target_positions", 448)
-        model_config["embeddings"].update(
-            {
-                "position_encoding_type": "Learned",
-                "n_positions": max_target_positions,
-            }
-        )
-        # Whisper uses learned positional embeddings, not rotary
         model_config.pop("rope_config", None)
-        # Whisper-specific generation settings stored at model level
         if hf.generation_config is not None:
             audio_keys = ["suppress_tokens", "begin_suppress_tokens", "no_timestamps_token_id"]
             for key in audio_keys:
@@ -454,43 +376,6 @@ def build_config_dict(hf):
             # Rename to avoid collision with decoder's alignment_heads (int)
             if "alignment_heads" in hf.generation_config:
                 model_config["word_timestamp_heads"] = hf.generation_config["alignment_heads"]
-
-    if arch in [
-        "Qwen3VLForConditionalGeneration",
-        "Qwen3_5ForConditionalGeneration",
-        "Qwen3_5MoeForConditionalGeneration",
-    ]:
-        # Vision config uses different key names from standard vision models
-        num_pos_embed = vision_config.get("num_position_embeddings", 0)
-        patch_size = vision_config.get("patch_size", 16)
-        num_heads = vision_config.get("num_heads", 16)
-        # image_size derived from num_position_embeddings: num_pos = (img_size / patch_size)^2
-        img_size = int(num_pos_embed**0.5) * patch_size if num_pos_embed else 0
-        model_config["encoder"].update(
-            {
-                # Qwen3.5 VL uses `num_heads` not `num_attention_heads`
-                "heads": num_heads,
-                "heads_kv": num_heads,
-                "head_dim": vision_config.get("hidden_size", 0) // num_heads,
-                # Override layers using `depth` key
-                "layers": vision_config.get("depth", model_config["encoder"].get("layers", 27)),
-                # No fixed image_size in HF config → derive from pos embed table size
-                "image_size": img_size,
-                # Absolute position embedding table size
-                "num_position_embeddings": num_pos_embed,
-                # Use 2D RoPE (pixtral-style) for vision attention
-                "position_encoding_type": PositionEncodingType.Rotary,
-                "rope_config": {
-                    "rotary_interleave": False,
-                    "rotary_theta": 10000,
-                },
-                # Number of input channels
-                "num_channels": vision_config.get("in_channels", 3),
-                # Image token id from top-level config
-                "image_token_id": other_config.get("image_token_id", 151655),
-            }
-        )
-        model_config["spatial_merge_size"] = vision_config.get("spatial_merge_size", 2)
 
     # patch transformer_ff
     if model_config["transformer_ff"] is None:
@@ -507,15 +392,6 @@ def build_config_dict(hf):
             "tgt_word_vec_size": model_config["hidden_size"],
         }
     )
-
-    # Default position encoding configuration (skip for Whisper which sets its own)
-    if arch != "WhisperForConditionalGeneration":
-        model_config["embeddings"].update(
-            {
-                "position_encoding_type": PositionEncodingType.Rotary,
-                "n_positions": 0,
-            }
-        )
 
     # patch rotary dim (skip for models using learned positional embeddings)
     # partial_rotary_factor may live at the top level or inside rope_parameters (newer HF format)
@@ -551,7 +427,10 @@ def build_config_dict(hf):
             }
         )
 
-    # Handle rope_parameters (newer HF format, e.g. Qwen3.5 VL)
+    # Handle rope_parameters (newer HF format, e.g. Qwen3.5 VL).
+    # Only apply mrope_section/mrope_interleaved when present; this naturally
+    # skips Gemma4's per-layer-type format (which lacks these keys and is
+    # handled by _build_gemma4_decoder_patch inside config_from_hf).
     if config.get("rope_parameters", None) is not None:
         rope_params = config["rope_parameters"]
         mrope_section = rope_params.get("mrope_section", None)
@@ -721,35 +600,6 @@ def build_config_dict(hf):
         params = ["weight", "bias"]
 
     model_config["share_decoder_embeddings"] = config.get("tie_word_embeddings", False)
-
-    # Update model_config based on architecture
-    if arch in KEY_MAPS:
-        arch_config = KEY_MAPS[arch].get("config", {})
-        if arch_config:
-            from eole.config import recursive_update_dict
-
-            model_config = recursive_update_dict(model_config, arch_config, {})
-
-    # Qwen3.5-specific: extract hybrid layer types and linear attention parameters
-    if arch in [
-        "Qwen3_5TextForCausalLM",
-        "Qwen3_5ForConditionalGeneration",
-        "Qwen3_5MoeForCausalLM",
-        "Qwen3_5MoeForConditionalGeneration",
-    ]:
-        layer_types = config.get("layer_types", None)
-        if layer_types is not None:
-            model_config.setdefault("decoder", {})["layer_types"] = layer_types
-        for key in [
-            "linear_conv_kernel_dim",
-            "linear_key_head_dim",
-            "linear_value_head_dim",
-            "linear_num_key_heads",
-            "linear_num_value_heads",
-        ]:
-            val = config.get(key, None)
-            if val is not None:
-                model_config.setdefault("decoder", {})[key] = val
 
     return model_config, training_config, params
 
@@ -1167,6 +1017,11 @@ def build_shards(model_config, hf, args, params):
         if shard == 0:
             eole_safetensor = build_first_shard(hf, eole_safetensor)
 
+            # Gemma4MultimodalEmbedder uses Gemma4RMSNorm(with_scale=False): no learnable
+            # weight.  EOLE's Gemma4MultiModalProjector uses RMSNormNoScale (no parameters),
+            # so there is no adapter.norm.weight to inject.  Previously we created a zeros
+            # tensor which was then reported as "Extra key in checkpoint" at load time.
+
         # TODO: could we reverse the mapping and loop on params instead? (would reduce conditions)
         for ckpt in shard_checkpoints[shard]:
             print("Loading %s" % ckpt)
@@ -1252,6 +1107,31 @@ def build_shards(model_config, hf, args, params):
                                             "special": None,
                                         }
                                     )
+                                    # For Gemma4 full_attention layers with attention_k_eq_v=True,
+                                    # v_proj is None in HF (value reuses key): tie linear_values to linear_keys.
+                                    if (
+                                        ".self_attn.linear_keys." in eole_key
+                                        and section == "decoder"
+                                        and hf.arch in ("Gemma4ForCausalLM", "Gemma4ForConditionalGeneration")
+                                        and hf.config.get("text_config", hf.config).get("attention_k_eq_v", False)
+                                    ):
+                                        layer_types = model_config.get("decoder", {}).get("layer_types", [])
+                                        if i < len(layer_types) and layer_types[i] == "full_attention":
+                                            v_key = eole_key.replace(
+                                                ".self_attn.linear_keys.", ".self_attn.linear_values."
+                                            )
+                                            if v_key not in eole_safetensor.keys():
+                                                eole_safetensor[v_key] = w
+                                                conversion_details.append(
+                                                    {
+                                                        "shard_path": output_path,
+                                                        "eole_key": v_key,
+                                                        "srckey": full_srckey,
+                                                        "srcmap": srcmap,
+                                                        "context": context,
+                                                        "special": "gemma4_kv_eq",
+                                                    }
+                                                )
                 _layer_tensor_cache.clear()
 
         print("Saving output model shard: %d" % shard)
@@ -1288,11 +1168,11 @@ def check_bpe_tokenizer(hf, vocabs, directory_path):
     config = hf.config.get("text_config", hf.config)
     vocab_size = hf.vocab_size
     # gpt2_pretok
-    pretokenizers = hf.tokenizer.get("pre_tokenizer", {}).get("pretokenizers", [{}])
-    pre_tokenizer = hf.tokenizer.get("pre_tokenizer", None)
+    pre_tokenizer = hf.tokenizer.get("pre_tokenizer", None) or {}
     pretokenizers = pre_tokenizer.get("pretokenizers", None)
     if pretokenizers is None:
         pretokenizers = [pre_tokenizer]
+    gpt2_pretok = False
     for pretokenizer in pretokenizers:
         if pretokenizer.get("type", None) == "ByteLevel":
             gpt2_pretok = True
@@ -1345,7 +1225,7 @@ def save_vocab(vocabs, src_vocab, directory_path):
 
     with open(os.path.join(directory_path, "vocab.txt"), "w", encoding="utf-8") as vocabfile:
         for tok in vocab_dict["src"]:
-            vocabfile.write(tok + "\n")
+            vocabfile.write(tok.replace("\n", DefaultTokens.SEP) + "\n")
 
 
 @register_bin(name="HF")

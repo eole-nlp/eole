@@ -386,6 +386,25 @@ class HFLoader:
 
                 _layer_cache.clear()
 
+        # Post-process: Gemma4-specific weight fixups.
+        if hf.arch in ("Gemma4ForCausalLM", "Gemma4ForConditionalGeneration"):
+            text_config = hf.config.get("text_config", hf.config)
+
+            # For full_attention layers with attention_k_eq_v=True, v_proj is None in HF
+            # (value states reuse key states), so tie linear_values to linear_keys.
+            if text_config.get("attention_k_eq_v", False):
+                layer_types = model_config.get("decoder", {}).get("layer_types", [])
+                for i, lt in enumerate(layer_types):
+                    if lt == "full_attention":
+                        for param in params:
+                            k_key = f"decoder.transformer_layers.{i}.self_attn.linear_keys.{param}"
+                            v_key = f"decoder.transformer_layers.{i}.self_attn.linear_values.{param}"
+                            if k_key in store and v_key not in store:
+                                store[v_key] = store.get_tensor(k_key)
+
+            # Gemma4MultiModalProjector uses RMSNormNoScale (no learnable weight):
+            # do NOT inject any adapter.norm.weight — the module has no such parameter.
+
 
 # ---------------------------------------------------------------------------
 # Public API
