@@ -7,9 +7,9 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-import os
-import sys
-sys.path.insert(0, os.path.abspath("../../"))
+# import os
+# import sys
+# sys.path.insert(0, os.path.abspath('.'))
 
 
 # -- General configuration ------------------------------------------------
@@ -41,18 +41,6 @@ extensions = [
     "sphinxcontrib.autodoc_pydantic",
     "sphinx_markdown_builder",
 ]
-
-autodoc_mock_imports = [
-    "torch",
-    "numpy",
-    "transformers",
-]
-
-autodoc_default_options = {
-    "members": True,
-    "undoc-members": True,
-    "imported-members": True,
-}
 
 linkcode_url = "https://github.com/eole-nlp/eole/"
 linkcode_blob = "master"

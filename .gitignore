@@ -115,5 +115,7 @@ runs/
 # docs
 docs/docusaurus_tsx/.docusaurus
 docs/docusaurus_tsx/node_modules
+docs/docusaurus_tsx/docs/recipes
+docs/docusaurus_tsx/docs/reference
 docs/docusaurus_tsx/build
 docs/sphinx_markdown

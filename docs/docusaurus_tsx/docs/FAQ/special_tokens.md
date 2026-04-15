@@ -16,8 +16,8 @@ Some default values are defined as [constants](https://github.com/eole-nlp/eole/
 ```python
 class DefaultTokens(object):
     PAD = "<blank>"
-    BOS = "&lt;s&gt;"
-    EOS = "&lt;/s&gt;"
+    BOS = "<s>"
+    EOS = "</s>"
     UNK = "<unk>"
 ```
 
