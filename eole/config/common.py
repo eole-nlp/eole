@@ -1,5 +1,5 @@
 import torch
-from typing import List, Literal, Union
+from typing import List, Literal, Union, Any
 from pydantic import Field, field_validator
 from importlib import import_module
 from eole.config.config import Config, get_config_dict
@@ -142,7 +142,7 @@ class RunningConfig(DistributedConfig):
         default="flash",
         description="Self-attention backend.",
     )
-    compute_dtype: Union[Literal["fp32", "fp16", "int8", "bf16"], torch.dtype] = Field(
+    compute_dtype: Any = Field(
         default=torch.float32,
         description="Compute dtype (precision) to use for main compute. "
         "Some parameters might have other dtypes for specific cases "
@@ -152,15 +152,14 @@ class RunningConfig(DistributedConfig):
     )
     torch_compile: bool = Field(default=False, description="Use torch.compile with dynamic=True.")
 
-    @field_validator("compute_dtype", mode="before")
+    @field_validator("compute_dtype", mode="plain")
     @classmethod
-    def validate_compute_dtype(cls, v: Union[str, torch.dtype]) -> torch.dtype:
-        if isinstance(v, str):
-            if v in TORCH_DTYPES:
-                return TORCH_DTYPES[v]
-            else:
-                raise ValueError(f"Invalid compute_dtype value: {v}")
-        return v
+    def validate_compute_dtype(cls, v: Any) -> torch.dtype:
+        if isinstance(v, torch.dtype):
+            return v
+        if isinstance(v, str) and v in TORCH_DTYPES:
+            return TORCH_DTYPES[v]
+        raise ValueError(f"Invalid compute_dtype value: {v}")
 
     def check_self_attn_backend(self):
         try:
