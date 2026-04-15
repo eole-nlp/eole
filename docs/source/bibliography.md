@@ -177,4 +177,3 @@ Classification.” In *Proc ACL*.
 Zhang, Biao, Deyi Xiong, and Jinsong Su. 2018. “Accelerating Neural
 Transformer via an Average Attention Network.” *CoRR* abs/1805.00631.
 <http://arxiv.org/abs/1805.00631>.
-

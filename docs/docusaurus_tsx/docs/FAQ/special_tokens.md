@@ -50,7 +50,7 @@ BOS id=0
 PAD id=1
 EOS id=2
 UNK id=3
-And the decoder start token is EOS (&lt;/s&gt;) which means in fact that the BOS is never used.
+And the decoder start token is EOS (</s>) which means in fact that the BOS is never used.
 At training, TGT needs to start with EOS instead of BOS in the default OpenNMT-py config.
 
 Example of Llama
