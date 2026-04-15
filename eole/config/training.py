@@ -1,4 +1,4 @@
-from typing import List, Literal
+from typing import List, Literal, Dict, Any  # noqa F401
 from pydantic import Field, field_validator, model_validator, computed_field
 from functools import cached_property
 import torch
@@ -321,3 +321,6 @@ class TrainingConfig(
             raise ValueError("Cannot use LoRa embedding with Enc/Dec-oder freezing")
 
         return self
+
+
+TrainingConfig.model_rebuild()

@@ -17,5 +17,4 @@ Transforms
 .. autopydantic_model:: eole.transforms.misc.PrefixConfig
 .. autopydantic_model:: eole.transforms.misc.SuffixConfig
 .. autopydantic_model:: eole.transforms.normalize.NormalizeConfig
-.. autopydantic_model:: eole.transforms.concat.ConcatConfig
 .. autopydantic_model:: eole.transforms.insert_mask_before_placeholder.InsertMaskBeforePlaceholderConfig

@@ -1,10 +1,4 @@
----
-bibliography: 'mybib.bib'
-nocite: '@*'
-...
+# Bibliography
 
-Bibliography
-============
-
-::: {#refs}
-:::
+```{bibliography} refs.bib
+:all:

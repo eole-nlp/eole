@@ -42,12 +42,12 @@ Decoding Strategies
 .. autoclass:: eole.predict.beam_search.BeamSearchBase
     :members:
 
-.. autoclass:: eole.predict.BeamSearch
+.. autoclass:: eole.predict.beam_search.BeamSearch
     :members:
 
 .. autofunction:: eole.predict.greedy_search.sample_with_temperature
 
-.. autoclass:: eole.predict.GreedySearch
+.. autoclass:: eole.predict.greedy_search.GreedySearch
     :members:
 
 Scoring

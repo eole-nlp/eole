@@ -120,7 +120,7 @@ NestedAllTransformsConfig = create_model(
 
 class DataConfig(VocabConfig):  # , AllTransformsConfig):
     data: Dict[str, Dataset] | None = Field(
-        description="All datasets and their specifications. " "See examples/*.yaml for further details."
+        description="All datasets and their specifications. See ``examples/*.yaml`` for further details."
     )
     transforms: List[str] = Field(
         default=[],
