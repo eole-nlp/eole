@@ -4,24 +4,24 @@ Data Loaders
 Data Iterator
 -------------
 
-.. autoclass:: eole.inputters.DynamicDatasetIter
+.. autoclass:: eole.inputters.dynamic_iterator.DynamicDatasetIter
     :members:
 
-.. autoclass:: eole.inputters.MixingStrategy
+.. autoclass:: eole.inputters.dynamic_iterator.MixingStrategy
     :members:
 
-.. autoclass:: eole.inputters.SequentialMixer
+.. autoclass:: eole.inputters.dynamic_iterator.SequentialMixer
     :members:
     
-.. autoclass:: eole.inputters.WeightedMixer
+.. autoclass:: eole.inputters.dynamic_iterator.WeightedMixer
     :members:
 
 Dataset
 --------
 
-.. autoclass:: eole.inputters.ParallelCorpus
+.. autoclass:: eole.inputters.text_corpus.ParallelCorpus
     :members:
 
-.. autoclass:: eole.inputters.ParallelCorpusIterator
+.. autoclass:: eole.inputters.text_corpus.ParallelCorpusIterator
     :members:
 

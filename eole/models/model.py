@@ -1095,20 +1095,21 @@ class VisionEncoderDecoderModel(BaseModel):
         Build mRoPE position IDs (3 sections: temporal, height, width) for Qwen3 VL / Qwen3.5 VL.
 
         Follows the HuggingFace ``get_rope_index`` logic for ``mrope_section = [t, h, w]``:
-        - Text tokens at sequential position ``p``: ``(p, p, p)``
-        - Image tokens in a H×W merged-patch grid starting at position ``p``:
-          - temporal: ``p`` (constant — still images have a single frame)
-          - height:   ``row + p``  (row ∈ 0..H-1, each row repeated W times)
-          - width:    ``col + p``  (col ∈ 0..W-1, repeated H times)
-        - After an image block, the position counter advances by ``max(H, W)`` (not H*W).
+
+        * Text tokens at sequential position ``p``: ``(p, p, p)``.
+        * Image tokens in a H×W merged-patch grid starting at position ``p``:
+          * temporal: ``p`` (constant for still images)
+          * height: ``row + p`` (row in ``0..H-1``, each row repeated ``W`` times)
+          * width: ``col + p`` (col in ``0..W-1``, repeated ``H`` times)
+        * After an image block, the position counter advances by ``max(H, W)`` (not H*W).
 
         Args:
-            src: (B, L) token id tensor
-            image_locations: bool mask of same shape as src (True for image_pad tokens)
-            image_sizes: (N_images, 2) tensor with (height_px, width_px) per image
+            src: Token IDs of shape ``(B, L)``.
+            image_locations: Boolean mask of shape ``(B, L)`` (True for image-pad tokens).
+            image_sizes: Tensor of shape ``(N_images, 2)`` with ``(height_px, width_px)``.
 
         Returns:
-            position_ids of shape (B, L, 3)
+            Position IDs tensor of shape ``(B, L, 3)``.
         """
         B, L = src.shape
         device = src.device

@@ -4,16 +4,16 @@ Framework
 Model
 -----
 
-.. autoclass:: eole.models.BaseModel
+.. autoclass:: eole.models.model.BaseModel
     :members:
     
-.. autoclass:: eole.models.EncoderDecoderModel
+.. autoclass:: eole.models.model.EncoderDecoderModel
     :members:
 
-.. autoclass:: eole.models.DecoderModel
+.. autoclass:: eole.models.model.DecoderModel
     :members:
 
-.. autoclass:: eole.models.EncoderModel
+.. autoclass:: eole.models.model.EncoderModel
     :members:
 
 .. autoclass:: eole.models.model.VisionEncoderDecoderModel

@@ -91,6 +91,9 @@ class TrainConfig(LoggingConfig, MiscConfig, DataConfig, VocabConfig):  # ModelC
         return self
 
 
+TrainConfig.model_rebuild()
+
+
 class PredictConfig(
     InferenceConfig,
     LoggingConfig,
