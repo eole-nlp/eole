@@ -18,11 +18,11 @@ class AudioPredictor(Translator):
     """Translator subclass for audio encoder-decoder models.
 
     Adds:
-    - Token suppression (suppress_tokens from eole config)
-    - Forced decoder prefix (SOT, language, task tokens)
-    - Sequential timestamp-seeking: decodes audio windows using timestamp
-      tokens to determine seek advancement
-    - Configurable timestamp output: none (plain text), segment (JSON), word
+      * Token suppression (suppress_tokens from eole config)
+      * Forced decoder prefix (SOT, language, task tokens)
+      * Sequential timestamp-seeking: decodes audio windows using timestamp
+        tokens to determine seek advancement.
+      * Configurable timestamp output: ``none`` (plain text), ``segment`` (JSON), or ``word``.
     """
 
     def __init__(

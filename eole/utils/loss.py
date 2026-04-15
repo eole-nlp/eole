@@ -251,16 +251,16 @@ class LossCompute(nn.Module):
 
     def ignore_prompt(self, batch):
         """
-        Mask the prompt in the target side of the batch examples in order
-            to set the loss of the prompt to zero.
-        For finetuning on specific tasks.
-        The end of the prompt must be indicated by `the DefaultTokens.MASK_BEFORE`
-            placeholder.
-        The masks are supposed to be properly handled by the loss criterion
-            (e.g. nn.CrossEntropyLoss ).
+        Mask the prompt on the target side so prompt loss is zero.
+
+        For finetuning on specific tasks, the end of the prompt must be
+        indicated by ``DefaultTokens.MASK_BEFORE`` placeholder.
+
+        Masks are expected to be handled by the loss criterion
+        (e.g. ``nn.CrossEntropyLoss``).
 
         Args:
-            batch: The current batch.
+            batch: Current batch.
         """
         # Create a mask with zeros at prompt positions and ones at answer postions.
         mask = batch["src"].squeeze(dim=-1) == self.padding_idx

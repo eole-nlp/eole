@@ -74,7 +74,7 @@ class Embeddings(nn.Module):
         word_vec_size (int): size of the dictionary of embeddings.
         word_vocab_size (int): size of dictionary of embeddings for words.
         word_padding_idx (int): padding index for words in the embeddings.
-        position_encoding_type (str): see :constants:`~eole.constants.PositionEncodingType`
+        position_encoding_type (str): see :class:`eole.constants.PositionEncodingType`
         position_shift (int): patch int for xlm-roberta-xl
         dropout (float): dropout probability.
         sparse (bool): sparse embbedings default False
