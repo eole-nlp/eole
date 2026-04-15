@@ -118,7 +118,7 @@ setup(
         "torch-optimi",
         "uvicorn",
         "waitress",
-        "pydantic",
+        "pydantic==2.12.5",
     ],
     extras_require={"wer": ["jiwer>=3.0", "whisper-normalizer>=0.1"]},
     entry_points={"console_scripts": ["eole=eole.bin.main:main"]},
