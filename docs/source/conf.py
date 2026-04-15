@@ -38,7 +38,7 @@ extensions = [
     "sphinxcontrib.bibtex",
     "sphinxarg.ext",
     "sphinx_markdown_tables",
-    "autodoc_pydantic",
+    "sphinxcontrib.autodoc_pydantic",
     "sphinx_markdown_builder",
 ]
 
