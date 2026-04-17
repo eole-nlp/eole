@@ -22,6 +22,8 @@ eole convert HF --model_dir utter-project/EuroLLM-9B-Instruct --output $EOLE_MOD
 eole serve -c serve.yaml
 ```
 
+See [the example `serve.yaml` file](serve.yaml).
+
 ## Start the gradio based translator
 
 ```
