@@ -123,6 +123,17 @@ class LoggingConfig(Config):
     tensorboard_log_dir_dated: str | None = (
         None  # field dynamically populated in build_report_manager, might improve later
     )
+    trackio: bool = Field(default=False, description="Use trackio for experiment tracking during training.")
+    trackio_project: str = Field(default="eole", description="Trackio project name.")
+    trackio_run_name: str | None = Field(default=None, description="Trackio run name. Auto-generated if not set.")
+    trackio_space_id: str | None = Field(
+        default=None,
+        description="HuggingFace Space ID for remote trackio dashboard (e.g. 'username/space_id').",
+    )
+    trackio_bucket_id: str | None = Field(
+        default=None,
+        description="HuggingFace Bucket ID for metric persistence.",
+    )
 
 
 class RunningConfig(DistributedConfig):
