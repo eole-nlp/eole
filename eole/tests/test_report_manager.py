@@ -37,12 +37,8 @@ class TestCompositeReportMgr(unittest.TestCase):
 
         composite._report_step(0.001, None, 10, valid_stats=valid_stats, train_stats=train_stats)
 
-        mgr1._report_step.assert_called_once_with(
-            0.001, None, 10, valid_stats=valid_stats, train_stats=train_stats
-        )
-        mgr2._report_step.assert_called_once_with(
-            0.001, None, 10, valid_stats=valid_stats, train_stats=train_stats
-        )
+        mgr1._report_step.assert_called_once_with(0.001, None, 10, valid_stats=valid_stats, train_stats=train_stats)
+        mgr2._report_step.assert_called_once_with(0.001, None, 10, valid_stats=valid_stats, train_stats=train_stats)
 
     def test_close_continues_on_failure(self):
         mgr1 = self._make_mock_manager()

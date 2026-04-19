@@ -125,9 +125,7 @@ class LoggingConfig(Config):
     )
     trackio: bool = Field(default=False, description="Use trackio for experiment tracking during training.")
     trackio_project: str = Field(default="eole", description="Trackio project name.")
-    trackio_run_name: str | None = Field(
-        default=None, description="Trackio run name. Auto-generated if not set."
-    )
+    trackio_run_name: str | None = Field(default=None, description="Trackio run name. Auto-generated if not set.")
     trackio_space_id: str | None = Field(
         default=None,
         description="HuggingFace Space ID for remote trackio dashboard (e.g. 'username/space_id').",
