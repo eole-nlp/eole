@@ -198,3 +198,22 @@ class Statistics(object):
         writer.add_scalar(prefix + "/lr", learning_rate, step)
         if patience is not None:
             writer.add_scalar(prefix + "/patience", patience, step)
+
+    def log_trackio(self, prefix, learning_rate, patience, step):
+        """Log statistics to trackio."""
+        import trackio
+
+        t = self.elapsed_time()
+        metrics = {
+            f"{prefix}/xent": self.xent(),
+            f"{prefix}/ppl": self.ppl(),
+            f"{prefix}/attention_entropy": self.avg_attention_entropy(),
+            f"{prefix}/accuracy": self.accuracy(),
+            f"{prefix}/tgtper": self.n_tokens / t,
+            f"{prefix}/lr": learning_rate,
+        }
+        for k, v in self.computed_metrics.items():
+            metrics[f"{prefix}/{k}"] = round(v, 4)
+        if patience is not None:
+            metrics[f"{prefix}/patience"] = patience
+        trackio.log(metrics, step=step)

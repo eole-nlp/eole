@@ -241,17 +241,16 @@ def main(config: TrainConfig, device_id: int):
     train_steps = _calculate_train_steps(context.config.training.train_steps, context.config.training.single_pass)
 
     # Start training
-    trainer.train(
-        train_iter,
-        train_steps,
-        save_checkpoint_steps=context.config.training.save_checkpoint_steps,
-        valid_iter=valid_iter,
-        valid_steps=context.config.training.valid_steps,
-    )
-
-    # Cleanup
-    if trainer.report_manager.tensorboard_writer is not None:
-        trainer.report_manager.tensorboard_writer.close()
+    try:
+        trainer.train(
+            train_iter,
+            train_steps,
+            save_checkpoint_steps=context.config.training.save_checkpoint_steps,
+            valid_iter=valid_iter,
+            valid_steps=context.config.training.valid_steps,
+        )
+    finally:
+        trainer.report_manager.close()
 
 
 def _calculate_parallel_params(device_id: int, training_config: Any) -> Tuple[int, int]:

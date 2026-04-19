@@ -120,6 +120,9 @@ setup(
         "waitress",
         "pydantic",
     ],
-    extras_require={"wer": ["jiwer>=3.0", "whisper-normalizer>=0.1"]},
+    extras_require={
+        "wer": ["jiwer>=3.0", "whisper-normalizer>=0.1"],
+        "trackio": ["trackio>=0.23.0"],
+    },
     entry_points={"console_scripts": ["eole=eole.bin.main:main"]},
 )
