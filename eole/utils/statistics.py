@@ -209,7 +209,7 @@ class Statistics(object):
             f"{prefix}/ppl": self.ppl(),
             f"{prefix}/attention_entropy": self.avg_attention_entropy(),
             f"{prefix}/accuracy": self.accuracy(),
-            f"{prefix}/tgtper": self.n_tokens / t,
+            f"{prefix}/tgtper": self.n_tokens / (t + 1e-5),
             f"{prefix}/lr": learning_rate,
         }
         for k, v in self.computed_metrics.items():
