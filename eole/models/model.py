@@ -490,6 +490,50 @@ class BaseModel(nn.Module):
 
         raise NotImplementedError
 
+    def compute_log_probs(self, src, tgt, src_len, **kwargs):
+        """Compute per-token log-probabilities for a given src/tgt pair.
+
+        Runs the model forward and applies the generator + log-softmax to
+        obtain log-probabilities over the vocabulary at each target position.
+        This is useful for RL policy gradient methods and KL-divergence
+        computation against a reference model.
+
+        Args:
+            src (Tensor): Source input ``(batch, src_len)`` or appropriate format.
+            tgt (LongTensor): Target sequence ``(batch, tgt_len)``.
+            src_len (LongTensor): Source lengths ``(batch,)``.
+            **kwargs: Additional arguments passed to forward (e.g. images, prefix_len).
+
+        Returns:
+            A dict with:
+                - 'log_probs': ``(batch, tgt_len - tgt_shift, vocab_size)`` log-probabilities
+                - 'token_log_probs': ``(batch, tgt_len - tgt_shift)`` log-probs of actual target tokens
+                - 'dec_out': raw decoder output ``(batch, tgt_len, hidden)``
+                - 'estim': estimator output (or None)
+        """
+        dec_out, attns, estim = self.forward(src, tgt, src_len, **kwargs)
+
+        # Apply generator to get logits over vocabulary
+        # dec_out: (batch, tgt_len, hidden) -> logits: (batch, tgt_len, vocab_size)
+        logits = self.generator(dec_out)
+
+        # Compute log-softmax
+        log_probs = torch.nn.functional.log_softmax(logits.float(), dim=-1)
+
+        # Gather log-probs of actual target tokens
+        # tgt_shift: for NMT models shift=1 (ignore BOS), for LM shift=0
+        tgt_shifted = tgt[:, self.tgt_shift :]
+        # Clamp to valid range to handle padding tokens
+        tgt_clamped = tgt_shifted.clamp(min=0)
+        token_log_probs = log_probs.gather(2, tgt_clamped.unsqueeze(2)).squeeze(2)
+
+        return {
+            "log_probs": log_probs,
+            "token_log_probs": token_log_probs,
+            "dec_out": dec_out,
+            "estim": estim,
+        }
+
     def update_dropout(self, dropout, attention_dropout):
         raise NotImplementedError
 
