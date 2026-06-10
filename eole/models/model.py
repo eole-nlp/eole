@@ -555,8 +555,14 @@ class BaseModel(nn.Module):
         # Gather log-probs of actual target tokens
         # tgt_shift: for NMT models shift=1 (ignore BOS), for LM shift=0
         tgt_shifted = tgt[:, self.tgt_shift :]
+        # Align tgt_shifted length with dec_out length in case they differ
+        seq_len = min(tgt_shifted.size(1), log_probs.size(1))
+        tgt_shifted = tgt_shifted[:, :seq_len]
+        log_probs = log_probs[:, :seq_len, :]
         # Create padding mask (padding tokens should not contribute to log-probs)
-        padding_mask = tgt_shifted.ne(self.tgt_pad_idx)
+        # Use tgt_pad_idx if available (EncoderDecoderModel), otherwise fall back to pad_idx
+        pad_idx = getattr(self, "tgt_pad_idx", getattr(self, "pad_idx", 1))
+        padding_mask = tgt_shifted.ne(pad_idx)
         # Clamp indices for gather (padding positions will be masked out)
         tgt_clamped = tgt_shifted.clamp(min=0)
         token_log_probs = log_probs.gather(2, tgt_clamped.unsqueeze(2)).squeeze(2)

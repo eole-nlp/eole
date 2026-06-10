@@ -139,6 +139,8 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
     Args:
         predictor: An Inference subclass (from ``build_generator`` or ``build_predictor``).
         batch: A batch dict with at minimum 'src' and 'srclen' keys.
+            If 'ind_in_bucket' is present, it will be used for stable ordering;
+            otherwise sequential indices are assigned automatically.
         return_token_ids: If True, also return raw token ID sequences (before detokenization).
 
     Returns:
@@ -157,6 +159,12 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
     finally:
         if was_training:
             predictor.model.train()
+
+    # Ensure batch has 'ind_in_bucket' for PredictionBuilder.from_batch()
+    # If not present (e.g. when called from training), add sequential indices.
+    if "ind_in_bucket" not in batch_data:
+        batch_size = batch["src"].size(0) if "src" in batch else len(batch_data.get("predictions", []))
+        batch_data["ind_in_bucket"] = torch.arange(batch_size, device=batch["src"].device)
 
     # Build predictions from raw batch data
     prediction_builder = PredictionBuilder(
@@ -179,7 +187,7 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
     if return_token_ids:
         results["token_ids"] = []
 
-    for i, trans in enumerate(translations):
+    for trans in translations:
         # Predictions as strings
         if predictor.id_tokenization:
             preds = trans.pred_sents[: predictor.n_best]
@@ -190,9 +198,9 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
         results["estim"].append(trans.estim[: predictor.n_best])
 
         if return_token_ids:
-            # Raw token ID tensors from the batch_data predictions
+            # Use the original index to correctly align with raw predictions
             raw_preds = batch_data["predictions"]
-            results["token_ids"].append(raw_preds[i][: predictor.n_best])
+            results["token_ids"].append(raw_preds[trans.ind_in_bucket][: predictor.n_best])
 
     return results
 
@@ -222,8 +230,8 @@ def generate_and_score(predictor, batch, scorers, texts_ref=None, texts_src=None
 
     rewards = {}
     for metric_name, scorer in scorers.items():
-        if hasattr(scorer, "scorer"):
-            # Handle the {scorer: obj, value: float} dict format from build_scorers
+        if isinstance(scorer, dict):
+            # Handle the {"scorer": obj, "value": float} dict format from build_scorers
             scorer_obj = scorer["scorer"]
         else:
             scorer_obj = scorer
