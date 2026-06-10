@@ -163,7 +163,7 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
     # Ensure batch has 'ind_in_bucket' for PredictionBuilder.from_batch()
     # If not present (e.g. when called from training), add sequential indices.
     if "ind_in_bucket" not in batch_data:
-        batch_size = batch["src"].size(0) if "src" in batch else len(batch_data.get("predictions", []))
+        batch_size = batch["src"].size(0)
         batch_data["ind_in_bucket"] = torch.arange(batch_size, device=batch["src"].device)
 
     # Build predictions from raw batch data
