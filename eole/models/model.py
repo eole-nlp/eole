@@ -555,13 +555,18 @@ class BaseModel(nn.Module):
         # Gather log-probs of actual target tokens
         # tgt_shift: for NMT models shift=1 (ignore BOS), for LM shift=0
         tgt_shifted = tgt[:, self.tgt_shift :]
-        # Clamp to valid range to handle padding tokens
+        # Create padding mask (padding tokens should not contribute to log-probs)
+        padding_mask = tgt_shifted.ne(self.tgt_pad_idx)
+        # Clamp indices for gather (padding positions will be masked out)
         tgt_clamped = tgt_shifted.clamp(min=0)
         token_log_probs = log_probs.gather(2, tgt_clamped.unsqueeze(2)).squeeze(2)
+        # Zero out log-probs at padding positions
+        token_log_probs = token_log_probs * padding_mask.float()
 
         return {
             "log_probs": log_probs,
             "token_log_probs": token_log_probs,
+            "padding_mask": padding_mask,
             "dec_out": dec_out,
             "estim": estim,
         }

@@ -179,7 +179,7 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
     if return_token_ids:
         results["token_ids"] = []
 
-    for trans in translations:
+    for i, trans in enumerate(translations):
         # Predictions as strings
         if predictor.id_tokenization:
             preds = trans.pred_sents[: predictor.n_best]
@@ -190,7 +190,9 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
         results["estim"].append(trans.estim[: predictor.n_best])
 
         if return_token_ids:
-            results["token_ids"].append(trans.pred_sents[: predictor.n_best])
+            # Raw token ID tensors from the batch_data predictions
+            raw_preds = batch_data["predictions"]
+            results["token_ids"].append(raw_preds[i][: predictor.n_best])
 
     return results
 
