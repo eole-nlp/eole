@@ -271,22 +271,16 @@ class LossCompute(nn.Module):
         batch["tgt"] += self.padding_idx * (1 - mask.int())
         return batch
 
-    def forward(self, batch, output, attns, estim=None):
-        """Compute the forward loss
+    def _compute_ce_loss(self, output, flat_tgt):
+        """Compute cross-entropy (or sparsemax) loss and return (loss, scores).
 
         Args:
-          batch (batch) : batch of labeled examples
-          output (:obj:`FloatTensor`) :
-              output of decoder model ``(batch, tgt_len, hidden)``
-          attns (dict) : dictionary of attention weights
-              ``(batch, tgt_len, src_len)``
+            output: decoder output ``(batch, tgt_len, hidden)``
+            flat_tgt: flattened target indices ``(batch * tgt_len,)``
 
         Returns:
-            A tuple with the loss and a :obj:`eole.utils.Statistics` instance.
+            Tuple of (loss tensor, scores tensor or None).
         """
-        # take into account here the tgt_shift_index (0 / 1 = LM/NMT)
-        flat_tgt = batch["tgt"][:, self.tgt_shift_index :].contiguous().view(-1)
-
         if self.generator is not None:
             scores = self.generator(self._bottle(output))
             if isinstance(self.criterion, SparsemaxLoss):
@@ -295,56 +289,129 @@ class LossCompute(nn.Module):
         else:
             loss = torch.tensor([0.0], device=output.device)
             scores = None
+        return loss, scores
 
-        if self.lambda_align != 0.0:
-            align_head = attns["align"]
-            if align_head.dtype != loss.dtype:  # Fix FP16
-                align_head = align_head.to(loss.dtype)
-            align_idx = batch["align"]
-            batch_size, pad_tgt_size = batch["tgt"].size()
-            _, pad_src_size = batch["src"].size()
-            align_matrix_size = [batch_size, pad_tgt_size, pad_src_size]
-            ref_align = eole.utils.make_batch_align_matrix(align_idx, align_matrix_size, normalize=True)
-            ref_align = ref_align[:, self.tgt_shift_index :, :]
-            if ref_align.dtype != loss.dtype:
-                ref_align = ref_align.to(loss.dtype)
-            align_loss = self._compute_alignement_loss(align_head=align_head, ref_align=ref_align)
-            loss += align_loss
+    def _compute_align_loss(self, batch, attns, loss):
+        """Compute alignment loss if lambda_align is set.
+
+        Args:
+            batch: current batch dict
+            attns: attention weights dict
+            loss: current accumulated loss tensor
+
+        Returns:
+            Updated loss tensor with alignment loss added.
+        """
+        if self.lambda_align == 0.0:
+            return loss
+        align_head = attns["align"]
+        if align_head.dtype != loss.dtype:  # Fix FP16
+            align_head = align_head.to(loss.dtype)
+        align_idx = batch["align"]
+        batch_size, pad_tgt_size = batch["tgt"].size()
+        _, pad_src_size = batch["src"].size()
+        align_matrix_size = [batch_size, pad_tgt_size, pad_src_size]
+        ref_align = eole.utils.make_batch_align_matrix(align_idx, align_matrix_size, normalize=True)
+        ref_align = ref_align[:, self.tgt_shift_index :, :]
+        if ref_align.dtype != loss.dtype:
+            ref_align = ref_align.to(loss.dtype)
+        align_loss = self._compute_alignement_loss(align_head=align_head, ref_align=ref_align)
+        return loss + align_loss
+
+    def _compute_lm_prior_loss(self, output, batch, loss):
+        """Compute LM prior loss (ct2 or native model) if configured.
+
+        Args:
+            output: decoder output
+            batch: current batch dict
+            loss: current accumulated loss tensor
+
+        Returns:
+            Updated loss tensor with LM prior loss added.
+        """
+        if self.lm_generator is not None:
+            lm_loss = self._compute_lm_loss_ct2(output, batch["tgt"])
+            loss = loss + lm_loss * self.lm_prior_lambda
+        if self.lm_prior_model is not None:
+            lm_loss = self._compute_lm_loss(output, batch["tgt"])
+            loss = loss + lm_loss * self.lm_prior_lambda
+        return loss
+
+    def _compute_estim_loss(self, estim, batch, device):
+        """Compute estimator (quality estimation) loss.
+
+        Args:
+            estim: estimator output scalar per sample, or None
+            batch: current batch dict (must contain 'sco' if estim is not None)
+            device: device for the zero tensor fallback
+
+        Returns:
+            Estimator loss tensor.
+        """
+        if estim is not None:
+            batch["sco"] = batch["sco"].to(estim.dtype)
+            return self.estimloss(estim, batch["sco"]).to(estim.dtype)
+        return torch.tensor([0.0], device=device)
+
+    def _compute_attention_entropy(self, attns):
+        """Compute attention entropy for logging if enabled.
+
+        Args:
+            attns: attention weights dict
+
+        Returns:
+            Float attention entropy value (0.0 if disabled or on error).
+        """
+        attention_available = attns and any(attn is not None for attn in attns.values())
+        if not (hasattr(self, "log_attention_entropy") and self.log_attention_entropy and attention_available):
+            return 0.0
+        try:
+            return compute_batch_attention_entropy(
+                attns,
+                attention_types=getattr(self, "attention_entropy_types", None),
+                layer_indices=getattr(self, "attention_entropy_layers", None),
+                aggregation_method=getattr(self, "attention_entropy_aggregation", "mean"),
+            )
+        except Exception:
+            return 0.0
+
+    def forward(self, batch, output, attns, estim=None):
+        """Compute the forward loss, composed of CE + auxiliary losses.
+
+        Args:
+          batch (batch) : batch of labeled examples
+          output (:obj:`FloatTensor`) :
+              output of decoder model ``(batch, tgt_len, hidden)``
+          attns (dict) : dictionary of attention weights
+              ``(batch, tgt_len, src_len)``
+          estim: optional estimator output (scalar per sample)
+
+        Returns:
+            A tuple (loss, stats, estimloss) with the total loss,
+            a :obj:`eole.utils.Statistics` instance, and the estimator loss.
+        """
+        # take into account here the tgt_shift_index (0 / 1 = LM/NMT)
+        flat_tgt = batch["tgt"][:, self.tgt_shift_index :].contiguous().view(-1)
+
+        # Core cross-entropy loss
+        loss, scores = self._compute_ce_loss(output, flat_tgt)
+
+        # Auxiliary losses
+        loss = self._compute_align_loss(batch, attns, loss)
 
         if self.lambda_coverage != 0.0:
             coverage_loss = self._compute_coverage_loss(attns["std"], attns["coverage"], flat_tgt)
             loss += coverage_loss
 
-        if self.lm_generator is not None:
-            lm_loss = self._compute_lm_loss_ct2(output, batch["tgt"])
-            loss = loss + lm_loss * self.lm_prior_lambda
+        loss = self._compute_lm_prior_loss(output, batch, loss)
 
-        if self.lm_prior_model is not None:
-            lm_loss = self._compute_lm_loss(output, batch["tgt"])
-            loss = loss + lm_loss * self.lm_prior_lambda
+        # Estimator loss (separate from main loss, weighted externally)
+        estimloss = self._compute_estim_loss(estim, batch, loss.device)
 
-        if estim is not None:
-            batch["sco"] = batch["sco"].to(estim.dtype)
-            estimloss = self.estimloss(estim, batch["sco"]).to(estim.dtype)
-        else:
-            estimloss = torch.tensor([0.0], device=loss.device)
+        # Attention entropy for logging
+        attention_entropy = self._compute_attention_entropy(attns)
+
         n_sents = len(batch["srclen"])
-
-        # Compute attention entropy if attention weights are available and enabled
-        attention_entropy = 0.0
-        attention_available = attns and any(attn is not None for attn in attns.values())
-        if hasattr(self, "log_attention_entropy") and self.log_attention_entropy and attention_available:
-            try:
-                attention_entropy = compute_batch_attention_entropy(
-                    attns,
-                    attention_types=getattr(self, "attention_entropy_types", None),
-                    layer_indices=getattr(self, "attention_entropy_layers", None),
-                    aggregation_method=getattr(self, "attention_entropy_aggregation", "mean"),
-                )
-            except Exception:
-                # If entropy computation fails, default to 0
-                attention_entropy = 0.0
-
         stats = self._stats(
             n_sents,
             loss.sum().item(),
