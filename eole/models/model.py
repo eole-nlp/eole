@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from glob import glob
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Optional, Dict, Any
 import os
 import itertools
 
@@ -29,6 +31,36 @@ from eole.modules.estimator import FeedForward
 
 from eole.encoders.vision import VisionEncoder
 from eole.encoders.audio import AudioEncoder
+
+
+@dataclass
+class ModelOutput:
+    """Structured output from model forward pass.
+
+    Replaces the raw tuple ``(dec_out, attns, estim)`` with a named
+    dataclass while remaining backward-compatible via tuple unpacking.
+
+    Attributes:
+        dec_out: Decoder output tensor ``(batch, tgt_len, hidden)``
+            (or encoder output for encoder-only models).
+        attns: Dictionary of attention weight tensors, or None for encoder-only models.
+        estim: Estimator output (scalar per sample), or None if estimator is disabled.
+    """
+
+    dec_out: torch.Tensor
+    attns: Optional[Dict[str, Any]] = None
+    estim: Optional[torch.Tensor] = None
+
+    def __iter__(self):
+        """Allow tuple unpacking: ``dec_out, attns, estim = model(...)``."""
+        return iter((self.dec_out, self.attns, self.estim))
+
+    def __getitem__(self, idx):
+        """Allow indexing: ``model_output[0]`` for dec_out."""
+        return (self.dec_out, self.attns, self.estim)[idx]
+
+    def __len__(self):
+        return 3
 
 
 def build_encoder(model_config, running_config=None):
@@ -912,7 +944,7 @@ class EncoderDecoderModel(BaseModel):
         else:
             estim = None
 
-        return dec_out, attns, estim
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
@@ -977,7 +1009,7 @@ class DecoderModel(BaseModel):
         else:
             estim = None
 
-        return dec_out, attns, estim
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.decoder.update_dropout(dropout, attention_dropout)
@@ -1036,7 +1068,7 @@ class EncoderModel(BaseModel):
         else:
             estim = None
 
-        return enc_out, enc_final_hs, estim
+        return ModelOutput(dec_out=enc_out, attns=enc_final_hs, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
@@ -1283,7 +1315,7 @@ class VisionEncoderDecoderModel(BaseModel):
         else:
             estim = None
 
-        return dec_out, attns, estim
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
@@ -1349,7 +1381,7 @@ class AudioEncoderDecoderModel(BaseModel):
         )
 
         estim = None
-        return dec_out, attns, estim
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
