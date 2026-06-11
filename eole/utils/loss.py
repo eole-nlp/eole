@@ -362,7 +362,11 @@ class LossCompute(nn.Module):
         Returns:
             Float attention entropy value (0.0 if disabled or on error).
         """
-        attention_available = attns and any(attn is not None for attn in attns.values())
+        attention_available = (
+            attns is not None
+            and isinstance(attns, dict)
+            and any(attn is not None for attn in attns.values())
+        )
         if not (hasattr(self, "log_attention_entropy") and self.log_attention_entropy and attention_available):
             return 0.0
         try:
