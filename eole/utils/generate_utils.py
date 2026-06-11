@@ -160,11 +160,13 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
         if was_training:
             predictor.model.train()
 
-    # Ensure batch has 'ind_in_bucket' for PredictionBuilder.from_batch()
-    # If not present (e.g. when called from training), add sequential indices.
-    if "ind_in_bucket" not in batch_data:
-        batch_size = batch["src"].size(0)
-        batch_data["ind_in_bucket"] = torch.arange(batch_size, device=batch["src"].device)
+    # Ensure the inner batch dict has 'ind_in_bucket' for PredictionBuilder.from_batch().
+    # PredictionBuilder reads it from prediction_batch["batch"]["ind_in_bucket"].
+    # If not present (e.g. when called from training), add sequential indices as a list.
+    inner_batch = batch_data["batch"]
+    if "ind_in_bucket" not in inner_batch:
+        batch_size = inner_batch["src"].size(0) if "src" in inner_batch else batch["src"].size(0)
+        inner_batch["ind_in_bucket"] = list(range(batch_size))
 
     # Build predictions from raw batch data
     prediction_builder = PredictionBuilder(
@@ -176,7 +178,7 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
         predictor.id_tokenization,
     )
     translations = prediction_builder.from_batch(batch_data)
-    translations = sorted(translations, key=lambda x: x.ind_in_bucket)
+    translations = sorted(translations, key=lambda x: int(x.ind_in_bucket))
 
     results = {
         "predictions": [],
@@ -200,7 +202,7 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
         if return_token_ids:
             # Use the original index to correctly align with raw predictions
             raw_preds = batch_data["predictions"]
-            results["token_ids"].append(raw_preds[trans.ind_in_bucket][: predictor.n_best])
+            results["token_ids"].append(raw_preds[int(trans.ind_in_bucket)][: predictor.n_best])
 
     return results
 

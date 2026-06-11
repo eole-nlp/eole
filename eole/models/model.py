@@ -43,7 +43,8 @@ class ModelOutput:
     Attributes:
         dec_out: Decoder output tensor ``(batch, tgt_len, hidden)``
             (or encoder output for encoder-only models).
-        attns: Dictionary of attention weight tensors, or None for encoder-only models.
+        attns: Dictionary of attention weight tensors, encoder final hidden
+            states (for encoder-only models), or None.
         estim: Estimator output (scalar per sample), or None if estimator is disabled.
     """
 
