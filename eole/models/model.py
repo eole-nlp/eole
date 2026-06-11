@@ -3,7 +3,7 @@ import torch.nn as nn
 from glob import glob
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Any, Optional
 import os
 import itertools
 
@@ -43,13 +43,13 @@ class ModelOutput:
     Attributes:
         dec_out: Decoder output tensor ``(batch, tgt_len, hidden)``
             (or encoder output for encoder-only models).
-        attns: Dictionary of attention weight tensors, encoder final hidden
-            states (for encoder-only models), or None.
+        attns: Attention weight dict ``{attn_type: (batch, head, tgt_len, src_len)}``,
+            encoder final hidden states (for encoder-only models), or None.
         estim: Estimator output (scalar per sample), or None if estimator is disabled.
     """
 
     dec_out: torch.Tensor
-    attns: Optional[Dict[str, Any]] = None
+    attns: Optional[Any] = None
     estim: Optional[torch.Tensor] = None
 
     def __iter__(self):
@@ -544,6 +544,11 @@ class BaseModel(nn.Module):
                 - 'dec_out': raw decoder output ``(batch, tgt_len, hidden)``
                 - 'estim': estimator output (or None)
         """
+        if self.generator is None:
+            raise RuntimeError(
+                "compute_log_probs() requires a generator head, but this model "
+                "has generator=None (e.g. encoder-only models)."
+            )
         dec_out, attns, estim = self.forward(src, tgt, src_len, **kwargs)
 
         # Apply generator to get logits over vocabulary
