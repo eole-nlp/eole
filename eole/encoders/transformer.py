@@ -1,6 +1,6 @@
 """Implementation of Transformer Encoder from 'Attention is All You Need'"""
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 import torch
 import torch.nn as nn
 
@@ -23,28 +23,40 @@ class TransformerEncoderLayer(nn.Module):
     def __init__(self, encoder_config, running_config=None):
         super().__init__()
 
+        layer_style = getattr(encoder_config, "encoder_layer_style", "standard")
+        self.postnorm_style = layer_style in {"postnorm", "roberta"}
         self.parallel_residual = encoder_config.parallel_residual
         self.ffn_layernorm = encoder_config.ffn_layernorm
         self.dropout_p = getattr(running_config, "dropout", [0.0])[0] if running_config else 0.0
 
         # Layer components
-        self.input_layernorm = LayerNorm[encoder_config.layer_norm](
-            encoder_config.hidden_size, eps=encoder_config.norm_eps
-        )
+        if not self.postnorm_style:
+            self.input_layernorm = LayerNorm[encoder_config.layer_norm](
+                encoder_config.hidden_size, eps=encoder_config.norm_eps
+            )
         self.self_attn = SelfMHA(
             encoder_config,
             running_config=running_config,
             is_decoder=False,
         )
         self.dropout = nn.Dropout(self.dropout_p)
-        self.post_attention_layernorm = LayerNorm[encoder_config.layer_norm](
-            encoder_config.hidden_size, eps=encoder_config.norm_eps
-        )
+        if self.postnorm_style:
+            self.attention_layer_norm = LayerNorm[encoder_config.layer_norm](
+                encoder_config.hidden_size, eps=encoder_config.norm_eps
+            )
+        else:
+            self.post_attention_layernorm = LayerNorm[encoder_config.layer_norm](
+                encoder_config.hidden_size, eps=encoder_config.norm_eps
+            )
         if self.ffn_layernorm:
             self.pre_feedforward_layernorm = LayerNorm[encoder_config.layer_norm](
                 encoder_config.hidden_size, eps=encoder_config.norm_eps
             )
             self.post_feedforward_layernorm = LayerNorm[encoder_config.layer_norm](
+                encoder_config.hidden_size, eps=encoder_config.norm_eps
+            )
+        elif self.postnorm_style:
+            self.output_layer_norm = LayerNorm[encoder_config.layer_norm](
                 encoder_config.hidden_size, eps=encoder_config.norm_eps
             )
         self.mlp = MLP(encoder_config, running_config=running_config)
@@ -66,14 +78,21 @@ class TransformerEncoderLayer(nn.Module):
         Returns:
             Output tensor (batch_size, src_len, model_dim)
         """
-        norm_layer_in = self.input_layernorm(layer_in)
+        if self.postnorm_style:
+            attn_in = layer_in
+        else:
+            attn_in = self.input_layernorm(layer_in)
         self_attn, _ = self.self_attn(
-            norm_layer_in,
+            attn_in,
             attn_mask=attn_mask,
             position_embeddings=position_embeddings,
         )
         if self.dropout_p > 0:
             self_attn = self.dropout(self_attn)
+
+        if self.postnorm_style and not self.ffn_layernorm:
+            attn_out = self.attention_layer_norm(layer_in + self_attn)
+            return self.output_layer_norm(attn_out + self.mlp(attn_out))
 
         if self.ffn_layernorm:
             # Gemma4-style: post_attention_layernorm applied to attn output BEFORE residual,
@@ -88,7 +107,7 @@ class TransformerEncoderLayer(nn.Module):
         self_attn.add_(layer_in)
 
         # prepare feed-forward input
-        ff_in = self.post_attention_layernorm(self_attn) if not self.parallel_residual else norm_layer_in
+        ff_in = self.post_attention_layernorm(self_attn) if not self.parallel_residual else attn_in
 
         # add residual after mlp
         return self_attn + self.mlp(ff_in)
@@ -120,11 +139,16 @@ class TransformerEncoder(EncoderBase):
         self.transformer_layers = nn.ModuleList(
             [TransformerEncoderLayer(encoder_config, running_config) for _ in range(encoder_config.layers)]
         )
-        self.layer_norm = LayerNorm[encoder_config.layer_norm](encoder_config.hidden_size, eps=encoder_config.norm_eps)
+        if getattr(encoder_config, "final_encoder_layer_norm", True):
+            self.layer_norm = LayerNorm[encoder_config.layer_norm](
+                encoder_config.hidden_size, eps=encoder_config.norm_eps
+            )
+        else:
+            self.layer_norm = None
 
     def forward(
-        self, emb: torch.Tensor, pad_mask: Optional[torch.Tensor] = None, **kwargs
-    ) -> Tuple[torch.Tensor, None]:
+        self, emb: torch.Tensor, pad_mask: Optional[torch.Tensor] = None, return_hidden_states: bool = False, **kwargs
+    ) -> Union[Tuple[torch.Tensor, None], Tuple[torch.Tensor, None, list[torch.Tensor]]]:
         """
         Encode input embeddings.
 
@@ -136,9 +160,10 @@ class TransformerEncoder(EncoderBase):
             **kwargs: Additional arguments (ignored)
 
         Returns:
-            Tuple of:
-                - Encoded output (batch_size, src_len, model_dim)
-                - None (transformers don't return final state)
+            If ``return_hidden_states`` is ``False``:
+                - (encoded_output, None)
+            If ``return_hidden_states`` is ``True``:
+                - (encoded_output, None, hidden_states)
 
         Raises:
             ValueError: If pad_mask is not provided
@@ -153,10 +178,16 @@ class TransformerEncoder(EncoderBase):
         pad_mask = pad_mask.unsqueeze(1)
         attn_mask = ~pad_mask
 
+        hidden_states = [emb] if return_hidden_states else None
         for layer in self.transformer_layers:
             emb = layer(emb, attn_mask, position_embeddings=position_embeddings)
+            if hidden_states is not None:
+                hidden_states.append(emb)
 
-        output = self.layer_norm(emb)
+        output = self.layer_norm(emb) if self.layer_norm is not None else emb
+        if hidden_states is not None:
+            hidden_states[-1] = output
+            return output, None, hidden_states
         return output, None
 
     def update_dropout(self, dropout: float, attention_dropout: float) -> None:

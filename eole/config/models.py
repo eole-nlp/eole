@@ -13,6 +13,7 @@ from eole.config.config import Config
 
 
 class EmbeddingsConfig(Config):
+    embedding_type: Literal["standard", "roberta"] = Field(default="standard", description="Embedding block type.")
     src_word_vec_size: int = Field(default=512, description="Word embedding size for src.")
     tgt_word_vec_size: int = Field(default=512, description="Word embedding size for tgt.")
     word_vec_size: int = Field(default=-1, description="Word embedding size for src and tgt.")
@@ -44,6 +45,14 @@ class EmbeddingsConfig(Config):
         description="Enable embeddings scaling. "
         "Not always necessary, but useful for some model compatibility, e.g. gemma. "
         "https://datascience.stackexchange.com/a/87909",
+    )
+    embedding_layer_norm: bool = Field(
+        default=False,
+        description="Apply LayerNorm in embedding block (RoBERTa/XLM-R style).",
+    )
+    token_type_vocab_size: int = Field(
+        default=0,
+        description="Token type vocabulary size for embedding block. 0 disables token type embeddings.",
     )
 
     @model_validator(mode="after")
@@ -373,6 +382,14 @@ class TransformerEncoderConfig(TransformerConfig, EncoderConfig):
     encoder_type: Literal["transformer"] = Field(
         default="transformer"
     )  # not sure it's fully proper use, but inspired from docs -- https://docs.pydantic.dev/latest/concepts/fields/#discriminator # noqa: E501
+    encoder_layer_style: Literal["standard", "postnorm", "roberta"] = Field(
+        default="standard",
+        description="Encoder layer style: standard pre-norm or post-norm (RoBERTa/XLM-R).",
+    )
+    final_encoder_layer_norm: bool = Field(
+        default=True,
+        description="Apply final encoder LayerNorm after all layers.",
+    )
 
 
 class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
@@ -1076,6 +1093,76 @@ class TransformerEncoderModelConfig(TransformerConfig, BaseModelConfig):
         return self
 
 
+class TransformerEncoderScorerModelConfig(BaseModelConfig):
+    architecture: Literal["transformer_encoder_scorer"] = Field(default="transformer_encoder_scorer")
+    encoder: TransformerEncoderConfig | None = Field(
+        default_factory=TransformerEncoderConfig,
+        description="Transformer encoder settings for encoder scorer models.",
+    )
+    decoder: None = Field(default=None, description="Encoder scorer models do not use a decoder.")
+    embeddings: EmbeddingsConfig = Field(
+        default_factory=EmbeddingsConfig,
+        description="Embedding settings for encoder scorer models.",
+    )
+
+    scoring_type: Literal["comet", "pooled_regression"] = Field(default="comet")
+    pretrained_model: str = Field(default="xlm-roberta-large")
+    class_identifier: Literal["regression_metric", "referenceless_regression_metric", "unified_metric"] = Field(
+        default="regression_metric"
+    )
+    requires_reference: bool = Field(default=True)
+    pool: Literal["avg", "max", "cls"] = Field(default="avg")
+    layer: str = Field(default="mix")
+    layer_transformation: Literal["softmax", "sparsemax"] = Field(default="softmax")
+    layer_norm: bool = Field(default=False)
+    input_segments: List[str] = Field(default_factory=lambda: ["mt", "src", "ref"])
+    hidden_sizes: List[int] = Field(default_factory=lambda: [3072, 1024])
+    activations: str = Field(default="Tanh")
+    final_activation: str | None = Field(default=None)
+    dropout: float = Field(default=0.1)
+    norm_eps: float = Field(default=1e-5)
+    encoder_architecture: Literal["XLMRobertaForMaskedLM", "XLMRobertaXLForMaskedLM"] = Field(
+        default="XLMRobertaForMaskedLM"
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def encoder_decoder_type(cls, data: Any) -> Any:
+        if not (isinstance(data, dict)):
+            return data
+        if "encoder" in data.keys():
+            data["encoder"]["encoder_type"] = "transformer"
+        else:
+            data["encoder"] = {"encoder_type": "transformer"}
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_architecture(cls, data: Any) -> Any:
+        if not (isinstance(data, dict)):
+            return data
+        if "architecture" not in data.keys():
+            data["architecture"] = "transformer_encoder_scorer"
+        return data
+
+    @model_validator(mode="after")
+    def sync_family_fields(self):
+        if self.scoring_type == "comet":
+            expected_requires_reference = self.class_identifier == "regression_metric" or (
+                self.class_identifier == "unified_metric" and "ref" in self.input_segments
+            )
+            if self.requires_reference != expected_requires_reference:
+                self.requires_reference = expected_requires_reference
+        elif self.scoring_type == "pooled_regression":
+            if len(self.input_segments) != 1:
+                raise ValueError("pooled_regression expects exactly one input segment.")
+            if self.class_identifier == "unified_metric":
+                raise ValueError("pooled_regression does not support class_identifier='unified_metric'.")
+            if self.requires_reference:
+                raise ValueError("pooled_regression should set requires_reference=false.")
+        return self
+
+
 # Facilitate transparent instanciation from dumped fields
 # https://stackoverflow.com/a/76538571
 ModelConfig = Annotated[
@@ -1085,6 +1172,7 @@ ModelConfig = Annotated[
         VisionTransformerLMModelConfig,
         WhisperModelConfig,
         TransformerEncoderModelConfig,
+        TransformerEncoderScorerModelConfig,
         RnnModelConfig,
         CnnModelConfig,
         CustomModelConfig,

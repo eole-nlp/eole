@@ -200,6 +200,55 @@ class Embeddings(nn.Module):
         self.dropout.p = dropout
 
 
+class RobertaEmbeddings(nn.Module):
+    def __init__(
+        self,
+        word_vec_size,
+        word_vocab_size,
+        word_padding_idx,
+        dropout=0.0,
+        n_positions=514,
+        token_type_vocab_size=1,
+        embedding_layer_norm=True,
+        norm_eps=1e-5,
+    ):
+        super().__init__()
+        self.word_padding_idx = word_padding_idx
+        self.word_embeddings = skip_init(
+            nn.Embedding,
+            num_embeddings=word_vocab_size,
+            embedding_dim=word_vec_size,
+            padding_idx=word_padding_idx,
+        )
+        self.position_embeddings = nn.Embedding(n_positions, word_vec_size, padding_idx=word_padding_idx)
+        self.token_type_embeddings = nn.Embedding(token_type_vocab_size, word_vec_size)
+        self.layer_norm = nn.LayerNorm(word_vec_size, eps=norm_eps) if embedding_layer_norm else None
+        self.dropout = nn.Dropout(p=dropout)
+        self.dropout_p = dropout
+
+    def _create_position_ids(self, input_ids):
+        # Fairseq/RoBERTa-style: positions start at padding_idx + 1
+        mask = input_ids.ne(self.word_padding_idx).int()
+        incremental_indices = torch.cumsum(mask, dim=1).type_as(mask) * mask
+        return incremental_indices.long() + self.word_padding_idx
+
+    def forward(self, input_ids, token_type_ids=None):
+        if token_type_ids is None:
+            token_type_ids = torch.zeros_like(input_ids)
+        position_ids = self._create_position_ids(input_ids)
+        emb = self.word_embeddings(input_ids)
+        emb = emb + self.position_embeddings(position_ids)
+        emb = emb + self.token_type_embeddings(token_type_ids)
+        if self.layer_norm is not None:
+            emb = self.layer_norm(emb)
+        if self.dropout_p > 0:
+            emb = self.dropout(emb)
+        return emb
+
+    def update_dropout(self, dropout):
+        self.dropout.p = dropout
+
+
 # Some utilitary functions for pretrained embeddings
 
 

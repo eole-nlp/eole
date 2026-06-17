@@ -113,6 +113,13 @@ class LoggingConfig(Config):
         default=64,
         description="Batch size used when running COMET/COMET-KIWI scoring.",
     )
+    comet_device: str | None = Field(
+        default=None,
+        description=(
+            "Device used for COMET/EOLE-COMET scoring (for example: 'cpu', 'mps', 'cuda', 'cuda:0'). "
+            "When unset, EOLE picks cuda, then mps, then cpu."
+        ),
+    )
     scoring_debug: bool = Field(default=False, description="Dump src/ref/pred of the current batch.")
     dump_preds: str | None = Field(default=None, description="Folder to dump predictions to.")
     tensorboard: bool = Field(default=False, description="Use tensorboard for visualization during training.")

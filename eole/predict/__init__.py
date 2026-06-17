@@ -15,7 +15,10 @@ from eole import EOLE_TORCH_COMPILE
 
 
 def get_infer_class(model_config):
-    # might have more cases later
+    if getattr(model_config, "architecture", None) == "transformer_encoder_scorer":
+        from eole.predict.encoder_scorer import EncoderScorer
+
+        return EncoderScorer
     if model_config.decoder is None:
         return Encoder
     elif model_config.encoder is None:

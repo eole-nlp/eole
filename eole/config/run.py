@@ -129,6 +129,10 @@ class PredictConfig(
         default=None,
         description="True target sequences, useful for scoring or prefix decoding.",
     )
+    ref: str | None = Field(
+        default=None,
+        description="Reference target sequences for reference-based scoring models.",
+    )
     tgt_file_prefix: bool = Field(default=False, description="Generate predictions using provided tgt as prefix.")
     output: str = Field(
         default="pred.txt",

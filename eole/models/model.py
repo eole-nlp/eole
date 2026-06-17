@@ -4,6 +4,7 @@ from glob import glob
 from collections import defaultdict
 import os
 import itertools
+from safetensors.torch import load_file
 
 from eole.utils.logging import logger
 
@@ -23,9 +24,10 @@ from eole.encoders import str2enc
 from eole.decoders import str2dec
 from eole.adapters import str2adapter
 from eole.constants import DefaultTokens, LayerNormFP32
-from eole.modules.embeddings import Embeddings
+from eole.modules.embeddings import Embeddings, RobertaEmbeddings
 from eole.models.model_saver import get_metadata, TP_COL_PARALLEL_LAYERS, TP_ROW_PARALLEL_LAYERS
 from eole.modules.estimator import FeedForward
+from eole.modules.representation import LayerwiseAttention, RepresentationExtractor
 
 from eole.encoders.vision import VisionEncoder
 from eole.encoders.audio import AudioEncoder
@@ -69,18 +71,30 @@ def build_decoder(model_config, running_config=None):
 def build_src_emb(model_config, vocabs, running_config=None):
     # Build embeddings.
     pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
-    src_emb = Embeddings(
-        word_vec_size=model_config.embeddings.src_word_vec_size,
-        position_encoding_type=model_config.embeddings.position_encoding_type,
-        position_shift=model_config.embeddings.position_shift,
-        dropout=getattr(running_config, "dropout", [0.0])[0],
-        word_padding_idx=vocabs["tgt"][pad_token],
-        word_vocab_size=len(vocabs["src"]),
-        sparse=getattr(running_config, "optim", None) == "sparseadam",
-        freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
-        n_positions=model_config.embeddings.n_positions,
-        normalize=model_config.embeddings.normalize,
-    )
+    if getattr(model_config.embeddings, "embedding_type", "standard") == "roberta":
+        src_emb = RobertaEmbeddings(
+            word_vec_size=model_config.embeddings.src_word_vec_size,
+            word_padding_idx=vocabs["tgt"][pad_token],
+            word_vocab_size=len(vocabs["src"]),
+            dropout=getattr(running_config, "dropout", [0.0])[0],
+            n_positions=model_config.embeddings.n_positions,
+            token_type_vocab_size=max(1, getattr(model_config.embeddings, "token_type_vocab_size", 0)),
+            embedding_layer_norm=getattr(model_config.embeddings, "embedding_layer_norm", False),
+            norm_eps=model_config.norm_eps,
+        )
+    else:
+        src_emb = Embeddings(
+            word_vec_size=model_config.embeddings.src_word_vec_size,
+            position_encoding_type=model_config.embeddings.position_encoding_type,
+            position_shift=model_config.embeddings.position_shift,
+            dropout=getattr(running_config, "dropout", [0.0])[0],
+            word_padding_idx=vocabs["tgt"][pad_token],
+            word_vocab_size=len(vocabs["src"]),
+            sparse=getattr(running_config, "optim", None) == "sparseadam",
+            freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
+            n_positions=model_config.embeddings.n_positions,
+            normalize=model_config.embeddings.normalize,
+        )
     return src_emb
 
 
@@ -590,19 +604,25 @@ class BaseModel(nn.Module):
             else:
                 param.data = sliced.contiguous()
 
+    def _checkpoint_key_for_param(self, full_name):
+        return full_name
+
     def _try_load_parameter(
         self, module_name, module, param_name, param, f, keys_shard, updated_params, buf_list, keyfound, tp_offset
     ):
         """Try to load a parameter from updated_params or keys_shard."""
         # in the case of "adapter.new_line" adapter is not a module hence module_name is ""
         full_name = f"{module_name}.{param_name}" if module_name else f"{param_name}"
+        checkpoint_name = self._checkpoint_key_for_param(full_name)
         ckpt_t = updated_params.get(full_name)
-        if ckpt_t is None and full_name in keys_shard:
-            ckpt_t = f[keys_shard[full_name]].get_tensor(full_name)
+        loaded_name = full_name
+        if ckpt_t is None and checkpoint_name in keys_shard:
+            ckpt_t = f[keys_shard[checkpoint_name]].get_tensor(checkpoint_name)
+            loaded_name = checkpoint_name
         if ckpt_t is None:
             return False
         self._load_param(module_name, module, param_name, param, buf_list, ckpt_t, tp_offset)
-        keyfound[full_name] = True
+        keyfound[loaded_name] = True
         return True
 
     def _maybe_warn_missing_parameter(self, module_name, param_name, module, buffers_list):
@@ -743,6 +763,7 @@ class BaseModel(nn.Module):
         # so we load the weights  module by module and transfer them to GPU for quantization
         dtype = getattr(running_config, "storage_dtype", torch.float32)
         f, keys_shard = self._load_safetensors_shards(model_path)
+        self._last_loaded_checkpoint_keys = set(keys_shard)
         if device == torch.device("cpu"):
             tp_offset = 0
         buf_list = [name for name, _ in self.named_buffers()]
@@ -753,6 +774,7 @@ class BaseModel(nn.Module):
         self._report_extra_keys(keys_shard, keyfound, buf_list)
         self._reset_lora_to_fp32()
         self._reset_invfreq_to_fp32(buf_list)
+        return keyfound
 
     def count_parameters(self, log=print):
         """Count number of parameters in model (& print with `log` callback).
@@ -996,6 +1018,264 @@ class EncoderModel(BaseModel):
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
+
+
+class EncoderScoringModel(BaseModel):
+    def __init__(self, model_config, encoder, src_emb, device=None, vocabs=None):
+        src_vocab = vocabs["src"]
+        specials = vocabs["specials"]
+        pad_token = specials["pad_token"]
+        bos_token = specials["bos_token"]
+        eos_token = specials["eos_token"]
+        super(EncoderScoringModel, self).__init__(
+            encoder=encoder,
+            src_emb=src_emb,
+            hidden_size=model_config.encoder.hidden_size,
+        )
+        self.model_config = model_config
+        self.vocabs = vocabs
+        self.device = torch.device(device) if device is not None else get_device()
+        self.scoring_type = getattr(model_config, "scoring_type", "comet")
+        self.class_identifier = getattr(model_config, "class_identifier", "regression_metric")
+        self.input_segments = list(getattr(model_config, "input_segments", ["mt", "src", "ref"]))
+        self.requires_reference = bool(getattr(model_config, "requires_reference", True))
+        max_pos = model_config.encoder.n_positions
+        self.max_length = min(max_pos - 2, 512)
+        self.max_positions = min(max_pos, 512)
+        self.pad_idx = src_vocab.lookup_token(pad_token)
+        self.bos_id = src_vocab.lookup_token(bos_token)
+        self.eos_id = src_vocab.lookup_token(eos_token)
+
+        layer = getattr(model_config, "layer", "last")
+        layerwise_attention = None
+        if layer == "mix":
+            layerwise_attention = LayerwiseAttention(
+                num_layers=model_config.encoder.layers + 1,
+                layer_transformation=getattr(model_config, "layer_transformation", "softmax"),
+                layer_norm=bool(getattr(model_config, "layer_norm", False)),
+            )
+        self.representation = RepresentationExtractor(
+            layer=layer,
+            pool=getattr(model_config, "pool", "avg"),
+            layerwise_attention=layerwise_attention,
+        )
+
+        self.estimator = FeedForward(
+            in_dim=self._estimator_in_dim(),
+            hidden_sizes=getattr(model_config, "hidden_sizes", [3072, 1024]),
+            activations=getattr(model_config, "activations", "Tanh"),
+            final_activation=getattr(model_config, "final_activation", None),
+            dropout=float(getattr(model_config, "dropout", 0.1)),
+        )
+
+    @classmethod
+    def build_blocks(cls, model_config, vocabs, running_config=None, checkpoint_dims=None, device=None):
+        pad_token = vocabs["specials"]["pad_token"]
+        checkpoint_dims = checkpoint_dims or {}
+        vocab_size = checkpoint_dims.get("vocab_size", len(vocabs["src"]))
+        n_positions = checkpoint_dims.get("n_positions", model_config.embeddings.n_positions)
+        src_emb = RobertaEmbeddings(
+            word_vec_size=model_config.embeddings.src_word_vec_size,
+            word_vocab_size=vocab_size,
+            word_padding_idx=vocabs["src"].lookup_token(pad_token),
+            dropout=float(getattr(model_config, "dropout", 0.1)),
+            n_positions=n_positions,
+            token_type_vocab_size=max(1, getattr(model_config.embeddings, "token_type_vocab_size", 1)),
+            embedding_layer_norm=bool(getattr(model_config.embeddings, "embedding_layer_norm", False)),
+            norm_eps=model_config.norm_eps,
+        )
+        encoder = build_encoder(model_config, running_config=running_config)
+        return cls(model_config=model_config, encoder=encoder, src_emb=src_emb, device=device, vocabs=vocabs)
+
+    @staticmethod
+    def _inspect_checkpoint_dims(model_dir):
+        shard_path = os.path.join(model_dir, "model.00.safetensors")
+        state_dict = load_file(shard_path, device="cpu")
+        word_emb = state_dict["encoder.embeddings.word_embeddings.weight"]
+        pos_emb = state_dict["encoder.embeddings.position_embeddings.weight"]
+        return {
+            "vocab_size": int(word_emb.shape[0]),
+            "n_positions": int(pos_emb.shape[0]),
+        }
+
+    @classmethod
+    def from_model_dir(cls, model_dir, device=None):
+        model, _, _ = cls.for_inference(model_path=model_dir, device=device)
+        return model
+
+    @classmethod
+    def for_inference(cls, running_config=None, device_id=0, model_path=None, device=None):
+        model_dir = model_path or running_config.model_path[0]
+        metadata = get_metadata(model_dir)
+        model_config = metadata["config"].model
+        if model_config.architecture != "transformer_encoder_scorer":
+            raise ValueError(
+                f"Expected a transformer_encoder_scorer model, got architecture={model_config.architecture}"
+            )
+        vocabs = dict_to_vocabs(metadata["vocab"])
+        checkpoint_dims = cls._inspect_checkpoint_dims(model_dir)
+        if device is not None:
+            resolved_device = torch.device(device)
+        elif isinstance(device_id, (str, torch.device)):
+            resolved_device = torch.device(device_id)
+        else:
+            resolved_device = get_device(device_id=device_id)
+        model = cls.build_blocks(
+            model_config,
+            vocabs,
+            running_config=None,
+            checkpoint_dims=checkpoint_dims,
+            device=resolved_device,
+        )
+        keyfound = model.load_safe_state_dict(
+            model_dir,
+            running_config=running_config,
+            vocabs=vocabs,
+            metadata=metadata,
+            device=resolved_device,
+            strict=True,
+        )
+        model._validate_strict_checkpoint_load(keyfound)
+        model.to(model.device)
+        model.eval()
+        return model, vocabs, model.model_config
+
+    def _estimator_in_dim(self):
+        if self.scoring_type == "pooled_regression":
+            return self.hidden_size
+        if self.class_identifier == "unified_metric":
+            return self.hidden_size
+        if self.requires_reference:
+            return self.hidden_size * 6
+        return self.hidden_size * 4
+
+    def _checkpoint_key_for_param(self, full_name):
+        if full_name.startswith("src_emb."):
+            return "encoder.embeddings." + full_name[len("src_emb.") :]
+        if full_name.startswith("representation.layerwise_attention."):
+            return "layerwise_attention." + full_name[len("representation.layerwise_attention.") :]
+        return full_name
+
+    def _validate_strict_checkpoint_load(self, keyfound):
+        expected = {self._checkpoint_key_for_param(key) for key in self.state_dict()}
+        loaded = set(keyfound)
+        checkpoint_keys = set(getattr(self, "_last_loaded_checkpoint_keys", set()))
+        missing = sorted(expected - loaded)
+        extra = sorted(checkpoint_keys - loaded)
+        if missing or extra:
+            pieces = []
+            if missing:
+                pieces.append("missing keys: " + ", ".join(missing[:10]))
+            if extra:
+                pieces.append("extra keys: " + ", ".join(extra[:10]))
+            raise RuntimeError("Strict checkpoint load failed for EncoderScoringModel (" + "; ".join(pieces) + ")")
+
+    def _encode_ids_batch(self, ids_batch):
+        lengths = [len(ids) for ids in ids_batch]
+        max_len = max(lengths) if lengths else 0
+        padded = []
+        masks = []
+        for ids in ids_batch:
+            pad_len = max_len - len(ids)
+            padded.append(ids + [self.pad_idx] * pad_len)
+            masks.append([1] * len(ids) + [0] * pad_len)
+        return {
+            "input_ids": torch.tensor(padded, dtype=torch.long, device=self.device),
+            "attention_mask": torch.tensor(masks, dtype=torch.long, device=self.device),
+        }
+
+    def _hidden_states_from_ids(self, ids_batch):
+        encoded = self._encode_ids_batch(ids_batch)
+        emb = self.src_emb(encoded["input_ids"])
+        pad_mask = encoded["input_ids"].eq(self.pad_idx).unsqueeze(1)
+        layer = getattr(self.model_config, "layer", "last")
+        need_hidden_states = layer != "last"
+        if need_hidden_states:
+            _, _, hidden_states = self.encoder(emb, pad_mask=pad_mask, return_hidden_states=True)
+        else:
+            enc_out, _ = self.encoder(emb, pad_mask=pad_mask)
+            hidden_states = [enc_out]
+        return hidden_states, encoded["attention_mask"]
+
+    def _sentence_embed_from_ids(self, ids_batch):
+        hidden_states, attention_mask = self._hidden_states_from_ids(ids_batch)
+        return self.representation(hidden_states, attention_mask)
+
+    def _concat_segments_from_ids(self, segments):
+        batch = []
+        for items in zip(*segments):
+            new_sequence = items[0]
+            for seq in items[1:]:
+                new_sequence = [
+                    self.bos_id,
+                    *new_sequence[1:-1],
+                    self.eos_id,
+                    self.eos_id,
+                    *seq[1:-1],
+                    self.eos_id,
+                ]
+            if len(new_sequence) > self.max_positions:
+                new_sequence = new_sequence[: self.max_positions]
+            batch.append(new_sequence)
+        return batch
+
+    def _unified_forward_score_from_ids(self, ids_batch):
+        hidden_states, attention_mask = self._hidden_states_from_ids(ids_batch)
+        if self.representation.layerwise_attention is not None:
+            embeddings = self.representation.layerwise_attention(hidden_states, attention_mask)
+        elif self.representation.layer == "last":
+            embeddings = hidden_states[-1]
+        else:
+            embeddings = hidden_states[int(self.representation.layer)]
+        sentemb = embeddings[:, 0, :]
+        return self.estimator(sentemb).view(-1)
+
+    @torch.inference_mode()
+    def predict_scores(self, rows):
+        if not rows:
+            return torch.tensor([])
+        if self.scoring_type == "pooled_regression":
+            segment_name = self.input_segments[0] if self.input_segments else "mt"
+            segment_key = {"mt": "mt_ids", "src": "src_ids", "ref": "ref_ids"}.get(segment_name)
+            if segment_key is None:
+                raise ValueError(f"Unsupported pooled_regression input segment: {segment_name}")
+            if any(segment_key not in r for r in rows):
+                raise ValueError(f"pooled_regression requires {segment_name!r} segment ids")
+            seg = [r[segment_key] for r in rows]
+            rep = self._sentence_embed_from_ids(seg)
+            return self.estimator(rep).view(-1).detach().cpu()
+
+        if self.class_identifier == "unified_metric":
+            mt = [r["mt_ids"] for r in rows]
+            src = [r.get("src_ids", [self.bos_id, self.eos_id]) for r in rows]
+            ref = [r.get("ref_ids", [self.bos_id, self.eos_id]) for r in rows]
+            segments_by_name = {"mt": mt, "src": src, "ref": ref}
+            if self.input_segments == ["mt", "src", "ref"]:
+                candidate_segments = [["mt", "src"], ["mt", "ref"], ["mt", "src", "ref"]]
+                all_scores = []
+                for segment_names in candidate_segments:
+                    ordered = [segments_by_name[name] for name in segment_names]
+                    all_scores.append(self._unified_forward_score_from_ids(self._concat_segments_from_ids(ordered)))
+                scores = torch.stack(all_scores, dim=0).mean(dim=0)
+            else:
+                ordered = [segments_by_name[name] for name in self.input_segments if name in segments_by_name]
+                scores = self._unified_forward_score_from_ids(self._concat_segments_from_ids(ordered))
+            return scores.detach().cpu()
+
+        src_sentemb = self._sentence_embed_from_ids([r["src_ids"] for r in rows])
+        mt_sentemb = self._sentence_embed_from_ids([r["mt_ids"] for r in rows])
+        if self.requires_reference:
+            ref_sentemb = self._sentence_embed_from_ids([r["ref_ids"] for r in rows])
+            diff_ref = torch.abs(mt_sentemb - ref_sentemb)
+            diff_src = torch.abs(mt_sentemb - src_sentemb)
+            prod_ref = mt_sentemb * ref_sentemb
+            prod_src = mt_sentemb * src_sentemb
+            features = torch.cat((mt_sentemb, ref_sentemb, prod_ref, diff_ref, prod_src, diff_src), dim=1)
+        else:
+            diff_src = torch.abs(mt_sentemb - src_sentemb)
+            prod_src = mt_sentemb * src_sentemb
+            features = torch.cat((mt_sentemb, src_sentemb, prod_src, diff_src), dim=1)
+        return self.estimator(features).view(-1).detach().cpu()
 
 
 class VisionEncoderDecoderModel(BaseModel):
@@ -1315,6 +1595,8 @@ class AudioEncoderDecoderModel(BaseModel):
 
 def get_model_class(model_config):
     # might have more cases later
+    if getattr(model_config, "architecture", None) == "transformer_encoder_scorer":
+        return EncoderScoringModel
     if model_config.decoder is None:
         return EncoderModel
     elif model_config.encoder is None:

@@ -16,7 +16,7 @@ description: Recap of command line utilities and how to call them.
 
 ### Model Conversion Tools
 - **`convert`** 
-  - Flavors: `HF` (universal Hugging Face converter), `T5`, `onmt_config` (legacy OpenNMT-py config migration)
+  - Flavors: `HF` (universal Hugging Face converter), `T5`, `COMET`, `onmt_config` (legacy OpenNMT-py config migration)
 
 ### Model Management Tools
 - **`model`**
@@ -47,3 +47,20 @@ All other tools have specific arguments that can be inspected via the command he
 ```sh
 eole tool_name -h
 ```
+
+## Native EOLE COMET Scoring
+
+EOLE supports native scoring with converted [Unbabel COMET](https://github.com/Unbabel/COMET)
+metrics through `EOLE-COMET` and `EOLE-COMET-KIWI`. These models use EOLE's
+generic encoder-only `transformer_encoder_scorer` architecture with the
+COMET-specific `scoring_type: comet` specialization.
+
+```sh
+eole convert COMET --model Unbabel/wmt22-comet-da --output /path/to/converted/wmt22-comet-da
+eole convert COMET --model Unbabel/wmt22-cometkiwi-da --output /path/to/converted/wmt22-cometkiwi-da
+```
+
+Then use the converted model directory in your training config with:
+
+- `valid_metrics: ["EOLE-COMET"]` or `valid_metrics: ["EOLE-COMET-KIWI"]`
+- `comet_model: /path/to/converted/model`
