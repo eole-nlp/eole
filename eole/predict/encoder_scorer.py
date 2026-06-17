@@ -154,7 +154,9 @@ class EncoderScorer(Inference):
         if len(src_lines) != len(tgt_lines):
             raise ValueError(f"src and tgt line counts differ: {len(src_lines)} vs {len(tgt_lines)}")
         if ref_lines is not None and len(ref_lines) != len(tgt_lines):
-            raise ValueError(f"src/tgt/ref line counts differ: {len(src_lines)} vs {len(tgt_lines)} vs {len(ref_lines)}")
+            raise ValueError(
+                f"src/tgt/ref line counts differ: {len(src_lines)} vs {len(tgt_lines)} vs {len(ref_lines)}"
+            )
         if bool(getattr(self.model, "requires_reference", False)):
             if ref_lines is None:
                 raise ValueError(
@@ -181,7 +183,9 @@ class EncoderScorer(Inference):
                     "      tgt_subword_model: <path>\n"
                     f"(scoring_type={scoring_type!r} has no auto-fallback.)"
                 )
-        rows = build_segment_rows(tgt_lines, src_lines, ref_lines, tokenizer, self.model, encode_texts_fn=encode_texts_fn)
+        rows = build_segment_rows(
+            tgt_lines, src_lines, ref_lines, tokenizer, self.model, encode_texts_fn=encode_texts_fn
+        )
 
         batch_size = max(1, int(getattr(self.config, "batch_size", 64)))
         t0 = time.time()

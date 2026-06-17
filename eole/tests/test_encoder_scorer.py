@@ -84,7 +84,9 @@ class TestEncoderScorer(unittest.TestCase):
             _write(src_path, ["hello world", "foo bar baz", "x"])
             _write(tgt_path, ["bonjour monde", "qux quux quuux", "y"])
             model = FakeModel(scores=[0.1, 0.5, 0.9])
-            config = SimpleNamespace(src=src_path, tgt=tgt_path, output=out_path, batch_size=2, report_time=False, with_score=True)
+            config = SimpleNamespace(
+                src=src_path, tgt=tgt_path, output=out_path, batch_size=2, report_time=False, with_score=True
+            )
             scorer = EncoderScorer(model, model.vocabs, config, model_config=SimpleNamespace())
             scores_out, estims_out, preds_out = scorer._predict(
                 infer_iter=None, transforms={"sentencepiece": FakeTokenizer()}, attn_debug=False, align_debug=False
@@ -103,7 +105,9 @@ class TestEncoderScorer(unittest.TestCase):
             _write(src_path, ["a"] * 8)
             _write(tgt_path, ["b"] * 8)
             model = FakeModel(scores=[0.1] * 8, raises_oom_until=1)
-            config = SimpleNamespace(src=src_path, tgt=tgt_path, output=out_path, batch_size=8, report_time=False, with_score=True)
+            config = SimpleNamespace(
+                src=src_path, tgt=tgt_path, output=out_path, batch_size=8, report_time=False, with_score=True
+            )
             scorer = EncoderScorer(model, model.vocabs, config, model_config=SimpleNamespace())
             scorer._predict(
                 infer_iter=None, transforms={"sentencepiece": FakeTokenizer()}, attn_debug=False, align_debug=False
@@ -141,7 +145,9 @@ class TestEncoderScorer(unittest.TestCase):
             _write(src_path, ["a", "b"])
             _write(tgt_path, ["c"])
             model = FakeModel(scores=[0.1])
-            config = SimpleNamespace(src=src_path, tgt=tgt_path, output=out_path, batch_size=2, report_time=False, with_score=True)
+            config = SimpleNamespace(
+                src=src_path, tgt=tgt_path, output=out_path, batch_size=2, report_time=False, with_score=True
+            )
             scorer = EncoderScorer(model, model.vocabs, config, model_config=SimpleNamespace())
             with self.assertRaises(ValueError):
                 scorer._predict(
@@ -157,10 +163,14 @@ class TestEncoderScorer(unittest.TestCase):
             _write(tgt_path, ["b"])
             model = FakeModel(scores=[0.1])
             model.requires_reference = True
-            config = SimpleNamespace(src=src_path, tgt=tgt_path, output=out_path, batch_size=2, report_time=False, with_score=True)
+            config = SimpleNamespace(
+                src=src_path, tgt=tgt_path, output=out_path, batch_size=2, report_time=False, with_score=True
+            )
             scorer = EncoderScorer(model, model.vocabs, config, model_config=SimpleNamespace())
             with self.assertRaisesRegex(ValueError, "Provide --ref"):
-                scorer._predict(infer_iter=None, transforms={"sentencepiece": FakeTokenizer()}, attn_debug=False, align_debug=False)
+                scorer._predict(
+                    infer_iter=None, transforms={"sentencepiece": FakeTokenizer()}, attn_debug=False, align_debug=False
+                )
 
     def test_reference_model_with_ref_scores(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -212,7 +222,9 @@ class TestEncoderScorer(unittest.TestCase):
             )
             scorer = EncoderScorer(model, model.vocabs, config, model_config=SimpleNamespace())
             with self.assertRaisesRegex(ValueError, "src/tgt/ref line counts differ"):
-                scorer._predict(infer_iter=None, transforms={"sentencepiece": FakeTokenizer()}, attn_debug=False, align_debug=False)
+                scorer._predict(
+                    infer_iter=None, transforms={"sentencepiece": FakeTokenizer()}, attn_debug=False, align_debug=False
+                )
 
     def test_build_segment_rows_includes_ref_for_ref_input_segment(self):
         model = FakeModel(scores=[0.1])
@@ -252,7 +264,10 @@ class TestEncoderScorer(unittest.TestCase):
             model._checkpoint_key_for_param("representation.layerwise_attention.scalar_parameters.0"),
             "layerwise_attention.scalar_parameters.0",
         )
-        self.assertEqual(model._checkpoint_key_for_param("encoder.transformer_layers.0.weight"), "encoder.transformer_layers.0.weight")
+        self.assertEqual(
+            model._checkpoint_key_for_param("encoder.transformer_layers.0.weight"),
+            "encoder.transformer_layers.0.weight",
+        )
 
     def test_strict_checkpoint_validation_raises_on_missing_or_extra_keys(self):
         model = EncoderScoringModel.__new__(EncoderScoringModel)
@@ -265,7 +280,9 @@ class TestEncoderScorer(unittest.TestCase):
             "unexpected.weight",
         }
 
-        with self.assertRaisesRegex(RuntimeError, "missing keys: encoder.transformer_layers.0.weight; extra keys: unexpected.weight"):
+        with self.assertRaisesRegex(
+            RuntimeError, "missing keys: encoder.transformer_layers.0.weight; extra keys: unexpected.weight"
+        ):
             model._validate_strict_checkpoint_load({"encoder.embeddings.word_embeddings.weight": True})
 
     def test_strict_checkpoint_validation_accepts_complete_remapped_load(self):
@@ -318,7 +335,9 @@ class TestDtypePropagation(unittest.TestCase):
             config = SimpleNamespace(src=src_path, tgt=tgt_path, output=out_path, batch_size=2, report_time=False)
             scorer = EncoderScorer(model, model.vocabs, config, model_config=SimpleNamespace())
             with self.assertRaisesRegex(ValueError, "--with_score"):
-                scorer._predict(infer_iter=None, transforms={"sentencepiece": FakeTokenizer()}, attn_debug=False, align_debug=False)
+                scorer._predict(
+                    infer_iter=None, transforms={"sentencepiece": FakeTokenizer()}, attn_debug=False, align_debug=False
+                )
 
     def test_fp16_calls_model_to(self):
         model, _ = self._make_scorer(torch.float16)
