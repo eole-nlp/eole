@@ -8,10 +8,11 @@ from eole.scorers.eole_comet import EoleCometScorer, EoleCometKiwiScorer, EoleXC
 
 
 class FakeRuntime:
-    def __init__(self, requires_reference, scores, class_identifier="regression_metric"):
+    def __init__(self, requires_reference, scores, class_identifier="regression_metric", scoring_type="comet"):
         self.requires_reference = requires_reference
         self._scores = scores
         self.class_identifier = class_identifier
+        self.scoring_type = scoring_type
 
     def predict_scores(self, rows):
         import torch
@@ -60,8 +61,19 @@ class TestEoleCometScorers(unittest.TestCase):
             patch.object(EoleCometKiwiScorer, "_build_sp_transform", return_value=object()),
             patch.object(EoleCometKiwiScorer, "_encode_texts", side_effect=[[[0, 1]], [[0, 1]]]),
         ):
-            with self.assertRaises(ValueError):
+            with self.assertRaisesRegex(ValueError, "EOLE-COMET-KIWI"):
                 scorer.compute_score(["a"], ["r"], ["s"])
+
+    def test_eole_xcomet_reports_metric_name_for_wrong_scoring_type(self):
+        fake_runtime = FakeRuntime(
+            requires_reference=True,
+            scores=[0.2],
+            class_identifier="xcomet_metric",
+            scoring_type="pooled_regression",
+        )
+
+        with self.assertRaisesRegex(ValueError, "EOLE-XCOMET"):
+            self._compute_score_with_runtime(EoleXCometScorer, fake_runtime)
 
     def test_eole_comet_aggregation(self):
         scorer = EoleCometScorer(SimpleNamespace(comet_model="dummy", comet_batch_size=8))
