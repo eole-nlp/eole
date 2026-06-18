@@ -4,17 +4,32 @@ from eole.utils.misc import clear_gpu_cache
 
 
 def build_segment_rows(preds, texts_srcs, texts_refs, tokenizer, model, encode_texts_fn):
+    if len(texts_srcs) != len(preds):
+        raise ValueError(f"preds and texts_srcs lengths differ: {len(preds)} vs {len(texts_srcs)}")
+    if texts_refs is not None and len(texts_refs) != len(preds):
+        raise ValueError(f"preds and texts_refs lengths differ: {len(preds)} vs {len(texts_refs)}")
+
     requires_reference = bool(getattr(model, "requires_reference", False))
     input_segments = list(getattr(model, "input_segments", []))
     needs_ref_ids = requires_reference or "ref" in input_segments
     src_ids = encode_texts_fn(texts_srcs, tokenizer, model)
     mt_ids = encode_texts_fn(preds, tokenizer, model)
     ref_ids = encode_texts_fn(texts_refs, tokenizer, model) if needs_ref_ids and texts_refs is not None else None
+
+    def _ids(item):
+        return item["ids"] if isinstance(item, dict) else item
+
     rows = []
     for idx in range(len(preds)):
-        row = {"src_ids": src_ids[idx], "mt_ids": mt_ids[idx]}
+        mt = mt_ids[idx]
+        row = {"src_ids": _ids(src_ids[idx]), "mt_ids": _ids(mt), "mt_text": preds[idx]}
+        if isinstance(mt, dict):
+            if "offsets" in mt:
+                row["mt_offsets"] = mt["offsets"]
+            if "decode_token_ids" in mt:
+                row["decode_token_ids"] = mt["decode_token_ids"]
         if ref_ids is not None:
-            row["ref_ids"] = ref_ids[idx]
+            row["ref_ids"] = _ids(ref_ids[idx])
         rows.append(row)
     return rows
 

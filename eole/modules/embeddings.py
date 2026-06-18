@@ -198,6 +198,7 @@ class Embeddings(nn.Module):
 
     def update_dropout(self, dropout):
         self.dropout.p = dropout
+        self.dropout_p = dropout
 
 
 class RobertaEmbeddings(nn.Module):
@@ -247,6 +248,7 @@ class RobertaEmbeddings(nn.Module):
 
     def update_dropout(self, dropout):
         self.dropout.p = dropout
+        self.dropout_p = dropout
 
 
 # Some utilitary functions for pretrained embeddings

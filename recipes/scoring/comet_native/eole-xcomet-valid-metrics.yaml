@@ -1,0 +1,3 @@
+valid_metrics: ["EOLE-XCOMET"]
+comet_model: "${EOLE_MODEL_DIR}/comet/Unbabel--XCOMET-XL"
+comet_batch_size: 64

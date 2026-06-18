@@ -63,9 +63,9 @@ class FeedForward(nn.Module):
         self.ff = nn.Sequential(*modules)
 
     def forward(self, in_features: torch.Tensor) -> torch.Tensor:
-        ff_dtypes = {param.dtype for param in self.ff.parameters()}
-        if ff_dtypes == {torch.float16} and in_features.dtype != torch.float16:
-            in_features = in_features.to(torch.float16)
+        param = next(self.ff.parameters(), None)
+        if param is not None and param.dtype.is_floating_point and in_features.dtype != param.dtype:
+            in_features = in_features.to(param.dtype)
         return self.ff(in_features)
 
     @staticmethod

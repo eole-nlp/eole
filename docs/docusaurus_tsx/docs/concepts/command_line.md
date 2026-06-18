@@ -51,16 +51,21 @@ eole tool_name -h
 ## Native EOLE COMET Scoring
 
 EOLE supports native scoring with converted [Unbabel COMET](https://github.com/Unbabel/COMET)
-metrics through `EOLE-COMET` and `EOLE-COMET-KIWI`. These models use EOLE's
-generic encoder-only `transformer_encoder_scorer` architecture with the
-COMET-specific `scoring_type: comet` specialization.
+metrics through `EOLE-COMET`, `EOLE-COMET-KIWI`, and `EOLE-XCOMET`. These models
+use EOLE's generic encoder-only `transformer_encoder_scorer` architecture with
+the COMET-specific `scoring_type: comet` specialization.
 
 ```sh
 eole convert COMET --model Unbabel/wmt22-comet-da --output /path/to/converted/wmt22-comet-da
 eole convert COMET --model Unbabel/wmt22-cometkiwi-da --output /path/to/converted/wmt22-cometkiwi-da
+eole convert COMET --model Unbabel/XCOMET-XL --token "$HF_TOKEN" --output /path/to/converted/XCOMET-XL
 ```
 
 Then use the converted model directory in your training config with:
 
-- `valid_metrics: ["EOLE-COMET"]` or `valid_metrics: ["EOLE-COMET-KIWI"]`
+- `valid_metrics: ["EOLE-COMET"]`, `valid_metrics: ["EOLE-COMET-KIWI"]`, or `valid_metrics: ["EOLE-XCOMET"]`
 - `comet_model: /path/to/converted/model`
+
+`eole predict --with_score` emits scalar scores for converted scorer models. For
+XCOMET, explainable span parity can be validated with the
+`recipes/scoring/comet_native/parity_check.py` harness.

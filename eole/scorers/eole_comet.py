@@ -3,7 +3,11 @@ import os
 from .scorer import Scorer
 from eole.models.model import EncoderScoringModel
 from eole.scorers import register_scorer
-from eole.utils.comet_scorer import build_comet_sentencepiece_transform, encode_comet_texts_to_ids
+from eole.utils.comet_scorer import (
+    build_comet_sentencepiece_transform,
+    encode_comet_texts_to_ids,
+    encode_comet_texts_to_ids_and_offsets,
+)
 from eole.utils.encoder_scorer import (
     build_segment_rows,
     predict_scores_with_oom_retry,
@@ -35,6 +39,7 @@ class _EoleCometBase(Scorer):
     uses_gpu = True
     default_model = None
     expect_reference = True
+    expected_class_identifier = None
 
     def __init__(self, config):
         super().__init__(config)
@@ -43,6 +48,14 @@ class _EoleCometBase(Scorer):
     def _validate_family(self, model):
         if getattr(model, "scoring_type", "comet") != "comet":
             raise ValueError("EOLE-COMET requires a transformer_encoder_scorer model with scoring_type='comet'.")
+        if (
+            self.expected_class_identifier is not None
+            and getattr(model, "class_identifier", None) != self.expected_class_identifier
+        ):
+            raise ValueError(
+                f"{self.__class__.__name__} expects a converted model with "
+                f"class_identifier='{self.expected_class_identifier}'."
+            )
         if self.expect_reference and not model.requires_reference:
             raise ValueError("EOLE-COMET expects a reference-based converted model.")
         if not self.expect_reference and model.requires_reference:
@@ -52,6 +65,8 @@ class _EoleCometBase(Scorer):
         return build_comet_sentencepiece_transform(model, model_dir)
 
     def _encode_texts(self, texts, tokenizer, model):
+        if getattr(model, "class_identifier", None) == "xcomet_metric":
+            return encode_comet_texts_to_ids_and_offsets(texts, tokenizer, model)
         return encode_comet_texts_to_ids(texts, tokenizer, model)
 
     def _resolve_device(self):
@@ -88,9 +103,18 @@ class _EoleCometBase(Scorer):
 class EoleCometScorer(_EoleCometBase):
     default_model = "Unbabel/wmt22-comet-da"
     expect_reference = True
+    expected_class_identifier = "regression_metric"
 
 
 @register_scorer(metric="EOLE-COMET-KIWI")
 class EoleCometKiwiScorer(_EoleCometBase):
     default_model = "Unbabel/wmt22-cometkiwi-da"
     expect_reference = False
+    expected_class_identifier = "referenceless_regression_metric"
+
+
+@register_scorer(metric="EOLE-XCOMET")
+class EoleXCometScorer(_EoleCometBase):
+    default_model = "Unbabel/XCOMET-XL"
+    expect_reference = True
+    expected_class_identifier = "xcomet_metric"

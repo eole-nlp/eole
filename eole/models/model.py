@@ -71,10 +71,11 @@ def build_decoder(model_config, running_config=None):
 def build_src_emb(model_config, vocabs, running_config=None):
     # Build embeddings.
     pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
+    src_pad_idx = vocabs["src"][pad_token]
     if getattr(model_config.embeddings, "embedding_type", "standard") == "roberta":
         src_emb = RobertaEmbeddings(
             word_vec_size=model_config.embeddings.src_word_vec_size,
-            word_padding_idx=vocabs["tgt"][pad_token],
+            word_padding_idx=src_pad_idx,
             word_vocab_size=len(vocabs["src"]),
             dropout=getattr(running_config, "dropout", [0.0])[0],
             n_positions=model_config.embeddings.n_positions,
@@ -88,7 +89,7 @@ def build_src_emb(model_config, vocabs, running_config=None):
             position_encoding_type=model_config.embeddings.position_encoding_type,
             position_shift=model_config.embeddings.position_shift,
             dropout=getattr(running_config, "dropout", [0.0])[0],
-            word_padding_idx=vocabs["tgt"][pad_token],
+            word_padding_idx=src_pad_idx,
             word_vocab_size=len(vocabs["src"]),
             sparse=getattr(running_config, "optim", None) == "sparseadam",
             freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
@@ -1039,6 +1040,14 @@ class EncoderScoringModel(BaseModel):
         self.class_identifier = getattr(model_config, "class_identifier", "regression_metric")
         self.input_segments = list(getattr(model_config, "input_segments", ["mt", "src", "ref"]))
         self.requires_reference = bool(getattr(model_config, "requires_reference", True))
+        self.word_layer = getattr(model_config, "word_layer", None)
+        self.error_labels = list(getattr(model_config, "error_labels", ["minor", "major", "critical"]))
+        self.ids_to_error_label = {0: "O"}
+        for idx, label in enumerate(self.error_labels, start=1):
+            self.ids_to_error_label[idx] = f"I-{label}"
+        self.input_weights_spans = list(getattr(model_config, "input_weights_spans", [0.1667, 0.3333, 0.5]))
+        self.score_weights = list(getattr(model_config, "score_weights", [0.12, 0.33, 0.33, 0.22]))
+        self.decoding_threshold = getattr(model_config, "decoding_threshold", None)
         max_pos = model_config.encoder.n_positions
         self.max_length = min(max_pos - 2, 512)
         self.max_positions = min(max_pos, 512)
@@ -1067,6 +1076,8 @@ class EncoderScoringModel(BaseModel):
             final_activation=getattr(model_config, "final_activation", None),
             dropout=float(getattr(model_config, "dropout", 0.1)),
         )
+        if self.class_identifier == "xcomet_metric":
+            self.hidden2tag = nn.Linear(self.hidden_size, len(self.ids_to_error_label))
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None, checkpoint_dims=None, device=None):
@@ -1143,7 +1154,7 @@ class EncoderScoringModel(BaseModel):
     def _estimator_in_dim(self):
         if self.scoring_type == "pooled_regression":
             return self.hidden_size
-        if self.class_identifier == "unified_metric":
+        if self.class_identifier in {"unified_metric", "xcomet_metric"}:
             return self.hidden_size
         if self.requires_reference:
             return self.hidden_size * 6
@@ -1184,12 +1195,24 @@ class EncoderScoringModel(BaseModel):
             "attention_mask": torch.tensor(masks, dtype=torch.long, device=self.device),
         }
 
+    def _tokens_from_ids(self, token_ids):
+        vocab = self.vocabs["src"]
+        tokens = []
+        for token_id in token_ids:
+            if token_id in {self.bos_id, self.eos_id, self.pad_idx}:
+                continue
+            if hasattr(vocab, "lookup_index"):
+                tokens.append(vocab.lookup_index(int(token_id)))
+            else:
+                tokens.append(str(int(token_id)))
+        return "".join(token.replace("▁", " ") for token in tokens).strip()
+
     def _hidden_states_from_ids(self, ids_batch):
         encoded = self._encode_ids_batch(ids_batch)
         emb = self.src_emb(encoded["input_ids"])
         pad_mask = encoded["input_ids"].eq(self.pad_idx).unsqueeze(1)
         layer = getattr(self.model_config, "layer", "last")
-        need_hidden_states = layer != "last"
+        need_hidden_states = layer != "last" or self.class_identifier == "xcomet_metric"
         if need_hidden_states:
             _, _, hidden_states = self.encoder(emb, pad_mask=pad_mask, return_hidden_states=True)
         else:
@@ -1219,16 +1242,162 @@ class EncoderScoringModel(BaseModel):
             batch.append(new_sequence)
         return batch
 
-    def _unified_forward_score_from_ids(self, ids_batch):
+    def _unified_forward_from_ids(self, ids_batch):
         hidden_states, attention_mask = self._hidden_states_from_ids(ids_batch)
-        if self.representation.layerwise_attention is not None:
-            embeddings = self.representation.layerwise_attention(hidden_states, attention_mask)
-        elif self.representation.layer == "last":
-            embeddings = hidden_states[-1]
-        else:
-            embeddings = hidden_states[int(self.representation.layer)]
+        embeddings = self.representation.token_embeddings(hidden_states, attention_mask)
         sentemb = embeddings[:, 0, :]
-        return self.estimator(sentemb).view(-1)
+        score = self.estimator(sentemb).view(-1)
+        if self.class_identifier != "xcomet_metric":
+            return {"score": score}
+        word_layer = self.word_layer if self.word_layer is not None else len(hidden_states) - 1
+        if word_layer < 0 or word_layer >= len(hidden_states):
+            raise ValueError(f"Invalid xCOMET word_layer={word_layer}; model returned {len(hidden_states)} layers")
+        return {"score": score, "logits": self.hidden2tag(hidden_states[word_layer])}
+
+    def _unified_forward_score_from_ids(self, ids_batch):
+        return self._unified_forward_from_ids(ids_batch)["score"]
+
+    @staticmethod
+    def _xcomet_seq_len(rows, logits_seq_len):
+        return max(min(len(row["mt_ids"]), logits_seq_len) for row in rows)
+
+    def _xcomet_span_text(self, span, mt_text, decode_ids):
+        if decode_ids is not None:
+            return decode_ids(span["tokens"])
+        if mt_text is not None:
+            return mt_text[span["offset"][0] : span["offset"][1]]
+        return self._tokens_from_ids(span["tokens"])
+
+    def _decode_xcomet_spans(self, subword_probs, input_ids, mt_offsets, mt_texts=None, decode_token_ids=None):
+        decoded = []
+        if mt_texts is None:
+            mt_texts = [None] * len(mt_offsets)
+        if decode_token_ids is None:
+            decode_token_ids = [None] * len(mt_offsets)
+        for sentence_ids, sentence_probs, sentence_offsets, mt_text, decode_ids in zip(
+            input_ids, subword_probs, mt_offsets, mt_texts, decode_token_ids
+        ):
+            error_spans = []
+            in_span = False
+            span = {}
+            for token_id, probs, token_offset in zip(
+                sentence_ids[: len(sentence_offsets)], sentence_probs, sentence_offsets
+            ):
+                if self.decoding_threshold is not None:
+                    if torch.sum(probs[1:]) > self.decoding_threshold:
+                        probability, label_value = torch.topk(probs[1:], 1)
+                        label_value += 1
+                    else:
+                        probability, label_value = torch.topk(probs[:1], 1)
+                else:
+                    probability, label_value = torch.topk(probs, 1)
+                label_value = label_value.item() if label_value.dim() < 1 else label_value[0].item()
+                label = self.ids_to_error_label.get(label_value, "O")
+                if label.startswith("I") and not in_span:
+                    in_span = True
+                    span = {
+                        "tokens": [int(token_id.item())],
+                        "severity": label.split("-", 1)[1],
+                        "offset": list(token_offset),
+                        "confidence": [probability.reshape(1)],
+                    }
+                elif label.startswith("I") and in_span:
+                    span["tokens"].append(int(token_id.item()))
+                    span["confidence"].append(probability.reshape(1))
+                    span["offset"][1] = token_offset[1]
+                elif label == "O" and in_span:
+                    error_spans.append(span)
+                    in_span = False
+                    span = {}
+            # Match Unbabel COMET: spans are emitted only when closed by an O label.
+            # A trailing open span at truncation/EOS is intentionally dropped.
+            decoded.append(
+                [
+                    {
+                        "text": self._xcomet_span_text(span, mt_text, decode_ids),
+                        "confidence": torch.cat(span["confidence"]).mean().item(),
+                        "severity": span["severity"],
+                        "start": int(span["offset"][0]),
+                        "end": int(span["offset"][1]),
+                    }
+                    for span in error_spans
+                ]
+            )
+        return decoded
+
+    def _xcomet_mqm_scores(self, error_spans):
+        scores = []
+        for sentence_spans in error_spans:
+            penalty = 0
+            for annotation in sentence_spans:
+                if annotation["severity"] == "minor":
+                    penalty += 1
+                elif annotation["severity"] == "major":
+                    penalty += 5
+                elif annotation["severity"] == "critical":
+                    penalty += 10
+            scores.append((25 - min(penalty, 25)) / 25)
+        return torch.tensor(scores, dtype=torch.float32, device=getattr(self, "device", torch.device("cpu")))
+
+    @torch.inference_mode()
+    def predict_xcomet(self, rows):
+        if not rows:
+            return {"scores": [], "metadata": {"error_spans": []}}
+        if self.class_identifier != "xcomet_metric":
+            raise ValueError("predict_xcomet requires class_identifier='xcomet_metric'.")
+        mt = [r["mt_ids"] for r in rows]
+        src = [r.get("src_ids", [self.bos_id, self.eos_id]) for r in rows]
+        ref = [r.get("ref_ids", [self.bos_id, self.eos_id]) for r in rows]
+        segments_by_name = {"mt": mt, "src": src, "ref": ref}
+        has_ref = all("ref_ids" in r for r in rows)
+        if self.input_segments == ["mt", "src", "ref"] and has_ref:
+            candidate_segments = [["mt", "src"], ["mt", "ref"], ["mt", "src", "ref"]]
+            outputs = [
+                self._unified_forward_from_ids(
+                    self._concat_segments_from_ids([segments_by_name[name] for name in segment_names])
+                )
+                for segment_names in candidate_segments
+            ]
+            regression_scores = torch.stack(
+                [torch.where(o["score"] > 1.0, 1.0, o["score"]) * w for o, w in zip(outputs, self.score_weights[:3])],
+                dim=0,
+            ).sum(dim=0)
+            seq_len = self._xcomet_seq_len(rows, outputs[0]["logits"].shape[1])
+            span_probs = [
+                nn.functional.softmax(o["logits"], dim=2)[:, :seq_len, :] * w
+                for o, w in zip(outputs, self.input_weights_spans)
+            ]
+            subword_probs = torch.sum(torch.stack(span_probs), dim=0)
+            metadata = {
+                "src_scores": outputs[0]["score"].detach().cpu().tolist(),
+                "ref_scores": outputs[1]["score"].detach().cpu().tolist(),
+                "unified_scores": outputs[2]["score"].detach().cpu().tolist(),
+            }
+        else:
+            available_segments = {"mt", "src"}
+            if has_ref:
+                available_segments.add("ref")
+            ordered = [segments_by_name[name] for name in self.input_segments if name in available_segments]
+            outputs = [self._unified_forward_from_ids(self._concat_segments_from_ids(ordered))]
+            regression_score = torch.where(outputs[0]["score"] > 1.0, 1.0, outputs[0]["score"])
+            regression_scores = regression_score * sum(self.score_weights[:3])
+            seq_len = self._xcomet_seq_len(rows, outputs[0]["logits"].shape[1])
+            subword_probs = nn.functional.softmax(outputs[0]["logits"], dim=2)[:, :seq_len, :]
+            metadata = {"src_scores": regression_score.detach().cpu().tolist()}
+
+        default_offsets = [[(0, 0)] * seq_len for _ in rows]
+        mt_offsets = [r.get("mt_offsets", default_offsets[i])[:seq_len] for i, r in enumerate(rows)]
+        mt_texts = [r.get("mt_text") for r in rows]
+        decode_token_ids = [r.get("decode_token_ids") for r in rows]
+        mt_input_ids = self._encode_ids_batch(mt)["input_ids"][:, :seq_len]
+        error_spans = self._decode_xcomet_spans(
+            subword_probs, mt_input_ids, mt_offsets, mt_texts=mt_texts, decode_token_ids=decode_token_ids
+        )
+        mqm_scores = self._xcomet_mqm_scores(error_spans)
+        final_scores = regression_scores + mqm_scores.to(regression_scores.device) * self.score_weights[3]
+        metadata["mqm_scores"] = mqm_scores.detach().cpu().tolist()
+        metadata["error_spans"] = error_spans
+        return {"scores": final_scores.detach().cpu().tolist(), "metadata": metadata}
 
     @torch.inference_mode()
     def predict_scores(self, rows):
@@ -1244,6 +1413,9 @@ class EncoderScoringModel(BaseModel):
             seg = [r[segment_key] for r in rows]
             rep = self._sentence_embed_from_ids(seg)
             return self.estimator(rep).view(-1).detach().cpu()
+
+        if self.class_identifier == "xcomet_metric":
+            return torch.tensor(self.predict_xcomet(rows)["scores"], dtype=torch.float32)
 
         if self.class_identifier == "unified_metric":
             mt = [r["mt_ids"] for r in rows]

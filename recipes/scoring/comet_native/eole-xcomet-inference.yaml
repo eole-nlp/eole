@@ -1,0 +1,10 @@
+model_path: ["${EOLE_MODEL_DIR}/comet/Unbabel--XCOMET-XL"]
+
+seed: 42
+batch_type: sents
+batch_size: 64
+world_size: 1
+gpu_ranks: [0]
+compute_dtype: fp32
+report_time: true
+src: null

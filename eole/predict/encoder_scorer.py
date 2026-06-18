@@ -11,7 +11,11 @@ from types import SimpleNamespace
 import torch
 
 from eole.predict.inference import Inference
-from eole.utils.comet_scorer import build_comet_sentencepiece_transform, encode_comet_texts_to_ids
+from eole.utils.comet_scorer import (
+    build_comet_sentencepiece_transform,
+    encode_comet_texts_to_ids,
+    encode_comet_texts_to_ids_and_offsets,
+)
 from eole.utils.encoder_scorer import (
     build_segment_rows,
     predict_scores_with_oom_retry,
@@ -171,7 +175,10 @@ class EncoderScorer(Inference):
                 # COMET checkpoints bundle sentencepiece.bpe.model next to config.json,
                 # so we can construct the transform directly from the model dir.
                 tokenizer = build_comet_sentencepiece_transform(self.model, self.config.model_path[0])
-                encode_texts_fn = encode_comet_texts_to_ids
+                if getattr(self.model, "class_identifier", None) == "xcomet_metric":
+                    encode_texts_fn = encode_comet_texts_to_ids_and_offsets
+                else:
+                    encode_texts_fn = encode_comet_texts_to_ids
             else:
                 raise ValueError(
                     "EncoderScorer could not resolve a tokenizer transform. "

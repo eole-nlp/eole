@@ -52,7 +52,10 @@ class EmbeddingsConfig(Config):
     )
     token_type_vocab_size: int = Field(
         default=0,
-        description="Token type vocabulary size for embedding block. 0 disables token type embeddings.",
+        description=(
+            "Token type vocabulary size for RoBERTa-style embedding block. "
+            "Values below 1 are treated as 1, matching all-zero token type ids."
+        ),
     )
 
     @model_validator(mode="after")
@@ -1107,15 +1110,20 @@ class TransformerEncoderScorerModelConfig(BaseModelConfig):
 
     scoring_type: Literal["comet", "pooled_regression"] = Field(default="comet")
     pretrained_model: str = Field(default="xlm-roberta-large")
-    class_identifier: Literal["regression_metric", "referenceless_regression_metric", "unified_metric"] = Field(
-        default="regression_metric"
-    )
+    class_identifier: Literal[
+        "regression_metric", "referenceless_regression_metric", "unified_metric", "xcomet_metric"
+    ] = Field(default="regression_metric")
     requires_reference: bool = Field(default=True)
     pool: Literal["avg", "max", "cls"] = Field(default="avg")
     layer: str = Field(default="mix")
     layer_transformation: Literal["softmax", "sparsemax"] = Field(default="softmax")
     layer_norm: bool = Field(default=False)
     input_segments: List[str] = Field(default_factory=lambda: ["mt", "src", "ref"])
+    word_layer: int | None = Field(default=None)
+    error_labels: List[str] = Field(default_factory=lambda: ["minor", "major", "critical"])
+    input_weights_spans: List[float] = Field(default_factory=lambda: [0.1667, 0.3333, 0.5])
+    score_weights: List[float] = Field(default_factory=lambda: [0.12, 0.33, 0.33, 0.22])
+    decoding_threshold: float | None = Field(default=None)
     hidden_sizes: List[int] = Field(default_factory=lambda: [3072, 1024])
     activations: str = Field(default="Tanh")
     final_activation: str | None = Field(default=None)
@@ -1149,10 +1157,17 @@ class TransformerEncoderScorerModelConfig(BaseModelConfig):
     def sync_family_fields(self):
         if self.scoring_type == "comet":
             expected_requires_reference = self.class_identifier == "regression_metric" or (
-                self.class_identifier == "unified_metric" and "ref" in self.input_segments
+                self.class_identifier in {"unified_metric", "xcomet_metric"} and "ref" in self.input_segments
             )
             if self.requires_reference != expected_requires_reference:
-                self.requires_reference = expected_requires_reference
+                object.__setattr__(self, "requires_reference", expected_requires_reference)
+            if self.class_identifier == "xcomet_metric":
+                if self.error_labels != ["minor", "major", "critical"]:
+                    raise ValueError("xcomet_metric expects error_labels=['minor', 'major', 'critical'].")
+                if len(self.input_weights_spans) != 3:
+                    raise ValueError("xcomet_metric expects exactly 3 input_weights_spans values.")
+                if len(self.score_weights) != 4:
+                    raise ValueError("xcomet_metric expects exactly 4 score_weights values.")
         elif self.scoring_type == "pooled_regression":
             if len(self.input_segments) != 1:
                 raise ValueError("pooled_regression expects exactly one input segment.")

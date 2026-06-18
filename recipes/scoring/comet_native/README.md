@@ -5,6 +5,7 @@ This recipe shows how to use native EOLE scoring with converted
 
 - `EOLE-COMET` (reference-based)
 - `EOLE-COMET-KIWI` (reference-free)
+- `EOLE-XCOMET` (reference-based, xCOMET scalar score with explainable spans validated internally)
 
 Converted COMET models are represented as EOLE `transformer_encoder_scorer`
 models with the COMET-specific `scoring_type: comet` specialization. Direct
@@ -24,6 +25,7 @@ For gated models, pass a token:
 
 ```bash
 eole convert COMET --model Unbabel/wmt23-cometkiwi-da-xl --token "$HF_TOKEN" --output "$EOLE_MODEL_DIR/comet/Unbabel--wmt23-cometkiwi-da-xl"
+eole convert COMET --model Unbabel/XCOMET-XL --token "$HF_TOKEN" --output "$EOLE_MODEL_DIR/comet/Unbabel--XCOMET-XL"
 ```
 
 ## 2) Use `EOLE-COMET` in a training config
@@ -50,7 +52,21 @@ comet_batch_size: 64
 
 `EOLE-COMET-KIWI` is reference-free and scores from source+hypothesis only.
 
-## 4) Parity check vs Unbabel COMET
+## 4) Use `EOLE-XCOMET` in a training config
+
+Set in your train YAML:
+
+```yaml
+valid_metrics: ["EOLE-XCOMET"]
+comet_model: "${EOLE_MODEL_DIR}/comet/Unbabel--XCOMET-XL"
+comet_batch_size: 64
+```
+
+`EOLE-XCOMET` is reference-based and reports the scalar xCOMET score as a
+validation metric. Native prediction can compute xCOMET span metadata internally;
+the validation metric interface currently emits only the scalar score.
+
+## 5) Parity check vs Unbabel COMET
 
 Use the reusable parity harness to compare EOLE native scores against
 [Unbabel COMET](https://github.com/Unbabel/COMET):
@@ -76,7 +92,20 @@ python recipes/scoring/comet_native/parity_check.py \
   --output /tmp/parity_wmt23_xl.json
 ```
 
-## 5) Direct CLI scoring with `eole predict`
+For XCOMET, the parity harness compares scalar scores, MQM scores, and decoded
+error spans against [Unbabel COMET](https://github.com/Unbabel/COMET):
+
+```bash
+python recipes/scoring/comet_native/parity_check.py \
+  --src /path/to/src.txt \
+  --mt /path/to/mt.txt \
+  --ref /path/to/ref.txt \
+  --hf-model Unbabel/XCOMET-XL \
+  --eole-model "${EOLE_MODEL_DIR}/comet/Unbabel--XCOMET-XL" \
+  --output /tmp/parity_xcomet_xl.json
+```
+
+## 6) Direct CLI scoring with `eole predict`
 
 For `transformer_encoder_scorer` models, use:
 
@@ -104,5 +133,17 @@ eole predict \
   --src /path/to/src.txt \
   --tgt /path/to/mt.txt \
   --output /path/to/scores.txt \
+  --with_score
+```
+
+XCOMET (`EOLE-XCOMET`) score-only CLI output:
+
+```bash
+eole predict \
+  --model_path "$EOLE_MODEL_DIR/comet/Unbabel--XCOMET-XL" \
+  --src /path/to/src.txt \
+  --tgt /path/to/mt.txt \
+  --ref /path/to/ref.txt \
+  --output /path/to/xcomet-scores.txt \
   --with_score
 ```

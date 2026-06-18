@@ -1,5 +1,5 @@
 import unittest
-from eole.modules.embeddings import Embeddings
+from eole.modules.embeddings import Embeddings, RobertaEmbeddings
 from eole.constants import PositionEncodingType
 
 import itertools
@@ -119,3 +119,31 @@ class TestEmbeddings(unittest.TestCase):
                         trainable_params[param_name].ne(old_weights[param_name]).any(),
                         param_name + " " + init_case.__str__(),
                     )
+
+    def test_embeddings_update_dropout_syncs_cached_probability(self):
+        emb = Embeddings(
+            word_vec_size=4,
+            word_vocab_size=8,
+            word_padding_idx=0,
+            position_encoding_type=None,
+            dropout=0.0,
+        )
+
+        emb.update_dropout(0.2)
+
+        self.assertEqual(emb.dropout.p, 0.2)
+        self.assertEqual(emb.dropout_p, 0.2)
+
+    def test_roberta_embeddings_update_dropout_syncs_cached_probability(self):
+        emb = RobertaEmbeddings(
+            word_vec_size=4,
+            word_vocab_size=8,
+            word_padding_idx=0,
+            dropout=0.0,
+            n_positions=8,
+        )
+
+        emb.update_dropout(0.2)
+
+        self.assertEqual(emb.dropout.p, 0.2)
+        self.assertEqual(emb.dropout_p, 0.2)

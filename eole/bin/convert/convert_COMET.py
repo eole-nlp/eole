@@ -21,7 +21,7 @@ def _slug(name):
 
 
 def _validate_class_identifier(class_identifier):
-    if class_identifier in ["regression_metric", "referenceless_regression_metric", "unified_metric"]:
+    if class_identifier in ["regression_metric", "referenceless_regression_metric", "unified_metric", "xcomet_metric"]:
         return
     raise ValueError(f"Unsupported COMET class_identifier: {class_identifier}")
 
@@ -88,7 +88,7 @@ def _build_model_config(args_model, hparams, encoder_config):
     input_segments = hparams.get("input_segments", ["mt", "src", "ref"])
     class_identifier = hparams["class_identifier"]
     requires_reference = class_identifier == "regression_metric" or (
-        class_identifier == "unified_metric" and "ref" in input_segments
+        class_identifier in {"unified_metric", "xcomet_metric"} and "ref" in input_segments
     )
 
     return {
@@ -102,6 +102,11 @@ def _build_model_config(args_model, hparams, encoder_config):
         "layer_transformation": layer_transformation,
         "layer_norm": bool(hparams.get("layer_norm", False)),
         "input_segments": input_segments,
+        "word_layer": hparams.get("word_layer"),
+        "error_labels": hparams.get("error_labels", ["minor", "major", "critical"]),
+        "input_weights_spans": hparams.get("input_weights_spans", [0.1667, 0.3333, 0.5]),
+        "score_weights": hparams.get("score_weights", [0.12, 0.33, 0.33, 0.22]),
+        "decoding_threshold": hparams.get("decoding_threshold"),
         "hidden_sizes": hparams.get("hidden_sizes", [3072, 1024]),
         "activations": hparams.get("activations", "Tanh"),
         "final_activation": hparams.get("final_activation"),
@@ -201,6 +206,8 @@ def _convert_state_dict(state_dict, model_config):
     for key, value in state_dict.items():
         if key.startswith("estimator."):
             converted[key] = value
+        elif key.startswith("hidden2tag."):
+            converted[key] = value
         elif (
             key.startswith("layerwise_attention.")
             and not key.endswith("dropout_mask")
@@ -254,6 +261,10 @@ class CometConverter(BaseBin):
         converted = _convert_state_dict(state_dict, model_config)
         if not any(key.startswith("estimator.") for key in converted):
             raise ValueError("Converted checkpoint is missing estimator.* weights.")
+        if model_config["class_identifier"] == "xcomet_metric" and not any(
+            key.startswith("hidden2tag.") for key in converted
+        ):
+            raise ValueError("Converted xCOMET checkpoint is missing hidden2tag.* weights.")
 
         for obsolete in ["model.ckpt", "eole_comet_config.json"]:
             path = os.path.join(output_dir, obsolete)

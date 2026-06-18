@@ -7,6 +7,8 @@ import torch
 
 from eole.predict.encoder_scorer import EncoderScorer, _resolve_sentencepiece
 from eole.models.model import EncoderScoringModel
+from eole.config.models import TransformerEncoderScorerModelConfig
+from eole.modules.estimator import FeedForward
 from eole.utils.encoder_scorer import build_segment_rows
 
 
@@ -234,6 +236,49 @@ class TestEncoderScorer(unittest.TestCase):
 
         self.assertIn("ref_ids", rows[0])
 
+    def test_build_segment_rows_rejects_src_length_mismatch(self):
+        model = FakeModel(scores=[0.1])
+
+        with self.assertRaisesRegex(ValueError, "texts_srcs"):
+            build_segment_rows(["mt", "mt2"], ["src"], None, FakeTokenizer(), model, _encode_texts_for_test)
+
+    def test_build_segment_rows_rejects_ref_length_mismatch(self):
+        model = FakeModel(scores=[0.1])
+
+        with self.assertRaisesRegex(ValueError, "texts_refs"):
+            build_segment_rows(["mt", "mt2"], ["src", "src2"], ["ref"], FakeTokenizer(), model, _encode_texts_for_test)
+
+    def test_xcomet_config_sets_reference_requirement_from_segments(self):
+        config = TransformerEncoderScorerModelConfig(
+            class_identifier="xcomet_metric",
+            requires_reference=False,
+            input_segments=["mt", "src", "ref"],
+        )
+
+        self.assertTrue(config.requires_reference)
+        self.assertEqual(config.error_labels, ["minor", "major", "critical"])
+
+    def test_xcomet_config_rejects_custom_error_labels(self):
+        with self.assertRaisesRegex(ValueError, "error_labels"):
+            TransformerEncoderScorerModelConfig(
+                class_identifier="xcomet_metric",
+                error_labels=["minor", "major"],
+            )
+
+    def test_xcomet_config_rejects_malformed_input_weights(self):
+        with self.assertRaisesRegex(ValueError, "input_weights_spans"):
+            TransformerEncoderScorerModelConfig(
+                class_identifier="xcomet_metric",
+                input_weights_spans=[1.0],
+            )
+
+    def test_xcomet_config_rejects_malformed_score_weights(self):
+        with self.assertRaisesRegex(ValueError, "score_weights"):
+            TransformerEncoderScorerModelConfig(
+                class_identifier="xcomet_metric",
+                score_weights=[0.33, 0.33, 0.34],
+            )
+
     def test_pooled_regression_uses_configured_segment_ids(self):
         model = EncoderScoringModel.__new__(EncoderScoringModel)
         model.scoring_type = "pooled_regression"
@@ -303,8 +348,97 @@ class TestEncoderScorer(unittest.TestCase):
             }
         )
 
+    def test_xcomet_mqm_scores_from_spans(self):
+        model = EncoderScoringModel.__new__(EncoderScoringModel)
+
+        scores = model._xcomet_mqm_scores(
+            [
+                [{"severity": "minor"}, {"severity": "major"}],
+                [{"severity": "critical"}, {"severity": "critical"}, {"severity": "critical"}],
+            ]
+        )
+
+        self.assertAlmostEqual(scores.tolist()[0], 19 / 25, places=6)
+        self.assertEqual(scores.tolist()[1], 0.0)
+
+    def test_xcomet_decode_groups_error_spans(self):
+        vocab = FakeVocab()
+        vocab.lookup_index = lambda idx: {2: "▁bad", 3: "ly"}.get(idx, "")
+        model = EncoderScoringModel.__new__(EncoderScoringModel)
+        model.bos_id = 0
+        model.eos_id = 1
+        model.pad_idx = 9
+        model.vocabs = {"src": vocab}
+        model.ids_to_error_label = {0: "O", 1: "I-minor", 2: "I-major", 3: "I-critical"}
+        model.decoding_threshold = None
+
+        probs = torch.tensor([[[0.9, 0.1, 0.0, 0.0], [0.1, 0.8, 0.1, 0.0], [0.1, 0.7, 0.2, 0.0], [0.8, 0.2, 0.0, 0.0]]])
+        spans = model._decode_xcomet_spans(probs, torch.tensor([[0, 2, 3, 1]]), [[(0, 0), (0, 3), (3, 5), (0, 0)]])
+
+        self.assertEqual(len(spans[0]), 1)
+        self.assertEqual(spans[0][0]["severity"], "minor")
+        self.assertEqual(spans[0][0]["start"], 0)
+        self.assertEqual(spans[0][0]["end"], 5)
+        self.assertEqual(spans[0][0]["text"], "badly")
+
+    def test_xcomet_decode_drops_unclosed_trailing_span_to_match_unbabel(self):
+        vocab = FakeVocab()
+        vocab.lookup_index = lambda idx: {2: "▁bad", 3: "ly"}.get(idx, "")
+        model = EncoderScoringModel.__new__(EncoderScoringModel)
+        model.bos_id = 0
+        model.eos_id = 1
+        model.pad_idx = 9
+        model.vocabs = {"src": vocab}
+        model.ids_to_error_label = {0: "O", 1: "I-minor", 2: "I-major", 3: "I-critical"}
+        model.decoding_threshold = None
+
+        probs = torch.tensor([[[0.9, 0.1, 0.0, 0.0], [0.1, 0.8, 0.1, 0.0], [0.1, 0.7, 0.2, 0.0]]])
+        spans = model._decode_xcomet_spans(probs, torch.tensor([[0, 2, 3]]), [[(0, 0), (0, 3), (3, 5)]])
+
+        self.assertEqual(spans, [[]])
+
+    def test_xcomet_predict_combines_regression_and_spans(self):
+        model = EncoderScoringModel.__new__(EncoderScoringModel)
+        model.class_identifier = "xcomet_metric"
+        model.input_segments = ["mt", "src", "ref"]
+        model.score_weights = [0.12, 0.33, 0.33, 0.22]
+        model.input_weights_spans = [0.1667, 0.3333, 0.5]
+        model.bos_id = 0
+        model.eos_id = 1
+        model.pad_idx = 9
+        model.device = torch.device("cpu")
+        model.vocabs = {"src": FakeVocab()}
+        model._concat_segments_from_ids = lambda segments: segments[0]
+        model._encode_ids_batch = lambda ids: {"input_ids": torch.tensor([[0, 2, 1]])}
+        calls = []
+
+        def _fake_forward(ids):
+            calls.append(ids)
+            logits = torch.tensor([[[4.0, 0.0, 0.0, 0.0], [0.0, 4.0, 0.0, 0.0], [4.0, 0.0, 0.0, 0.0]]])
+            return {"score": torch.tensor([0.5]), "logits": logits}
+
+        model._unified_forward_from_ids = _fake_forward
+        model._decode_xcomet_spans = lambda probs, input_ids, offsets, **kwargs: [
+            [{"severity": "minor", "start": 0, "end": 3, "confidence": 1.0, "text": "bad"}]
+        ]
+
+        result = model.predict_xcomet(
+            [{"mt_ids": [0, 2, 1], "src_ids": [0, 2, 1], "ref_ids": [0, 2, 1], "mt_offsets": [(0, 0), (0, 3), (0, 0)]}]
+        )
+
+        self.assertEqual(len(calls), 3)
+        self.assertAlmostEqual(result["scores"][0], 0.5 * 0.78 + (24 / 25) * 0.22, places=6)
+        self.assertEqual(result["metadata"]["error_spans"][0][0]["severity"], "minor")
+
 
 class TestDtypePropagation(unittest.TestCase):
+    def test_feed_forward_casts_inputs_to_bfloat16_parameters(self):
+        feed_forward = FeedForward(in_dim=2, hidden_sizes=[4], out_dim=1).to(torch.bfloat16)
+
+        output = feed_forward(torch.ones(1, 2, dtype=torch.float32))
+
+        self.assertEqual(output.dtype, torch.bfloat16)
+
     def _make_scorer(self, compute_dtype):
         from unittest.mock import MagicMock
 

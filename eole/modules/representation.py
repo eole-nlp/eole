@@ -52,14 +52,15 @@ class RepresentationExtractor(nn.Module):
         self.pool = pool
         self.layerwise_attention = layerwise_attention
 
-    def forward(self, hidden_states, attention_mask):
+    def token_embeddings(self, hidden_states, attention_mask):
         if self.layerwise_attention is not None:
-            tok_emb = self.layerwise_attention(hidden_states, attention_mask)
-        elif self.layer == "last":
-            tok_emb = hidden_states[-1]
-        else:
-            tok_emb = hidden_states[int(self.layer)]
+            return self.layerwise_attention(hidden_states, attention_mask)
+        if self.layer == "last":
+            return hidden_states[-1]
+        return hidden_states[int(self.layer)]
 
+    def forward(self, hidden_states, attention_mask):
+        tok_emb = self.token_embeddings(hidden_states, attention_mask)
         if self.pool == "cls":
             return tok_emb[:, 0, :]
         if self.pool == "max":
