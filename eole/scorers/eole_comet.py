@@ -51,13 +51,13 @@ class _EoleCometBase(Scorer):
             raise ValueError(
                 f"{self.metric_name} requires a transformer_encoder_scorer model with scoring_type='comet'."
             )
-        if (
-            self.expected_class_identifier is not None
-            and getattr(model, "class_identifier", None) != self.expected_class_identifier
-        ):
+        expected = self.expected_class_identifier
+        if isinstance(expected, str):
+            expected = {expected}
+        if expected is not None and getattr(model, "class_identifier", None) not in expected:
+            expected_text = ", ".join(f"'{value}'" for value in sorted(expected))
             raise ValueError(
-                f"{self.metric_name} expects a converted model with "
-                f"class_identifier='{self.expected_class_identifier}'."
+                f"{self.metric_name} expects a converted model with " f"class_identifier in {{{expected_text}}}."
             )
         if self.expect_reference and not model.requires_reference:
             raise ValueError(f"{self.metric_name} expects a reference-based converted model.")
@@ -115,7 +115,7 @@ class EoleCometKiwiScorer(_EoleCometBase):
     default_model = "Unbabel/wmt22-cometkiwi-da"
     metric_name = "EOLE-COMET-KIWI"
     expect_reference = False
-    expected_class_identifier = "referenceless_regression_metric"
+    expected_class_identifier = {"referenceless_regression_metric", "unified_metric"}
 
 
 @register_scorer(metric="EOLE-XCOMET")

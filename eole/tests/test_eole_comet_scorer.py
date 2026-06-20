@@ -101,7 +101,7 @@ class TestEoleCometScorers(unittest.TestCase):
     def test_eole_comet_rejects_xcomet_model_family(self):
         fake_runtime = FakeRuntime(requires_reference=True, scores=[0.2], class_identifier="xcomet_metric")
 
-        with self.assertRaisesRegex(ValueError, "class_identifier='regression_metric'"):
+        with self.assertRaisesRegex(ValueError, "class_identifier in .*'regression_metric'"):
             self._compute_score_with_runtime(EoleCometScorer, fake_runtime)
 
     def test_eole_comet_kiwi_accepts_referenceless_regression_model_family(self):
@@ -113,10 +113,17 @@ class TestEoleCometScorers(unittest.TestCase):
 
         self.assertAlmostEqual(score, 0.2, places=6)
 
+    def test_eole_comet_kiwi_accepts_unified_metric_model_family(self):
+        fake_runtime = FakeRuntime(requires_reference=False, scores=[0.2], class_identifier="unified_metric")
+
+        score = self._compute_score_with_runtime(EoleCometKiwiScorer, fake_runtime)
+
+        self.assertAlmostEqual(score, 0.2, places=6)
+
     def test_eole_comet_kiwi_rejects_xcomet_model_family(self):
         fake_runtime = FakeRuntime(requires_reference=False, scores=[0.2], class_identifier="xcomet_metric")
 
-        with self.assertRaisesRegex(ValueError, "class_identifier='referenceless_regression_metric'"):
+        with self.assertRaisesRegex(ValueError, "class_identifier in .*'unified_metric'"):
             self._compute_score_with_runtime(EoleCometKiwiScorer, fake_runtime)
 
     def test_eole_comet_kiwi_rejects_regular_comet_model_family(self):
@@ -126,7 +133,7 @@ class TestEoleCometScorers(unittest.TestCase):
             class_identifier="regression_metric",
         )
 
-        with self.assertRaisesRegex(ValueError, "class_identifier='referenceless_regression_metric'"):
+        with self.assertRaisesRegex(ValueError, "class_identifier in .*'unified_metric'"):
             self._compute_score_with_runtime(EoleCometKiwiScorer, fake_runtime)
 
     def test_eole_comet_uses_configured_device(self):
@@ -176,7 +183,7 @@ class TestEoleCometScorers(unittest.TestCase):
             patch("eole.scorers.eole_comet._resolve_model_dir", return_value="dummy"),
             patch("eole.scorers.eole_comet.EncoderScoringModel.from_model_dir", return_value=fake_runtime),
         ):
-            with self.assertRaisesRegex(ValueError, "class_identifier='xcomet_metric'"):
+            with self.assertRaisesRegex(ValueError, "class_identifier in .*'xcomet_metric'"):
                 scorer.compute_score(["a"], ["r"], ["s"])
 
 
