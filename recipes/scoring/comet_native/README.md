@@ -147,3 +147,32 @@ eole predict \
   --output /path/to/xcomet-scores.txt \
   --with_score
 ```
+
+By default, `eole predict --with_score` writes one segment score per input line:
+
+```text
+0.812345
+0.734567
+0.901234
+```
+
+To emit a single system-level score, use `--score_level system`:
+
+```bash
+eole predict \
+  --model_path "$EOLE_MODEL_DIR/comet/Unbabel--wmt22-comet-da" \
+  --src /path/to/src.txt \
+  --tgt /path/to/mt.txt \
+  --ref /path/to/ref.txt \
+  --output /path/to/system-score.txt \
+  --with_score \
+  --score_level system
+```
+
+`score_level: system` writes one numeric line containing the arithmetic mean of
+the segment scores, similar to Unbabel COMET's `--only_system` mode but using
+EOLE's score-file format:
+
+```text
+0.816049
+```

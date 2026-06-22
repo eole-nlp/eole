@@ -217,4 +217,13 @@ class EncoderScorer(Inference):
             elapsed = time.time() - t0
             logger.info("Scored %d pairs in %.1fs (%.0f seg/s)", len(rows), elapsed, len(rows) / max(elapsed, 1e-6))
 
+        score_level = getattr(self.config, "score_level", "segment")
+        if score_level == "system":
+            system_scores = [sum(all_scores) / len(all_scores)] if all_scores else []
+            if self.report_time:
+                logger.info("Emitted 1 system score")
+            return [[]], [system_scores], [[]]
+
+        if self.report_time:
+            logger.info("Emitted %d segment score%s", len(all_scores), "" if len(all_scores) == 1 else "s")
         return [[]], [all_scores], [[]]

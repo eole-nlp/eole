@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import torch
 
 from eole.predict.encoder_scorer import EncoderScorer, _resolve_sentencepiece
+from eole.inference_engine import InferenceEngine
 from eole.models.model import EncoderScoringModel
 from eole.config.models import TransformerEncoderScorerModelConfig
 from eole.modules.estimator import FeedForward
@@ -98,6 +99,43 @@ class TestEncoderScorer(unittest.TestCase):
             self.assertEqual(len(estims_out[0]), 3)
             self.assertAlmostEqual(estims_out[0][0], 0.1, places=6)
             self.assertAlmostEqual(estims_out[0][2], 0.9, places=6)
+
+    def test_predict_system_score_level_outputs_mean_score(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src_path = os.path.join(tmp, "src.txt")
+            tgt_path = os.path.join(tmp, "tgt.txt")
+            out_path = os.path.join(tmp, "scores.txt")
+            _write(src_path, ["a", "b", "c"])
+            _write(tgt_path, ["x", "y", "z"])
+            model = FakeModel(scores=[0.1, 0.5, 0.9])
+            config = SimpleNamespace(
+                src=src_path,
+                tgt=tgt_path,
+                output=out_path,
+                batch_size=2,
+                report_time=False,
+                with_score=True,
+                score_level="system",
+            )
+            scorer = EncoderScorer(model, model.vocabs, config, model_config=SimpleNamespace())
+            scores_out, estims_out, preds_out = scorer._predict(
+                infer_iter=None, transforms={"sentencepiece": FakeTokenizer()}, attn_debug=False, align_debug=False
+            )
+
+            self.assertEqual(scores_out, [[]])
+            self.assertEqual(preds_out, [[]])
+            self.assertEqual(len(estims_out[0]), 1)
+            self.assertAlmostEqual(estims_out[0][0], 0.5, places=6)
+
+    def test_system_score_level_writes_single_score_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = os.path.join(tmp, "scores.txt")
+            engine = InferenceEngine(SimpleNamespace(with_score=True))
+
+            engine._write_predictions_to_file([], [0.5], [], out_path)
+
+            with open(out_path, "r", encoding="utf-8") as f:
+                self.assertEqual(f.read(), "0.5\n")
 
     def test_oom_fallback_halves_batch(self):
         with tempfile.TemporaryDirectory() as tmp:

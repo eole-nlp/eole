@@ -133,6 +133,10 @@ class PredictConfig(
         default=None,
         description="Reference target sequences for reference-based scoring models.",
     )
+    score_level: Literal["segment", "system"] = Field(
+        default="segment",
+        description="Score output granularity for scorer predictors: segment scores or one aggregate system score.",
+    )
     tgt_file_prefix: bool = Field(default=False, description="Generate predictions using provided tgt as prefix.")
     output: str = Field(
         default="pred.txt",
