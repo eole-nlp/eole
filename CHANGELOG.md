@@ -2,6 +2,32 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.5.3
+
+* Support MoE Marlin fused cuda kernel by @vince62s in https://github.com/eole-nlp/eole/pull/348
+* update docusaurus by @vince62s in https://github.com/eole-nlp/eole/pull/350
+* Self contained Marlin kernel (do not depend on gptqmodel) by @vince62s in https://github.com/eole-nlp/eole/pull/352
+* split fused_moe_int4 into triton and marlin by @vince62s in https://github.com/eole-nlp/eole/pull/353
+* fix compile bug with marlin kernel by @vince62s in https://github.com/eole-nlp/eole/pull/356
+* Fix AudioPredictor missing streamer parameter by @dameikle in https://github.com/eole-nlp/eole/pull/355
+* fix bug default sliding window should be 0 not 4096 at conversion by @vince62s in https://github.com/eole-nlp/eole/pull/357
+* Support anthropic like api + Claude Code by @vince62s in https://github.com/eole-nlp/eole/pull/354
+* fix sliding attention - add chunked prefill + chunk cache by @vince62s in https://github.com/eole-nlp/eole/pull/340
+* Add autocast support for MPS by @dameikle in https://github.com/eole-nlp/eole/pull/365
+* Fix id_tokenization check to scan all transforms by @yjymosheng in https://github.com/eole-nlp/eole/pull/364
+* "-gpu" flag doesn't exist; it should be "-gpu_ranks" by @Geremia in https://github.com/eole-nlp/eole/pull/363
+* Move LoRa embedding validation to config layer by @yjymosheng in https://github.com/eole-nlp/eole/pull/367
+* convert_HF.py: add --check-tensors and --config-only flags by @vince62s in https://github.com/eole-nlp/eole/pull/361
+* Enable runnning inference directly on supported HF models by @vince62s in https://github.com/eole-nlp/eole/pull/374
+* fix pydantic and doc stuff by @vince62s in https://github.com/eole-nlp/eole/pull/383
+* Add trackio experiment tracking as an optional logging backend by @dameikle in https://github.com/eole-nlp/eole/pull/385
+* Add Gemma4 support by @vince62s in https://github.com/eole-nlp/eole/pull/382
+* Add native COMET/KIWI scoring with encoder scorer models by @dameikle in https://github.com/eole-nlp/eole/pull/390
+
+## New Contributors
+* @Geremia made their first contribution in https://github.com/eole-nlp/eole/pull/363
+
+
 ## 0.5.2
 
 * Support Qwen3.5-27B/9B/4B/2B/0.8B by @vince62s in https://github.com/eole-nlp/eole/pull/329
