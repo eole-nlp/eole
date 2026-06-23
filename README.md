@@ -1,6 +1,14 @@
 # EOLE
 
-## Latest: Chatbot in streaming mode - 60-65 tok/sec with Qwen3.5-27B-int4 (on RTX 5090)
+## Latest: Comet scoring with Eole-nlp (using converted legacy models)
+
+The legacy Unbabel toolkit is no longer actively maintained.
+Eole-nlp enables to use the pretrained models for scoring as well as scoring during training.
+
+see recipes[here](https://github.com/eole-nlp/eole/blob/main/recipes/scoring/README.md)
+
+
+## Chatbot in streaming mode - 60-65 tok/sec with Qwen3.5-27B-int4 (on RTX 5090)
 
 [Screencast from 2026-03-15 14-04-56.webm](https://github.com/user-attachments/assets/206632fd-a0a0-4189-a899-ba32343181fb)
 
