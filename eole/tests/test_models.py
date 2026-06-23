@@ -4,6 +4,7 @@ import torch
 import pyonmttok
 from eole.constants import DefaultTokens
 from collections import Counter
+from types import SimpleNamespace
 import eole
 import eole.inputters
 
@@ -22,6 +23,20 @@ class NoOpPosition:
 
     def update(self, *args, **kwargs):
         return None
+
+
+class FakeVocab:
+    def __init__(self, pad_idx, size=16):
+        self.pad_idx = pad_idx
+        self.size = size
+
+    def __getitem__(self, token):
+        if token == DefaultTokens.PAD:
+            return self.pad_idx
+        return 0
+
+    def __len__(self):
+        return self.size
 
 
 opt = TrainConfig(
@@ -104,6 +119,23 @@ class TestModel(unittest.TestCase):
             compare_to = torch.zeros(bsize, source_l, opt.model.embeddings.src_word_vec_size)
 
         self.assertEqual(res.size(), compare_to.size())
+
+    def test_build_src_emb_uses_source_vocab_padding_index(self):
+        vocabs = {
+            "src": FakeVocab(pad_idx=7, size=16),
+            "tgt": FakeVocab(pad_idx=3, size=16),
+            "specials": {"pad_token": DefaultTokens.PAD},
+        }
+        running_config = SimpleNamespace(dropout=[0.0], optim=None)
+        model_config = copy.deepcopy(self.opt.model)
+
+        standard_emb = build_src_emb(model_config, vocabs, running_config=running_config)
+        model_config.embeddings.embedding_type = "roberta"
+        model_config.embeddings.n_positions = 16
+        roberta_emb = build_src_emb(model_config, vocabs, running_config=running_config)
+
+        self.assertEqual(standard_emb.word_padding_idx, 7)
+        self.assertEqual(roberta_emb.word_padding_idx, 7)
 
     def encoder_forward(self, opt, source_l=3, bsize=1):
         """

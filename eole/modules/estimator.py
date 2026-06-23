@@ -48,12 +48,12 @@ class FeedForward(nn.Module):
         super().__init__()
         modules = []
         modules.append(nn.Linear(in_dim, hidden_sizes[0]))
-        modules.append(nn.GELU())
+        modules.append(self.build_activation(activations))
         modules.append(nn.Dropout(dropout))
 
         for i in range(1, len(hidden_sizes)):
             modules.append(nn.Linear(hidden_sizes[i - 1], hidden_sizes[i]))
-            modules.append(nn.GELU())
+            modules.append(self.build_activation(activations))
             modules.append(nn.Dropout(dropout))
 
         modules.append(nn.Linear(hidden_sizes[-1], int(out_dim)))
@@ -63,4 +63,18 @@ class FeedForward(nn.Module):
         self.ff = nn.Sequential(*modules)
 
     def forward(self, in_features: torch.Tensor) -> torch.Tensor:
+        param = next(self.ff.parameters(), None)
+        if param is not None and param.dtype.is_floating_point and in_features.dtype != param.dtype:
+            in_features = in_features.to(param.dtype)
         return self.ff(in_features)
+
+    @staticmethod
+    def build_activation(name: str) -> nn.Module:
+        if name.lower() == "gelu":
+            return nn.GELU()
+        if hasattr(nn, name):
+            return getattr(nn, name)()
+        title_name = name.title()
+        if hasattr(nn, title_name):
+            return getattr(nn, title_name)()
+        raise ValueError(f"Invalid activation {name}")
