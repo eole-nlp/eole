@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from glob import glob
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Any, Optional
 import os
 import itertools
 from safetensors.torch import load_file
@@ -31,6 +33,37 @@ from eole.modules.representation import LayerwiseAttention, RepresentationExtrac
 
 from eole.encoders.vision import VisionEncoder
 from eole.encoders.audio import AudioEncoder
+
+
+@dataclass
+class ModelOutput:
+    """Structured output from model forward pass.
+
+    Replaces the raw tuple ``(dec_out, attns, estim)`` with a named
+    dataclass while remaining backward-compatible via tuple unpacking.
+
+    Attributes:
+        dec_out: Decoder output tensor ``(batch, tgt_len, hidden)``
+            (or encoder output for encoder-only models).
+        attns: Attention weight dict ``{attn_type: (batch, head, tgt_len, src_len)}``,
+            encoder final hidden states (for encoder-only models), or None.
+        estim: Estimator output (scalar per sample), or None if estimator is disabled.
+    """
+
+    dec_out: torch.Tensor
+    attns: Optional[Any] = None
+    estim: Optional[torch.Tensor] = None
+
+    def __iter__(self):
+        """Allow tuple unpacking: ``dec_out, attns, estim = model(...)``."""
+        return iter((self.dec_out, self.attns, self.estim))
+
+    def __getitem__(self, idx):
+        """Allow indexing: ``model_output[0]`` for dec_out."""
+        return (self.dec_out, self.attns, self.estim)[idx]
+
+    def __len__(self):
+        return 3
 
 
 def build_encoder(model_config, running_config=None):
@@ -505,6 +538,66 @@ class BaseModel(nn.Module):
 
         raise NotImplementedError
 
+    def compute_log_probs(self, src, tgt, src_len, **kwargs):
+        """Compute per-token log-probabilities for a given src/tgt pair.
+
+        Runs the model forward and applies the generator + log-softmax to
+        obtain log-probabilities over the vocabulary at each target position.
+        This is useful for RL policy gradient methods and KL-divergence
+        computation against a reference model.
+
+        Args:
+            src (Tensor): Source input ``(batch, src_len)`` or appropriate format.
+            tgt (LongTensor): Target sequence ``(batch, tgt_len)``.
+            src_len (LongTensor): Source lengths ``(batch,)``.
+            **kwargs: Additional arguments passed to forward (e.g. images, prefix_len).
+
+        Returns:
+            A dict with:
+                - 'log_probs': ``(batch, tgt_len - tgt_shift, vocab_size)`` log-probabilities
+                - 'token_log_probs': ``(batch, tgt_len - tgt_shift)`` log-probs of actual target tokens
+                - 'dec_out': raw decoder output ``(batch, tgt_len, hidden)``
+                - 'estim': estimator output (or None)
+        """
+        if self.generator is None:
+            raise RuntimeError(
+                "compute_log_probs() requires a generator head, but this model "
+                "has generator=None (e.g. encoder-only models)."
+            )
+        dec_out, attns, estim = self.forward(src, tgt, src_len, **kwargs)
+
+        # Apply generator to get logits over vocabulary
+        # dec_out: (batch, tgt_len, hidden) -> logits: (batch, tgt_len, vocab_size)
+        logits = self.generator(dec_out)
+
+        # Compute log-softmax
+        log_probs = torch.nn.functional.log_softmax(logits.float(), dim=-1)
+
+        # Gather log-probs of actual target tokens
+        # tgt_shift: for NMT models shift=1 (ignore BOS), for LM shift=0
+        tgt_shifted = tgt[:, self.tgt_shift :]
+        # Align tgt_shifted length with dec_out length in case they differ
+        seq_len = min(tgt_shifted.size(1), log_probs.size(1))
+        tgt_shifted = tgt_shifted[:, :seq_len]
+        log_probs = log_probs[:, :seq_len, :]
+        # Create padding mask (padding tokens should not contribute to log-probs)
+        # Use tgt_pad_idx if available (EncoderDecoderModel), otherwise fall back to pad_idx
+        pad_idx = getattr(self, "tgt_pad_idx", getattr(self, "pad_idx", 1))
+        padding_mask = tgt_shifted.ne(pad_idx)
+        # Clamp indices for gather (padding positions will be masked out)
+        tgt_clamped = tgt_shifted.clamp(min=0)
+        token_log_probs = log_probs.gather(2, tgt_clamped.unsqueeze(2)).squeeze(2)
+        # Zero out log-probs at padding positions
+        token_log_probs = token_log_probs * padding_mask.float()
+
+        return {
+            "log_probs": log_probs,
+            "token_log_probs": token_log_probs,
+            "padding_mask": padding_mask,
+            "dec_out": dec_out,
+            "estim": estim,
+        }
+
     def update_dropout(self, dropout, attention_dropout):
         raise NotImplementedError
 
@@ -891,7 +984,7 @@ class EncoderDecoderModel(BaseModel):
         else:
             estim = None
 
-        return dec_out, attns, estim
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
@@ -956,7 +1049,7 @@ class DecoderModel(BaseModel):
         else:
             estim = None
 
-        return dec_out, attns, estim
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.decoder.update_dropout(dropout, attention_dropout)
@@ -1015,7 +1108,7 @@ class EncoderModel(BaseModel):
         else:
             estim = None
 
-        return enc_out, enc_final_hs, estim
+        return ModelOutput(dec_out=enc_out, attns=enc_final_hs, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
@@ -1691,7 +1784,7 @@ class VisionEncoderDecoderModel(BaseModel):
         else:
             estim = None
 
-        return dec_out, attns, estim
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
@@ -1757,7 +1850,7 @@ class AudioEncoderDecoderModel(BaseModel):
         )
 
         estim = None
-        return dec_out, attns, estim
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
