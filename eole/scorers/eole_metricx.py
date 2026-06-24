@@ -3,6 +3,7 @@ import os
 import torch
 
 from .scorer import Scorer
+from eole.constants import TORCH_DTYPES
 from eole.models.model import EncoderDecoderScoringModel
 from eole.scorers import register_scorer
 from eole.utils.scorer import (
@@ -48,9 +49,17 @@ class _EoleMetricXBase(Scorer):
             return torch.device(configured_device)
         return get_device()
 
+    def _resolve_compute_dtype(self, device):
+        configured_dtype = getattr(self.config, "metricx_compute_dtype", "fp32")
+        if isinstance(configured_dtype, torch.dtype):
+            return configured_dtype
+        if configured_dtype not in {"fp32", "fp16", "bf16"}:
+            raise ValueError(f"Unsupported metricx_compute_dtype={configured_dtype!r}.")
+        return TORCH_DTYPES[configured_dtype]
+
     def _load_model(self, model_dir):
         device = self._resolve_device()
-        compute_dtype = torch.float32 if device.type in {"cpu", "mps"} else torch.float16
+        compute_dtype = self._resolve_compute_dtype(device)
         return EncoderDecoderScoringModel.from_model_dir(model_dir, device=device, compute_dtype=compute_dtype)
 
     def _validate_family(self, model):

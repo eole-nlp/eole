@@ -132,6 +132,13 @@ class LoggingConfig(Config):
         default=None,
         description="Device used for EOLE-METRICX scoring (for example: 'cpu', 'mps', 'cuda', 'cuda:0').",
     )
+    metricx_compute_dtype: Literal["fp32", "fp16", "bf16"] = Field(
+        default="fp32",
+        description=(
+            "Compute dtype used when loading EOLE-METRICX validation scorers. "
+            "Defaults to fp32 for stable validation; use bf16 explicitly for CUDA speed/memory."
+        ),
+    )
     scoring_debug: bool = Field(default=False, description="Dump src/ref/pred of the current batch.")
     dump_preds: str | None = Field(default=None, description="Folder to dump predictions to.")
     tensorboard: bool = Field(default=False, description="Use tensorboard for visualization during training.")

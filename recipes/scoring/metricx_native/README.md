@@ -38,6 +38,22 @@ eole convert MetricX \
   --output "$EOLE_MODEL_DIR/metricx/google--metricx-23-large-v2p0"
 ```
 
+Google also publishes a bfloat16 MetricX-24 variant. To preserve bf16 weights in
+the converted EOLE artifact, convert with `--dtype bf16`:
+
+```bash
+eole convert MetricX \
+  --model google/metricx-24-hybrid-large-v2p6-bfloat16 \
+  --dtype bf16 \
+  --output "$EOLE_MODEL_DIR/metricx/google--metricx-24-hybrid-large-v2p6-bfloat16"
+```
+
+You can choose the conversion precision independently of the validation scorer
+runtime precision. Training validation metrics use `metricx_compute_dtype`; direct
+CLI scoring uses `--compute_dtype`. MetricX validation defaults to `fp32` for
+stability. For CUDA speed/memory, opt in explicitly with
+`metricx_compute_dtype: bf16`.
+
 For gated or private models, pass a Hugging Face token:
 
 ```bash
@@ -56,6 +72,21 @@ valid_metrics: ["EOLE-METRICX"]
 metricx_model: "${EOLE_MODEL_DIR}/metricx/google--metricx-24-hybrid-large-v2p6"
 metricx_batch_size: 8
 metricx_device: cuda
+metricx_compute_dtype: fp32
+```
+
+`metricx_compute_dtype` accepts `fp32`, `fp16`, or `bf16`. Use `fp32` for stable
+validation and parity reporting. Use `bf16` explicitly on CUDA when speed/memory
+matters.
+
+CUDA bf16 opt-in example:
+
+```yaml
+valid_metrics: ["EOLE-METRICX"]
+metricx_model: "${EOLE_MODEL_DIR}/metricx/google--metricx-24-hybrid-large-v2p6-bfloat16"
+metricx_batch_size: 8
+metricx_device: cuda
+metricx_compute_dtype: bf16
 ```
 
 `EOLE-METRICX` forces reference mode and requires references in the validation
@@ -68,6 +99,7 @@ valid_metrics: ["EOLE-METRICX"]
 metricx_model: "${EOLE_MODEL_DIR}/metricx/google--metricx-24-hybrid-large-v2p6"
 metricx_batch_size: 1
 metricx_device: cpu
+metricx_compute_dtype: fp32
 ```
 
 The CPU validation scorer loads MetricX in `fp32` to avoid reduced-precision CPU
@@ -75,13 +107,16 @@ numerical issues.
 
 On Apple Silicon / MPS, also use `metricx_device: mps`. The native MetricX
 validation scorer loads MetricX in `fp32` on MPS because the `fp16` path can
-produce `nan` scores for this mT5-style scorer.
+produce `nan` scores for this mT5-style scorer. MPS autocast to `fp16` showed the
+same issue in local smoke tests. The bf16 MetricX variant is finite on MPS, but
+with lower precision than fp32.
 
 ```yaml
 valid_metrics: ["EOLE-METRICX"]
 metricx_model: "${EOLE_MODEL_DIR}/metricx/google--metricx-24-hybrid-large-v2p6"
 metricx_batch_size: 1
 metricx_device: mps
+metricx_compute_dtype: fp32
 ```
 
 ## 3) Use `EOLE-METRICX-QE` in a training config
@@ -93,6 +128,7 @@ valid_metrics: ["EOLE-METRICX-QE"]
 metricx_model: "${EOLE_MODEL_DIR}/metricx/google--metricx-24-hybrid-large-v2p6"
 metricx_batch_size: 8
 metricx_device: cuda
+metricx_compute_dtype: fp32
 ```
 
 `EOLE-METRICX-QE` forces reference-free mode and scores from source+hypothesis
@@ -121,7 +157,7 @@ eole predict \
   --output /path/to/metricx-scores.txt \
   --with_score \
   --batch_size 8 \
-  --compute_dtype fp16
+  --compute_dtype fp32
 ```
 
 Reference-free / QE scoring:
@@ -134,7 +170,21 @@ eole predict \
   --output /path/to/metricx-qe-scores.txt \
   --with_score \
   --batch_size 8 \
-  --compute_dtype fp16
+  --compute_dtype fp32
+```
+
+CUDA bf16 CLI opt-in example:
+
+```bash
+eole predict \
+  --model_path "$EOLE_MODEL_DIR/metricx/google--metricx-24-hybrid-large-v2p6-bfloat16" \
+  --src /path/to/src.txt \
+  --tgt /path/to/mt.txt \
+  --ref /path/to/ref.txt \
+  --output /path/to/metricx-bf16-scores.txt \
+  --with_score \
+  --batch_size 8 \
+  --compute_dtype bf16
 ```
 
 On CPU or MPS, prefer `fp32`:

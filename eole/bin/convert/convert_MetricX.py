@@ -245,6 +245,7 @@ class MetricXConverter(BaseBin):
         dtype = _dtype(args.dtype)
         state_dict = _load_state_dict(snapshot_dir)
         converted = _convert_state_dict(state_dict, params, dtype)
+        converted = {key: value.contiguous().clone() for key, value in converted.items()}
         save_file(converted, os.path.join(output_dir, "model.00.safetensors"))
 
         _copy_tokenizer_assets(tokenizer_dir, output_dir)

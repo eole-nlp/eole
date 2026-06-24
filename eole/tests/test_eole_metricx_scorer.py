@@ -116,9 +116,9 @@ class TestEoleMetricXScorers(unittest.TestCase):
 
         self.assertEqual(scorer._resolve_device(), torch.device("cpu"))
 
-    def test_uses_fp32_compute_dtype_on_cpu(self):
+    def test_defaults_to_fp32_compute_dtype(self):
         scorer = EoleMetricXScorer(
-            SimpleNamespace(metricx_model="dummy", metricx_batch_size=8, metricx_device="cpu")
+            SimpleNamespace(metricx_model="dummy", metricx_batch_size=8, metricx_device="cuda")
         )
 
         with patch("eole.scorers.eole_metricx.EncoderDecoderScoringModel.from_model_dir") as from_model_dir:
@@ -126,10 +126,10 @@ class TestEoleMetricXScorers(unittest.TestCase):
             scorer._load_model("dummy")
 
         self.assertEqual(from_model_dir.call_args.args[0], "dummy")
-        self.assertEqual(from_model_dir.call_args.kwargs["device"], torch.device("cpu"))
+        self.assertEqual(from_model_dir.call_args.kwargs["device"], torch.device("cuda"))
         self.assertEqual(from_model_dir.call_args.kwargs["compute_dtype"], torch.float32)
 
-    def test_uses_fp32_compute_dtype_on_mps(self):
+    def test_uses_fp32_compute_dtype_on_mps_by_default(self):
         scorer = EoleMetricXScorer(
             SimpleNamespace(metricx_model="dummy", metricx_batch_size=8, metricx_device="mps")
         )
@@ -141,6 +141,23 @@ class TestEoleMetricXScorers(unittest.TestCase):
         self.assertEqual(from_model_dir.call_args.args[0], "dummy")
         self.assertEqual(from_model_dir.call_args.kwargs["device"], torch.device("mps"))
         self.assertEqual(from_model_dir.call_args.kwargs["compute_dtype"], torch.float32)
+
+    def test_explicit_compute_dtype_overrides_default(self):
+        for configured_dtype, torch_dtype in (
+            ("fp32", torch.float32),
+            ("fp16", torch.float16),
+            ("bf16", torch.bfloat16),
+        ):
+            scorer = EoleMetricXScorer(
+                SimpleNamespace(
+                    metricx_model="dummy",
+                    metricx_batch_size=8,
+                    metricx_device="mps",
+                    metricx_compute_dtype=configured_dtype,
+                )
+            )
+
+            self.assertEqual(scorer._resolve_compute_dtype(torch.device("mps")), torch_dtype)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ batch_type: sents
 batch_size: 8
 world_size: 1
 gpu_ranks: [0]
-compute_dtype: fp16
+compute_dtype: fp32
 report_time: true
 with_score: true
 score_level: segment
