@@ -1179,9 +1179,7 @@ class TransformerEncoderScorerModelConfig(BaseModelConfig):
 
 
 class TransformerEncoderDecoderScorerModelConfig(TransformerModelConfig):
-    architecture: Literal["transformer_encoder_decoder_scorer"] = Field(
-        default="transformer_encoder_decoder_scorer"
-    )
+    architecture: Literal["transformer_encoder_decoder_scorer"] = Field(default="transformer_encoder_decoder_scorer")
     scoring_type: str = Field(default="token_regression")
     input_mode: str = Field(default="reference")
     default_input_mode: str = Field(default="reference")

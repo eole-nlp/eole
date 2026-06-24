@@ -988,8 +988,7 @@ class EncoderDecoderScoringModel(EncoderDecoderModel):
         model_config = metadata["config"].model
         if model_config.architecture != "transformer_encoder_decoder_scorer":
             raise ValueError(
-                "Expected a transformer_encoder_decoder_scorer model, "
-                f"got architecture={model_config.architecture}"
+                "Expected a transformer_encoder_decoder_scorer model, " f"got architecture={model_config.architecture}"
             )
         vocabs = dict_to_vocabs(metadata["vocab"])
 

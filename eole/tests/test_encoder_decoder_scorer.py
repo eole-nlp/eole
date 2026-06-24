@@ -73,9 +73,7 @@ def _write(path, lines):
 class TestMetricXFormatting(unittest.TestCase):
     def test_metricx24_reference_format(self):
         self.assertEqual(
-            build_template_inputs(
-                ["src"], ["hyp"], ["ref"], metricx_input_templates("24"), input_mode="reference"
-            )[0],
+            build_template_inputs(["src"], ["hyp"], ["ref"], metricx_input_templates("24"), input_mode="reference")[0],
             "source: src candidate: hyp reference: ref",
         )
 
@@ -87,9 +85,7 @@ class TestMetricXFormatting(unittest.TestCase):
 
     def test_metricx23_reference_format(self):
         self.assertEqual(
-            build_template_inputs(
-                ["src"], ["hyp"], ["ref"], metricx_input_templates("23"), input_mode="reference"
-            )[0],
+            build_template_inputs(["src"], ["hyp"], ["ref"], metricx_input_templates("23"), input_mode="reference")[0],
             "candidate: hyp reference: ref",
         )
 
@@ -195,9 +191,7 @@ class TestEncoderDecoderScorer(unittest.TestCase):
             scorer = EncoderDecoderScorer(model, model.vocabs, config, model_config=SimpleNamespace())
 
             with self.assertRaisesRegex(ValueError, "unsupported mode qe"):
-                scorer._predict(
-                    infer_iter=None, transforms={}, attn_debug=False, align_debug=False
-                )
+                scorer._predict(infer_iter=None, transforms={}, attn_debug=False, align_debug=False)
 
     def test_reference_mode_errors_when_reference_mode_is_unsupported(self):
         with tempfile.TemporaryDirectory() as tmp:

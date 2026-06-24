@@ -110,16 +110,12 @@ class TestEoleMetricXScorers(unittest.TestCase):
                 scorer.compute_score(["h1"], None, ["s1"])
 
     def test_uses_cpu_device_for_configured_cpu(self):
-        scorer = EoleMetricXScorer(
-            SimpleNamespace(metricx_model="dummy", metricx_batch_size=8, metricx_device="cpu")
-        )
+        scorer = EoleMetricXScorer(SimpleNamespace(metricx_model="dummy", metricx_batch_size=8, metricx_device="cpu"))
 
         self.assertEqual(scorer._resolve_device(), torch.device("cpu"))
 
     def test_defaults_to_fp32_compute_dtype(self):
-        scorer = EoleMetricXScorer(
-            SimpleNamespace(metricx_model="dummy", metricx_batch_size=8, metricx_device="cuda")
-        )
+        scorer = EoleMetricXScorer(SimpleNamespace(metricx_model="dummy", metricx_batch_size=8, metricx_device="cuda"))
 
         with patch("eole.scorers.eole_metricx.EncoderDecoderScoringModel.from_model_dir") as from_model_dir:
             from_model_dir.return_value = object()
@@ -130,9 +126,7 @@ class TestEoleMetricXScorers(unittest.TestCase):
         self.assertEqual(from_model_dir.call_args.kwargs["compute_dtype"], torch.float32)
 
     def test_uses_fp32_compute_dtype_on_mps_by_default(self):
-        scorer = EoleMetricXScorer(
-            SimpleNamespace(metricx_model="dummy", metricx_batch_size=8, metricx_device="mps")
-        )
+        scorer = EoleMetricXScorer(SimpleNamespace(metricx_model="dummy", metricx_batch_size=8, metricx_device="mps"))
 
         with patch("eole.scorers.eole_metricx.EncoderDecoderScoringModel.from_model_dir") as from_model_dir:
             from_model_dir.return_value = object()
