@@ -1178,6 +1178,54 @@ class TransformerEncoderScorerModelConfig(BaseModelConfig):
         return self
 
 
+class TransformerEncoderDecoderScorerModelConfig(TransformerModelConfig):
+    architecture: Literal["transformer_encoder_decoder_scorer"] = Field(
+        default="transformer_encoder_decoder_scorer"
+    )
+    scoring_type: str = Field(default="token_regression")
+    input_mode: str = Field(default="reference")
+    default_input_mode: str = Field(default="reference")
+    supported_input_modes: List[str] = Field(default_factory=lambda: ["reference"])
+    input_templates: Dict[str, str] = Field(default_factory=lambda: {"reference": "{src} {tgt} {ref}"})
+    requires_reference: bool = Field(default=True)
+    strip_eos: bool = Field(default=True)
+    score_token_id: int = Field(default=250089)
+    score_position: int = Field(default=0)
+    decoder_input_length: int = Field(default=2)
+    score_min: float = Field(default=0.0)
+    score_max: float = Field(default=25.0)
+    max_length: int = Field(default=1536)
+    output_scale: bool = Field(default=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_architecture(cls, data: Any) -> Any:
+        if not (isinstance(data, dict)):
+            return data
+        if "architecture" not in data.keys():
+            data["architecture"] = "transformer_encoder_decoder_scorer"
+        return data
+
+    @model_validator(mode="after")
+    def validate_decoder_scoring(self):
+        if not self.supported_input_modes:
+            raise ValueError("supported_input_modes must not be empty.")
+        if self.default_input_mode not in self.supported_input_modes:
+            raise ValueError("default_input_mode must be included in supported_input_modes.")
+        if self.input_mode not in self.supported_input_modes:
+            raise ValueError("input_mode must be included in supported_input_modes.")
+        missing_templates = [mode for mode in self.supported_input_modes if mode not in self.input_templates]
+        if missing_templates:
+            raise ValueError("input_templates must define every supported_input_mode.")
+        if self.decoder_input_length < 1:
+            raise ValueError("decoder_input_length must be >= 1.")
+        if self.score_position < 0:
+            raise ValueError("score_position must be >= 0.")
+        if self.score_position >= self.decoder_input_length:
+            raise ValueError("score_position must be < decoder_input_length.")
+        return self
+
+
 # Facilitate transparent instanciation from dumped fields
 # https://stackoverflow.com/a/76538571
 ModelConfig = Annotated[
@@ -1188,6 +1236,7 @@ ModelConfig = Annotated[
         WhisperModelConfig,
         TransformerEncoderModelConfig,
         TransformerEncoderScorerModelConfig,
+        TransformerEncoderDecoderScorerModelConfig,
         RnnModelConfig,
         CnnModelConfig,
         CustomModelConfig,

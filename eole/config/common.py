@@ -120,6 +120,18 @@ class LoggingConfig(Config):
             "When unset, EOLE picks cuda, then mps, then cpu."
         ),
     )
+    metricx_model: str | None = Field(
+        default=None,
+        description=(
+            "MetricX model name or local path to use for EOLE-METRICX scoring. "
+            "Defaults to google/metricx-24-hybrid-large-v2p6."
+        ),
+    )
+    metricx_batch_size: int = Field(default=8, description="Batch size used when running EOLE-METRICX scoring.")
+    metricx_device: str | None = Field(
+        default=None,
+        description="Device used for EOLE-METRICX scoring (for example: 'cpu', 'mps', 'cuda', 'cuda:0').",
+    )
     scoring_debug: bool = Field(default=False, description="Dump src/ref/pred of the current batch.")
     dump_preds: str | None = Field(default=None, description="Folder to dump predictions to.")
     tensorboard: bool = Field(default=False, description="Use tensorboard for visualization during training.")

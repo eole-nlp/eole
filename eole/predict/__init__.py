@@ -19,6 +19,10 @@ def get_infer_class(model_config):
         from eole.predict.encoder_scorer import EncoderScorer
 
         return EncoderScorer
+    if getattr(model_config, "architecture", None) == "transformer_encoder_decoder_scorer":
+        from eole.predict.encoder_decoder_scorer import EncoderDecoderScorer
+
+        return EncoderDecoderScorer
     if model_config.decoder is None:
         return Encoder
     elif model_config.encoder is None:

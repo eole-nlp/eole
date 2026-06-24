@@ -8,7 +8,7 @@ from eole.utils.comet_scorer import (
     encode_comet_texts_to_ids,
     encode_comet_texts_to_ids_and_offsets,
 )
-from eole.utils.encoder_scorer import (
+from eole.utils.scorer import (
     build_segment_rows,
     predict_scores_with_oom_retry,
 )

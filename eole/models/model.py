@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from glob import glob
 from collections import defaultdict
+from types import SimpleNamespace
 import os
 import itertools
 from safetensors.torch import load_file
@@ -23,7 +24,7 @@ from eole.inputters.inputter import dict_to_vocabs
 from eole.encoders import str2enc
 from eole.decoders import str2dec
 from eole.adapters import str2adapter
-from eole.constants import DefaultTokens, LayerNormFP32
+from eole.constants import DefaultTokens, LayerNormFP32, TORCH_DTYPES
 from eole.modules.embeddings import Embeddings, RobertaEmbeddings
 from eole.models.model_saver import get_metadata, TP_COL_PARALLEL_LAYERS, TP_ROW_PARALLEL_LAYERS
 from eole.modules.estimator import FeedForward
@@ -900,6 +901,209 @@ class EncoderDecoderModel(BaseModel):
         self.tgt_emb.update_dropout(dropout)
 
 
+class EncoderDecoderScoringModel(EncoderDecoderModel):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        model_config = kwargs.get("model_config")
+        vocabs = kwargs.get("vocabs")
+        self.model_config = model_config
+        self.vocabs = vocabs
+        self.scoring_type = getattr(model_config, "scoring_type", "token_regression")
+        self.input_mode = getattr(model_config, "input_mode", "reference")
+        self.default_input_mode = getattr(model_config, "default_input_mode", self.input_mode)
+        self.supported_input_modes = list(getattr(model_config, "supported_input_modes", [self.input_mode]))
+        self.input_templates = dict(getattr(model_config, "input_templates", {"reference": "{src} {tgt} {ref}"}))
+        self.requires_reference = bool(getattr(model_config, "requires_reference", True))
+        self.strip_eos = bool(getattr(model_config, "strip_eos", True))
+        self.score_token_id = int(getattr(model_config, "score_token_id", 250089))
+        self.score_position = int(getattr(model_config, "score_position", 0))
+        self.decoder_input_length = int(getattr(model_config, "decoder_input_length", 2))
+        self.score_min = float(getattr(model_config, "score_min", 0.0))
+        self.score_max = float(getattr(model_config, "score_max", 25.0))
+        self.max_length = int(getattr(model_config, "max_length", 1536))
+        self.output_scale = bool(getattr(model_config, "output_scale", True))
+
+        for layer in getattr(self.decoder, "transformer_layers", []):
+            context_attn = getattr(layer, "context_attn", None)
+            if context_attn is not None:
+                context_attn.relative_attention_bias = None
+
+        specials = vocabs["specials"]
+        self.pad_idx = vocabs["src"].lookup_token(specials["pad_token"])
+        self.eos_id = vocabs["src"].lookup_token(specials["eos_token"])
+        decoder_start_token = vocabs.get("decoder_start_token") or specials.get("bos_token") or specials["pad_token"]
+        self.decoder_start_id = vocabs["tgt"].lookup_token(decoder_start_token)
+
+    @staticmethod
+    def _normalize_compute_dtype(compute_dtype):
+        if compute_dtype is None:
+            return torch.float32
+        if isinstance(compute_dtype, torch.dtype):
+            return compute_dtype
+        return TORCH_DTYPES[str(compute_dtype)]
+
+    @staticmethod
+    def _runtime_config(model_dir, model_config, compute_dtype):
+        dtype = EncoderDecoderScoringModel._normalize_compute_dtype(compute_dtype)
+        config = SimpleNamespace(
+            model_path=[model_dir],
+            model=model_config,
+            world_size=1,
+            parallel_mode="data_parallel",
+            dropout=[0.0],
+            context_length=0,
+            self_attn_backend="pytorch",
+            dynamic_shapes=None,
+            prefill_chunk_size=0,
+            prefill_cache_size=0,
+            quant_layers=[],
+            quant_type="",
+            w_bit=4,
+            group_size=128,
+            autoround_packing_format="auto_round:auto_gptq",
+            autoround_sym=True,
+            quant_exclude_modules=[],
+            lora_layers=[],
+            lora_embedding=False,
+            lora_rank=2,
+            lora_alpha=1,
+            lora_dropout=0.0,
+            use_ckpting=[],
+            compute_dtype=dtype,
+            storage_dtype=dtype,
+            update_vocab=False,
+        )
+        config.get_model_path = lambda: model_dir
+        return config
+
+    @classmethod
+    def from_model_dir(cls, model_dir, device=None, compute_dtype=None):
+        model, _, _ = cls.for_inference(model_path=model_dir, device=device, compute_dtype=compute_dtype)
+        return model
+
+    @classmethod
+    def for_inference(cls, running_config=None, device_id=0, model_path=None, device=None, compute_dtype=None):
+        model_dir = model_path or running_config.model_path[0]
+        metadata = get_metadata(model_dir)
+        model_config = metadata["config"].model
+        if model_config.architecture != "transformer_encoder_decoder_scorer":
+            raise ValueError(
+                "Expected a transformer_encoder_decoder_scorer model, "
+                f"got architecture={model_config.architecture}"
+            )
+        vocabs = dict_to_vocabs(metadata["vocab"])
+
+        if running_config is None:
+            running_config = cls._runtime_config(model_dir, model_config, compute_dtype)
+        else:
+            update_dict = {"model": model_config}
+            if hasattr(running_config, "model_fields_set") and hasattr(running_config, "update"):
+                training_config = metadata["config"].training
+                if "quant_type" not in running_config.model_fields_set:
+                    update_dict["quant_type"] = training_config.quant_type
+                if "quant_layers" not in running_config.model_fields_set:
+                    update_dict["quant_layers"] = training_config.quant_layers
+                if "quant_exclude_modules" not in running_config.model_fields_set:
+                    update_dict["quant_exclude_modules"] = training_config.quant_exclude_modules
+                if "autoround_packing_format" not in running_config.model_fields_set:
+                    update_dict["autoround_packing_format"] = training_config.autoround_packing_format
+                if "autoround_sym" not in running_config.model_fields_set:
+                    update_dict["autoround_sym"] = training_config.autoround_sym
+                running_config.update(**update_dict)
+
+        if device is not None:
+            resolved_device = torch.device(device)
+        elif isinstance(device_id, (str, torch.device)):
+            resolved_device = torch.device(device_id)
+        else:
+            resolved_device = get_device(device_id=device_id)
+
+        model = cls.build(model_config, vocabs, running_config)
+        _, tp_offset = model._setup_device_and_offset(running_config, device_id)
+        if resolved_device == torch.device("cpu"):
+            tp_offset = 0
+
+        logger.info("Loading data into the model")
+        model.load_safe_state_dict(
+            model_dir,
+            running_config=running_config,
+            vocabs=vocabs,
+            metadata=metadata,
+            device=resolved_device,
+            tp_offset=tp_offset,
+            strict=True,
+        )
+        model._prepare_for_inference(running_config)
+        del metadata
+        return model, vocabs, model_config
+
+    def validate_input_mode(self, input_mode):
+        if input_mode not in self.supported_input_modes:
+            supported = ", ".join(self.supported_input_modes)
+            raise ValueError(
+                "Encoder-decoder scorer model does not support "
+                f"input_mode={input_mode!r}. Supported modes: {supported}."
+            )
+
+    @classmethod
+    def build_blocks(cls, model_config, vocabs, running_config=None):
+        src_emb = build_src_emb(model_config, vocabs, running_config=running_config)
+        encoder = build_encoder(model_config, running_config=running_config)
+        tgt_emb = build_tgt_emb(
+            model_config,
+            vocabs,
+            running_config=running_config,
+            share_embeddings=model_config.share_embeddings,
+            src_emb=src_emb,
+        )
+        model_config.decoder.with_cross_attn = True
+        decoder = build_decoder(model_config, running_config=running_config)
+        return cls(
+            encoder=encoder,
+            decoder=decoder,
+            src_emb=src_emb,
+            tgt_emb=tgt_emb,
+            hidden_size=model_config.decoder.hidden_size,
+            model_config=model_config,
+            vocabs=vocabs,
+        )
+
+    def _encode_ids_batch(self, ids_batch, device):
+        lengths = [len(ids) for ids in ids_batch]
+        max_len = max(lengths) if lengths else 0
+        padded = []
+        for ids in ids_batch:
+            padded.append(ids + [self.pad_idx] * (max_len - len(ids)))
+        return torch.tensor(padded, dtype=torch.long, device=device)
+
+    @torch.inference_mode()
+    def predict_scores(self, rows):
+        if not rows:
+            return torch.tensor([])
+        device = next(self.parameters()).device
+        src = self._encode_ids_batch([row["input_ids"] for row in rows], device)
+        src_pad_mask = src.eq(self.pad_idx).unsqueeze(1)
+        enc_out, enc_final_hs = self.encoder(self.src_emb(src), pad_mask=src_pad_mask)
+
+        # Some decoder implementations route length-1 inputs through cache decoding paths.
+        dec_in = torch.full(
+            (src.size(0), self.decoder_input_length), self.decoder_start_id, dtype=torch.long, device=device
+        )
+        tgt_pad_mask = dec_in.eq(self.tgt_pad_idx).unsqueeze(1)
+        self.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
+        dec_out, _ = self.decoder(
+            self.tgt_emb(dec_in),
+            enc_out=enc_out,
+            src_pad_mask=src_pad_mask,
+            tgt_pad_mask=tgt_pad_mask,
+        )
+        if self.output_scale:
+            dec_out = dec_out * (self.hidden_size**-0.5)
+        logits = self.generator(dec_out)
+        scores = logits[:, self.score_position, self.score_token_id]
+        return torch.clamp(scores, self.score_min, self.score_max).detach().cpu()
+
+
 class DecoderModel(BaseModel):
     """DecoderModel Class
     Currently TransformerLMDecoder is the only LM decoder implemented
@@ -1533,7 +1737,7 @@ class VisionEncoderDecoderModel(BaseModel):
                 img_ptr += 1
                 HW = H * (W + 1) + 2  # SPECIFIC to HunyuanOCR
                 if HW != length:
-                    raise ValueError(f"image tokens={length} but H*W={HW} at image {img_ptr-1}")
+                    raise ValueError(f"image tokens={length} but H*W={HW} at image {img_ptr - 1}")
                 r = torch.arange(length, device=device)
                 w = r % (W + 1)  # SPECIFIC to HunyuanOCR
                 h = r // (W + 1)  # SPECIFIC to HunyuanOCR
@@ -1769,6 +1973,8 @@ def get_model_class(model_config):
     # might have more cases later
     if getattr(model_config, "architecture", None) == "transformer_encoder_scorer":
         return EncoderScoringModel
+    if getattr(model_config, "architecture", None) == "transformer_encoder_decoder_scorer":
+        return EncoderDecoderScoringModel
     if model_config.decoder is None:
         return EncoderModel
     elif model_config.encoder is None:

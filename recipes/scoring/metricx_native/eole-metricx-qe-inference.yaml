@@ -1,0 +1,15 @@
+model_path: ["${EOLE_MODEL_DIR}/metricx/google--metricx-24-hybrid-large-v2p6"]
+
+seed: 42
+batch_type: sents
+batch_size: 8
+world_size: 1
+gpu_ranks: [0]
+compute_dtype: fp16
+report_time: true
+with_score: true
+score_level: segment
+src: null
+tgt: null
+# Leave ref unset for QE/reference-free scoring.
+output: metricx-qe-scores.txt

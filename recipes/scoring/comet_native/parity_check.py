@@ -8,7 +8,7 @@ from comet import download_model, load_from_checkpoint
 
 from eole.models.model import EncoderScoringModel
 from eole.scorers.eole_comet import EoleCometScorer, EoleCometKiwiScorer
-from eole.utils.encoder_scorer import build_segment_rows
+from eole.utils.scorer import build_segment_rows
 
 
 def parse_args():

@@ -10,7 +10,7 @@ from eole.inference_engine import InferenceEngine
 from eole.models.model import EncoderScoringModel
 from eole.config.models import TransformerEncoderScorerModelConfig
 from eole.modules.estimator import FeedForward
-from eole.utils.encoder_scorer import build_segment_rows
+from eole.utils.scorer import build_segment_rows
 
 
 class FakeTokenizer:
