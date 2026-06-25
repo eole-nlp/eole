@@ -81,7 +81,12 @@ class ScorerTransformConfig(Config):
     transforms_configs: NestedAllTransformsConfig
 
 
-def build_scorer_sentencepiece_transform(model, model_dir, model_file="spiece.model"):
+def build_scorer_sentencepiece_transform(
+    model,
+    model_dir,
+    model_file="spiece.model",
+    replace_newline_sentinel=True,
+):
     tokenizer_model = os.path.join(model_dir, model_file)
     if not os.path.exists(tokenizer_model):
         raise FileNotFoundError(f"No {model_file} found in {model_dir}")
@@ -93,6 +98,7 @@ def build_scorer_sentencepiece_transform(model, model_dir, model_file="spiece.mo
             sentencepiece=BaseTokenizerConfig(
                 src_subword_model=tokenizer_model,
                 tgt_subword_model=tokenizer_model,
+                replace_newline_sentinel=replace_newline_sentinel,
                 src_subword_nbest=1,
                 tgt_subword_nbest=1,
                 src_subword_alpha=0.0,

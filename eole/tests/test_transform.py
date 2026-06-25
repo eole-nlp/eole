@@ -336,6 +336,26 @@ class TestSubwordTransform(unittest.TestCase):
         sp_transform.apply(ex, is_train=True)
         self.assertEqual(ex, ex_gold)
 
+        self.assertEqual(
+            sp_transform.tokenize_string("Hello｟newline｠world", is_train=False),
+            ["▁H", "el", "lo", "▁world"],
+        )
+
+        base_opt_no_newline = copy.copy(base_opt)
+        base_opt_no_newline["replace_newline_sentinel"] = False
+        opt_no_newline = PredictConfig(
+            model_path=["dummy"],
+            src="dummy",
+            seed=3431,
+            transforms_configs={"sentencepiece": base_opt_no_newline},
+        )
+        sp_transform_no_newline = sp_cls(opt_no_newline)
+        sp_transform_no_newline.warm_up()
+        self.assertEqual(
+            sp_transform_no_newline.tokenize_string("Hello｟newline｠world", is_train=False),
+            ["▁H", "el", "lo", "⦅", "ne", "w", "line", "⦆", "w", "or", "l", "d"],
+        )
+
     def test_pyonmttok_bpe(self):
         onmttok_cls = get_transforms_cls(["onmt_tokenize"])["onmt_tokenize"]
         base_opt = copy.copy(self.base_opts)

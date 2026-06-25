@@ -82,7 +82,11 @@ class _EoleMetricXBase(Scorer):
         if self.input_mode == "reference" and (texts_refs is None or len(texts_refs) != len(preds)):
             raise ValueError(f"{self.metric_name} requires references, but they were missing or malformed.")
 
-        tokenizer = build_scorer_sentencepiece_transform(model, model_dir)
+        tokenizer = build_scorer_sentencepiece_transform(
+            model,
+            model_dir,
+            replace_newline_sentinel=getattr(self.config, "metricx_replace_newline_sentinel", True),
+        )
         inputs = build_template_inputs(
             texts_srcs,
             preds,

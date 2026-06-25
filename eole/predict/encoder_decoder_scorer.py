@@ -71,7 +71,11 @@ class EncoderDecoderScorer(Inference):
             input_mode=input_mode,
         )
 
-        tokenizer = build_scorer_sentencepiece_transform(self.model, self.config.model_path[0])
+        tokenizer = build_scorer_sentencepiece_transform(
+            self.model,
+            self.config.model_path[0],
+            replace_newline_sentinel=getattr(self.config, "metricx_replace_newline_sentinel", True),
+        )
 
         input_ids = encode_scorer_inputs(inputs, tokenizer, self.model)
         rows = [{"input_ids": ids} for ids in input_ids]

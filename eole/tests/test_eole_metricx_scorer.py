@@ -87,6 +87,24 @@ class TestEoleMetricXScorers(unittest.TestCase):
         self.assertEqual(runtime.validated_modes, ["qe"])
         self.assertAlmostEqual(score, 0.3, places=6)
 
+    def test_passes_newline_sentinel_setting_to_tokenizer(self):
+        runtime = FakeRuntime(scores=[0.2])
+        scorer = EoleMetricXScorer(
+            SimpleNamespace(metricx_model="dummy", metricx_batch_size=8, metricx_replace_newline_sentinel=False)
+        )
+
+        with (
+            patch("eole.scorers.eole_metricx._resolve_model_dir", return_value="dummy"),
+            patch.object(EoleMetricXScorer, "_load_model", return_value=runtime),
+            patch(
+                "eole.scorers.eole_metricx.build_scorer_sentencepiece_transform",
+                return_value=FakeTokenizer(),
+            ) as build_tokenizer,
+        ):
+            scorer.compute_score(["h1"], ["r1"], ["s1"])
+
+        self.assertFalse(build_tokenizer.call_args.kwargs["replace_newline_sentinel"])
+
     def test_reference_scorer_requires_references(self):
         runtime = FakeRuntime(scores=[0.2])
         scorer = EoleMetricXScorer(SimpleNamespace(metricx_model="dummy", metricx_batch_size=8))

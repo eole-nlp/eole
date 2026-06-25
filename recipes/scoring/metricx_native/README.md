@@ -79,6 +79,17 @@ metricx_compute_dtype: fp32
 validation and parity reporting. Use `bf16` explicitly on CUDA when speed/memory
 matters.
 
+EOLE line-oriented files may represent embedded newlines as the internal
+newline sentinel (`｟newline｠`). By default, EOLE-METRICX restores this sentinel
+to a real newline before tokenization so MetricX scores the logical text rather
+than the file serialization. Set this to `false` only when you intentionally want
+to score the sentinel characters literally, for example in literal-file parity
+tests:
+
+```yaml
+metricx_replace_newline_sentinel: false
+```
+
 CUDA bf16 opt-in example:
 
 ```yaml
@@ -186,6 +197,11 @@ eole predict \
   --batch_size 8 \
   --compute_dtype bf16
 ```
+
+For literal-sentinel parity on files containing `｟newline｠`, pass
+`--metricx_replace_newline_sentinel false` to `eole predict`. For semantic
+parity with native MetricX, keep the EOLE default and normalize the native input
+to real newlines.
 
 On CPU or MPS, prefer `fp32`:
 

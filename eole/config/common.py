@@ -139,6 +139,13 @@ class LoggingConfig(Config):
             "Defaults to fp32 for stable validation; use bf16 explicitly for CUDA speed/memory."
         ),
     )
+    metricx_replace_newline_sentinel: bool = Field(
+        default=True,
+        description=(
+            "Replace EOLE's internal newline sentinel with a real newline before EOLE-METRICX tokenization. "
+            "Disable for native MetricX/paper-score parity on literal input files."
+        ),
+    )
     scoring_debug: bool = Field(default=False, description="Dump src/ref/pred of the current batch.")
     dump_preds: str | None = Field(default=None, description="Folder to dump predictions to.")
     tensorboard: bool = Field(default=False, description="Use tensorboard for visualization during training.")
