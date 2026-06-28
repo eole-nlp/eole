@@ -1,5 +1,5 @@
 import torch
-from typing import List, Literal, Union
+from typing import Any, Dict, List, Literal, Union
 from pydantic import Field, field_validator
 from importlib import import_module
 from eole.config.config import Config, get_config_dict
@@ -97,6 +97,12 @@ class LoggingConfig(Config):
     valid_metrics: List[str] = Field(
         default=[], description="List of names of additional validation metrics."
     )  # should probably be validated properly (or in some registry/enum)
+    scorer_modules: List[str] = Field(
+        default=[], description="Python modules to import for custom scorer registration."
+    )
+    scorer_configs: Dict[str, Any] = Field(
+        default_factory=dict, description="Namespaced configuration for custom validation scorers."
+    )
     wer_normalize: str = Field(
         default="none",
         description="WER normalization mode: none, lowercase, whisper_en, whisper_basic.",

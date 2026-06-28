@@ -7,6 +7,8 @@ from sacrebleu import corpus_bleu
 class BleuScorer(Scorer):
     """BLEU scorer class."""
 
+    higher_is_better = True
+
     def __init__(self, config):
         """Initialize necessary options for sentencepiece."""
         super().__init__(config)

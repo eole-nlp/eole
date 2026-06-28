@@ -7,6 +7,8 @@ from sacrebleu import corpus_ter
 class TerScorer(Scorer):
     """TER scorer class."""
 
+    higher_is_better = False
+
     def __init__(self, config):
         """Initialize necessary options for sentencepiece."""
         super().__init__(config)

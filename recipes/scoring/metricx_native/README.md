@@ -103,6 +103,15 @@ metricx_compute_dtype: bf16
 `EOLE-METRICX` forces reference mode and requires references in the validation
 corpus.
 
+MetricX validation metrics are lower-is-better and can be used for early
+stopping:
+
+```yaml
+valid_metrics: ["EOLE-METRICX"]
+early_stopping: 5
+early_stopping_criteria: EOLE-METRICX
+```
+
 To run on CPU:
 
 ```yaml
@@ -145,6 +154,12 @@ metricx_compute_dtype: fp32
 `EOLE-METRICX-QE` forces reference-free mode and scores from source+hypothesis
 only. The configured converted model must declare QE support in
 `supported_input_modes`.
+
+```yaml
+valid_metrics: ["EOLE-METRICX-QE"]
+early_stopping: 5
+early_stopping_criteria: EOLE-METRICX-QE
+```
 
 MetricX-24 hybrid converted artifacts support both reference and QE modes. Some
 MetricX-23 artifacts may support only the mode they were converted for.

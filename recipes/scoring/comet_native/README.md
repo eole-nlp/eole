@@ -66,6 +66,15 @@ comet_batch_size: 64
 validation metric. Native prediction can compute xCOMET span metadata internally;
 the validation metric interface currently emits only the scalar score.
 
+All native EOLE COMET-family validation metrics are higher-is-better and can be
+used for early stopping:
+
+```yaml
+valid_metrics: ["EOLE-COMET-KIWI"]
+early_stopping: 5
+early_stopping_criteria: EOLE-COMET-KIWI
+```
+
 ## 5) Parity check vs Unbabel COMET
 
 Use the reusable parity harness to compare EOLE native scores against

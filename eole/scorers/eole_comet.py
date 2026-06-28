@@ -37,6 +37,7 @@ def _resolve_model_dir(model_name):
 
 class _EoleCometBase(Scorer):
     uses_gpu = True
+    higher_is_better = True
     default_model = None
     metric_name = "EOLE-COMET"
     expect_reference = True

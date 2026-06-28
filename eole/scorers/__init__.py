@@ -19,7 +19,16 @@ def get_scorers_cls(metric_names):
     return scorers_cls
 
 
-__all__ = ["get_scorers_cls", "build_scorers"]
+def load_scorer_modules(module_names):
+    """Import external modules that register custom scorers."""
+    for module_name in module_names:
+        try:
+            importlib.import_module(module_name)
+        except ImportError as exc:
+            raise ValueError(f"scorer_modules: cannot import {module_name!r}: {exc}") from exc
+
+
+__all__ = ["get_scorers_cls", "build_scorers", "load_scorer_modules"]
 
 
 def register_scorer(metric):
