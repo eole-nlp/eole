@@ -1,0 +1,26 @@
+transforms: [sentencepiece, filtertoolong]
+
+transforms_configs:
+  sentencepiece:
+    src_subword_model: "${EOLE_MODEL_DIR}/xlm-roberta-xl-eole/sentencepiece.bpe.model"
+    tgt_subword_model: "${EOLE_MODEL_DIR}/xlm-roberta-xl-eole/sentencepiece.bpe.model"
+  filtertoolong:
+    src_seq_length: 512
+    tgt_seq_length: 512
+
+# Model info
+model_path: ["./cometkiwi-xl-eole/merged"]
+
+# Inference
+seed: 42
+batch_type: sents
+batch_size: 16
+world_size: 1
+gpu_ranks: [0]
+#parallel_mode: "tensor_parallel"
+#quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
+#quant_type: "bnb_NF4"
+compute_dtype: fp16
+report_time: true
+src: None
+
