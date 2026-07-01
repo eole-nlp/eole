@@ -21,6 +21,13 @@ eole convert COMET --model Unbabel/wmt22-comet-da --output "$EOLE_MODEL_DIR/come
 eole convert COMET --model Unbabel/wmt22-cometkiwi-da --output "$EOLE_MODEL_DIR/comet/Unbabel--wmt22-cometkiwi-da"
 ```
 
+COMET conversion defaults to fp32 weights. To write fp16 weights for publication
+or smaller local artifacts, pass `--dtype fp16`:
+
+```bash
+eole convert COMET --model Unbabel/wmt22-comet-da --dtype fp16 --output "$EOLE_MODEL_DIR/comet/Unbabel--wmt22-comet-da-fp16"
+```
+
 For gated models, pass a token:
 
 ```bash
@@ -39,6 +46,10 @@ comet_batch_size: 64
 ```
 
 The reference-based scorer requires references in the validation corpus.
+Validation metrics configured with `valid_metrics` use `comet_compute_dtype` and
+default to fp16, matching Unbabel COMET's behavior of loading fp32 weights and
+then moving the model to half precision. Set `comet_compute_dtype: fp32` if you
+need fp32 validation scoring.
 
 ## 3) Use `EOLE-COMET-KIWI` in a training config
 
@@ -65,6 +76,15 @@ comet_batch_size: 64
 `EOLE-XCOMET` is reference-based and reports the scalar xCOMET score as a
 validation metric. Native prediction can compute xCOMET span metadata internally;
 the validation metric interface currently emits only the scalar score.
+
+All native EOLE COMET-family validation metrics are higher-is-better and can be
+used for early stopping:
+
+```yaml
+valid_metrics: ["EOLE-COMET-KIWI"]
+early_stopping: 5
+early_stopping_criteria: EOLE-COMET-KIWI
+```
 
 ## 5) Parity check vs Unbabel COMET
 
@@ -124,6 +144,17 @@ eole predict \
   --output /path/to/scores.txt \
   --with_score
 ```
+
+Direct `eole predict` scoring uses the regular inference dtype knob, not
+`comet_compute_dtype`. Pass `--compute_dtype fp32` if you need fp32 CLI scoring.
+
+You can also pass a Hugging Face repo ID to `--model_path` when that repo already
+contains a pre-converted EOLE model (`config.json`, `vocab.json`, and
+`model.*.safetensors`). Raw Unbabel COMET repos still need `eole convert COMET`
+first.
+
+For private repos, authenticate with `hf auth login` or set
+`HF_TOKEN`. For direct `eole predict`, `--hf_token` can also be used.
 
 Reference-free (`EOLE-COMET-KIWI`):
 

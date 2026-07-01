@@ -1,6 +1,8 @@
 import os
 
 from .scorer import Scorer
+from eole.constants import TORCH_DTYPES
+from eole.models.hf_resolver import resolve_preconverted_eole_hf_repo
 from eole.models.model import EncoderScoringModel
 from eole.scorers import register_scorer
 from eole.utils.comet_scorer import (
@@ -8,7 +10,7 @@ from eole.utils.comet_scorer import (
     encode_comet_texts_to_ids,
     encode_comet_texts_to_ids_and_offsets,
 )
-from eole.utils.encoder_scorer import (
+from eole.utils.scorer import (
     build_segment_rows,
     predict_scores_with_oom_retry,
 )
@@ -29,14 +31,19 @@ def _resolve_model_dir(model_name):
         candidate = os.path.join(model_root, "comet", _slug(model_name))
         if os.path.isdir(candidate):
             return candidate
+    resolved = resolve_preconverted_eole_hf_repo(model_name)
+    if resolved is not None:
+        return resolved
     raise FileNotFoundError(
         "EOLE converted COMET model not found. Convert first with: "
-        "`eole convert COMET --model <hf-model-id> --output <dir>` and set `comet_model` to that directory."
+        "`eole convert COMET --model <hf-model-id> --output <dir>` and set `comet_model` to that directory, "
+        "or use a Hugging Face repo containing a pre-converted EOLE model."
     )
 
 
 class _EoleCometBase(Scorer):
     uses_gpu = True
+    higher_is_better = True
     default_model = None
     metric_name = "EOLE-COMET"
     expect_reference = True
@@ -78,6 +85,21 @@ class _EoleCometBase(Scorer):
             return torch.device(configured_device)
         return get_device()
 
+    def _resolve_compute_dtype(self):
+        configured_dtype = getattr(self.config, "comet_compute_dtype", "fp16")
+        if isinstance(configured_dtype, torch.dtype):
+            return configured_dtype
+        if configured_dtype not in {"fp32", "fp16", "bf16"}:
+            raise ValueError(f"Unsupported comet_compute_dtype={configured_dtype!r}.")
+        return TORCH_DTYPES[configured_dtype]
+
+    def _load_model(self, model_dir):
+        return EncoderScoringModel.from_model_dir(
+            model_dir,
+            device=self._resolve_device(),
+            compute_dtype=self._resolve_compute_dtype(),
+        )
+
     def compute_score(self, preds, texts_refs, texts_srcs=None):
         if not preds:
             return 0
@@ -85,7 +107,7 @@ class _EoleCometBase(Scorer):
             texts_srcs = [""] * len(preds)
 
         model_dir = _resolve_model_dir(self.model_name)
-        model = EncoderScoringModel.from_model_dir(model_dir, device=self._resolve_device())
+        model = self._load_model(model_dir)
         self._validate_family(model)
 
         if model.requires_reference and (texts_refs is None or len(texts_refs) != len(preds)):

@@ -1,7 +1,5 @@
 """ Modules for prediction """
 
-import os
-
 from eole.predict.translator import Translator
 from eole.predict.generator import GeneratorLM
 from eole.predict.encoder import Encoder
@@ -11,14 +9,24 @@ from eole.predict.streamer import GenerationStreamer  # noqa: F401
 from eole.predict.beam_search import GNMTGlobalScorer
 from eole.decoders.ensemble import EnsembleModel
 from eole.models.model import get_model_class
+from eole.models.hf_resolver import is_hf_model_id, resolve_preconverted_eole_hf_repo
 from eole import EOLE_TORCH_COMPILE
 
 
 def get_infer_class(model_config):
+    if model_config is None:
+        raise ValueError(
+            "Model config is missing. Cannot select an inference class without a valid EOLE model config. "
+            "Check that model_path resolves to a valid EOLE model directory or supported Hugging Face model."
+        )
     if getattr(model_config, "architecture", None) == "transformer_encoder_scorer":
         from eole.predict.encoder_scorer import EncoderScorer
 
         return EncoderScorer
+    if getattr(model_config, "architecture", None) == "transformer_encoder_decoder_scorer":
+        from eole.predict.encoder_decoder_scorer import EncoderDecoderScorer
+
+        return EncoderDecoderScorer
     if model_config.decoder is None:
         return Encoder
     elif model_config.encoder is None:
@@ -31,23 +39,9 @@ def get_infer_class(model_config):
         return Translator
 
 
-def _is_hf_model_id(model_path: str) -> bool:
-    """Return True if *model_path* looks like a HuggingFace model ID.
-
-    A path is treated as an HF model ID when it satisfies all of:
-
-    * it is not an absolute filesystem path (does not start with ``/``),
-    * it is not a relative path that begins with ``.`` (e.g. ``./model``),
-    * it contains exactly one ``/`` separator (``owner/model-name`` format),
-    * and it does **not** exist as a local filesystem path.
-
-    This avoids misclassifying local directories that happen to contain a
-    ``/`` separator (e.g. ``/mnt/models/llama``).
-    """
-    s = str(model_path)
-    if os.path.isabs(s) or s.startswith("."):
-        return False
-    return "/" in s and not os.path.exists(s)
+def _load_local_eole_model(config, device_id):
+    model_class = get_model_class(config.model)
+    return model_class.for_inference(config, device_id)
 
 
 def build_predictor(config, device_id=0, report_score=True, logger=None):
@@ -56,15 +50,22 @@ def build_predictor(config, device_id=0, report_score=True, logger=None):
     if len(config.model_path) > 1:
         # Ensemble case
         model, vocabs, model_config = EnsembleModel.for_inference(config, device_id)
-    elif _is_hf_model_id(config.model_path[0]):
-        # Direct HuggingFace inference — no pre-conversion required
-        from eole.models.hf_loader import load_hf_model
+    elif is_hf_model_id(config.model_path[0]):
+        local_model_path = resolve_preconverted_eole_hf_repo(
+            config.model_path[0], token=getattr(config, "hf_token", None)
+        )
+        if local_model_path is not None:
+            config.model_path = [local_model_path]
+            config._update_with_model_config()
+            model, vocabs, model_config = _load_local_eole_model(config, device_id)
+        else:
+            # Direct HuggingFace inference — no pre-conversion required
+            from eole.models.hf_loader import load_hf_model
 
-        model, vocabs, model_config = load_hf_model(config, device_id)
+            model, vocabs, model_config = load_hf_model(config, device_id)
     else:
         # Single EOLE model case
-        model_class = get_model_class(config.model)
-        model, vocabs, model_config = model_class.for_inference(config, device_id)
+        model, vocabs, model_config = _load_local_eole_model(config, device_id)
 
     if EOLE_TORCH_COMPILE:
         import torch._dynamo.config as dynamo_config

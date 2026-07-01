@@ -7,7 +7,6 @@ score per line to --output.
 """
 
 import time
-from types import SimpleNamespace
 import torch
 
 from eole.predict.inference import Inference
@@ -16,18 +15,16 @@ from eole.utils.comet_scorer import (
     encode_comet_texts_to_ids,
     encode_comet_texts_to_ids_and_offsets,
 )
-from eole.utils.encoder_scorer import (
+from eole.utils.scorer import (
+    apply_scorer_inference_defaults,
     build_segment_rows,
     predict_scores_with_oom_retry,
+    read_score_lines,
+    score_level_output,
 )
 from eole.utils.logging import logger as _module_logger
 
 logger = _module_logger
-
-
-def _read_lines(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return [line.rstrip("\n") for line in f]
 
 
 def _resolve_sentencepiece(transforms):
@@ -70,49 +67,7 @@ class EncoderScorer(Inference):
         logger=None,  # noqa: A002 — kept for engine API compat; module-level `logger` is used
         return_gold_log_probs=False,
     ):
-        defaults = {
-            "transforms": [],
-            "optional_eos": [],
-            "dynamic_shapes": None,
-            "n_best": 1,
-            "max_length": 0,
-            "max_length_ratio": 0,
-            "context_length": 0,
-            "beam_size": 1,
-            "temperature": 1.0,
-            "top_k": 0,
-            "top_p": 0.0,
-            "min_length": 0,
-            "ban_unk_token": False,
-            "ratio": 0.0,
-            "stepwise_penalty": False,
-            "dump_beam": "",
-            "block_ngram_repeat": 0,
-            "ignore_when_blocking": [],
-            "replace_unk": False,
-            "tgt_file_prefix": False,
-            "phrase_table": "",
-            "data_type": "text",
-            "verbose": False,
-            "report_time": bool(getattr(config, "report_time", False)),
-            "report_align": False,
-            "gold_align": False,
-            "seed": -1,
-            "with_score": bool(getattr(config, "with_score", False)),
-            "estim_only": True,
-            "self_attn_backend": "pytorch",
-            "fuse_kvq": False,
-            "fuse_gate": False,
-        }
-        for key, value in defaults.items():
-            if not hasattr(config, key):
-                setattr(config, key, value)
-        if not hasattr(model_config, "add_estimator"):
-            setattr(model_config, "add_estimator", True)
-        if not hasattr(model_config, "estimator_type"):
-            setattr(model_config, "estimator_type", "first_token")
-        if global_scorer is None:
-            global_scorer = SimpleNamespace(has_cov_pen=False)
+        global_scorer = apply_scorer_inference_defaults(config, model_config, global_scorer)
 
         super().__init__(
             model,
@@ -152,9 +107,9 @@ class EncoderScorer(Inference):
         if not getattr(self.config, "with_score", False):
             raise ValueError("EncoderScorer requires --with_score to emit estimator scores.")
 
-        src_lines = _read_lines(self.config.src)
-        tgt_lines = _read_lines(self.config.tgt)
-        ref_lines = _read_lines(self.config.ref) if getattr(self.config, "ref", None) else None
+        src_lines = read_score_lines(self.config.src)
+        tgt_lines = read_score_lines(self.config.tgt)
+        ref_lines = read_score_lines(self.config.ref) if getattr(self.config, "ref", None) else None
         if len(src_lines) != len(tgt_lines):
             raise ValueError(f"src and tgt line counts differ: {len(src_lines)} vs {len(tgt_lines)}")
         if ref_lines is not None and len(ref_lines) != len(tgt_lines):
@@ -217,13 +172,4 @@ class EncoderScorer(Inference):
             elapsed = time.time() - t0
             logger.info("Scored %d pairs in %.1fs (%.0f seg/s)", len(rows), elapsed, len(rows) / max(elapsed, 1e-6))
 
-        score_level = getattr(self.config, "score_level", "segment")
-        if score_level == "system":
-            system_scores = [sum(all_scores) / len(all_scores)] if all_scores else []
-            if self.report_time:
-                logger.info("Emitted 1 system score")
-            return [[]], [system_scores], [[]]
-
-        if self.report_time:
-            logger.info("Emitted %d segment score%s", len(all_scores), "" if len(all_scores) == 1 else "s")
-        return [[]], [all_scores], [[]]
+        return score_level_output(all_scores, getattr(self.config, "score_level", "segment"), self.report_time, logger)

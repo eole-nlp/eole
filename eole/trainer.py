@@ -15,7 +15,7 @@ from eole.utils.loss import LossCompute
 from eole.utils.logging import logger
 from eole.utils.misc import clear_gpu_cache, get_autocast
 from eole.utils.scoring_utils import ScoringPreparator
-from eole.scorers import get_scorers_cls, build_scorers
+from eole.scorers import get_scorers_cls, build_scorers, load_scorer_modules
 from eole.models.model_saver import TP_COL_PARALLEL_LAYERS, TP_ROW_PARALLEL_LAYERS
 
 
@@ -582,6 +582,8 @@ class Trainer:
 
 def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
     """Build trainer from configuration."""
+    load_scorer_modules(config.scorer_modules)
+
     train_loss = LossCompute.from_config(config, model, vocabs)
     valid_loss = LossCompute.from_config(config, model, vocabs, train=False)
 
@@ -605,7 +607,7 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
     earlystopper = (
         eole.utils.EarlyStopping(
             running_config.early_stopping,
-            scorers=eole.utils.scorers_from_config(running_config),
+            scorers=eole.utils.scorers_from_config(config),
         )
         if running_config.early_stopping > 0
         else None

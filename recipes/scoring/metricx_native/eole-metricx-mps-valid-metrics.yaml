@@ -1,0 +1,5 @@
+valid_metrics: ["EOLE-METRICX"]
+metricx_model: "${EOLE_MODEL_DIR}/metricx/google--metricx-24-hybrid-large-v2p6"
+metricx_batch_size: 1
+metricx_device: mps
+metricx_compute_dtype: fp32

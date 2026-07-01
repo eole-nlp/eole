@@ -59,7 +59,19 @@ the COMET-specific `scoring_type: comet` specialization.
 eole convert COMET --model Unbabel/wmt22-comet-da --output /path/to/converted/wmt22-comet-da
 eole convert COMET --model Unbabel/wmt22-cometkiwi-da --output /path/to/converted/wmt22-cometkiwi-da
 eole convert COMET --model Unbabel/XCOMET-XL --token "$HF_TOKEN" --output /path/to/converted/XCOMET-XL
+eole convert COMET --model Unbabel/wmt22-comet-da --dtype fp16 --output /path/to/converted/wmt22-comet-da-fp16
 ```
+
+COMET conversion defaults to fp32 weights. Pass `--dtype fp16` to save fp16
+weights. Validation metrics configured with `valid_metrics` use
+`comet_compute_dtype` and default to fp16, matching Unbabel COMET's behavior of
+loading fp32 weights and then moving the model to half precision. Direct
+`eole predict` scoring uses the regular inference dtype knob; pass
+`--compute_dtype fp32` if you need fp32 CLI scoring.
+For direct scoring, `--model_path` may also be a Hugging Face repo ID when that
+repo already contains a pre-converted EOLE model (`config.json`, `vocab.json`,
+and `model.*.safetensors`). Raw Unbabel COMET repos still need `eole convert
+COMET` first.
 
 Then use the converted model directory in your training config with:
 
