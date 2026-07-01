@@ -148,6 +148,14 @@ eole predict \
 Direct `eole predict` scoring uses the regular inference dtype knob, not
 `comet_compute_dtype`. Pass `--compute_dtype fp32` if you need fp32 CLI scoring.
 
+You can also pass a Hugging Face repo ID to `--model_path` when that repo already
+contains a pre-converted EOLE model (`config.json`, `vocab.json`, and
+`model.*.safetensors`). Raw Unbabel COMET repos still need `eole convert COMET`
+first.
+
+For private repos, authenticate with `hf auth login` or set
+`HF_TOKEN`. For direct `eole predict`, `--hf_token` can also be used.
+
 Reference-free (`EOLE-COMET-KIWI`):
 
 ```bash

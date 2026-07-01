@@ -2,6 +2,7 @@ import os
 
 from .scorer import Scorer
 from eole.constants import TORCH_DTYPES
+from eole.models.hf_resolver import resolve_preconverted_eole_hf_repo
 from eole.models.model import EncoderScoringModel
 from eole.scorers import register_scorer
 from eole.utils.comet_scorer import (
@@ -30,9 +31,13 @@ def _resolve_model_dir(model_name):
         candidate = os.path.join(model_root, "comet", _slug(model_name))
         if os.path.isdir(candidate):
             return candidate
+    resolved = resolve_preconverted_eole_hf_repo(model_name)
+    if resolved is not None:
+        return resolved
     raise FileNotFoundError(
         "EOLE converted COMET model not found. Convert first with: "
-        "`eole convert COMET --model <hf-model-id> --output <dir>` and set `comet_model` to that directory."
+        "`eole convert COMET --model <hf-model-id> --output <dir>` and set `comet_model` to that directory, "
+        "or use a Hugging Face repo containing a pre-converted EOLE model."
     )
 
 

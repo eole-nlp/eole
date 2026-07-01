@@ -178,6 +178,14 @@ Direct `eole predict` scoring uses `--compute_dtype`. The training-validation
 setting `metricx_compute_dtype` is only read by validation metrics configured
 with `valid_metrics`.
 
+You can pass a Hugging Face repo ID to `--model_path` when that repo already
+contains a pre-converted EOLE model (`config.json`, `vocab.json`, and
+`model.*.safetensors`). Raw Google MetricX repos still need `eole convert
+MetricX` first.
+
+For private repos, authenticate with `hf auth login` or set
+`HF_TOKEN`. For direct `eole predict`, `--hf_token` can also be used.
+
 Reference-based scoring:
 
 ```bash

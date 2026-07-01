@@ -178,7 +178,7 @@ class PredictConfig(
         # When model_path is a HuggingFace model ID (no local directory yet),
         # skip the local-config loading entirely.  All config/vocab/weight
         # loading will happen later inside load_hf_model() at inference time.
-        # Use the same detection logic as _is_hf_model_id() in eole/predict/__init__.py.
+        # Use the same detection logic as is_hf_model_id() in eole.models.hf_resolver.
         first_path = self.model_path[0]
         if (
             not os.path.isabs(first_path)

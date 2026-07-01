@@ -1961,6 +1961,13 @@ class AudioEncoderDecoderModel(BaseModel):
 
 
 def get_model_class(model_config):
+    if model_config is None:
+        raise ValueError(
+            "Model config is missing. Expected an EOLE model directory with a valid config.json. "
+            "If this is a local model path, ensure it points to an EOLE-converted model directory "
+            "containing config.json, vocab.json, and model.*.safetensors. If this is a Hugging Face "
+            "model ID, ensure it is either a supported HF Transformers model or a pre-converted EOLE model repo."
+        )
     # might have more cases later
     if getattr(model_config, "architecture", None) == "transformer_encoder_scorer":
         return EncoderScoringModel

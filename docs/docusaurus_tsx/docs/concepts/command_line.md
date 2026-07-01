@@ -68,6 +68,10 @@ weights. Validation metrics configured with `valid_metrics` use
 loading fp32 weights and then moving the model to half precision. Direct
 `eole predict` scoring uses the regular inference dtype knob; pass
 `--compute_dtype fp32` if you need fp32 CLI scoring.
+For direct scoring, `--model_path` may also be a Hugging Face repo ID when that
+repo already contains a pre-converted EOLE model (`config.json`, `vocab.json`,
+and `model.*.safetensors`). Raw Unbabel COMET repos still need `eole convert
+COMET` first.
 
 Then use the converted model directory in your training config with:
 

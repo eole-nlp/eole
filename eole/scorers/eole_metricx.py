@@ -4,6 +4,7 @@ import torch
 
 from .scorer import Scorer
 from eole.constants import TORCH_DTYPES
+from eole.models.hf_resolver import resolve_preconverted_eole_hf_repo
 from eole.models.model import EncoderDecoderScoringModel
 from eole.scorers import register_scorer
 from eole.utils.scorer import (
@@ -27,9 +28,13 @@ def _resolve_model_dir(model_name):
         candidate = os.path.join(model_root, "metricx", _slug(model_name))
         if os.path.isdir(candidate):
             return candidate
+    resolved = resolve_preconverted_eole_hf_repo(model_name)
+    if resolved is not None:
+        return resolved
     raise FileNotFoundError(
         "EOLE converted MetricX model not found. Convert first with: "
-        "`eole convert MetricX --model <hf-model-id> --output <dir>` and set `metricx_model` to that directory."
+        "`eole convert MetricX --model <hf-model-id> --output <dir>` and set `metricx_model` to that directory, "
+        "or use a Hugging Face repo containing a pre-converted EOLE model."
     )
 
 
