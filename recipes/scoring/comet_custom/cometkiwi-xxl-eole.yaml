@@ -1,0 +1,128 @@
+#override_opts: true
+seed: 1234
+share_vocab: true
+#overwrite: true
+save_data: "./cometkiwi-xxl-eole"
+src_vocab: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/vocab.txt"
+src_vocab_size: 250880
+tgt_vocab_size: 250880
+vocab_size_multiple: 1
+report_every: 50
+skip_empty_level: silent
+
+# transforms config
+transforms: [sentencepiece, filtertoolong]
+transforms_configs:
+  sentencepiece:
+    #### Subword
+    src_subword_model: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/sentencepiece.bpe.model"
+    tgt_subword_model: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/sentencepiece.bpe.model"
+
+  filtertoolong:
+    src_seq_length: 94
+    tgt_seq_length: 94
+
+
+# Corpus opts:
+data:
+    1720-da-mlqe:
+        path_src: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/1720-da-mlqe/1720-da.mlqe.src"
+        path_tgt: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/1720-da-mlqe/1720-da.mlqe.tgt"
+        path_sco: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/1720-da-mlqe/1720-da.mlqe.sco"
+        transforms: [sentencepiece, filtertoolong]
+        weight: 1
+
+    #valid:
+    #    path_src: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/testsets/newstest2014-origlang-en.en"
+    #    path_tgt: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/testsets/newstest2014-origlang-en.de"
+    #    transforms: [sentencepiece]
+
+log_file: "./cometkiwi-xxl-eole/cometkiwi-xxl-eole.log"
+
+training:
+    # General opts
+    #torch_compile: true
+    self_attn_backend: "pytorch"
+    #update_vocab: true
+    # STEP 1: pre-train estimator from frozen xlm-roberta-xxl
+    # train_from: "${EOLE_MODEL_DIR}/xlm-roberta-xxl-eole/"
+    # STEP 2: train cometkiwi from pre-trained estimator along xlm-roberta encoder
+    # train_from: "./cometkiwi-xxl-eole/step_4000_pretrain"
+    # reset_optim: all
+    model_path: "./cometkiwi-xxl-eole"
+    keep_checkpoint: 50
+    save_checkpoint_steps: 1000
+    average_decay: 0.0
+    # STEP 1: train only 4000 steps
+    # train_steps: 4000
+    # STEP 2: train 40000 steps
+    valid_steps: 1000
+
+    # Batching
+    bucket_size: 262144
+    num_workers: 2
+    prefetch_factor: 400
+    world_size: 1
+    gpu_ranks: [0]
+    batch_type: "sents"
+    batch_size: 4
+    valid_batch_size: 1
+    batch_size_multiple: 1
+    accum_count: [16]
+    accum_steps: [0]
+
+    # Optimization
+    compute_dtype: "bf16"
+    optim: "adamw"
+    use_amp: False
+    learning_rate: 0.000015
+    decay_method: "none"
+    start_decay_steps: 1000000
+    decay_steps: 100000
+    learning_rate_decay: 1
+    adam_beta2: 0.998
+    max_grad_norm: 1
+    label_smoothing: 0.1
+    param_init: 0
+    param_init_method: "xavier_uniform"
+    normalization: "tokens"
+
+    dropout_steps: [0]
+    dropout: [0.1]
+    attention_dropout: [0.0]
+    estim_loss_lambda_steps: [0]
+    estim_loss_lambda: [1.0]
+    score_threshold: 0.0 #0.68
+    # STEP 1: keep encoder frozen
+    # freeze_encoder: true
+    # STEP 2: make encoder trainable
+    # freeze_encoder: false
+    # LoRa
+    # lora_layers: ['linear_values', 'linear_query', 'linear_keys', 'final_linear', 'gate_up_proj', 'down_proj', '0', '3', '6']
+    # lora_layers: ['linear_values', 'linear_query', 'linear_keys', 'final_linear', 'gate_up_proj', 'down_proj']
+    # lora_rank: 2
+    # lora_dropout: 0.05
+    # lora_alpha: 8
+    # lora_embedding: false
+    quant_layers: ['linear_values', 'linear_query', 'linear_keys', 'final_linear', 'gate_up_proj', 'down_proj']
+    quant_type: "bnb_NF4"
+
+model:
+    architecture: "transformer_encoder"
+    layers: 48
+    heads: 32
+    hidden_size: 4096
+    transformer_ff: 16384
+    add_qkvbias: true
+    add_ffnbias: true
+    mlp_activation_fn: gelu
+    add_estimator: true
+    share_decoder_embeddings: true
+    layer_norm: standard
+    norm_eps: 1e-5
+    embeddings:
+        freeze_word_vecs_enc: true
+        word_vec_size: 4096
+        position_encoding_type: Learned
+        n_positions: 514
+        position_shift: 2
