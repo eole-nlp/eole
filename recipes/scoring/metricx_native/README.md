@@ -48,11 +48,13 @@ eole convert MetricX \
   --output "$EOLE_MODEL_DIR/metricx/google--metricx-24-hybrid-large-v2p6-bfloat16"
 ```
 
-You can choose the conversion precision independently of the validation scorer
-runtime precision. Training validation metrics use `metricx_compute_dtype`; direct
-CLI scoring uses `--compute_dtype`. MetricX validation defaults to `fp32` for
-stability. For CUDA speed/memory, opt in explicitly with
-`metricx_compute_dtype: bf16`.
+You can choose the conversion precision independently of scoring runtime
+precision. Validation metrics configured with `valid_metrics` use
+`metricx_compute_dtype`; direct `eole predict` scoring uses the regular
+inference dtype knob, `--compute_dtype`. MetricX validation defaults to `fp32`
+for stability. For CUDA speed/memory, opt in explicitly with
+`metricx_compute_dtype: bf16` for validation scoring or `--compute_dtype bf16`
+for CLI scoring.
 
 For gated or private models, pass a Hugging Face token:
 
@@ -171,6 +173,10 @@ For `transformer_encoder_decoder_scorer` models, use:
 - `--src`: source sentences
 - `--tgt`: MT hypotheses
 - `--ref`: references (optional; when provided, reference mode is used)
+
+Direct `eole predict` scoring uses `--compute_dtype`. The training-validation
+setting `metricx_compute_dtype` is only read by validation metrics configured
+with `valid_metrics`.
 
 Reference-based scoring:
 

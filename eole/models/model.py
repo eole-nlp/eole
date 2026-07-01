@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from glob import glob
 from collections import defaultdict
-from types import SimpleNamespace
 import os
 import itertools
 from safetensors.torch import load_file
@@ -19,6 +18,7 @@ from torch.nn.utils import skip_init
 from torch.nn.init import xavier_uniform_, zeros_, uniform_, normal_
 from eole.utils.misc import get_device
 from eole.inputters.inputter import dict_to_vocabs
+from eole.config.inference import InferenceConfig
 
 # copied from model_builder to facilitate tests, but should not live there in the end
 from eole.encoders import str2enc
@@ -98,6 +98,12 @@ def build_src_emb(model_config, vocabs, running_config=None):
             normalize=model_config.embeddings.normalize,
         )
     return src_emb
+
+
+def build_scorer_inference_config(model_dir, compute_dtype):
+    config = InferenceConfig(model_path=model_dir, compute_dtype=compute_dtype, estim_only=True, with_score=True)
+    config.check_self_attn_backend()
+    return config
 
 
 def build_tgt_emb(model_config, vocabs, running_config=None, share_embeddings=False, src_emb=None):
@@ -945,36 +951,7 @@ class EncoderDecoderScoringModel(EncoderDecoderModel):
     @staticmethod
     def _runtime_config(model_dir, model_config, compute_dtype):
         dtype = EncoderDecoderScoringModel._normalize_compute_dtype(compute_dtype)
-        config = SimpleNamespace(
-            model_path=[model_dir],
-            model=model_config,
-            world_size=1,
-            parallel_mode="data_parallel",
-            dropout=[0.0],
-            context_length=0,
-            self_attn_backend="pytorch",
-            dynamic_shapes=None,
-            prefill_chunk_size=0,
-            prefill_cache_size=0,
-            quant_layers=[],
-            quant_type="",
-            w_bit=4,
-            group_size=128,
-            autoround_packing_format="auto_round:auto_gptq",
-            autoround_sym=True,
-            quant_exclude_modules=[],
-            lora_layers=[],
-            lora_embedding=False,
-            lora_rank=2,
-            lora_alpha=1,
-            lora_dropout=0.0,
-            use_ckpting=[],
-            compute_dtype=dtype,
-            storage_dtype=dtype,
-            update_vocab=False,
-        )
-        config.get_model_path = lambda: model_dir
-        return config
+        return build_scorer_inference_config(model_dir, dtype)
 
     @classmethod
     def from_model_dir(cls, model_dir, device=None, compute_dtype=None):
@@ -1312,13 +1289,26 @@ class EncoderScoringModel(BaseModel):
             "n_positions": int(pos_emb.shape[0]),
         }
 
+    @staticmethod
+    def _normalize_compute_dtype(compute_dtype):
+        if compute_dtype is None:
+            return torch.float32
+        if isinstance(compute_dtype, torch.dtype):
+            return compute_dtype
+        return TORCH_DTYPES[str(compute_dtype)]
+
+    @staticmethod
+    def _runtime_config(model_dir, model_config, compute_dtype):
+        dtype = EncoderScoringModel._normalize_compute_dtype(compute_dtype)
+        return build_scorer_inference_config(model_dir, dtype)
+
     @classmethod
-    def from_model_dir(cls, model_dir, device=None):
-        model, _, _ = cls.for_inference(model_path=model_dir, device=device)
+    def from_model_dir(cls, model_dir, device=None, compute_dtype=None):
+        model, _, _ = cls.for_inference(model_path=model_dir, device=device, compute_dtype=compute_dtype)
         return model
 
     @classmethod
-    def for_inference(cls, running_config=None, device_id=0, model_path=None, device=None):
+    def for_inference(cls, running_config=None, device_id=0, model_path=None, device=None, compute_dtype=None):
         model_dir = model_path or running_config.model_path[0]
         metadata = get_metadata(model_dir)
         model_config = metadata["config"].model
@@ -1334,10 +1324,12 @@ class EncoderScoringModel(BaseModel):
             resolved_device = torch.device(device_id)
         else:
             resolved_device = get_device(device_id=device_id)
+        if running_config is None:
+            running_config = cls._runtime_config(model_dir, model_config, compute_dtype)
         model = cls.build_blocks(
             model_config,
             vocabs,
-            running_config=None,
+            running_config=running_config,
             checkpoint_dims=checkpoint_dims,
             device=resolved_device,
         )

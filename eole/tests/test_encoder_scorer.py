@@ -7,7 +7,8 @@ import torch
 
 from eole.predict.encoder_scorer import EncoderScorer, _resolve_sentencepiece
 from eole.inference_engine import InferenceEngine
-from eole.models.model import EncoderScoringModel
+from eole.config.inference import InferenceConfig
+from eole.models.model import EncoderDecoderScoringModel, EncoderScoringModel
 from eole.config.models import TransformerEncoderScorerModelConfig
 from eole.modules.estimator import FeedForward
 from eole.utils.scorer import build_segment_rows
@@ -476,6 +477,35 @@ class TestDtypePropagation(unittest.TestCase):
         output = feed_forward(torch.ones(1, 2, dtype=torch.float32))
 
         self.assertEqual(output.dtype, torch.bfloat16)
+
+    def test_encoder_scorer_runtime_config_uses_inference_config(self):
+        config = EncoderScoringModel._runtime_config("/tmp/model", SimpleNamespace(), torch.float16)
+
+        self.assertIsInstance(config, InferenceConfig)
+        self.assertEqual(config.get_model_path(), "/tmp/model")
+        self.assertEqual(config.compute_dtype, torch.float16)
+        self.assertEqual(config.storage_dtype, torch.float16)
+
+    def test_encoder_decoder_scorer_runtime_config_uses_inference_config(self):
+        config = EncoderDecoderScoringModel._runtime_config("/tmp/model", SimpleNamespace(), torch.float32)
+
+        self.assertIsInstance(config, InferenceConfig)
+        self.assertEqual(config.get_model_path(), "/tmp/model")
+        self.assertEqual(config.compute_dtype, torch.float32)
+        self.assertEqual(config.storage_dtype, torch.float32)
+
+    def test_scorer_runtime_config_does_not_hardcode_attention_backend(self):
+        def mark_backend(config):
+            config.self_attn_backend = "flash"
+
+        from unittest.mock import patch
+
+        with patch(
+            "eole.models.model.InferenceConfig.check_self_attn_backend", autospec=True, side_effect=mark_backend
+        ):
+            config = EncoderScoringModel._runtime_config("/tmp/model", SimpleNamespace(), torch.float16)
+
+        self.assertEqual(config.self_attn_backend, "flash")
 
     def _make_scorer(self, compute_dtype):
         from unittest.mock import MagicMock

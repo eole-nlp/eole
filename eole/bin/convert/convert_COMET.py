@@ -11,6 +11,7 @@ from safetensors.torch import save_file
 
 from eole.bin import BaseBin, register_bin
 from eole.bin.convert.convert_HF import check_sentencepiece_tokenizer, check_special_tokens, save_vocab
+from eole.constants import TORCH_DTYPES
 
 
 SUPPORTED_ENCODERS = {"XLMRobertaForMaskedLM", "XLMRobertaXLForMaskedLM"}
@@ -18,6 +19,13 @@ SUPPORTED_ENCODERS = {"XLMRobertaForMaskedLM", "XLMRobertaXLForMaskedLM"}
 
 def _slug(name):
     return name.replace("/", "--")
+
+
+def _cast_state_dict(state_dict, dtype):
+    return {
+        key: (value.to(dtype) if value.is_floating_point() else value).contiguous().clone()
+        for key, value in state_dict.items()
+    }
 
 
 def _validate_class_identifier(class_identifier):
@@ -224,6 +232,7 @@ class CometConverter(BaseBin):
         parser.add_argument("--model", type=str, required=True, help="COMET HF model id")
         parser.add_argument("--output", type=str, required=False, help="Output directory for converted model")
         parser.add_argument("--token", type=str, default=None, help="Hugging Face token for gated models")
+        parser.add_argument("--dtype", choices=["fp32", "fp16", "bf16"], default="fp32")
 
     @classmethod
     def run(cls, args):
@@ -252,13 +261,13 @@ class CometConverter(BaseBin):
             "tgt_vocab": "dummy",
             "data": {},
             "share_vocab": True,
-            "training": {"compute_dtype": "fp32"},
+            "training": {"compute_dtype": args.dtype},
             "model": model_config,
         }
 
         ckpt = torch.load(model_ckpt, map_location="cpu")
         state_dict = ckpt.get("state_dict", ckpt)
-        converted = _convert_state_dict(state_dict, model_config)
+        converted = _cast_state_dict(_convert_state_dict(state_dict, model_config), TORCH_DTYPES[args.dtype])
         if not any(key.startswith("estimator.") for key in converted):
             raise ValueError("Converted checkpoint is missing estimator.* weights.")
         if model_config["class_identifier"] == "xcomet_metric" and not any(

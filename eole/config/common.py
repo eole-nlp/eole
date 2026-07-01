@@ -126,6 +126,10 @@ class LoggingConfig(Config):
             "When unset, EOLE picks cuda, then mps, then cpu."
         ),
     )
+    comet_compute_dtype: Literal["fp32", "fp16", "bf16"] = Field(
+        default="fp16",
+        description="Compute dtype used for COMET/EOLE-COMET scoring.",
+    )
     metricx_model: str | None = Field(
         default=None,
         description=(
