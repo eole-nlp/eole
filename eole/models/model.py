@@ -54,6 +54,9 @@ class ModelOutput:
     """
 
     dec_out: torch.Tensor
+    # attns can be: an attention-weight dict (encoder-decoder/decoder models),
+    # a single tensor of encoder final hidden states, or a tuple of such
+    # tensors for RNN encoders (h_n, c_n), or None (some encoder-only models).
     attns: Optional[Union[Dict[str, Any], torch.Tensor, tuple]] = None
     estim: Optional[torch.Tensor] = None
 

@@ -218,11 +218,15 @@ def generate_and_score(predictor, batch, scorers, texts_ref=None, texts_src=None
         batch: A batch dict with 'src' and 'srclen' keys.
         scorers: Dict of {metric_name: scorer_obj}. Each value is either a raw
             eole Scorer instance, or the ``{"scorer": obj, "value": float}``
-            dict format returned by ``build_scorers`` — both formats are
-            accepted and normalized internally.
+            dict format returned by ``build_scorers`` (``"value"`` holds the
+            scorer's running/early-stopping value there and is not read here
+            — only ``"scorer"`` is used) — both formats are accepted and
+            normalized internally.
         texts_ref: Reference texts for scoring (list of strings). Required by
-            most scorers (e.g. BLEU); pass None only when using
-            reference-free scorers (e.g. some QE metrics).
+            most scorers (e.g. BLEU); if a scorer that requires references is
+            given ``texts_ref=None``, it will raise/propagate its own error
+            when ``compute_score()`` is called. Pass None only when all given
+            scorers are reference-free (e.g. some QE metrics).
         texts_src: Source texts for scoring (list of strings). Optional.
         return_token_ids: If True, also return raw token ID sequences.
 
