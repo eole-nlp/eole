@@ -24,6 +24,11 @@ class TestAudioUtils(unittest.TestCase):
             wav.writeframes(bytes(frames))
 
     def test_load_audio_decodes_resamples_and_downmixes(self):
+        try:
+            from torchcodec.decoders import AudioDecoder  # noqa: F401
+        except (ImportError, RuntimeError) as exc:
+            self.skipTest(f"torchcodec is not available in this environment: {exc}")
+
         with NamedTemporaryFile(suffix=".wav") as tmp:
             self._write_stereo_wav(tmp.name)
 
