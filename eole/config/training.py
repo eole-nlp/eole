@@ -176,7 +176,7 @@ class TrainingConfig(
         default=0,
         description="Number of validation steps without improving that " "will trigger early stop of training.",
     )
-    early_stopping_criteria: str | None = Field(
+    early_stopping_criteria: str | List[str] | None = Field(
         default=None, description="Criteria to use for early stopping."
     )  # allowed values are not clear
     max_grad_norm: float = Field(

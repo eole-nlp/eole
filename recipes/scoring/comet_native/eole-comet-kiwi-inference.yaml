@@ -1,0 +1,12 @@
+model_path: ["${EOLE_MODEL_DIR}/comet/Unbabel--wmt22-cometkiwi-da"]
+
+seed: 42
+batch_type: sents
+batch_size: 512
+world_size: 1
+gpu_ranks: [0]
+# fp16 endorsed by upstream (Unbabel/wmt23-cometkiwi-da-xl/discussions/3) —
+# 2× faster, 2× less RAM, no accuracy change vs fp32.
+compute_dtype: fp16
+report_time: true
+src: null

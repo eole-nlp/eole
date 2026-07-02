@@ -208,7 +208,8 @@ class GeneratorLM(Inference):
         if not self.estim_only:
             # (5) Begin decoding step by step:
             if self.report_time:
-                torch.cuda.synchronize()
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
                 beg_time = time()
 
             for step in range(decode_strategy.max_length):
@@ -244,7 +245,8 @@ class GeneratorLM(Inference):
                     self.model.decoder.map_state(lambda state: state[decode_strategy.select_indices])
 
                 if self.report_time and step == 0:
-                    torch.cuda.synchronize()
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
                     self.step0_time.append(time() - beg_time)
 
                 self.model.decoder._extend_cache()  # noop when dynamic_shape is False

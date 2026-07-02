@@ -52,6 +52,7 @@ class _CometBaseScorer(Scorer):
     """
 
     uses_gpu = True
+    higher_is_better = True
     comet_model_name = None  # overridden by subclasses
     needs_ref = True  # False for reference-free (QE) models
 

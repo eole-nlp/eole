@@ -5,6 +5,8 @@ class Scorer(object):
     """A Base class that every scoring method should derived from."""
 
     uses_gpu = False  # Set to True for scorers that require a GPU (e.g. COMET)
+    # Set to True when higher metric scores are better, False when lower scores are better.
+    higher_is_better = None
 
     def __init__(self, config):
         # not used by any scorer for now it seems, but why not
