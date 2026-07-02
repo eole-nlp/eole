@@ -45,6 +45,8 @@ class WerScorer(Scorer):
     Requires the ``jiwer`` package: ``pip install eole[wer]``
     """
 
+    higher_is_better = False
+
     def __init__(self, config):
         super().__init__(config)
         normalize_mode = getattr(config, "wer_normalize", "none")

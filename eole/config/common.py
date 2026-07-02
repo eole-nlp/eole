@@ -1,5 +1,5 @@
 import torch
-from typing import List, Literal, Union
+from typing import Any, Dict, List, Literal, Union
 from pydantic import Field, field_validator
 from importlib import import_module
 from eole.config.config import Config, get_config_dict
@@ -97,6 +97,12 @@ class LoggingConfig(Config):
     valid_metrics: List[str] = Field(
         default=[], description="List of names of additional validation metrics."
     )  # should probably be validated properly (or in some registry/enum)
+    scorer_modules: List[str] = Field(
+        default=[], description="Python modules to import for custom scorer registration."
+    )
+    scorer_configs: Dict[str, Any] = Field(
+        default_factory=dict, description="Namespaced configuration for custom validation scorers."
+    )
     wer_normalize: str = Field(
         default="none",
         description="WER normalization mode: none, lowercase, whisper_en, whisper_basic.",
@@ -105,8 +111,11 @@ class LoggingConfig(Config):
         default=None,
         description=(
             "COMET model name or local path to use for COMET/COMET-KIWI scoring. "
-            "Defaults to Unbabel/wmt22-comet-da for COMET and "
-            "Unbabel/wmt22-cometkiwi-da for COMET-KIWI when not set."
+            "Defaults to Unbabel/wmt22-comet-da for COMET, "
+            "Unbabel/wmt22-cometkiwi-da for COMET-KIWI, "
+            "eole-nlp/wmt22-comet-da-eole-fp16 for EOLE-COMET, "
+            "eole-nlp/wmt23-cometkiwi-da-xl-eole-fp16 for EOLE-COMET-KIWI, and "
+            "and eole-nlp/xcomet-xl-eole-fp16 for EOLE-XCOMET when not set."
         ),
     )
     comet_batch_size: int = Field(
@@ -118,6 +127,36 @@ class LoggingConfig(Config):
         description=(
             "Device used for COMET/EOLE-COMET scoring (for example: 'cpu', 'mps', 'cuda', 'cuda:0'). "
             "When unset, EOLE picks cuda, then mps, then cpu."
+        ),
+    )
+    comet_compute_dtype: Literal["fp32", "fp16", "bf16"] = Field(
+        default="fp16",
+        description="Compute dtype used for COMET/EOLE-COMET scoring.",
+    )
+    metricx_model: str | None = Field(
+        default=None,
+        description=(
+            "MetricX model name or local path to use for EOLE-METRICX scoring. "
+            "Defaults to eole-nlp/metricx-24-hybrid-large-v2p6-eole."
+        ),
+    )
+    metricx_batch_size: int = Field(default=8, description="Batch size used when running EOLE-METRICX scoring.")
+    metricx_device: str | None = Field(
+        default=None,
+        description="Device used for EOLE-METRICX scoring (for example: 'cpu', 'mps', 'cuda', 'cuda:0').",
+    )
+    metricx_compute_dtype: Literal["fp32", "fp16", "bf16"] = Field(
+        default="fp32",
+        description=(
+            "Compute dtype used when loading EOLE-METRICX validation scorers. "
+            "Defaults to fp32 for stable validation; use bf16 explicitly for CUDA speed/memory."
+        ),
+    )
+    metricx_replace_newline_sentinel: bool = Field(
+        default=True,
+        description=(
+            "Replace EOLE's internal newline sentinel with a real newline before EOLE-METRICX tokenization. "
+            "Disable for native MetricX/paper-score parity on literal input files."
         ),
     )
     scoring_debug: bool = Field(default=False, description="Dump src/ref/pred of the current batch.")

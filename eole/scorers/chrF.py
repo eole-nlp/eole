@@ -7,6 +7,8 @@ from sacrebleu import corpus_chrf
 class ChrFScorer(Scorer):
     """chrF scorer class."""
 
+    higher_is_better = True
+
     def __init__(self, config):
         """Initialize the chrF scorer with the given configuration."""
         super().__init__(config)

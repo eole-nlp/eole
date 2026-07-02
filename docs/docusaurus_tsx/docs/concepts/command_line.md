@@ -50,10 +50,33 @@ eole tool_name -h
 
 ## Native EOLE COMET Scoring
 
-EOLE supports native scoring with converted [Unbabel COMET](https://github.com/Unbabel/COMET)
-metrics through `EOLE-COMET`, `EOLE-COMET-KIWI`, and `EOLE-XCOMET`. These models
-use EOLE's generic encoder-only `transformer_encoder_scorer` architecture with
-the COMET-specific `scoring_type: comet` specialization.
+EOLE supports native scoring with pre-converted [Unbabel COMET](https://github.com/Unbabel/COMET)
+metrics through `EOLE-COMET`, `EOLE-COMET-KIWI`, and `EOLE-XCOMET`. These hosted
+EOLE models can be used directly for validation scoring or with
+`eole predict --with_score`. See the
+[EOLE-COMET Hugging Face collection](https://huggingface.co/collections/eole-nlp/eole-comet)
+for all published COMET-family EOLE conversions.
+
+```sh
+eole predict \
+  --model_path eole-nlp/wmt22-comet-da-eole-fp16 \
+  --src /path/to/src.txt \
+  --tgt /path/to/mt.txt \
+  --ref /path/to/ref.txt \
+  --output /path/to/scores.txt \
+  --with_score
+```
+
+Use the hosted defaults in your training config with:
+
+- `valid_metrics: ["EOLE-COMET"]`, `valid_metrics: ["EOLE-COMET-KIWI"]`, or `valid_metrics: ["EOLE-XCOMET"]`
+
+Set `comet_model` only when you want to override the default hosted EOLE model.
+Validation metrics configured with `valid_metrics` use `comet_compute_dtype` and
+default to fp16. Direct `eole predict` scoring uses the regular inference dtype
+knob; pass `--compute_dtype fp32` if you need fp32 CLI scoring.
+
+Raw Unbabel COMET repos still need conversion before EOLE can load them:
 
 ```sh
 eole convert COMET --model Unbabel/wmt22-comet-da --output /path/to/converted/wmt22-comet-da
@@ -61,11 +84,44 @@ eole convert COMET --model Unbabel/wmt22-cometkiwi-da --output /path/to/converte
 eole convert COMET --model Unbabel/XCOMET-XL --token "$HF_TOKEN" --output /path/to/converted/XCOMET-XL
 ```
 
-Then use the converted model directory in your training config with:
+See `recipes/scoring/comet_native/` for hosted model IDs, direct scoring examples,
+conversion options, and parity checks.
 
-- `valid_metrics: ["EOLE-COMET"]`, `valid_metrics: ["EOLE-COMET-KIWI"]`, or `valid_metrics: ["EOLE-XCOMET"]`
-- `comet_model: /path/to/converted/model`
+## Native EOLE MetricX Scoring
 
-`eole predict --with_score` emits scalar scores for converted scorer models. For
-XCOMET, explainable span parity can be validated with the
-`recipes/scoring/comet_native/parity_check.py` harness.
+EOLE supports native scoring with pre-converted [Google MetricX](https://github.com/google-research/metricx)
+models through `EOLE-METRICX` and `EOLE-METRICX-QE`. Both scorers default to the
+hosted fp32 EOLE model `eole-nlp/metricx-24-hybrid-large-v2p6-eole`. See the
+[EOLE-MetricX Hugging Face collection](https://huggingface.co/collections/eole-nlp/eole-metricx)
+for all published MetricX EOLE conversions.
+
+```sh
+eole predict \
+  --model_path eole-nlp/metricx-24-hybrid-large-v2p6-eole \
+  --src /path/to/src.txt \
+  --tgt /path/to/mt.txt \
+  --ref /path/to/ref.txt \
+  --output /path/to/metricx-scores.txt \
+  --with_score \
+  --compute_dtype fp32
+```
+
+Omit `--ref` to score in QE mode. MetricX scores are lower-is-better raw error
+scores. Validation metrics configured with `valid_metrics` use
+`metricx_compute_dtype` and default to fp32 for stability. Direct `eole predict`
+scoring uses `--compute_dtype`.
+
+Use the hosted defaults in your training config with:
+
+- `valid_metrics: ["EOLE-METRICX"]` for reference-based scoring
+- `valid_metrics: ["EOLE-METRICX-QE"]` for reference-free scoring
+
+Set `metricx_model` only when you want to override the default hosted EOLE model.
+Raw Google MetricX repos still need conversion before EOLE can load them:
+
+```sh
+eole convert MetricX --model google/metricx-24-hybrid-large-v2p6 --dtype fp32 --output /path/to/converted/metricx-24-hybrid-large-v2p6-eole
+```
+
+See `recipes/scoring/metricx_native/` for hosted model IDs, direct scoring
+examples, conversion options, and MetricX-23/24 input mode details.

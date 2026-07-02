@@ -146,7 +146,7 @@ class TestEoleCometScorers(unittest.TestCase):
             patch.object(EoleCometScorer, "_encode_texts", side_effect=[[[0, 1]], [[0, 1]], [[0, 1]]]),
         ):
             scorer.compute_score(["a"], ["r"], ["s"])
-        load_mock.assert_called_once_with("dummy", device=torch.device("cpu"))
+        load_mock.assert_called_once_with("dummy", device=torch.device("cpu"), compute_dtype=torch.float16)
 
     def test_eole_comet_auto_selects_mps(self):
         scorer = EoleCometScorer(SimpleNamespace(comet_model="dummy", comet_batch_size=8))
@@ -159,7 +159,38 @@ class TestEoleCometScorers(unittest.TestCase):
             patch.object(EoleCometScorer, "_encode_texts", side_effect=[[[0, 1]], [[0, 1]], [[0, 1]]]),
         ):
             scorer.compute_score(["a"], ["r"], ["s"])
-        load_mock.assert_called_once_with("dummy", device=torch.device("mps"))
+        load_mock.assert_called_once_with("dummy", device=torch.device("mps"), compute_dtype=torch.float16)
+
+    def test_eole_comet_defaults_to_fp16_compute_dtype(self):
+        scorer = EoleCometScorer(SimpleNamespace(comet_model="dummy", comet_batch_size=8, comet_device="cpu"))
+
+        with patch("eole.scorers.eole_comet.EncoderScoringModel.from_model_dir") as from_model_dir:
+            from_model_dir.return_value = object()
+            scorer._load_model("dummy")
+
+        self.assertEqual(from_model_dir.call_args.kwargs["compute_dtype"], torch.float16)
+
+    def test_eole_comet_explicit_compute_dtype_overrides_default(self):
+        for configured_dtype, torch_dtype in (
+            ("fp32", torch.float32),
+            ("fp16", torch.float16),
+            ("bf16", torch.bfloat16),
+        ):
+            scorer = EoleCometScorer(
+                SimpleNamespace(
+                    comet_model="dummy",
+                    comet_batch_size=8,
+                    comet_compute_dtype=configured_dtype,
+                )
+            )
+
+            self.assertEqual(scorer._resolve_compute_dtype(), torch_dtype)
+
+    def test_eole_comet_rejects_unsupported_compute_dtype(self):
+        scorer = EoleCometScorer(SimpleNamespace(comet_model="dummy", comet_compute_dtype="int8"))
+
+        with self.assertRaisesRegex(ValueError, "Unsupported comet_compute_dtype"):
+            scorer._resolve_compute_dtype()
 
     def test_eole_xcomet_accepts_xcomet_model_family(self):
         scorer = EoleXCometScorer(SimpleNamespace(comet_model="dummy", comet_batch_size=8))

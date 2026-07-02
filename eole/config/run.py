@@ -159,6 +159,18 @@ class PredictConfig(
             logger.warn("You have a CUDA device, should run with -gpu_ranks")
         return self
 
+    def _resolve_model_compute_dtype(self, config_dict, model_config=None, training_config=None):
+        if "compute_dtype" in self.model_fields_set:
+            return self.compute_dtype
+        if (
+            getattr(model_config, "architecture", None) == "transformer_encoder_scorer"
+            and getattr(model_config, "scoring_type", None) == "comet"
+        ):
+            return torch.float16
+        if training_config is not None:
+            return training_config.compute_dtype
+        return self.compute_dtype
+
     def _update_with_model_config(self):
         # Note: in case of ensemble decoding, grabbing the first model's
         # config and artifacts by default
@@ -166,7 +178,7 @@ class PredictConfig(
         # When model_path is a HuggingFace model ID (no local directory yet),
         # skip the local-config loading entirely.  All config/vocab/weight
         # loading will happen later inside load_hf_model() at inference time.
-        # Use the same detection logic as _is_hf_model_id() in eole/predict/__init__.py.
+        # Use the same detection logic as is_hf_model_id() in eole.models.hf_resolver.
         first_path = self.model_path[0]
         if (
             not os.path.isabs(first_path)
@@ -198,7 +210,7 @@ class PredictConfig(
             self.__dict__["share_vocab"] = config_dict.get("share_vocab", False)
             # retrieve precision from checkpoint config if not explicitly set
             if "compute_dtype" not in self.model_fields_set:
-                self.compute_dtype = training_config.compute_dtype
+                self.compute_dtype = self._resolve_model_compute_dtype(config_dict, model_config, training_config)
             # quant logic, might be better elsewhere
             if hasattr(training_config, "quant_type") and training_config.quant_type in [
                 "awq_gemm",
@@ -236,8 +248,6 @@ class PredictConfig(
             transforms_configs = recursive_model_fields_set(self.transforms_configs)
             transforms_configs.update(config_dict.get("transforms_configs", {}))
             update_dict["transforms_configs"] = NestedAllTransformsConfig(**transforms_configs)
-        if "compute_dtype" not in self.model_fields_set:
-            self.compute_dtype = config_dict.get("training", {}).get("compute_dtype", "fp16")
         for key, value in config_dict.get("inference", {}).items():
             if key not in self.model_fields_set:
                 update_dict[key] = value
