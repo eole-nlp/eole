@@ -7,10 +7,9 @@ import os
 import zlib
 from contextlib import contextmanager
 import torch
-import torchaudio.transforms as T
 from time import time
 
-from eole.inputters.audio_utils import dynamic_time_warping, log_mel_spectrogram, median_filter
+from eole.inputters.audio_utils import MelSpectrogram, dynamic_time_warping, log_mel_spectrogram, median_filter
 from eole.predict.translator import Translator
 
 
@@ -61,7 +60,7 @@ class AudioPredictor(Translator):
         self.timestamps_output = getattr(config, "timestamps", "none")
 
         # Mel transform lives on CPU; output is moved to device in the seeking loop
-        self._mel_transform = T.MelSpectrogram(
+        self._mel_transform = MelSpectrogram(
             sample_rate=self.sample_rate,
             n_fft=self.n_fft,
             hop_length=self.hop_length,

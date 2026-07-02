@@ -113,7 +113,6 @@ setup(
         "tensorboard>=2.18.0",
         "tokenizers",
         "torch>=2.8,<2.12",
-        "torchaudio>=2.8,<2.12",
         "torchcodec",
         "torch-optimi",
         "uvicorn",
