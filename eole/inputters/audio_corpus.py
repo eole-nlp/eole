@@ -150,9 +150,9 @@ class AudioTextCorpusIterator(object):
 
     def _get_mel_transform(self):
         if self._mel_transform is None:
-            import torchaudio.transforms as T
+            from eole.inputters.audio_utils import MelSpectrogram
 
-            self._mel_transform = T.MelSpectrogram(
+            self._mel_transform = MelSpectrogram(
                 sample_rate=self.sample_rate,
                 n_fft=self.n_fft,
                 hop_length=self.hop_length,

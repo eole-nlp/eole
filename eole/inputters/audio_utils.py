@@ -2,6 +2,151 @@ import numpy as np
 import torch
 
 
+class MelSpectrogram(torch.nn.Module):
+    """Pure-Torch mel spectrogram transform for EOLE audio preprocessing.
+
+    This implements the mel transform parameter subset EOLE needs. Defaults
+    track common mel-spectrogram behavior, while Whisper call sites pass their
+    explicit Slaney settings.
+    """
+
+    HTK_MEL_SCALE = 2595.0
+    HTK_MEL_BREAK_FREQUENCY = 700.0
+    SLANEY_HZ_PER_MEL = 200.0 / 3
+    SLANEY_MIN_LOG_HZ = 1000.0
+    SLANEY_LOG_RANGE = 6.4
+    SLANEY_LOG_STEPS = 27.0
+    SLANEY_LOG_STEP = np.log(SLANEY_LOG_RANGE) / SLANEY_LOG_STEPS
+
+    @classmethod
+    def _hz_to_mel(cls, freq, mel_scale="slaney"):
+        if mel_scale not in ["slaney", "htk"]:
+            raise ValueError('mel_scale must be one of "slaney" or "htk"')
+        if mel_scale == "htk":
+            return cls.HTK_MEL_SCALE * np.log10(1.0 + freq / cls.HTK_MEL_BREAK_FREQUENCY)
+
+        # Slaney's scale is linear below 1 kHz and logarithmic above it.
+        mels = freq / cls.SLANEY_HZ_PER_MEL
+        min_log_mel = cls.SLANEY_MIN_LOG_HZ / cls.SLANEY_HZ_PER_MEL
+        if freq >= cls.SLANEY_MIN_LOG_HZ:
+            mels = min_log_mel + np.log(freq / cls.SLANEY_MIN_LOG_HZ) / cls.SLANEY_LOG_STEP
+        return mels
+
+    @classmethod
+    def _mel_to_hz(cls, mels, mel_scale="slaney"):
+        if mel_scale not in ["slaney", "htk"]:
+            raise ValueError('mel_scale must be one of "slaney" or "htk"')
+        if mel_scale == "htk":
+            return cls.HTK_MEL_BREAK_FREQUENCY * (10.0 ** (mels / cls.HTK_MEL_SCALE) - 1.0)
+
+        # Inverse of Slaney's piecewise linear/log frequency mapping.
+        freqs = cls.SLANEY_HZ_PER_MEL * mels
+        min_log_mel = cls.SLANEY_MIN_LOG_HZ / cls.SLANEY_HZ_PER_MEL
+        log_t = mels >= min_log_mel
+        freqs[log_t] = cls.SLANEY_MIN_LOG_HZ * torch.exp(cls.SLANEY_LOG_STEP * (mels[log_t] - min_log_mel))
+        return freqs
+
+    @classmethod
+    def _create_triangular_filterbank(cls, all_freqs, f_pts):
+        # Return shape is (freq_bins, n_mels), matching TorchAudio's orientation
+        # so a spectrogram shaped (..., frames, freq_bins) can be multiplied by it.
+        f_diff = f_pts[1:] - f_pts[:-1]
+        slopes = f_pts.unsqueeze(0) - all_freqs.unsqueeze(1)
+        zero = torch.zeros(1, dtype=all_freqs.dtype, device=all_freqs.device)
+        down_slopes = -slopes[:, :-2] / f_diff[:-1]
+        up_slopes = slopes[:, 2:] / f_diff[1:]
+        return torch.max(zero, torch.min(down_slopes, up_slopes))
+
+    @classmethod
+    def _melscale_fbanks(cls, n_freqs, f_min, f_max, n_mels, sample_rate, norm="slaney", mel_scale="slaney"):
+        # The mel helpers intentionally mirror the TorchAudio/librosa formulas
+        # for the subset EOLE uses.
+        all_freqs = torch.linspace(0, sample_rate // 2, n_freqs)
+        m_min = cls._hz_to_mel(f_min, mel_scale=mel_scale)
+        m_max = cls._hz_to_mel(f_max, mel_scale=mel_scale)
+        m_pts = torch.linspace(m_min, m_max, n_mels + 2)
+        f_pts = cls._mel_to_hz(m_pts, mel_scale=mel_scale)
+        fb = cls._create_triangular_filterbank(all_freqs, f_pts)
+
+        if norm == "slaney":
+            # Area-normalize each triangular filter by mel-band width. This is
+            # required for parity with norm="slaney" feature extraction.
+            enorm = 2.0 / (f_pts[2 : n_mels + 2] - f_pts[:n_mels])
+            fb *= enorm.unsqueeze(0)
+        elif norm is not None:
+            raise ValueError('norm must be one of None or "slaney"')
+        return fb
+
+    def __init__(
+        self,
+        sample_rate=16000,
+        n_fft=400,
+        win_length=None,
+        hop_length=None,
+        f_min=0.0,
+        f_max=None,
+        pad=0,
+        n_mels=128,
+        window_fn=torch.hann_window,
+        power=2.0,
+        normalized=False,
+        wkwargs=None,
+        center=True,
+        pad_mode="reflect",
+        onesided=True,
+        norm=None,
+        mel_scale="htk",
+    ):
+        super().__init__()
+        self.sample_rate = sample_rate
+        self.n_fft = n_fft
+        self.win_length = n_fft if win_length is None else win_length
+        self.hop_length = hop_length if hop_length is not None else self.win_length // 2
+        self.pad = pad
+        self.power = power
+        self.normalized = normalized
+        self.center = center
+        self.pad_mode = pad_mode
+        self.onesided = True if onesided is None else onesided
+        window_kwargs = {} if wkwargs is None else wkwargs
+        self.register_buffer("window", window_fn(self.win_length, **window_kwargs), persistent=False)
+        self.register_buffer(
+            "fb",
+            self._melscale_fbanks(
+                n_fft // 2 + 1 if self.onesided else n_fft,
+                f_min,
+                sample_rate / 2.0 if f_max is None else f_max,
+                n_mels,
+                sample_rate,
+                norm=norm,
+                mel_scale=mel_scale,
+            ),
+            persistent=False,
+        )
+
+    def forward(self, waveform):
+        # Buffers are created on CPU/float32; match the incoming waveform so the
+        # transform works with alternate devices or dtypes.
+        window = self.window.to(device=waveform.device, dtype=waveform.dtype)
+        fb = self.fb.to(device=waveform.device, dtype=waveform.dtype)
+        if self.pad > 0:
+            waveform = torch.nn.functional.pad(waveform, (self.pad, self.pad), mode="constant")
+        spec = torch.stft(
+            waveform,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            win_length=self.win_length,
+            window=window,
+            center=self.center,
+            pad_mode=self.pad_mode,
+            normalized=self.normalized,
+            onesided=self.onesided,
+            return_complex=True,
+        )
+        spec = spec.abs().pow(self.power)
+        return torch.matmul(spec.transpose(-1, -2), fb).transpose(-1, -2)
+
+
 def dynamic_time_warping(cost_matrix):
     """Classic DTW on a cost matrix.
 
@@ -74,29 +219,29 @@ def load_audio(audio_path, sample_rate=16000):
     Returns:
         1D float tensor of mono audio samples at the target sample rate.
     """
-    import torchaudio
+    from torchcodec.decoders import AudioDecoder
 
-    waveform, sr = torchaudio.load(audio_path)
-    if sr != sample_rate:
-        resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=sample_rate)
-        waveform = resampler(waveform)
-    if waveform.shape[0] > 1:
+    samples = AudioDecoder(audio_path, sample_rate=sample_rate).get_all_samples()
+    waveform = samples.data
+    if waveform.dim() > 1 and waveform.shape[0] > 1:
         waveform = waveform.mean(dim=0, keepdim=True)
     return waveform.squeeze(0)
 
 
 def log_mel_spectrogram(audio, mel_transform, n_frames):
-    """Compute log-mel spectrogram for audio preprocessing.
+    """Compute Whisper-style log-mel spectrogram for audio preprocessing.
 
     Args:
         audio: 1D tensor of audio samples (already padded/trimmed to chunk size)
-        mel_transform: torchaudio.transforms.MelSpectrogram instance
+        mel_transform: callable mel spectrogram transform
         n_frames: expected number of mel frames to output
 
     Returns:
         Log-mel spectrogram tensor of shape (n_mels, n_frames).
     """
     mel = mel_transform(audio)
+    # With centered STFT, a 30s Whisper chunk produces 3001 frames. Whisper
+    # models expect 3000 frames, so this truncation is intentional.
     mel = mel[:, :n_frames]
     # Whisper log-mel normalization (from OpenAI reference implementation):
     # clamp, log10, cap at 8 dB below peak, then shift/scale to ~[-1, 1]
