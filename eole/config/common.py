@@ -111,8 +111,11 @@ class LoggingConfig(Config):
         default=None,
         description=(
             "COMET model name or local path to use for COMET/COMET-KIWI scoring. "
-            "Defaults to Unbabel/wmt22-comet-da for COMET and "
-            "Unbabel/wmt22-cometkiwi-da for COMET-KIWI when not set."
+            "Defaults to Unbabel/wmt22-comet-da for COMET, "
+            "Unbabel/wmt22-cometkiwi-da for COMET-KIWI, "
+            "eole-nlp/wmt22-comet-da-eole-fp16 for EOLE-COMET, "
+            "eole-nlp/wmt23-cometkiwi-da-xl-eole-fp16 for EOLE-COMET-KIWI, and "
+            "and eole-nlp/xcomet-xl-eole-fp16 for EOLE-XCOMET when not set."
         ),
     )
     comet_batch_size: int = Field(
@@ -134,7 +137,7 @@ class LoggingConfig(Config):
         default=None,
         description=(
             "MetricX model name or local path to use for EOLE-METRICX scoring. "
-            "Defaults to google/metricx-24-hybrid-large-v2p6."
+            "Defaults to eole-nlp/metricx-24-hybrid-large-v2p6-eole."
         ),
     )
     metricx_batch_size: int = Field(default=8, description="Batch size used when running EOLE-METRICX scoring.")

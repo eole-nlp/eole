@@ -38,6 +38,15 @@ def _load_state_dict(model_dir):
             state_dict.update(load_file(os.path.join(model_dir, filename), device="cpu"))
         return state_dict
 
+    index_path = os.path.join(model_dir, "pytorch_model.bin.index.json")
+    if os.path.exists(index_path):
+        with open(index_path, encoding="utf-8") as f:
+            index = json.load(f)
+        shard_files = sorted(set(index["weight_map"].values()))
+        for filename in shard_files:
+            state_dict.update(torch.load(os.path.join(model_dir, filename), map_location="cpu"))
+        return state_dict
+
     for filename in ["pytorch_model.bin", "model.bin"]:
         path = os.path.join(model_dir, filename)
         if os.path.exists(path):
@@ -225,7 +234,7 @@ class MetricXConverter(BaseBin):
             default=None,
             help="Tokenizer HF model id. Defaults to matching google/mt5-{large,xl,xxl}.",
         )
-        parser.add_argument("--dtype", choices=["fp32", "fp16", "bf16"], default="fp16")
+        parser.add_argument("--dtype", choices=["fp32", "fp16", "bf16"], default="fp32")
         parser.add_argument("--qe", action="store_true", help="Convert metadata for QE/reference-free scoring")
 
     @classmethod

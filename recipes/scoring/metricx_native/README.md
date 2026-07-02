@@ -1,109 +1,99 @@
 # Native EOLE MetricX Scoring
 
-This recipe shows how to use native EOLE scoring with converted
-[Google MetricX](https://github.com/google-research/metricx) models:
+This recipe shows how to use native EOLE scoring with pre-converted
+[Google MetricX](https://github.com/google-research/metricx) models hosted on
+Hugging Face:
 
 - `EOLE-METRICX` (reference-based)
 - `EOLE-METRICX-QE` (reference-free / QE)
 
 Converted MetricX models are represented as EOLE
 `transformer_encoder_decoder_scorer` models with template-driven scorer inputs.
-Direct inference from Google Hugging Face model IDs is not supported here;
-convert the MetricX checkpoint first.
+Raw Google MetricX Hugging Face repos are not EOLE model layouts; use the hosted
+EOLE conversions below, or convert raw upstream checkpoints yourself.
 
 MetricX raw scores are lower-is-better scores clamped to the model's configured
 range, normally `0..25`. EOLE preserves the raw MetricX score and does not invert
 or normalize it.
 
-## 1) Convert MetricX models to EOLE artifacts
+## 1) Use hosted MetricX models
 
-```bash
-export EOLE_MODEL_DIR=~/Development/Models/eole
+The native EOLE MetricX scorers default to a hosted pre-converted fp32 EOLE
+model:
 
-eole convert MetricX \
-  --model google/metricx-24-hybrid-large-v2p6 \
-  --output "$EOLE_MODEL_DIR/metricx/google--metricx-24-hybrid-large-v2p6"
-```
+See the [EOLE-MetricX Hugging Face collection](https://huggingface.co/collections/eole-nlp/eole-metricx)
+for all published MetricX EOLE conversions.
 
-MetricX conversion downloads the MetricX checkpoint and the matching
-`google/mt5-{large,xl,xxl}` tokenizer assets. The converted model directory
-contains the EOLE config, safetensors weights, vocabulary, and bundled
-SentencePiece tokenizer.
+| Model | Use case | Input modes |
+| --- | --- | --- |
+| `eole-nlp/metricx-24-hybrid-large-v2p6-eole` | Default, practical speed | `reference`, `qe` |
+| `eole-nlp/metricx-24-hybrid-xl-v2p6-eole` | Larger/intermediate MetricX-24 model | `reference`, `qe` |
+| `eole-nlp/metricx-23-large-v2p0-eole` | MetricX-23 reference-based model | `reference` |
 
-MetricX-23 can also be converted:
+By default, `EOLE-METRICX` and `EOLE-METRICX-QE` both use
+`eole-nlp/metricx-24-hybrid-large-v2p6-eole`. MetricX-24 Hybrid supports both
+reference and QE modes.
 
-```bash
-eole convert MetricX \
-  --model google/metricx-23-large-v2p0 \
-  --output "$EOLE_MODEL_DIR/metricx/google--metricx-23-large-v2p0"
-```
+The hosted MetricX EOLE artifacts are fp32 because MetricX uses mT5-style
+encoder-decoder scorer models, which can be numerically sensitive under reduced
+precision. Use fp32 for stable validation and parity reporting. Use bf16 or fp16
+only as an explicit opt-in after validating score drift for your use case.
 
-Google also publishes a bfloat16 MetricX-24 variant. To preserve bf16 weights in
-the converted EOLE artifact, convert with `--dtype bf16`:
+For public repos, no local conversion is required. For private repos,
+authenticate with `hf auth login` or set `HF_TOKEN`. For direct `eole predict`,
+`--hf_token` can also be used.
 
-```bash
-eole convert MetricX \
-  --model google/metricx-24-hybrid-large-v2p6-bfloat16 \
-  --dtype bf16 \
-  --output "$EOLE_MODEL_DIR/metricx/google--metricx-24-hybrid-large-v2p6-bfloat16"
-```
+## 2) Use MetricX metrics during training
 
-You can choose the conversion precision independently of scoring runtime
-precision. Validation metrics configured with `valid_metrics` use
-`metricx_compute_dtype`; direct `eole predict` scoring uses the regular
-inference dtype knob, `--compute_dtype`. MetricX validation defaults to `fp32`
-for stability. For CUDA speed/memory, opt in explicitly with
-`metricx_compute_dtype: bf16` for validation scoring or `--compute_dtype bf16`
-for CLI scoring.
-
-For gated or private models, pass a Hugging Face token:
-
-```bash
-eole convert MetricX \
-  --model google/metricx-24-hybrid-large-v2p6 \
-  --token "$HF_TOKEN" \
-  --output "$EOLE_MODEL_DIR/metricx/google--metricx-24-hybrid-large-v2p6"
-```
-
-## 2) Use `EOLE-METRICX` in a training config
-
-Set in your train YAML:
+Use the default hosted `EOLE-METRICX` model in reference mode with:
 
 ```yaml
 valid_metrics: ["EOLE-METRICX"]
-metricx_model: "${EOLE_MODEL_DIR}/metricx/google--metricx-24-hybrid-large-v2p6"
 metricx_batch_size: 8
 metricx_device: cuda
 metricx_compute_dtype: fp32
 ```
 
-`metricx_compute_dtype` accepts `fp32`, `fp16`, or `bf16`. Use `fp32` for stable
-validation and parity reporting. Use `bf16` explicitly on CUDA when speed/memory
-matters.
+`EOLE-METRICX` forces reference mode and requires references in the validation
+corpus.
 
-EOLE line-oriented files may represent embedded newlines as the internal
-newline sentinel (`｟newline｠`). By default, EOLE-METRICX restores this sentinel
-to a real newline before tokenization so MetricX scores the logical text rather
-than the file serialization. Set this to `false` only when you intentionally want
-to score the sentinel characters literally, for example in literal-file parity
-tests:
+Use the same hosted default model in reference-free QE mode with:
+
+```yaml
+valid_metrics: ["EOLE-METRICX-QE"]
+metricx_batch_size: 8
+metricx_device: cuda
+metricx_compute_dtype: fp32
+```
+
+`EOLE-METRICX-QE` forces reference-free mode and scores from source+hypothesis
+only. The configured converted model must declare QE support in
+`supported_input_modes`.
+
+Set `metricx_model` only when you want to override the default hosted EOLE
+model, for example to use the hosted XL conversion or a local conversion:
+
+```yaml
+valid_metrics: ["EOLE-METRICX"]
+metricx_model: eole-nlp/metricx-24-hybrid-xl-v2p6-eole
+metricx_batch_size: 4
+metricx_device: cuda
+metricx_compute_dtype: fp32
+```
+
+`metricx_compute_dtype` accepts `fp32`, `fp16`, or `bf16`. MetricX validation
+defaults to `fp32` for stability. For CUDA speed/memory, opt in explicitly with
+`metricx_compute_dtype: bf16` after validating score drift.
+
+EOLE line-oriented files may represent embedded newlines as the internal newline
+sentinel (`｟newline｠`). By default, EOLE-METRICX restores this sentinel to a real
+newline before tokenization so MetricX scores the logical text rather than the
+file serialization. Set this to `false` only when you intentionally want to score
+the sentinel characters literally, for example in literal-file parity tests:
 
 ```yaml
 metricx_replace_newline_sentinel: false
 ```
-
-CUDA bf16 opt-in example:
-
-```yaml
-valid_metrics: ["EOLE-METRICX"]
-metricx_model: "${EOLE_MODEL_DIR}/metricx/google--metricx-24-hybrid-large-v2p6-bfloat16"
-metricx_batch_size: 8
-metricx_device: cuda
-metricx_compute_dtype: bf16
-```
-
-`EOLE-METRICX` forces reference mode and requires references in the validation
-corpus.
 
 MetricX validation metrics are lower-is-better and can be used for early
 stopping:
@@ -118,55 +108,22 @@ To run on CPU:
 
 ```yaml
 valid_metrics: ["EOLE-METRICX"]
-metricx_model: "${EOLE_MODEL_DIR}/metricx/google--metricx-24-hybrid-large-v2p6"
 metricx_batch_size: 1
 metricx_device: cpu
 metricx_compute_dtype: fp32
 ```
 
-The CPU validation scorer loads MetricX in `fp32` to avoid reduced-precision CPU
-numerical issues.
-
-On Apple Silicon / MPS, also use `metricx_device: mps`. The native MetricX
-validation scorer loads MetricX in `fp32` on MPS because the `fp16` path can
-produce `nan` scores for this mT5-style scorer. MPS autocast to `fp16` showed the
-same issue in local smoke tests. The bf16 MetricX variant is finite on MPS, but
-with lower precision than fp32.
+On Apple Silicon / MPS, also use `metricx_device: mps` and keep fp32 unless you
+have validated a reduced-precision path for your model:
 
 ```yaml
 valid_metrics: ["EOLE-METRICX"]
-metricx_model: "${EOLE_MODEL_DIR}/metricx/google--metricx-24-hybrid-large-v2p6"
 metricx_batch_size: 1
 metricx_device: mps
 metricx_compute_dtype: fp32
 ```
 
-## 3) Use `EOLE-METRICX-QE` in a training config
-
-Set in your train YAML:
-
-```yaml
-valid_metrics: ["EOLE-METRICX-QE"]
-metricx_model: "${EOLE_MODEL_DIR}/metricx/google--metricx-24-hybrid-large-v2p6"
-metricx_batch_size: 8
-metricx_device: cuda
-metricx_compute_dtype: fp32
-```
-
-`EOLE-METRICX-QE` forces reference-free mode and scores from source+hypothesis
-only. The configured converted model must declare QE support in
-`supported_input_modes`.
-
-```yaml
-valid_metrics: ["EOLE-METRICX-QE"]
-early_stopping: 5
-early_stopping_criteria: EOLE-METRICX-QE
-```
-
-MetricX-24 hybrid converted artifacts support both reference and QE modes. Some
-MetricX-23 artifacts may support only the mode they were converted for.
-
-## 4) Direct CLI scoring with `eole predict`
+## 3) Direct CLI scoring with hosted models
 
 For `transformer_encoder_decoder_scorer` models, use:
 
@@ -178,19 +135,11 @@ Direct `eole predict` scoring uses `--compute_dtype`. The training-validation
 setting `metricx_compute_dtype` is only read by validation metrics configured
 with `valid_metrics`.
 
-You can pass a Hugging Face repo ID to `--model_path` when that repo already
-contains a pre-converted EOLE model (`config.json`, `vocab.json`, and
-`model.*.safetensors`). Raw Google MetricX repos still need `eole convert
-MetricX` first.
-
-For private repos, authenticate with `hf auth login` or set
-`HF_TOKEN`. For direct `eole predict`, `--hf_token` can also be used.
-
-Reference-based scoring:
+Reference-based scoring with the default hosted model:
 
 ```bash
 eole predict \
-  --model_path "$EOLE_MODEL_DIR/metricx/google--metricx-24-hybrid-large-v2p6" \
+  --model_path eole-nlp/metricx-24-hybrid-large-v2p6-eole \
   --src /path/to/src.txt \
   --tgt /path/to/mt.txt \
   --ref /path/to/ref.txt \
@@ -200,11 +149,11 @@ eole predict \
   --compute_dtype fp32
 ```
 
-Reference-free / QE scoring:
+Reference-free / QE scoring omits `--ref`:
 
 ```bash
 eole predict \
-  --model_path "$EOLE_MODEL_DIR/metricx/google--metricx-24-hybrid-large-v2p6" \
+  --model_path eole-nlp/metricx-24-hybrid-large-v2p6-eole \
   --src /path/to/src.txt \
   --tgt /path/to/mt.txt \
   --output /path/to/metricx-qe-scores.txt \
@@ -213,52 +162,24 @@ eole predict \
   --compute_dtype fp32
 ```
 
-CUDA bf16 CLI opt-in example:
+Use the hosted XL conversion when you want the larger MetricX-24 model:
 
 ```bash
 eole predict \
-  --model_path "$EOLE_MODEL_DIR/metricx/google--metricx-24-hybrid-large-v2p6-bfloat16" \
+  --model_path eole-nlp/metricx-24-hybrid-xl-v2p6-eole \
   --src /path/to/src.txt \
   --tgt /path/to/mt.txt \
   --ref /path/to/ref.txt \
-  --output /path/to/metricx-bf16-scores.txt \
+  --output /path/to/metricx-xl-scores.txt \
   --with_score \
-  --batch_size 8 \
-  --compute_dtype bf16
+  --batch_size 4 \
+  --compute_dtype fp32
 ```
 
 For literal-sentinel parity on files containing `｟newline｠`, pass
 `--metricx_replace_newline_sentinel false` to `eole predict`. For semantic
 parity with native MetricX, keep the EOLE default and normalize the native input
 to real newlines.
-
-On CPU or MPS, prefer `fp32`:
-
-```bash
-eole predict \
-  --model_path "$EOLE_MODEL_DIR/metricx/google--metricx-24-hybrid-large-v2p6" \
-  --src /path/to/src.txt \
-  --tgt /path/to/mt.txt \
-  --ref /path/to/ref.txt \
-  --output /path/to/metricx-cpu-scores.txt \
-  --with_score \
-  --batch_size 1 \
-  --compute_dtype fp32
-```
-
-MPS example:
-
-```bash
-eole predict \
-  --model_path "$EOLE_MODEL_DIR/metricx/google--metricx-24-hybrid-large-v2p6" \
-  --src /path/to/src.txt \
-  --tgt /path/to/mt.txt \
-  --ref /path/to/ref.txt \
-  --output /path/to/metricx-mps-scores.txt \
-  --with_score \
-  --batch_size 1 \
-  --compute_dtype fp32
-```
 
 By default, `eole predict --with_score` writes one segment score per input line:
 
@@ -271,13 +192,14 @@ To emit a single system-level score, use `--score_level system`:
 
 ```bash
 eole predict \
-  --model_path "$EOLE_MODEL_DIR/metricx/google--metricx-24-hybrid-large-v2p6" \
+  --model_path eole-nlp/metricx-24-hybrid-large-v2p6-eole \
   --src /path/to/src.txt \
   --tgt /path/to/mt.txt \
   --ref /path/to/ref.txt \
   --output /path/to/metricx-system-score.txt \
   --with_score \
-  --score_level system
+  --score_level system \
+  --compute_dtype fp32
 ```
 
 `score_level: system` writes one numeric line containing the arithmetic mean of
@@ -286,6 +208,58 @@ the segment scores:
 ```text
 0.3866647183895111
 ```
+
+## 4) Convert your own MetricX models
+
+Convert raw Google MetricX checkpoints when you need a model that is not already
+published as a pre-converted EOLE repo, or when you need a local/offline artifact.
+
+```bash
+export EOLE_MODEL_DIR=~/Development/Models/eole
+
+eole convert MetricX \
+  --model google/metricx-24-hybrid-large-v2p6 \
+  --dtype fp32 \
+  --output "$EOLE_MODEL_DIR/metricx/metricx-24-hybrid-large-v2p6-eole"
+```
+
+MetricX conversion downloads the MetricX checkpoint and the matching
+`google/mt5-{large,xl,xxl}` tokenizer assets. The converted model directory
+contains the EOLE config, safetensors weights, vocabulary, and bundled
+SentencePiece tokenizer.
+
+MetricX-23 can also be converted:
+
+```bash
+eole convert MetricX \
+  --model google/metricx-23-large-v2p0 \
+  --dtype fp32 \
+  --output "$EOLE_MODEL_DIR/metricx/metricx-23-large-v2p0-eole"
+```
+
+Google also publishes bfloat16 MetricX-24 variants. To preserve bf16 weights in
+the converted EOLE artifact, convert with `--dtype bf16`:
+
+```bash
+eole convert MetricX \
+  --model google/metricx-24-hybrid-large-v2p6-bfloat16 \
+  --dtype bf16 \
+  --output "$EOLE_MODEL_DIR/metricx/metricx-24-hybrid-large-v2p6-bfloat16-eole"
+```
+
+For gated or private models, pass a Hugging Face token or authenticate with
+`hf auth login`:
+
+```bash
+eole convert MetricX \
+  --model google/metricx-24-hybrid-xxl-v2p6 \
+  --token "$HF_TOKEN" \
+  --dtype fp32 \
+  --output "$EOLE_MODEL_DIR/metricx/metricx-24-hybrid-xxl-v2p6-eole"
+```
+
+Use a local conversion by setting `metricx_model` in training config or by
+passing the local directory to `eole predict --model_path`.
 
 ## 5) MetricX-23 vs MetricX-24
 
@@ -339,6 +313,6 @@ normalized_metricx = 1 - clamp(metricx, 0, 25) / 25
 There is not currently a reusable MetricX parity harness in this recipe, unlike
 the COMET parity harness in `recipes/scoring/comet_native/`.
 
-Direct forward parity against Hugging Face MetricX has been checked manually for
-converted `fp16` EOLE artifacts. Expected differences against an upstream `fp32`
-forward pass are small, around `2e-4` mean absolute error on smoke examples.
+The hosted MetricX EOLE artifacts are fp32 reference conversions. Reduced
+precision conversions should be validated separately before use in parity or
+reporting workflows.

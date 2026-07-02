@@ -41,7 +41,7 @@ def _resolve_model_dir(model_name):
 class _EoleMetricXBase(Scorer):
     uses_gpu = True
     higher_is_better = False
-    default_model = "google/metricx-24-hybrid-large-v2p6"
+    default_model = "eole-nlp/metricx-24-hybrid-large-v2p6-eole"
     metric_name = "EOLE-METRICX"
     input_mode = "reference"
 

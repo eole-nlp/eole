@@ -59,6 +59,16 @@ class TestEoleMetricXScorers(unittest.TestCase):
         self.assertIs(scorers["EOLE-METRICX"], EoleMetricXScorer)
         self.assertIs(scorers["EOLE-METRICX-QE"], EoleMetricXQEScorer)
 
+    def test_metricx_scorers_default_to_preconverted_eole_hf_repo(self):
+        expected = "eole-nlp/metricx-24-hybrid-large-v2p6-eole"
+
+        self.assertEqual(EoleMetricXScorer(SimpleNamespace(metricx_model=None)).model_name, expected)
+        self.assertEqual(EoleMetricXQEScorer(SimpleNamespace(metricx_model=None)).model_name, expected)
+
+    def test_metricx_model_config_overrides_default(self):
+        self.assertEqual(EoleMetricXScorer(SimpleNamespace(metricx_model="custom/model")).model_name, "custom/model")
+        self.assertEqual(EoleMetricXQEScorer(SimpleNamespace(metricx_model="custom/model")).model_name, "custom/model")
+
     def test_reference_scorer_aggregates_and_forces_reference_mode(self):
         runtime = FakeRuntime(scores=[0.2, 0.4, 0.8])
         scorer = EoleMetricXScorer(SimpleNamespace(metricx_model="dummy", metricx_batch_size=8))

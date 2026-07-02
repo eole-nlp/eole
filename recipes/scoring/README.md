@@ -1,6 +1,14 @@
 # Scoring Recipes
 
 This directory contains validated examples for EOLE scoring models and metrics.
+Start with the hosted pre-converted EOLE Hugging Face models in each recipe;
+convert raw upstream checkpoints only when you need a custom, local, or offline
+artifact.
+
+Hosted scorer model collections:
+
+- [EOLE-COMET](https://huggingface.co/collections/eole-nlp/eole-comet)
+- [EOLE-MetricX](https://huggingface.co/collections/eole-nlp/eole-metricx)
 
 ## Native COMET
 

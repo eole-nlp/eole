@@ -126,7 +126,7 @@ class _EoleCometBase(Scorer):
 
 @register_scorer(metric="EOLE-COMET")
 class EoleCometScorer(_EoleCometBase):
-    default_model = "Unbabel/wmt22-comet-da"
+    default_model = "eole-nlp/wmt22-comet-da-eole-fp16"
     metric_name = "EOLE-COMET"
     expect_reference = True
     expected_class_identifier = "regression_metric"
@@ -134,7 +134,7 @@ class EoleCometScorer(_EoleCometBase):
 
 @register_scorer(metric="EOLE-COMET-KIWI")
 class EoleCometKiwiScorer(_EoleCometBase):
-    default_model = "Unbabel/wmt22-cometkiwi-da"
+    default_model = "eole-nlp/wmt23-cometkiwi-da-xl-eole-fp16"
     metric_name = "EOLE-COMET-KIWI"
     expect_reference = False
     expected_class_identifier = {"referenceless_regression_metric", "unified_metric"}
@@ -142,7 +142,7 @@ class EoleCometKiwiScorer(_EoleCometBase):
 
 @register_scorer(metric="EOLE-XCOMET")
 class EoleXCometScorer(_EoleCometBase):
-    default_model = "Unbabel/XCOMET-XL"
+    default_model = "eole-nlp/xcomet-xl-eole-fp16"
     metric_name = "EOLE-XCOMET"
     expect_reference = True
     expected_class_identifier = "xcomet_metric"
