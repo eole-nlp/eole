@@ -533,6 +533,7 @@ class BaseModel(nn.Module):
 
         Args:
             src (Tensor): Source input ``(batch, src_len)`` or appropriate format.
+                Ignored for decoder-only (LM) models, which decode ``tgt`` directly.
             tgt (LongTensor): Target sequence ``(batch, tgt_len)``.
             src_len (LongTensor): Source lengths ``(batch,)``.
             **kwargs: Additional arguments passed to forward (e.g. images, prefix_len).
@@ -549,7 +550,15 @@ class BaseModel(nn.Module):
                 "compute_log_probs() requires a generator head, but this model "
                 "has generator=None (e.g. encoder-only models)."
             )
-        dec_out, attns, estim = self.forward(src, tgt, src_len, **kwargs)
+        if isinstance(self, DecoderModel):
+            # DecoderModel.forward(self, src, _, src_len, ...) is a decoder-only
+            # LM: it embeds/decodes its first positional argument and ignores the
+            # second. Route ``tgt`` (the sequence we want log-probs for) into that
+            # first slot instead of ``src``, to avoid silently computing logits
+            # for ``src`` while gathering token log-probs from ``tgt``.
+            dec_out, attns, estim = self.forward(tgt, None, src_len, **kwargs)
+        else:
+            dec_out, attns, estim = self.forward(src, tgt, src_len, **kwargs)
 
         # Apply generator to get logits over vocabulary
         # dec_out: (batch, tgt_len, hidden) -> logits: (batch, tgt_len, vocab_size)
