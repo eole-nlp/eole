@@ -5,7 +5,7 @@ FROM nvidia/cuda:$CUDA_VERSION-devel-ubuntu24.04
 
 ARG TORCH_VERSION==2.10.0
 
-ARG PYTHON_TAG=cp311
+ARG PYTHON_TAG=cp312
 ARG FLASH_ATTN_VERSION=2.8.3
 
 RUN apt-get update && apt-get install -y \
