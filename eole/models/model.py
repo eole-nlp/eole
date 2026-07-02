@@ -3,7 +3,7 @@ import torch.nn as nn
 from glob import glob
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Dict, Optional, Union
 import os
 import itertools
 from safetensors.torch import load_file
@@ -46,13 +46,15 @@ class ModelOutput:
     Attributes:
         dec_out: Decoder output tensor ``(batch, tgt_len, hidden)``
             (or encoder output for encoder-only models).
-        attns: Attention weight dict ``{attn_type: (batch, head, tgt_len, src_len)}``,
-            encoder final hidden states (for encoder-only models), or None.
+        attns: Attention weight dict ``{attn_type: (batch, head, tgt_len, src_len)}``
+            for encoder-decoder/decoder models, or encoder final hidden
+            state(s) (tensor, or tuple thereof for RNNs) for encoder-only
+            models, or None.
         estim: Estimator output (scalar per sample), or None if estimator is disabled.
     """
 
     dec_out: torch.Tensor
-    attns: Optional[Any] = None
+    attns: Optional[Union[Dict[str, Any], torch.Tensor, tuple]] = None
     estim: Optional[torch.Tensor] = None
 
     def __iter__(self):
@@ -168,6 +170,11 @@ class BaseModel(nn.Module):
     Args:
       encoder (eole.encoders.EncoderBase): an encoder object
       decoder (eole.decoders.DecoderBase): a decoder object"""
+
+    #: Whether ``forward()`` is decoder-only, i.e. it decodes its first
+    #: positional argument and ignores the second (cf. ``DecoderModel``).
+    #: Used by :meth:`compute_log_probs` to route ``tgt`` correctly.
+    is_decoder_only = False
 
     def __init__(self, **kwargs):
         super(BaseModel, self).__init__()
@@ -572,12 +579,12 @@ class BaseModel(nn.Module):
                 "compute_log_probs() requires a generator head, but this model "
                 "has generator=None (e.g. encoder-only models)."
             )
-        if isinstance(self, DecoderModel):
-            # DecoderModel.forward(self, src, _, src_len, ...) is a decoder-only
-            # LM: it embeds/decodes its first positional argument and ignores the
-            # second. Route ``tgt`` (the sequence we want log-probs for) into that
-            # first slot instead of ``src``, to avoid silently computing logits
-            # for ``src`` while gathering token log-probs from ``tgt``.
+        if self.is_decoder_only:
+            # Decoder-only LMs embed/decode their first positional argument
+            # and ignore the second (cf. DecoderModel.forward). Route ``tgt``
+            # (the sequence we want log-probs for) into that first slot
+            # instead of ``src``, to avoid silently computing logits for
+            # ``src`` while gathering token log-probs from ``tgt``.
             dec_out, attns, estim = self.forward(tgt, None, src_len, **kwargs)
         else:
             dec_out, attns, estim = self.forward(src, tgt, src_len, **kwargs)
@@ -1188,6 +1195,8 @@ class DecoderModel(BaseModel):
 
     Args:
         decoder (eole.decoders.TransformerLMDecoder): a transformer decoder"""
+
+    is_decoder_only = True
 
     def __init__(self, **kwargs):
         super(DecoderModel, self).__init__(**kwargs)

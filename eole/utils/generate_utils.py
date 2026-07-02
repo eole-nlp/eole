@@ -93,7 +93,7 @@ class GenerationConfig:
         self.align_debug = align_debug
 
 
-def build_generator(model, vocabs, model_config, device_id=0, gen_config=None):
+def build_predictor_from_model(model, vocabs, model_config, device_id=0, gen_config=None):
     """Build a lightweight predictor/generator for in-memory batch generation.
 
     This is a simpler alternative to ``build_predictor`` that doesn't require
@@ -137,7 +137,7 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
     It runs generation on a single batch without file I/O.
 
     Args:
-        predictor: An Inference subclass (from ``build_generator`` or ``build_predictor``).
+        predictor: An Inference subclass (from ``build_predictor_from_model`` or ``build_predictor``).
         batch: A batch dict with at minimum 'src' and 'srclen' keys.
             If 'ind_in_bucket' is present, it will be used for stable ordering;
             otherwise sequential indices are assigned automatically.
@@ -214,10 +214,15 @@ def generate_and_score(predictor, batch, scorers, texts_ref=None, texts_src=None
     where you need both the generated text and its reward signal.
 
     Args:
-        predictor: An Inference subclass (from ``build_generator``).
+        predictor: An Inference subclass (from ``build_predictor_from_model``).
         batch: A batch dict with 'src' and 'srclen' keys.
-        scorers: Dict of {metric_name: scorer_obj} (eole Scorer instances).
-        texts_ref: Reference texts for scoring (list of strings). Required by most scorers.
+        scorers: Dict of {metric_name: scorer_obj}. Each value is either a raw
+            eole Scorer instance, or the ``{"scorer": obj, "value": float}``
+            dict format returned by ``build_scorers`` — both formats are
+            accepted and normalized internally.
+        texts_ref: Reference texts for scoring (list of strings). Required by
+            most scorers (e.g. BLEU); pass None only when using
+            reference-free scorers (e.g. some QE metrics).
         texts_src: Source texts for scoring (list of strings). Optional.
         return_token_ids: If True, also return raw token ID sequences.
 
