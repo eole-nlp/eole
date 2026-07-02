@@ -134,7 +134,7 @@ Depending on your needs, you can add various flags:
 #### Requirements
 
 - Python >= 3.11
-- PyTorch >= 2.8 < 2.12
+- PyTorch >= 2.10 < 2.13
 
 #### Installation from Source
 

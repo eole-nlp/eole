@@ -6,6 +6,7 @@ This is just a centralised version of the Github automatically generated Release
 
 * missing files by @vince62s in https://github.com/eole-nlp/eole/pull/395
 * Add MetricX scoring, scorer-based early stopping, and external scorers by @dameikle in https://github.com/eole-nlp/eole/pull/393
+* Replace torchaudio audio preprocessing with torchcodec and pure torch mel by @dameikle in https://github.com/eole-nlp/eole/pull/397
 
 ## 0.5.3
 
