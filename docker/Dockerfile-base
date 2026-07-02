@@ -19,8 +19,8 @@ RUN apt-get update && apt-get install -y \
     python3-pip
     
 
-RUN pip3 install --upgrade pip
-RUN pip3 install packaging
+RUN pip3 install --break-system-packages --upgrade pip
+RUN pip3 install --break-system-packages packaging
 
 # Install torch
 RUN CU=$(echo "${CUDA_VERSION%.*}" | sed 's/\.//g'); pip3 install torch==$TORCH_VERSION --index-url "https://download.pytorch.org/whl/cu$CU"
