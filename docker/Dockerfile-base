@@ -26,4 +26,5 @@ RUN CU=$(echo "${CUDA_VERSION%.*}" | sed 's/\.//g'); pip3 install torch==$TORCH_
 
 # Install flash-attention
 RUN pip install numpy psutil
+ENV MAX_JOBS=2
 RUN pip install flash-attn --no-build-isolation
