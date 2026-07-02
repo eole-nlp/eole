@@ -2,6 +2,11 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.6.0
+
+* missing files by @vince62s in https://github.com/eole-nlp/eole/pull/395
+* Add MetricX scoring, scorer-based early stopping, and external scorers by @dameikle in https://github.com/eole-nlp/eole/pull/393
+
 ## 0.5.3
 
 * Support MoE Marlin fused cuda kernel by @vince62s in https://github.com/eole-nlp/eole/pull/348

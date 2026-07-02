@@ -83,7 +83,7 @@ setup(
     description="Open language modeling toolkit based on PyTorch",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    version="0.5.3",
+    version="0.6.0",
     packages=find_packages(),
     ext_modules=ext_modules,
     cmdclass=cmdclass,
