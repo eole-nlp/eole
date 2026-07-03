@@ -496,8 +496,12 @@ class Trainer:
                     _, batch_stats, _ = self.valid_loss(batch, model_out, attns, estim=estim)
 
                     stats.update(batch_stats)
-            logger.info("""valid stats calculation
-                           took: {} s.""".format(time.time() - start))
+            logger.info(
+                """valid stats calculation
+                           took: {} s.""".format(
+                    time.time() - start
+                )
+            )
 
             # Compute validation metrics (at batch.dataset level)
             if len(self.valid_scorers) > 0:
@@ -509,8 +513,12 @@ class Trainer:
                         gpu_rank=self.config.gpu_rank,
                         step=self.optim.training_step,
                     )
-                logger.info("""The translation of the valid dataset for dynamic scoring
-                               took : {} s.""".format(time.time() - start))
+                logger.info(
+                    """The translation of the valid dataset for dynamic scoring
+                               took : {} s.""".format(
+                        time.time() - start
+                    )
+                )
                 for i, metric in enumerate(self.valid_scorers):
                     logger.info("UPDATING VALIDATION {}".format(metric))
                     self.valid_scorers[metric]["value"] = self._eval_handler(
