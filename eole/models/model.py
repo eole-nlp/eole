@@ -567,12 +567,18 @@ class BaseModel(nn.Module):
             src (Tensor): Source input ``(batch, src_len)`` or appropriate format.
                 Ignored for decoder-only (LM) models, which decode ``tgt`` directly.
             tgt (LongTensor): Target sequence ``(batch, tgt_len)``.
-            src_len (LongTensor): Source lengths ``(batch,)``.
+            src_len (LongTensor): Lengths ``(batch,)`` of the sequence passed as the
+                first positional argument to ``forward()``. For encoder-decoder models
+                this is the source lengths; for decoder-only (LM) models ``tgt`` is
+                routed into that first slot, so ``src_len`` must be the lengths of
+                ``tgt`` (not the original ``src``) in that case.
             **kwargs: Additional arguments passed to forward (e.g. images, prefix_len).
 
         Returns:
             A dict with:
-                - 'log_probs': ``(batch, tgt_len - tgt_shift, vocab_size)`` log-probabilities
+                - 'log_probs': ``(batch, tgt_len - tgt_shift, vocab_size)`` log-probabilities,
+                  in the model's native (generator output) dtype. Cast to float32 if higher
+                  precision is needed (e.g. KL-divergence against a reference model).
                 - 'token_log_probs': ``(batch, tgt_len - tgt_shift)`` log-probs of actual target tokens
                 - 'dec_out': raw decoder output ``(batch, tgt_len, hidden)``
                 - 'estim': estimator output (or None)
@@ -596,8 +602,12 @@ class BaseModel(nn.Module):
         # dec_out: (batch, tgt_len, hidden) -> logits: (batch, tgt_len, vocab_size)
         logits = self.generator(dec_out)
 
-        # Compute log-softmax
-        log_probs = torch.nn.functional.log_softmax(logits.float(), dim=-1)
+        # Compute log-softmax in the generator's native dtype (matches the inference
+        # path, cf. eole.predict.inference). Callers needing higher precision (e.g.
+        # KL-divergence against a reference model) should cast the result themselves;
+        # forcing float32 here would needlessly double the memory of a (batch, tgt_len,
+        # vocab_size) tensor for every call.
+        log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
 
         # Gather log-probs of actual target tokens
         # tgt_shift: for NMT models shift=1 (ignore BOS), for LM shift=0
@@ -613,8 +623,9 @@ class BaseModel(nn.Module):
         # Clamp indices for gather (padding positions will be masked out)
         tgt_clamped = tgt_shifted.clamp(min=0)
         token_log_probs = log_probs.gather(2, tgt_clamped.unsqueeze(2)).squeeze(2)
-        # Zero out log-probs at padding positions
-        token_log_probs = token_log_probs * padding_mask.float()
+        # Zero out log-probs at padding positions (match token_log_probs dtype to
+        # avoid an unnecessary upcast to float32).
+        token_log_probs = token_log_probs * padding_mask.to(token_log_probs.dtype)
 
         return {
             "log_probs": log_probs,
