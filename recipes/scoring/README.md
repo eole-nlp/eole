@@ -17,7 +17,7 @@ See [`comet_native/`](comet_native/) for native scoring with converted
 
 - `EOLE-COMET` (reference-based)
 - `EOLE-COMET-KIWI` (reference-free)
-- `EOLE-XCOMET` (reference-based xCOMET scalar score; span parity validation supported by the recipe harness)
+- `EOLE-XCOMET` (reference-optional xCOMET scalar score; span parity validation supported by the recipe harness)
 
 Converted COMET models use the generic encoder-only `transformer_encoder_scorer`
 architecture with the COMET-specific `scoring_type: comet` specialization.

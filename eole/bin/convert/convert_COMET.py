@@ -96,7 +96,7 @@ def _build_model_config(args_model, hparams, encoder_config):
     input_segments = hparams.get("input_segments", ["mt", "src", "ref"])
     class_identifier = hparams["class_identifier"]
     requires_reference = class_identifier == "regression_metric" or (
-        class_identifier in {"unified_metric", "xcomet_metric"} and "ref" in input_segments
+        class_identifier == "unified_metric" and "ref" in input_segments
     )
 
     return {

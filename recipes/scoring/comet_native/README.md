@@ -5,7 +5,7 @@ This recipe shows how to use native EOLE scoring with pre-converted
 
 - `EOLE-COMET` (reference-based)
 - `EOLE-COMET-KIWI` (reference-free)
-- `EOLE-XCOMET` (reference-based, xCOMET scalar score with explainable spans validated internally)
+- `EOLE-XCOMET` (reference-optional, xCOMET scalar score with explainable spans validated internally)
 
 Converted COMET models are represented as EOLE `transformer_encoder_scorer`
 models with the COMET-specific `scoring_type: comet` specialization. Raw
@@ -23,7 +23,7 @@ for all published COMET, COMET-KIWI, and XCOMET EOLE conversions.
 | --- | --- | --- |
 | `EOLE-COMET` | `eole-nlp/wmt22-comet-da-eole-fp16` | Yes |
 | `EOLE-COMET-KIWI` | `eole-nlp/wmt23-cometkiwi-da-xl-eole-fp16` | No |
-| `EOLE-XCOMET` | `eole-nlp/xcomet-xl-eole-fp16` | Yes |
+| `EOLE-XCOMET` | `eole-nlp/xcomet-xl-eole-fp16` | Optional |
 
 For public repos, no local conversion is required. For gated/private repos,
 authenticate with `hf auth login` or set `HF_TOKEN`. For direct `eole predict`,
@@ -60,9 +60,11 @@ valid_metrics: ["EOLE-XCOMET"]
 comet_batch_size: 64
 ```
 
-`EOLE-XCOMET` is reference-based and reports the scalar xCOMET score as a
-validation metric. Native prediction can compute xCOMET span metadata internally;
-the validation metric interface currently emits only the scalar score.
+`EOLE-XCOMET` is reference-optional and reports the scalar xCOMET score as a
+validation metric. When references are present, it uses source+hypothesis+reference
+scoring; without references, it falls back to source+hypothesis scoring. Native
+prediction can compute xCOMET span metadata internally; the validation metric
+interface currently emits only the scalar score.
 
 Set `comet_model` only when you want to override the default hosted model, for
 example to pin a different hosted EOLE conversion or use a local conversion:
@@ -88,7 +90,7 @@ For `transformer_encoder_scorer` models, use:
 
 - `--src`: source sentences
 - `--tgt`: MT hypotheses
-- `--ref`: references (required only for reference-based models)
+- `--ref`: references (required only for reference-based models; optional for XCOMET)
 
 Reference-based COMET scoring:
 
@@ -113,7 +115,7 @@ eole predict \
   --with_score
 ```
 
-XCOMET score-only CLI output:
+XCOMET score-only CLI output with references:
 
 ```bash
 eole predict \
@@ -122,6 +124,17 @@ eole predict \
   --tgt /path/to/mt.txt \
   --ref /path/to/ref.txt \
   --output /path/to/xcomet-scores.txt \
+  --with_score
+```
+
+Omit `--ref` to run XCOMET in source+hypothesis mode:
+
+```bash
+eole predict \
+  --model_path eole-nlp/xcomet-xl-eole-fp16 \
+  --src /path/to/src.txt \
+  --tgt /path/to/mt.txt \
+  --output /path/to/xcomet-qe-scores.txt \
   --with_score
 ```
 
