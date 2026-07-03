@@ -8,11 +8,19 @@ from eole.scorers.eole_comet import EoleCometScorer, EoleCometKiwiScorer, EoleXC
 
 
 class FakeRuntime:
-    def __init__(self, requires_reference, scores, class_identifier="regression_metric", scoring_type="comet"):
+    def __init__(
+        self,
+        requires_reference,
+        scores,
+        class_identifier="regression_metric",
+        scoring_type="comet",
+        input_segments=None,
+    ):
         self.requires_reference = requires_reference
         self._scores = scores
         self.class_identifier = class_identifier
         self.scoring_type = scoring_type
+        self.input_segments = input_segments or []
 
     def predict_scores(self, rows):
         import torch
@@ -204,6 +212,24 @@ class TestEoleCometScorers(unittest.TestCase):
             ),
         ):
             score = scorer.compute_score(["a", "b"], ["r1", "r2"], ["s1", "s2"])
+
+        self.assertAlmostEqual(score, 0.4, places=6)
+
+    def test_eole_xcomet_accepts_reference_free_input(self):
+        scorer = EoleXCometScorer(SimpleNamespace(comet_model="dummy", comet_batch_size=8))
+        fake_runtime = FakeRuntime(
+            requires_reference=False,
+            scores=[0.2, 0.6],
+            class_identifier="xcomet_metric",
+            input_segments=["mt", "src", "ref"],
+        )
+        with (
+            patch("eole.scorers.eole_comet._resolve_model_dir", return_value="dummy"),
+            patch("eole.scorers.eole_comet.EncoderScoringModel.from_model_dir", return_value=fake_runtime),
+            patch.object(EoleXCometScorer, "_build_sp_transform", return_value=object()),
+            patch.object(EoleXCometScorer, "_encode_texts", side_effect=[[[0, 1], [0, 1]], [[0, 1], [0, 1]]]),
+        ):
+            score = scorer.compute_score(["a", "b"], None, ["s1", "s2"])
 
         self.assertAlmostEqual(score, 0.4, places=6)
 

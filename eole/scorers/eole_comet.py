@@ -66,10 +66,11 @@ class _EoleCometBase(Scorer):
             raise ValueError(
                 f"{self.metric_name} expects a converted model with " f"class_identifier in {{{expected_text}}}."
             )
-        if self.expect_reference and not model.requires_reference:
-            raise ValueError(f"{self.metric_name} expects a reference-based converted model.")
-        if not self.expect_reference and model.requires_reference:
-            raise ValueError(f"{self.metric_name} expects a reference-free converted model.")
+        if self.expect_reference is not None:
+            if self.expect_reference and not model.requires_reference:
+                raise ValueError(f"{self.metric_name} expects a reference-based converted model.")
+            if not self.expect_reference and model.requires_reference:
+                raise ValueError(f"{self.metric_name} expects a reference-free converted model.")
 
     def _build_sp_transform(self, model, model_dir):
         return build_comet_sentencepiece_transform(model, model_dir)
@@ -144,5 +145,5 @@ class EoleCometKiwiScorer(_EoleCometBase):
 class EoleXCometScorer(_EoleCometBase):
     default_model = "eole-nlp/xcomet-xl-eole-fp16"
     metric_name = "EOLE-XCOMET"
-    expect_reference = True
+    expect_reference = None
     expected_class_identifier = "xcomet_metric"

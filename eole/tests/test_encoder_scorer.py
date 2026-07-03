@@ -287,14 +287,14 @@ class TestEncoderScorer(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "texts_refs"):
             build_segment_rows(["mt", "mt2"], ["src", "src2"], ["ref"], FakeTokenizer(), model, _encode_texts_for_test)
 
-    def test_xcomet_config_sets_reference_requirement_from_segments(self):
+    def test_xcomet_config_does_not_require_reference_from_segments(self):
         config = TransformerEncoderScorerModelConfig(
             class_identifier="xcomet_metric",
-            requires_reference=False,
+            requires_reference=True,
             input_segments=["mt", "src", "ref"],
         )
 
-        self.assertTrue(config.requires_reference)
+        self.assertFalse(config.requires_reference)
         self.assertEqual(config.error_labels, ["minor", "major", "critical"])
 
     def test_xcomet_config_rejects_custom_error_labels(self):

@@ -1157,7 +1157,7 @@ class TransformerEncoderScorerModelConfig(BaseModelConfig):
     def sync_family_fields(self):
         if self.scoring_type == "comet":
             expected_requires_reference = self.class_identifier == "regression_metric" or (
-                self.class_identifier in {"unified_metric", "xcomet_metric"} and "ref" in self.input_segments
+                self.class_identifier == "unified_metric" and "ref" in self.input_segments
             )
             if self.requires_reference != expected_requires_reference:
                 object.__setattr__(self, "requires_reference", expected_requires_reference)
