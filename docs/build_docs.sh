@@ -8,7 +8,9 @@
 # 1 - build sphinx
 git config --global --add safe.directory /work # patch for github ext to work
 # build biblio
-pandoc -t markdown_strict --citeproc source/ref.md -o source/bibliography.md --bibliography source/refs.bib
+pandoc -t markdown_strict --citeproc source/bibliography.md -o /tmp/bib_rendered.md --bibliography source/refs.bib
+cp /tmp/bib_rendered.md source/bibliography.md  # overwrite with rendered version
+
 sphinx-build -M markdown ./source ./sphinx_markdown
 
 cd sphinx_markdown/markdown
@@ -18,7 +20,7 @@ find . -name "*.md" -print0 | xargs -0 sed -i 's/<\/p>/<\/p>\n/g'
 # escape some conflicting html tags for proper render
 find . -name "*.md" -print0 | xargs -0 sed -i 's/<s>/\&lt;s\&gt;/g'
 find . -name "*.md" -print0 | xargs -0 sed -i 's/<\/s>/\&lt;\/s\&gt;/g'
-[ -f ref.md ] && rm ref.md # only used to build bibliography.md with pandoc
+# [ -f ref.md ] && rm ref.md # only used to build bibliography.md with pandoc
 
 cd ../..
 
