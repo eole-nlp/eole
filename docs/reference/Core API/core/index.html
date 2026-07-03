@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.9.2">
 <title data-rh="true">Framework | Eole</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/reference/Core API/core"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Framework | Eole"><meta data-rh="true" name="description" content="Model"><meta data-rh="true" property="og:description" content="Model"><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/reference/Core API/core"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/reference/Core API/core" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/reference/Core API/core" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Framework","item":"https://eole-nlp.github.io/eole/docs/reference/Core API/core"}]}</script><link rel="stylesheet" href="/eole/assets/css/styles.9beb1b72.css">
-<script src="/eole/assets/js/runtime~main.7a811ece.js" defer="defer"></script>
-<script src="/eole/assets/js/main.e650137f.js" defer="defer"></script>
+<script src="/eole/assets/js/runtime~main.66b27db4.js" defer="defer"></script>
+<script src="/eole/assets/js/main.fc985329.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -13,11 +13,145 @@
 </defs></svg>
 <script>!function(){var t=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();document.documentElement.setAttribute("data-theme",t||"dark"),document.documentElement.setAttribute("data-theme-choice",t||"dark")}(),function(){try{const c=new URLSearchParams(window.location.search).entries();for(var[t,e]of c)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script><div id="__docusaurus"><div role="region" aria-label="Skip to main content"><a class="skipToContent_fXgn" href="#__docusaurus_skipToContent_fallback">Skip to main content</a></div><nav aria-label="Main" class="theme-layout-navbar navbar navbar--fixed-top"><div class="navbar__inner"><div class="theme-layout-navbar-left navbar__items"><button aria-label="Toggle navigation bar" aria-expanded="false" class="navbar__toggle clean-btn" type="button"><svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path stroke="currentColor" stroke-linecap="round" stroke-miterlimit="10" stroke-width="2" d="M4 7h22M4 15h22M4 23h22"></path></svg></button><a class="navbar__brand" href="/eole/"><div class="navbar__logo"><img src="/eole/img/eole-logo.png" alt="Eole Logo" class="themedComponent_mlkZ themedComponent--light_NVdE"><img src="/eole/img/eole-logo.png" alt="Eole Logo" class="themedComponent_mlkZ themedComponent--dark_xIcU"></div><b class="navbar__title text--truncate"></b></a><a class="navbar__item navbar__link" href="/eole/docs/">Docs</a><a aria-current="page" class="navbar__item navbar__link navbar__link--active" href="/eole/docs/reference/index">Reference</a></div><div class="theme-layout-navbar-right navbar__items navbar__items--right"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="navbar__item navbar__link">GitHub<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a><div class="toggle_vylO colorModeToggle_DEke"><button class="clean-btn toggleButton_gllP toggleButtonDisabled_aARS" type="button" disabled="" title="system mode" aria-label="Switch between dark and light mode (currently system mode)"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="toggleIcon_g3eP lightToggleIcon_pyhR"><path fill="currentColor" d="M12,9c1.65,0,3,1.35,3,3s-1.35,3-3,3s-3-1.35-3-3S10.35,9,12,9 M12,7c-2.76,0-5,2.24-5,5s2.24,5,5,5s5-2.24,5-5 S14.76,7,12,7L12,7z M2,13l2,0c0.55,0,1-0.45,1-1s-0.45-1-1-1l-2,0c-0.55,0-1,0.45-1,1S1.45,13,2,13z M20,13l2,0c0.55,0,1-0.45,1-1 s-0.45-1-1-1l-2,0c-0.55,0-1,0.45-1,1S19.45,13,20,13z M11,2v2c0,0.55,0.45,1,1,1s1-0.45,1-1V2c0-0.55-0.45-1-1-1S11,1.45,11,2z M11,20v2c0,0.55,0.45,1,1,1s1-0.45,1-1v-2c0-0.55-0.45-1-1-1C11.45,19,11,19.45,11,20z M5.99,4.58c-0.39-0.39-1.03-0.39-1.41,0 c-0.39,0.39-0.39,1.03,0,1.41l1.06,1.06c0.39,0.39,1.03,0.39,1.41,0s0.39-1.03,0-1.41L5.99,4.58z M18.36,16.95 c-0.39-0.39-1.03-0.39-1.41,0c-0.39,0.39-0.39,1.03,0,1.41l1.06,1.06c0.39,0.39,1.03,0.39,1.41,0c0.39-0.39,0.39-1.03,0-1.41 L18.36,16.95z M19.42,5.99c0.39-0.39,0.39-1.03,0-1.41c-0.39-0.39-1.03-0.39-1.41,0l-1.06,1.06c-0.39,0.39-0.39,1.03,0,1.41 s1.03,0.39,1.41,0L19.42,5.99z M7.05,18.36c0.39-0.39,0.39-1.03,0-1.41c-0.39-0.39-1.03-0.39-1.41,0l-1.06,1.06 c-0.39,0.39-0.39,1.03,0,1.41s1.03,0.39,1.41,0L7.05,18.36z"></path></svg><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="toggleIcon_g3eP darkToggleIcon_wfgR"><path fill="currentColor" d="M9.37,5.51C9.19,6.15,9.1,6.82,9.1,7.5c0,4.08,3.32,7.4,7.4,7.4c0.68,0,1.35-0.09,1.99-0.27C17.45,17.19,14.93,19,12,19 c-3.86,0-7-3.14-7-7C5,9.07,6.81,6.55,9.37,5.51z M12,3c-4.97,0-9,4.03-9,9s4.03,9,9,9s9-4.03,9-9c0-0.46-0.04-0.92-0.1-1.36 c-0.98,1.37-2.58,2.26-4.4,2.26c-2.98,0-5.4-2.42-5.4-5.4c0-1.81,0.89-3.42,2.26-4.4C12.92,3.04,12.46,3,12,3L12,3z"></path></svg><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="toggleIcon_g3eP systemToggleIcon_QzmC"><path fill="currentColor" d="m12 21c4.971 0 9-4.029 9-9s-4.029-9-9-9-9 4.029-9 9 4.029 9 9 9zm4.95-13.95c1.313 1.313 2.05 3.093 2.05 4.95s-0.738 3.637-2.05 4.95c-1.313 1.313-3.093 2.05-4.95 2.05v-14c1.857 0 3.637 0.737 4.95 2.05z"></path></svg></button></div><div class="navbarSearchContainer_Bca1"><div class="navbar__search"><span aria-label="expand searchbar" role="button" class="search-icon" tabindex="0"></span><input id="search_input_react" type="search" placeholder="Loading..." aria-label="Search" class="navbar__search-input search-bar" disabled=""></div></div></div></div><div role="presentation" class="navbar-sidebar__backdrop"></div></nav><div id="__docusaurus_skipToContent_fallback" class="theme-layout-main main-wrapper mainWrapper_z2l0"><div class="docsWrapper_hBAB"><button aria-label="Scroll back to top" class="clean-btn theme-back-to-top-button backToTopButton_sjWU" type="button"></button><div class="docRoot_UBD9"><aside class="theme-doc-sidebar-container docSidebarContainer_YfHR"><div class="sidebarViewport_aRkj"><div class="sidebar_njMd"><nav aria-label="Docs sidebar" class="menu thin-scrollbar menu_SIkG"><ul class="theme-doc-sidebar-menu menu__list"><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/reference/index"><span title="Eole Core API" class="linkLabel_WmDU">Eole Core API</span></a></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" href="/eole/docs/reference/Config/"><span title="Configuration" class="categoryLinkLabel_W154">Configuration</span></a><button aria-label="Expand sidebar category &#x27;Configuration&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist menu__link--sublist-caret menu__link--active" role="button" aria-expanded="true" href="/eole/docs/reference/Core API/core"><span title="Core API" class="categoryLinkLabel_W154">Core API</span></a></div><ul class="menu__list"><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link menu__link--active" aria-current="page" tabindex="0" href="/eole/docs/reference/Core API/core"><span title="Framework" class="linkLabel_WmDU">Framework</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/reference/Core API/modules"><span title="Modules" class="linkLabel_WmDU">Modules</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/reference/Core API/dataloaders"><span title="Data Loaders" class="linkLabel_WmDU">Data Loaders</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/reference/Core API/inference"><span title="Prediction" class="linkLabel_WmDU">Prediction</span></a></li></ul></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/reference/bibliography"><span title="Bibliography" class="linkLabel_WmDU">Bibliography</span></a></li></ul></nav></div></div></aside><main class="docMainContainer_TBSr"><div class="container padding-top--md padding-bottom--lg"><div class="row"><div class="col docItemCol_VOVn"><div class="docItemContainer_Djhp"><article><nav class="theme-doc-breadcrumbs breadcrumbsContainer_Z_bl" aria-label="Breadcrumbs"><ul class="breadcrumbs"><li class="breadcrumbs__item"><a aria-label="Home page" class="breadcrumbs__link" href="/eole/"><svg viewBox="0 0 24 24" class="breadcrumbHomeIcon_YNFT"><path d="M10 19v-5h4v5c0 .55.45 1 1 1h3c.55 0 1-.45 1-1v-7h1.7c.46 0 .68-.57.33-.87L12.67 3.6c-.38-.34-.96-.34-1.34 0l-8.36 7.53c-.34.3-.13.87.33.87H5v7c0 .55.45 1 1 1h3c.55 0 1-.45 1-1z" fill="currentColor"></path></svg></a></li><li class="breadcrumbs__item"><span class="breadcrumbs__link">Core API</span></li><li class="breadcrumbs__item breadcrumbs__item--active"><span class="breadcrumbs__link">Framework</span></li></ul></nav><div class="tocCollapsible_ETCw theme-doc-toc-mobile tocMobile_ITEo"><button type="button" class="clean-btn tocCollapsibleButton_TO0P">On this page</button></div><div class="theme-doc-markdown markdown"><header><h1>Framework</h1></header>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="model">Model<a href="#model" class="hash-link" aria-label="Direct link to Model" title="Direct link to Model" translate="no">​</a></h2>
+<h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eolemodelsmodelbasemodelkwargs"><em>class</em> eole.models.model.BaseModel(**kwargs)<a href="#class-eolemodelsmodelbasemodelkwargs" class="hash-link" aria-label="Direct link to class-eolemodelsmodelbasemodelkwargs" title="Direct link to class-eolemodelsmodelbasemodelkwargs" translate="no">​</a></h3>
+<p>Bases: <code>Module</code></p>
+<p>Core trainable object. Implements a trainable interface
+for a simple, generic encoder / decoder or decoder only model.</p>
+<ul>
+<li class=""><strong>Parameters:</strong>
+<ul>
+<li class=""><strong>encoder</strong> (<em>eole.encoders.EncoderBase</em>) – an encoder object</li>
+<li class=""><strong>decoder</strong> (<em>eole.decoders.DecoderBase</em>) – a decoder object</li>
+</ul>
+</li>
+</ul>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="classmethod-buildmodel_config-vocabs-running_config"><em>classmethod</em> build(model_config, vocabs, running_config)<a href="#classmethod-buildmodel_config-vocabs-running_config" class="hash-link" aria-label="Direct link to classmethod-buildmodel_config-vocabs-running_config" title="Direct link to classmethod-buildmodel_config-vocabs-running_config" translate="no">​</a></h4>
+<p>Build a complete model with all components.</p>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="classmethod-build_blocksmodel_config-vocabs-running_confignone"><em>classmethod</em> build_blocks(model_config, vocabs, running_config=None)<a href="#classmethod-build_blocksmodel_config-vocabs-running_confignone" class="hash-link" aria-label="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone" title="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone" translate="no">​</a></h4>
+<p>Where the blocks (encoder/decoder/etc) are actually instantiated,
+depending on the actual subclass.</p>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="count_parameterslog">count_parameters(log=<built-in function="" print="">)</built-in><a href="#count_parameterslog" class="hash-link" aria-label="Direct link to count_parameterslog" title="Direct link to count_parameterslog" translate="no">​</a></h4>
+<p>Count number of parameters in model (&amp; print with log callback).</p>
+<p>Returns: (int, int)
+: encoder side parameter count
+decoder side parameter count</p>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="classmethod-for_inferencerunning_config-device_id0-model_pathnone"><em>classmethod</em> for_inference(running_config, device_id=0, model_path=None)<a href="#classmethod-for_inferencerunning_config-device_id0-model_pathnone" class="hash-link" aria-label="Direct link to classmethod-for_inferencerunning_config-device_id0-model_pathnone" title="Direct link to classmethod-for_inferencerunning_config-device_id0-model_pathnone" translate="no">​</a></h4>
+<p>Create and configure a model for inference.</p>
+<ul>
+<li class=""><strong>Parameters:</strong>
+<ul>
+<li class=""><strong>running_config</strong> – Inference configuration (PredictConfig)</li>
+<li class=""><strong>device_id</strong> – Device ID for inference</li>
+<li class=""><strong>model_path</strong> – Optional path to model checkpoint</li>
+</ul>
+</li>
+<li class=""><strong>Returns:</strong>
+(model, vocabs, model_config)</li>
+<li class=""><strong>Return type:</strong>
+tuple</li>
+</ul>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="classmethod-for_trainingmodel_config-vocabs-running_config-metadatanone-device_id0"><em>classmethod</em> for_training(model_config, vocabs, running_config, metadata=None, device_id=0)<a href="#classmethod-for_trainingmodel_config-vocabs-running_config-metadatanone-device_id0" class="hash-link" aria-label="Direct link to classmethod-for_trainingmodel_config-vocabs-running_config-metadatanone-device_id0" title="Direct link to classmethod-for_trainingmodel_config-vocabs-running_config-metadatanone-device_id0" translate="no">​</a></h4>
+<p>Create and configure a model for training.</p>
+<ul>
+<li class=""><strong>Parameters:</strong>
+<ul>
+<li class=""><strong>model_config</strong> – Model architecture configuration</li>
+<li class=""><strong>vocabs</strong> – Source and target vocabularies</li>
+<li class=""><strong>running_config</strong> – Training configuration</li>
+<li class=""><strong>metadata</strong> – Optional checkpoint metadata</li>
+<li class=""><strong>device_id</strong> – Device ID for multi-GPU setup</li>
+</ul>
+</li>
+<li class=""><strong>Returns:</strong>
+Configured model ready for training</li>
+</ul>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="forwardsrc-tgt-src_len-with_alignfalse-kwargs">forward(src, tgt, src_len, with_align=False, **kwargs)<a href="#forwardsrc-tgt-src_len-with_alignfalse-kwargs" class="hash-link" aria-label="Direct link to forward(src, tgt, src_len, with_align=False, **kwargs)" title="Direct link to forward(src, tgt, src_len, with_align=False, **kwargs)" translate="no">​</a></h4>
+<p>Forward propagate a src and tgt pair for training.</p>
+<ul>
+<li class=""><strong>Parameters:</strong>
+<ul>
+<li class=""><strong>src</strong> (<em>Tensor</em>) – A source sequence passed to encoder.
+Typically for input this will be a padded LongTensor
+of size <code>(batch, len)</code>. However, may be an
+image or other generic input depending on encoder.</li>
+<li class=""><strong>tgt</strong> (<em>LongTensor</em>) – A target sequence passed to decoder.
+Size <code>(batch, tgt_len)</code>.</li>
+<li class=""><strong>src_len</strong> (<em>LongTensor</em>) – The src lengths, pre-padding <code>(batch,)</code>.</li>
+<li class=""><strong>with_align</strong> (<em>Boolean</em>) – A flag indicating whether output alignment,
+Only valid for transformer decoder.</li>
+</ul>
+</li>
+<li class=""><strong>Returns:</strong>
+<ul>
+<li class="">decoder output <code>(batch, tgt_len, hidden)</code></li>
+<li class="">dictionary of attention weights <code>(batch, tgt_len, src_len)</code></li>
+</ul>
+</li>
+<li class=""><strong>Return type:</strong>
+(FloatTensor, dict[str, FloatTensor])</li>
+</ul>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="load_safe_state_dictmodel_path-running_confignone-vocabsnone-metadatanone-devicedevicetypecpu-tp_offset0-strictfalse">load_safe_state_dict(model_path, running_config=None, vocabs=None, metadata=None, device=device(type=&#x27;cpu&#x27;), tp_offset=0, strict=False)<a href="#load_safe_state_dictmodel_path-running_confignone-vocabsnone-metadatanone-devicedevicetypecpu-tp_offset0-strictfalse" class="hash-link" aria-label="Direct link to load_safe_state_dict(model_path, running_config=None, vocabs=None, metadata=None, device=device(type=&#x27;cpu&#x27;), tp_offset=0, strict=False)" title="Direct link to load_safe_state_dict(model_path, running_config=None, vocabs=None, metadata=None, device=device(type=&#x27;cpu&#x27;), tp_offset=0, strict=False)" translate="no">​</a></h4>
+<p>Custom state_dict loading to enable moving module on device as they are loaded</p>
+<ul>
+<li class=""><strong>Parameters:</strong>
+<ul>
+<li class=""><strong>model_path</strong> – Model path</li>
+<li class=""><strong>running_config</strong> – RunningConfig (either training or predict)</li>
+<li class=""><strong>vocabs</strong> – src/tgt vocabs</li>
+<li class=""><strong>metadata</strong> – config/vocabs</li>
+<li class=""><strong>device</strong> – device to move parameters to</li>
+<li class=""><strong>tp_offset</strong> – for tensor_parallel</li>
+<li class=""><strong>strict</strong> – strict loading of all parameters</li>
+</ul>
+</li>
+</ul>
+<h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eolemodelsmodelencoderdecodermodelkwargs"><em>class</em> eole.models.model.EncoderDecoderModel(**kwargs)<a href="#class-eolemodelsmodelencoderdecodermodelkwargs" class="hash-link" aria-label="Direct link to class-eolemodelsmodelencoderdecodermodelkwargs" title="Direct link to class-eolemodelsmodelencoderdecodermodelkwargs" translate="no">​</a></h3>
+<p>Bases: <a href="#eole.models.model.BaseModel" class=""><code>BaseModel</code></a></p>
+<p>EncoderDecoderModel Class
+See <code>BaseModel</code> for options.</p>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="classmethod-build_blocksmodel_config-vocabs-running_confignone-1"><em>classmethod</em> build_blocks(model_config, vocabs, running_config=None)<a href="#classmethod-build_blocksmodel_config-vocabs-running_confignone-1" class="hash-link" aria-label="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone-1" title="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone-1" translate="no">​</a></h4>
+<p>Where the blocks (encoder/decoder/etc) are actually instantiated,
+depending on the actual subclass.</p>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="forwardsrc-tgt-src_len-with_alignfalse-kwargs-1">forward(src, tgt, src_len, with_align=False, **kwargs)<a href="#forwardsrc-tgt-src_len-with_alignfalse-kwargs-1" class="hash-link" aria-label="Direct link to forward(src, tgt, src_len, with_align=False, **kwargs)" title="Direct link to forward(src, tgt, src_len, with_align=False, **kwargs)" translate="no">​</a></h4>
+<p>An EncoderDecoderModel forward the src side to the encoder.
+Then the output of encoder <code>enc_out</code> is forwarded to the
+decoder along with the target excluding the last token.
+The decoder state is initiliazed with:
+* enc_final_hs in the case of RNNs
+* enc_out + enc_final_hs in the case of CNNs
+* src in the case of Transformer</p>
+<h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eolemodelsmodeldecodermodelkwargs"><em>class</em> eole.models.model.DecoderModel(**kwargs)<a href="#class-eolemodelsmodeldecodermodelkwargs" class="hash-link" aria-label="Direct link to class-eolemodelsmodeldecodermodelkwargs" title="Direct link to class-eolemodelsmodeldecodermodelkwargs" translate="no">​</a></h3>
+<p>Bases: <a href="#eole.models.model.BaseModel" class=""><code>BaseModel</code></a></p>
+<p>DecoderModel Class
+Currently TransformerLMDecoder is the only LM decoder implemented</p>
+<ul>
+<li class=""><strong>Parameters:</strong>
+<strong>decoder</strong> (<em>eole.decoders.TransformerLMDecoder</em>) – a transformer decoder</li>
+</ul>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="classmethod-build_blocksmodel_config-vocabs-running_confignone-2"><em>classmethod</em> build_blocks(model_config, vocabs, running_config=None)<a href="#classmethod-build_blocksmodel_config-vocabs-running_confignone-2" class="hash-link" aria-label="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone-2" title="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone-2" translate="no">​</a></h4>
+<p>Where the blocks (encoder/decoder/etc) are actually instantiated,
+depending on the actual subclass.</p>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="forwardsrc-_-src_len-with_alignfalse-kwargs">forward(src, _, src_len, with_align=False, **kwargs)<a href="#forwardsrc-_-src_len-with_alignfalse-kwargs" class="hash-link" aria-label="Direct link to forward(src, _, src_len, with_align=False, **kwargs)" title="Direct link to forward(src, _, src_len, with_align=False, **kwargs)" translate="no">​</a></h4>
+<p>A DecoderModel forward the src side to the decoder along
+with the source lengths vector. It is a decoder only LM (cf GPT-2)</p>
+<h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eolemodelsmodelencodermodelkwargs"><em>class</em> eole.models.model.EncoderModel(**kwargs)<a href="#class-eolemodelsmodelencodermodelkwargs" class="hash-link" aria-label="Direct link to class-eolemodelsmodelencodermodelkwargs" title="Direct link to class-eolemodelsmodelencodermodelkwargs" translate="no">​</a></h3>
+<p>Bases: <a href="#eole.models.model.BaseModel" class=""><code>BaseModel</code></a></p>
+<p>EncoderModel Class
+Currently TransformerEncoder is the only Encoder implemented</p>
+<ul>
+<li class=""><strong>Parameters:</strong>
+<strong>encoder</strong> (<a class="" href="/eole/docs/reference/Core API/modules#eole.encoders.TransformerEncoder"><em>eole.encoders.TransformerEncoder</em></a>) – a transformer encoder</li>
+</ul>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="classmethod-build_blocksmodel_config-vocabs-running_confignone-3"><em>classmethod</em> build_blocks(model_config, vocabs, running_config=None)<a href="#classmethod-build_blocksmodel_config-vocabs-running_confignone-3" class="hash-link" aria-label="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone-3" title="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone-3" translate="no">​</a></h4>
+<p>Where the blocks (encoder/decoder/etc) are actually instantiated,
+depending on the actual subclass.</p>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="forwardsrc-_-src_len-with_alignfalse-kwargs-1">forward(src, _, src_len, with_align=False, **kwargs)<a href="#forwardsrc-_-src_len-with_alignfalse-kwargs-1" class="hash-link" aria-label="Direct link to forward(src, _, src_len, with_align=False, **kwargs)" title="Direct link to forward(src, _, src_len, with_align=False, **kwargs)" translate="no">​</a></h4>
+<p>An EncoderModel encodes the source sentence to build hidden states</p>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eolemodelsmodelvisionencoderdecodermodelkwargs"><em>class</em> eole.models.model.VisionEncoderDecoderModel(**kwargs)<a href="#class-eolemodelsmodelvisionencoderdecodermodelkwargs" class="hash-link" aria-label="Direct link to class-eolemodelsmodelvisionencoderdecodermodelkwargs" title="Direct link to class-eolemodelsmodelvisionencoderdecodermodelkwargs" translate="no">​</a></h3>
-<p>Bases: <code>BaseModel</code></p>
+<p>Bases: <a href="#eole.models.model.BaseModel" class=""><code>BaseModel</code></a></p>
 <p>VisionEncoderDecoderModel Class
 See <code>BaseModel</code> for options.</p>
-<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="classmethod-build_blocksmodel_config-vocabs-running_confignone"><em>classmethod</em> build_blocks(model_config, vocabs, running_config=None)<a href="#classmethod-build_blocksmodel_config-vocabs-running_confignone" class="hash-link" aria-label="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone" title="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone" translate="no">​</a></h4>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="classmethod-build_blocksmodel_config-vocabs-running_confignone-4"><em>classmethod</em> build_blocks(model_config, vocabs, running_config=None)<a href="#classmethod-build_blocksmodel_config-vocabs-running_confignone-4" class="hash-link" aria-label="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone-4" title="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone-4" translate="no">​</a></h4>
 <p>Where the blocks (encoder/decoder/etc) are actually instantiated,
 depending on the actual subclass.</p>
 <h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="build_hunyuan_position_idssrc-image_locations-image_sizes">build_hunyuan_position_ids(src, image_locations, image_sizes)<a href="#build_hunyuan_position_idssrc-image_locations-image_sizes" class="hash-link" aria-label="Direct link to build_hunyuan_position_ids(src, image_locations, image_sizes)" title="Direct link to build_hunyuan_position_ids(src, image_locations, image_sizes)" translate="no">​</a></h4>
@@ -34,42 +168,43 @@ image_sizes: [num_images, 2] with (height_px, width_px)</p>
 <p>Build mRoPE position IDs (3 sections: temporal, height, width) for Qwen3 VL / Qwen3.5 VL.</p>
 <p>Follows the HuggingFace <code>get_rope_index</code> logic for <code>mrope_section = [t, h, w]</code>:</p>
 <ul>
-<li class="">Text tokens at sequential position <code>p</code>: <code>(p, p, p)</code></li>
-<li class="">Image tokens in a H×W merged-patch grid starting at position <code>p</code>:</li>
-</ul>
-<blockquote>
+<li class="">
+<p>Text tokens at sequential position <code>p</code>: <code>(p, p, p)</code>.</p>
+</li>
+<li class="">
+<p>Image tokens in a H×W merged-patch grid starting at position <code>p</code>:
+* temporal: <code>p</code> (constant for still images)
+* height: <code>row + p</code> (row in <code>0..H-1</code>, each row repeated <code>W</code> times)
+* width: <code>col + p</code> (col in <code>0..W-1</code>, repeated <code>H</code> times)</p>
+</li>
+<li class="">
+<p>After an image block, the position counter advances by <code>max(H, W)</code> (not H*W).</p>
+</li>
+<li class="">
+<p><strong>Parameters:</strong></p>
 <ul>
-<li class="">temporal: <code>p</code> (constant — still images have a single frame)</li>
-<li class="">height:   <code>row + p</code>  (row ∈ 0..H-1, each row repeated W times)</li>
-<li class="">width:    <code>col + p</code>  (col ∈ 0..W-1, repeated H times)</li>
-</ul>
-</blockquote>
-<ul>
-<li class="">After an image block, the position counter advances by <code>max(H, W)</code> (not H*W).</li>
-</ul>
-<ul>
-<li class=""><strong>Parameters:</strong>
-<ul>
-<li class=""><strong>src</strong> – (B, L) token id tensor</li>
-<li class=""><strong>image_locations</strong> – bool mask of same shape as src (True for image_pad tokens)</li>
-<li class=""><strong>image_sizes</strong> – (N_images, 2) tensor with (height_px, width_px) per image</li>
+<li class=""><strong>src</strong> – Token IDs of shape <code>(B, L)</code>.</li>
+<li class=""><strong>image_locations</strong> – Boolean mask of shape <code>(B, L)</code> (True for image-pad tokens).</li>
+<li class=""><strong>image_sizes</strong> – Tensor of shape <code>(N_images, 2)</code> with <code>(height_px, width_px)</code>.</li>
 </ul>
 </li>
-<li class=""><strong>Returns:</strong>
-position_ids of shape (B, L, 3)</li>
+<li class="">
+<p><strong>Returns:</strong>
+Position IDs tensor of shape <code>(B, L, 3)</code>.</p>
+</li>
 </ul>
-<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="forwardsrc-tgt-src_len-with_alignfalse-kwargs">forward(src, tgt, src_len, with_align=False, **kwargs)<a href="#forwardsrc-tgt-src_len-with_alignfalse-kwargs" class="hash-link" aria-label="Direct link to forward(src, tgt, src_len, with_align=False, **kwargs)" title="Direct link to forward(src, tgt, src_len, with_align=False, **kwargs)" translate="no">​</a></h4>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="forwardsrc-tgt-src_len-with_alignfalse-kwargs-2">forward(src, tgt, src_len, with_align=False, **kwargs)<a href="#forwardsrc-tgt-src_len-with_alignfalse-kwargs-2" class="hash-link" aria-label="Direct link to forward(src, tgt, src_len, with_align=False, **kwargs)" title="Direct link to forward(src, tgt, src_len, with_align=False, **kwargs)" translate="no">​</a></h4>
 <p>A DecoderModel forward the src side to the decoder along
 with the source lengths vector. It is a decoder only LM (cf GPT-2)</p>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eolemodelsmodelaudioencoderdecodermodelkwargs"><em>class</em> eole.models.model.AudioEncoderDecoderModel(**kwargs)<a href="#class-eolemodelsmodelaudioencoderdecodermodelkwargs" class="hash-link" aria-label="Direct link to class-eolemodelsmodelaudioencoderdecodermodelkwargs" title="Direct link to class-eolemodelsmodelaudioencoderdecodermodelkwargs" translate="no">​</a></h3>
-<p>Bases: <code>BaseModel</code></p>
+<p>Bases: <a href="#eole.models.model.BaseModel" class=""><code>BaseModel</code></a></p>
 <p>AudioEncoderDecoderModel for Whisper-style speech-to-text models.</p>
 <p>Audio encoder (no src_emb) + text decoder with cross-attention.
 See <code>BaseModel</code> for options.</p>
-<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="classmethod-build_blocksmodel_config-vocabs-running_confignone-1"><em>classmethod</em> build_blocks(model_config, vocabs, running_config=None)<a href="#classmethod-build_blocksmodel_config-vocabs-running_confignone-1" class="hash-link" aria-label="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone-1" title="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone-1" translate="no">​</a></h4>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="classmethod-build_blocksmodel_config-vocabs-running_confignone-5"><em>classmethod</em> build_blocks(model_config, vocabs, running_config=None)<a href="#classmethod-build_blocksmodel_config-vocabs-running_confignone-5" class="hash-link" aria-label="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone-5" title="Direct link to classmethod-build_blocksmodel_config-vocabs-running_confignone-5" translate="no">​</a></h4>
 <p>Where the blocks (encoder/decoder/etc) are actually instantiated,
 depending on the actual subclass.</p>
-<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="forwardsrc-tgt-src_len-with_alignfalse-kwargs-1">forward(src, tgt, src_len, with_align=False, **kwargs)<a href="#forwardsrc-tgt-src_len-with_alignfalse-kwargs-1" class="hash-link" aria-label="Direct link to forward(src, tgt, src_len, with_align=False, **kwargs)" title="Direct link to forward(src, tgt, src_len, with_align=False, **kwargs)" translate="no">​</a></h4>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="forwardsrc-tgt-src_len-with_alignfalse-kwargs-3">forward(src, tgt, src_len, with_align=False, **kwargs)<a href="#forwardsrc-tgt-src_len-with_alignfalse-kwargs-3" class="hash-link" aria-label="Direct link to forward(src, tgt, src_len, with_align=False, **kwargs)" title="Direct link to forward(src, tgt, src_len, with_align=False, **kwargs)" translate="no">​</a></h4>
 <p>Forward pass: encode mel features, decode with cross-attention.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="trainer">Trainer<a href="#trainer" class="hash-link" aria-label="Direct link to Trainer" title="Direct link to Trainer" translate="no">​</a></h2>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eoletrainertrainermodel-train_loss-valid_loss-scoring_preparator-valid_scorers-optim-config-trainerconfig-report_managernone-model_savernone-earlystoppernone"><em>class</em> eole.trainer.Trainer(model, train_loss, valid_loss, scoring_preparator, valid_scorers, optim, config: TrainerConfig, report_manager=None, model_saver=None, earlystopper=None)<a href="#class-eoletrainertrainermodel-train_loss-valid_loss-scoring_preparator-valid_scorers-optim-config-trainerconfig-report_managernone-model_savernone-earlystoppernone" class="hash-link" aria-label="Direct link to class-eoletrainertrainermodel-train_loss-valid_loss-scoring_preparator-valid_scorers-optim-config-trainerconfig-report_managernone-model_savernone-earlystoppernone" title="Direct link to class-eoletrainertrainermodel-train_loss-valid_loss-scoring_preparator-valid_scorers-optim-config-trainerconfig-report_managernone-model_savernone-earlystoppernone" translate="no">​</a></h3>
@@ -126,6 +261,8 @@ our_stats(list([Statistics]))</li>
 <p>compute elapsed time</p>
 <h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="log_tensorboardprefix-writer-learning_rate-patience-step">log_tensorboard(prefix, writer, learning_rate, patience, step)<a href="#log_tensorboardprefix-writer-learning_rate-patience-step" class="hash-link" aria-label="Direct link to log_tensorboard(prefix, writer, learning_rate, patience, step)" title="Direct link to log_tensorboard(prefix, writer, learning_rate, patience, step)" translate="no">​</a></h4>
 <p>display statistics to tensorboard</p>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="log_trackioprefix-learning_rate-patience-step">log_trackio(prefix, learning_rate, patience, step)<a href="#log_trackioprefix-learning_rate-patience-step" class="hash-link" aria-label="Direct link to log_trackio(prefix, learning_rate, patience, step)" title="Direct link to log_trackio(prefix, learning_rate, patience, step)" translate="no">​</a></h4>
+<p>Log statistics to trackio.</p>
 <h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="outputstep-num_steps-learning_rate-start">output(step, num_steps, learning_rate, start)<a href="#outputstep-num_steps-learning_rate-start" class="hash-link" aria-label="Direct link to output(step, num_steps, learning_rate, start)" title="Direct link to output(step, num_steps, learning_rate, start)" translate="no">​</a></h4>
 <p>Write out statistics to stdout.</p>
 <ul>
@@ -195,18 +332,14 @@ object passes relevant data to a Statistics object which handles
 training/validation logging.
 The Criterion and LossCompute options are triggered by opt settings.</p>
 <h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="ignore_promptbatch">ignore_prompt(batch)<a href="#ignore_promptbatch" class="hash-link" aria-label="Direct link to ignore_prompt(batch)" title="Direct link to ignore_prompt(batch)" translate="no">​</a></h4>
-<p>Mask the prompt in the target side of the batch examples in order
-: to set the loss of the prompt to zero.</p>
-<p>For finetuning on specific tasks.
-The end of the prompt must be indicated by the DefaultTokens.MASK_BEFORE</p>
-<blockquote>
-<p>placeholder.</p>
-</blockquote>
-<p>The masks are supposed to be properly handled by the loss criterion
-: (e.g. nn.CrossEntropyLoss ).</p>
+<p>Mask the prompt on the target side so prompt loss is zero.</p>
+<p>For finetuning on specific tasks, the end of the prompt must be
+indicated by <code>DefaultTokens.MASK_BEFORE</code> placeholder.</p>
+<p>Masks are expected to be handled by the loss criterion
+(e.g. <code>nn.CrossEntropyLoss</code>).</p>
 <ul>
 <li class=""><strong>Parameters:</strong>
-<strong>batch</strong> – The current batch.</li>
+<strong>batch</strong> – Current batch.</li>
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="optimizer">Optimizer<a href="#optimizer" class="hash-link" aria-label="Direct link to Optimizer" title="Direct link to Optimizer" translate="no">​</a></h2>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eoleutilsoptimizeroptimizer-torchoptimizer-learning_rate-float-learning_rate_decay_fn-callableint-float--none--none-max_grad_norm-float--none--none-use_amp-bool--true"><em>class</em> eole.utils.Optimizer(optimizer: TorchOptimizer, learning_rate: float, learning_rate_decay_fn: Callable[[int], float] | None = None, max_grad_norm: float | None = None, use_amp: bool = True)<a href="#class-eoleutilsoptimizeroptimizer-torchoptimizer-learning_rate-float-learning_rate_decay_fn-callableint-float--none--none-max_grad_norm-float--none--none-use_amp-bool--true" class="hash-link" aria-label="Direct link to class-eoleutilsoptimizeroptimizer-torchoptimizer-learning_rate-float-learning_rate_decay_fn-callableint-float--none--none-max_grad_norm-float--none--none-use_amp-bool--true" title="Direct link to class-eoleutilsoptimizeroptimizer-torchoptimizer-learning_rate-float-learning_rate_decay_fn-callableint-float--none--none-max_grad_norm-float--none--none-use_amp-bool--true" translate="no">​</a></h3>
@@ -339,8 +472,8 @@ to avoid partial multi-byte / subword-piece artefacts).</li>
 <p>Infer from list in parallel.</p>
 <h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="infer_list_streamsrc-str-settings-dictstr-any--none--none-1">infer_list_stream(src: str, settings: Dict[str, Any] | None = None)<a href="#infer_list_streamsrc-str-settings-dictstr-any--none--none-1" class="hash-link" aria-label="Direct link to infer_list_stream(src: str, settings: Dict[str, Any] | None = None)" title="Direct link to infer_list_stream(src: str, settings: Dict[str, Any] | None = None)" translate="no">​</a></h4>
 <p>Stream inference results for a single input string.</p>
-<p>Runs inference in a background thread and yields decoded text
-chunks as they are produced token by token. This is the
+<p>Runs inference in a persistent thread-pool worker and yields decoded
+text chunks as they are produced token by token.  This is the
 recommended API for interactive / chatbot-style use cases.</p>
 <p>Only supported for single-process mode (<code>world_size &lt;= 1</code>) and
 decoder-only (LM) models. Encoder-decoder models are not supported
@@ -365,7 +498,7 @@ for streaming.</p>
 <h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="score_list_parallelsrc-liststr-settings-dictstr-any--none--none-1">score_list_parallel(src: List[str], settings: Dict[str, Any] | None = None)<a href="#score_list_parallelsrc-liststr-settings-dictstr-any--none--none-1" class="hash-link" aria-label="Direct link to score_list_parallel(src: List[str], settings: Dict[str, Any] | None = None)" title="Direct link to score_list_parallel(src: List[str], settings: Dict[str, Any] | None = None)" translate="no">​</a></h4>
 <p>Score a list of strings in parallel.</p>
 <h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="terminate-1">terminate()<a href="#terminate-1" class="hash-link" aria-label="Direct link to terminate()" title="Direct link to terminate()" translate="no">​</a></h4>
-<p>Terminate all worker processes.</p>
+<p>Terminate all worker processes and the inference thread pool.</p>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eoleinference_engineinferenceenginect2config-model_typenone"><em>class</em> eole.inference_engine.InferenceEngineCT2(config, model_type=None)<a href="#class-eoleinference_engineinferenceenginect2config-model_typenone" class="hash-link" aria-label="Direct link to class-eoleinference_engineinferenceenginect2config-model_typenone" title="Direct link to class-eoleinference_engineinferenceenginect2config-model_typenone" translate="no">​</a></h3>
 <p>Bases: <a href="#eole.inference_engine.InferenceEngine" class=""><code>InferenceEngine</code></a></p>
 <p>Inference engine subclass to run inference with ctranslate2.</p>
@@ -380,6 +513,6 @@ for streaming.</p>
 <h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="property-ct2_model_path--str"><em>property</em> ct2_model_path <em>: str</em><a href="#property-ct2_model_path--str" class="hash-link" aria-label="Direct link to property-ct2_model_path--str" title="Direct link to property-ct2_model_path--str" translate="no">​</a></h4>
 <p>Get the ctranslate2 model path.</p>
 <h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="predict_batchbatch--tuple">predict_batch(batch) → Tuple<a href="#predict_batchbatch--tuple" class="hash-link" aria-label="Direct link to predict_batch(batch) → Tuple" title="Direct link to predict_batch(batch) → Tuple" translate="no">​</a></h4>
-<p>Predict a single batch using CT2.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/tree/main/docs/docs/reference/Core API/0_core.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/eole/docs/reference/Config/transforms"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Transforms</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/reference/Core API/modules"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Modules</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#model" class="table-of-contents__link toc-highlight">Model</a><ul><li><a href="#class-eolemodelsmodelvisionencoderdecodermodelkwargs" class="table-of-contents__link toc-highlight"><em>class</em> eole.models.model.VisionEncoderDecoderModel(**kwargs)</a></li><li><a href="#class-eolemodelsmodelaudioencoderdecodermodelkwargs" class="table-of-contents__link toc-highlight"><em>class</em> eole.models.model.AudioEncoderDecoderModel(**kwargs)</a></li></ul></li><li><a href="#trainer" class="table-of-contents__link toc-highlight">Trainer</a><ul><li><a href="#class-eoletrainertrainermodel-train_loss-valid_loss-scoring_preparator-valid_scorers-optim-config-trainerconfig-report_managernone-model_savernone-earlystoppernone" class="table-of-contents__link toc-highlight"><em>class</em> eole.trainer.Trainer(model, train_loss, valid_loss, scoring_preparator, valid_scorers, optim, config: TrainerConfig, report_manager=None, model_saver=None, earlystopper=None)</a></li><li><a href="#class-eoleutilsstatisticsloss0-auxloss0-n_batchs0-n_sents0-n_tokens0-n_correct0-computed_metricsnone-data_statsnone-attention_entropy0-n_attention_samples0" class="table-of-contents__link toc-highlight"><em>class</em> eole.utils.Statistics(loss=0, auxloss=0, n_batchs=0, n_sents=0, n_tokens=0, n_correct=0, computed_metrics=None, data_stats=None, attention_entropy=0, n_attention_samples=0)</a></li></ul></li><li><a href="#loss" class="table-of-contents__link toc-highlight">Loss</a><ul><li><a href="#class-eoleutilslosslosscomputecriterion-generator-lambda_coverage00-lambda_align00-tgt_shift_index1-vocabsnone-lm_generatornone-lm_prior_lambdanone-lm_prior_taunone-lm_prior_modelnone" class="table-of-contents__link toc-highlight"><em>class</em> eole.utils.loss.LossCompute(criterion, generator, lambda_coverage=0.0, lambda_align=0.0, tgt_shift_index=1, vocabs=None, lm_generator=None, lm_prior_lambda=None, lm_prior_tau=None, lm_prior_model=None)</a></li></ul></li><li><a href="#optimizer" class="table-of-contents__link toc-highlight">Optimizer</a><ul><li><a href="#class-eoleutilsoptimizeroptimizer-torchoptimizer-learning_rate-float-learning_rate_decay_fn-callableint-float--none--none-max_grad_norm-float--none--none-use_amp-bool--true" class="table-of-contents__link toc-highlight"><em>class</em> eole.utils.Optimizer(optimizer: TorchOptimizer, learning_rate: float, learning_rate_decay_fn: Callable[[int], float] | None = None, max_grad_norm: float | None = None, use_amp: bool = True)</a></li></ul></li><li><a href="#inference-engine" class="table-of-contents__link toc-highlight">Inference Engine</a><ul><li><a href="#class-eoleinference_engineinferenceengineconfig" class="table-of-contents__link toc-highlight"><em>class</em> eole.inference_engine.InferenceEngine(config)</a></li><li><a href="#class-eoleinference_engineinferenceenginepyconfig" class="table-of-contents__link toc-highlight"><em>class</em> eole.inference_engine.InferenceEnginePY(config)</a></li><li><a href="#class-eoleinference_engineinferenceenginect2config-model_typenone" class="table-of-contents__link toc-highlight"><em>class</em> eole.inference_engine.InferenceEngineCT2(config, model_type=None)</a></li></ul></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
+<p>Predict a single batch using CT2.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/tree/main/docs/docs/reference/Core API/0_core.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/eole/docs/reference/Config/transforms"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Transforms</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/reference/Core API/modules"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Modules</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#model" class="table-of-contents__link toc-highlight">Model</a><ul><li><a href="#class-eolemodelsmodelbasemodelkwargs" class="table-of-contents__link toc-highlight"><em>class</em> eole.models.model.BaseModel(**kwargs)</a></li><li><a href="#class-eolemodelsmodelencoderdecodermodelkwargs" class="table-of-contents__link toc-highlight"><em>class</em> eole.models.model.EncoderDecoderModel(**kwargs)</a></li><li><a href="#class-eolemodelsmodeldecodermodelkwargs" class="table-of-contents__link toc-highlight"><em>class</em> eole.models.model.DecoderModel(**kwargs)</a></li><li><a href="#class-eolemodelsmodelencodermodelkwargs" class="table-of-contents__link toc-highlight"><em>class</em> eole.models.model.EncoderModel(**kwargs)</a></li><li><a href="#class-eolemodelsmodelvisionencoderdecodermodelkwargs" class="table-of-contents__link toc-highlight"><em>class</em> eole.models.model.VisionEncoderDecoderModel(**kwargs)</a></li><li><a href="#class-eolemodelsmodelaudioencoderdecodermodelkwargs" class="table-of-contents__link toc-highlight"><em>class</em> eole.models.model.AudioEncoderDecoderModel(**kwargs)</a></li></ul></li><li><a href="#trainer" class="table-of-contents__link toc-highlight">Trainer</a><ul><li><a href="#class-eoletrainertrainermodel-train_loss-valid_loss-scoring_preparator-valid_scorers-optim-config-trainerconfig-report_managernone-model_savernone-earlystoppernone" class="table-of-contents__link toc-highlight"><em>class</em> eole.trainer.Trainer(model, train_loss, valid_loss, scoring_preparator, valid_scorers, optim, config: TrainerConfig, report_manager=None, model_saver=None, earlystopper=None)</a></li><li><a href="#class-eoleutilsstatisticsloss0-auxloss0-n_batchs0-n_sents0-n_tokens0-n_correct0-computed_metricsnone-data_statsnone-attention_entropy0-n_attention_samples0" class="table-of-contents__link toc-highlight"><em>class</em> eole.utils.Statistics(loss=0, auxloss=0, n_batchs=0, n_sents=0, n_tokens=0, n_correct=0, computed_metrics=None, data_stats=None, attention_entropy=0, n_attention_samples=0)</a></li></ul></li><li><a href="#loss" class="table-of-contents__link toc-highlight">Loss</a><ul><li><a href="#class-eoleutilslosslosscomputecriterion-generator-lambda_coverage00-lambda_align00-tgt_shift_index1-vocabsnone-lm_generatornone-lm_prior_lambdanone-lm_prior_taunone-lm_prior_modelnone" class="table-of-contents__link toc-highlight"><em>class</em> eole.utils.loss.LossCompute(criterion, generator, lambda_coverage=0.0, lambda_align=0.0, tgt_shift_index=1, vocabs=None, lm_generator=None, lm_prior_lambda=None, lm_prior_tau=None, lm_prior_model=None)</a></li></ul></li><li><a href="#optimizer" class="table-of-contents__link toc-highlight">Optimizer</a><ul><li><a href="#class-eoleutilsoptimizeroptimizer-torchoptimizer-learning_rate-float-learning_rate_decay_fn-callableint-float--none--none-max_grad_norm-float--none--none-use_amp-bool--true" class="table-of-contents__link toc-highlight"><em>class</em> eole.utils.Optimizer(optimizer: TorchOptimizer, learning_rate: float, learning_rate_decay_fn: Callable[[int], float] | None = None, max_grad_norm: float | None = None, use_amp: bool = True)</a></li></ul></li><li><a href="#inference-engine" class="table-of-contents__link toc-highlight">Inference Engine</a><ul><li><a href="#class-eoleinference_engineinferenceengineconfig" class="table-of-contents__link toc-highlight"><em>class</em> eole.inference_engine.InferenceEngine(config)</a></li><li><a href="#class-eoleinference_engineinferenceenginepyconfig" class="table-of-contents__link toc-highlight"><em>class</em> eole.inference_engine.InferenceEnginePY(config)</a></li><li><a href="#class-eoleinference_engineinferenceenginect2config-model_typenone" class="table-of-contents__link toc-highlight"><em>class</em> eole.inference_engine.InferenceEngineCT2(config, model_type=None)</a></li></ul></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
 </body>
 </html>
