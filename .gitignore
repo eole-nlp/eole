@@ -119,3 +119,6 @@ docs/docusaurus_tsx/docs/recipes
 docs/docusaurus_tsx/docs/reference
 docs/docusaurus_tsx/build
 docs/sphinx_markdown
+
+# test-generated sample data
+eole/tests/data/test_data_prepare/samples/
