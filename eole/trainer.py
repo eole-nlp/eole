@@ -271,7 +271,11 @@ class Trainer:
         valid_iter=None,
         valid_steps: int = 10000,
     ):
-        """Main training loop."""
+        """Main training loop.
+
+        Subclasses can override ``_train_step()`` to customize the per-step
+        training logic (e.g. for RL training) without duplicating the loop.
+        """
         if valid_iter is None:
             logger.info("Start training loop without validation...")
         else:
@@ -294,8 +298,8 @@ class Trainer:
             if self.config.n_gpu > 1 and self.config.parallel_mode == "data_parallel":
                 normalization = sum(all_gather_list(normalization))
 
-            # Process batches
-            self._process_accumulated_batches(batches, normalization, total_stats, report_stats)
+            # Core training step (overridable by subclasses)
+            self._train_step(batches, normalization, total_stats, report_stats, step=step)
 
             # Update moving average
             if self.config.average_decay > 0 and i % self.config.average_every == 0:
@@ -338,6 +342,29 @@ class Trainer:
             self.model_saver.save(step, moving_average=self.moving_average)
 
         return total_stats
+
+    def _train_step(
+        self,
+        batches: List[Dict[str, Any]],
+        normalization: int,
+        total_stats: eole.utils.Statistics,
+        report_stats: eole.utils.Statistics,
+        step: int = 0,
+    ):
+        """Execute one training step on accumulated batches.
+
+        This is the main extension point for subclasses (e.g. RLTrainer).
+        Override this method to implement custom training logic while
+        reusing the outer training loop (validation, checkpointing, etc.).
+
+        Args:
+            batches: List of batch dicts for this accumulated step.
+            normalization: Normalization factor for loss.
+            total_stats: Running total statistics.
+            report_stats: Statistics for current reporting period.
+            step: Current training step number.
+        """
+        self._process_accumulated_batches(batches, normalization, total_stats, report_stats)
 
     def _update_scheduled_params(self, step: int):
         """Update all scheduled parameters."""
