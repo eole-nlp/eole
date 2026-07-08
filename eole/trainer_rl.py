@@ -152,13 +152,20 @@ class RLTrainer(Trainer):
         # Rebuild a (batch, tgt_len) tensor of the sampled tokens (best/first
         # rollout per prompt) to recompute differentiable log-probs.
         # Use the model's actual pad index so compute_log_probs() builds the
-        # correct padding mask; for encoder-decoder models (tgt_shift=1)
-        # prepend a BOS token so the first real token survives the shift.
+        # correct padding mask (fallback of 1 matches the EOLE convention and
+        # mirrors the fallback in compute_log_probs itself); for encoder-decoder
+        # models (tgt_shift=1) prepend a BOS token so the first real token
+        # survives the shift.
         pad_idx = getattr(self.model, "tgt_pad_idx", getattr(self.model, "pad_idx", 1))
         bos_id = None
         if getattr(self.model, "tgt_shift", 0) == 1:
             specials = self.vocabs.get("specials", {})
             bos_token = specials.get("bos_token", "<s>")
+            if bos_token not in self.vocabs["tgt"]:
+                raise RuntimeError(
+                    f"RL training with an encoder-decoder model requires a BOS token in the target vocabulary, "
+                    f"but '{bos_token}' was not found. Check the 'bos_token' entry in vocabs['specials']."
+                )
             bos_id = self.vocabs["tgt"].lookup_token(bos_token)
         sampled_tgt, sampled_len = self._build_sampled_tgt(
             gen_results["token_ids"], batch["src"].device, pad_idx=pad_idx, bos_id=bos_id
