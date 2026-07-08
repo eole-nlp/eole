@@ -1,0 +1,51 @@
+## Example: REINFORCE fine-tuning of an existing (already fine-tuned) model.
+##
+## This starts from a supervised checkpoint (`train_from`) and continues
+## training with on-policy REINFORCE: for each prompt the current policy
+## samples a completion, the completion is scored with `rl_reward_metric`
+## (any scorer registered under eole.scorers, e.g. a QE/reward-model metric),
+## and the (reward - batch baseline) is used as the REINFORCE advantage.
+##
+## Only the RL-specific `training:` fields differ from a regular fine-tuning
+## config; see recipes/wmt17 or recipes/llama3 for full data/vocab examples.
+
+seed: 1234
+report_every: 50
+valid_metrics: ["BLEU"]
+share_vocab: True
+src_vocab: base_model/vocab.txt # reuse the tokenizer/vocab of the base checkpoint
+src_vocab_size: 32000
+tgt_vocab_size: 32000
+
+data:
+    corpus_1:
+        path_src: rl_finetune/prompts.train.txt
+        path_tgt: rl_finetune/references.train.txt # used as texts_ref for reference-based reward scorers (e.g. BLEU); use a reference-free scorer and drop this if unavailable
+    valid:
+        path_src: rl_finetune/prompts.valid.txt
+        path_tgt: rl_finetune/references.valid.txt
+
+training:
+    train_from: base_model/checkpoint
+    model_path: rl_finetune/reinforce_model
+    save_checkpoint_steps: 500
+    train_steps: 5000
+    valid_steps: 500
+    batch_size: 8
+    batch_type: sents
+    accum_count: [4]
+    accum_steps: [0]
+    compute_dtype: "bf16"
+    optim: "adamw"
+    learning_rate: 1e-6 # RL fine-tuning typically needs a much lower LR than SFT
+
+    # RL (REINFORCE) configuration.
+    rl_algorithm: reinforce
+    rl_reward_metric: "BLEU" # replace with a reference-free reward/QE scorer for real RLHF use cases
+    rl_baseline: batch_mean
+    rl_kl_coef: 0.05
+    rl_reference_model: base_model/checkpoint
+    rl_gen_max_length: 128
+    rl_gen_temperature: 1.0
+    rl_gen_top_k: 0
+    rl_gen_top_p: 0.9

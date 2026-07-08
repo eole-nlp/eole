@@ -244,6 +244,46 @@ class TrainingConfig(
         default="mean", description="How to aggregate attention entropy across different attention types/layers."
     )
 
+    # RL fine-tuning configuration.
+    # Only "reinforce" is implemented for now; "dpo"/"grpo"/"ppo" are reserved
+    # names for planned follow-up work and will raise NotImplementedError.
+    rl_algorithm: Literal["reinforce", "dpo", "grpo", "ppo"] | None = Field(
+        default=None,
+        description="RL fine-tuning algorithm to use instead of standard supervised training. "
+        "Only 'reinforce' is currently implemented; 'dpo'/'grpo'/'ppo' are reserved for future support. "
+        "Leave unset (None) for standard supervised (teacher-forced) training.",
+    )
+    rl_reward_metric: str | None = Field(
+        default=None,
+        description="Name of the scorer (see valid_metrics/scorers registry) used as the reward "
+        "signal for RL training. Required when rl_algorithm is set.",
+    )
+    rl_baseline: Literal["batch_mean", "none"] = Field(
+        default="batch_mean",
+        description="Variance-reduction baseline subtracted from the reward before computing the "
+        "policy-gradient loss (REINFORCE). 'batch_mean' subtracts the mean reward of the batch.",
+    )
+    rl_kl_coef: float = Field(
+        default=0.0,
+        description="Weight of the KL-divergence penalty against a frozen reference model's "
+        "log-probs. 0 disables the penalty (and the reference model is not used).",
+    )
+    rl_reference_model: str | None = Field(
+        default=None,
+        description="Path to a frozen reference model checkpoint used for the KL penalty. "
+        "Required only when rl_kl_coef != 0.",
+    )
+    rl_num_rollouts: int = Field(
+        default=1,
+        description="Number of sampled generations (rollouts) per prompt. Not used by REINFORCE "
+        "(single rollout per prompt); reserved for group-relative methods (e.g. GRPO) which need "
+        "several rollouts per prompt to compute a group baseline. Currently ignored.",
+    )
+    rl_gen_max_length: int = Field(default=256, description="Maximum generation length for RL rollouts.")
+    rl_gen_temperature: float = Field(default=1.0, description="Sampling temperature for RL rollouts.")
+    rl_gen_top_k: int = Field(default=0, description="Top-k sampling for RL rollouts (0 disables it).")
+    rl_gen_top_p: float = Field(default=0.0, description="Top-p (nucleus) sampling for RL rollouts (0 disables it).")
+
     @computed_field
     @cached_property
     def storage_dtype(self) -> torch.dtype:
@@ -319,6 +359,17 @@ class TrainingConfig(
 
         if self.lora_embedding and (self.freeze_encoder or self.freeze_decoder):
             raise ValueError("Cannot use LoRa embedding with Enc/Dec-oder freezing")
+
+        if self.rl_algorithm is not None:
+            if self.rl_algorithm != "reinforce":
+                raise NotImplementedError(
+                    f"rl_algorithm={self.rl_algorithm!r} is planned but not implemented yet. "
+                    "Only 'reinforce' is currently supported."
+                )
+            if not self.rl_reward_metric:
+                raise ValueError("rl_reward_metric must be set when rl_algorithm is set.")
+            if self.rl_kl_coef != 0.0 and not self.rl_reference_model:
+                raise ValueError("rl_reference_model must be set when rl_kl_coef != 0.")
 
         return self
 
