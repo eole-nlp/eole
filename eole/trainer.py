@@ -714,7 +714,7 @@ def _build_rl_trainer(
     from eole.trainer_rl import RLTrainer
     from eole.utils.rl_loss import build_rl_loss_compute
     from eole.utils.generate_utils import GenerationConfig
-    from eole.models.model import DecoderModel
+    from eole.models.model import get_model_class, get_metadata
 
     running_config = config.training
 
@@ -725,7 +725,11 @@ def _build_rl_trainer(
 
     reference_model = None
     if running_config.rl_kl_coef != 0.0:
-        _, reference_model, _ = DecoderModel.for_inference(config, model_path=running_config.rl_reference_model)
+        _ref_meta = get_metadata(running_config.rl_reference_model)
+        _ref_model_class = get_model_class(_ref_meta["config"].model)
+        reference_model, _, _ = _ref_model_class.for_inference(
+            config, device_id=device_id, model_path=running_config.rl_reference_model
+        )
         reference_model.eval()
 
     rl_gen_config = GenerationConfig(

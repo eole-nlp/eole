@@ -151,7 +151,18 @@ class RLTrainer(Trainer):
 
         # Rebuild a (batch, tgt_len) tensor of the sampled tokens (best/first
         # rollout per prompt) to recompute differentiable log-probs.
-        sampled_tgt, sampled_len = self._build_sampled_tgt(gen_results["token_ids"], batch["src"].device)
+        # Use the model's actual pad index so compute_log_probs() builds the
+        # correct padding mask; for encoder-decoder models (tgt_shift=1)
+        # prepend a BOS token so the first real token survives the shift.
+        pad_idx = getattr(self.model, "tgt_pad_idx", getattr(self.model, "pad_idx", 1))
+        bos_id = None
+        if getattr(self.model, "tgt_shift", 0) == 1:
+            specials = self.vocabs.get("specials", {})
+            bos_token = specials.get("bos_token", "<s>")
+            bos_id = self.vocabs["tgt"].lookup_token(bos_token)
+        sampled_tgt, sampled_len = self._build_sampled_tgt(
+            gen_results["token_ids"], batch["src"].device, pad_idx=pad_idx, bos_id=bos_id
+        )
 
         src = batch["src"]
         src_len = batch["srclen"]
@@ -198,7 +209,7 @@ class RLTrainer(Trainer):
         return stats
 
     @staticmethod
-    def _build_sampled_tgt(token_ids, device):
+    def _build_sampled_tgt(token_ids, device, pad_idx=1, bos_id=None):
         """Pad the (best) sampled token-id sequences into a ``(batch, tgt_len)``
         LongTensor plus their lengths, suitable for ``compute_log_probs``.
 
@@ -206,15 +217,26 @@ class RLTrainer(Trainer):
             token_ids: list (batch) of list (n_best) of 1D LongTensors, as
                 returned by ``generate_from_batch(..., return_token_ids=True)``.
             device: target device for the returned tensors.
+            pad_idx (int): vocabulary index of the padding token (defaults to 1).
+                Must match the model's pad index so ``compute_log_probs`` builds
+                the correct padding mask.
+            bos_id (int or None): if not None, prepend this token to every
+                sequence (required for encoder-decoder models where
+                ``tgt_shift=1`` drops the first token before computing
+                log-probabilities, so the BOS must be present to keep the
+                sampled tokens aligned).
 
         Returns:
             Tuple ``(tgt, tgt_len)`` where ``tgt`` is ``(batch, max_len)``
             and ``tgt_len`` is ``(batch,)``.
         """
         sequences = [ids[0].to(device) for ids in token_ids]
+        if bos_id is not None:
+            bos = torch.tensor([bos_id], dtype=torch.long, device=device)
+            sequences = [torch.cat([bos, seq]) for seq in sequences]
         lengths = torch.tensor([seq.size(0) for seq in sequences], device=device)
         max_len = int(lengths.max().item())
-        padded = torch.zeros(len(sequences), max_len, dtype=torch.long, device=device)
+        padded = torch.full((len(sequences), max_len), pad_idx, dtype=torch.long, device=device)
         for i, seq in enumerate(sequences):
             padded[i, : seq.size(0)] = seq
         return padded, lengths

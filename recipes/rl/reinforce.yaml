@@ -20,7 +20,7 @@ tgt_vocab_size: 32000
 data:
     corpus_1:
         path_src: rl_finetune/prompts.train.txt
-        path_tgt: rl_finetune/references.train.txt # used as texts_ref for reference-based reward scorers (e.g. BLEU); use a reference-free scorer and drop this if unavailable
+        path_tgt: rl_finetune/references.train.txt # required; used as texts_ref for reference-based scorers (e.g. BLEU) and for batch normalization — use a dummy file with one token per line if references are unavailable
     valid:
         path_src: rl_finetune/prompts.valid.txt
         path_tgt: rl_finetune/references.valid.txt
