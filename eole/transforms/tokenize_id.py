@@ -92,7 +92,15 @@ class HuggingfaceTokenizer(IntTokenizerTransform):
 
     def tokenize_string(self, string, side="src", is_train=False):
         encoding = self.tokenizer.encode(string.replace(DefaultTokens.SEP, "\n"))
-        return encoding.ids, encoding.tokens
+        ids, tokens = encoding.ids, encoding.tokens
+        if self.max_length is not None:
+            max_length = self.max_length
+            decoder_start_token = self.full_config.decoder_start_token
+            if side == "tgt" and getattr(self.full_config.model, "encoder", None) is None and decoder_start_token == "":
+                # Decoder-only LM targets are shifted later, so keep one extra token to preserve legacy truncation.
+                max_length += 1
+            ids, tokens = ids[:max_length], tokens[:max_length]
+        return ids, tokens
 
     def apply(self, example, is_train=False, stats=None, **kwargs):
         assert isinstance(example["src"], str), "HuggingfaceTokenizer requires a string as input"
