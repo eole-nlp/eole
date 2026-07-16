@@ -150,6 +150,75 @@ class ParallelCorpus(object):
         self.sco = path_sco
         self.align = path_align
 
+    @staticmethod
+    def _parse_hf_dataset_uri(hf_string):
+        """Parse hf://owner/dataset[/config][/split]/field dataset references."""
+        parts = hf_string.replace("hf://", "", 1).split("/")
+        if len(parts) < 3:
+            raise ValueError(
+                f"Invalid Hugging Face dataset reference: {hf_string!r}. "
+                "Expected hf://owner/dataset/field or hf://owner/dataset/split/field."
+            )
+
+        dataset_name = "/".join(parts[:2])
+        remaining_parts = parts[2:]
+        field_name = remaining_parts[-1]
+        dataset_config = None
+        split = "train"
+
+        def normalize_split(value):
+            if value == "valid":
+                return "validation"
+            if value.startswith("valid["):
+                suffix = value.removeprefix("valid")
+                return "validation" + suffix
+            return value
+
+        if len(remaining_parts) == 2:
+            first = remaining_parts[0]
+            # Heuristic for the compact slash syntax: common split names in the third
+            # position are treated as splits; other values are treated as dataset configs.
+            # Ambiguous configs named train/test/validation should use the explicit
+            # hf://owner/dataset/config/split/field form.
+            if first in {"train", "validation", "valid", "test"} or first.startswith(
+                ("train[", "validation[", "valid[", "test[")
+            ):
+                split = normalize_split(first)
+            else:
+                dataset_config = first
+        elif len(remaining_parts) == 3:
+            dataset_config = remaining_parts[0]
+            split = normalize_split(remaining_parts[1])
+        elif len(remaining_parts) > 3:
+            raise ValueError(
+                f"Invalid Hugging Face dataset reference: {hf_string!r}. "
+                "Expected hf://owner/dataset/field, hf://owner/dataset/split/field, "
+                "or hf://owner/dataset/config/split/field."
+            )
+
+        return dataset_name, dataset_config, split, field_name
+
+    @classmethod
+    def _parse_matching_hf_field(cls, hf_string, src_info, field_name):
+        if hf_string is None:
+            return None
+        if not isinstance(hf_string, str) or not hf_string.startswith("hf://"):
+            raise ValueError(
+                f"HF streaming corpora require {field_name} to use the same hf:// dataset/config/split as path_src."
+            )
+        info = cls._parse_hf_dataset_uri(hf_string)
+        if info[:3] != src_info[:3]:
+            raise ValueError(
+                f"HF streaming corpora require {field_name} to use the same hf:// dataset/config/split as path_src."
+            )
+        return info[3]
+
+    @staticmethod
+    def _get_hf_field(example, field_name, uri_field_name):
+        if field_name not in example:
+            raise ValueError(f"HF streaming example is missing configured {uri_field_name} field: {field_name!r}.")
+        return example[field_name]
+
     def _load_hf_dataset(self, hf_string):
         """
         Load a Hugging Face dataset from the given identifier.
@@ -159,14 +228,10 @@ class ParallelCorpus(object):
         """
         from datasets import load_dataset
 
-        parts = hf_string.replace("hf://", "").split("/")
-        dataset_name = "/".join(parts[:2])
-        remaining_parts = parts[2:]
-
-        if len(remaining_parts) == 1:
-            return load_dataset(dataset_name, split="train", streaming=True)
-        elif len(remaining_parts) == 2:
-            return load_dataset(dataset_name, remaining_parts[0], split="train", streaming=True)
+        dataset_name, dataset_config, split, _field_name = self._parse_hf_dataset_uri(hf_string)
+        if dataset_config is None:
+            return load_dataset(dataset_name, split=split, streaming=True)
+        return load_dataset(dataset_name, dataset_config, split=split, streaming=True)
 
     def load(self, offset=0, stride=1):
         """
@@ -175,9 +240,7 @@ class ParallelCorpus(object):
         `stride` example, starting from `offset`.
         In the case of local files, all files are open exactly the same way by each worker
         Therefore we need to apply a stride / offset rule to make sure we do not process the same ex.
-        In the case of HF streaming mode we need to make sure we have more shards than workers.
-        Typically we recommend to have shard being a multiple of workers for instance for big datasets:
-        16 shards for 4 workers. The shards will be iterated automatically since HF locks shards when in use.
+        HF streaming uses the same rule because each worker/rank opens an independent streaming iterator.
         """
 
         def make_ex(sline, tline, scoline, align):
@@ -203,15 +266,17 @@ class ParallelCorpus(object):
 
         elif self.src.startswith("hf://"):
             # If `src` is a Hugging Face dataset identifier
+            src_info = self._parse_hf_dataset_uri(self.src)
+            src_field = src_info[3]
+            tgt_field = self._parse_matching_hf_field(self.tgt, src_info, "path_tgt")
+            sco_field = self._parse_matching_hf_field(self.sco, src_info, "path_sco")
             dataset = self._load_hf_dataset(self.src)
             for i, example in enumerate(dataset):
-                sline = example.get(self.src.split("/")[-1])
-                tline = example.get(self.tgt.split("/")[-1]) if self.tgt is not None else None
-                if self.sco is not None:
-                    scoline = example.get(self.sco.split("/")[-1], 1.0)
-                else:
-                    scoline = 1.0
-                yield make_ex(sline, tline, scoline, None)
+                if (i // stride) % stride == offset:
+                    sline = self._get_hf_field(example, src_field, "path_src")
+                    tline = self._get_hf_field(example, tgt_field, "path_tgt") if tgt_field is not None else None
+                    scoline = self._get_hf_field(example, sco_field, "path_sco") if sco_field is not None else 1.0
+                    yield make_ex(sline, tline, scoline, None)
 
         else:
             with exfile_open(self.src, mode="rb") as fs, exfile_open(self.tgt, mode="rb") as ft, exfile_open(

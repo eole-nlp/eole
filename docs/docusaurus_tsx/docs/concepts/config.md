@@ -85,3 +85,85 @@ training:
     train_steps: 50
     valid_steps: 500
 ```
+
+## Hugging Face Streaming Datasets
+
+Datasets can stream directly from Hugging Face with `hf://` paths. The last path component is the dataset column to read.
+
+```yaml
+data:
+    corpus_1:
+        path_src: hf://eole-nlp/europarl-v10.de-en/de
+        path_tgt: hf://eole-nlp/europarl-v10.de-en/en
+        path_sco: hf://eole-nlp/europarl-v10.de-en/sco
+```
+
+Supported URI forms are:
+
+- `hf://owner/dataset/field` for the default `train` split.
+- `hf://owner/dataset/split/field` for an explicit split.
+- `hf://owner/dataset/config/field` for a dataset config with the default `train` split.
+- `hf://owner/dataset/config/split/field` for an explicit config and split.
+
+When using HF streaming, `path_tgt` and `path_sco` must point to the same dataset, config, and split as `path_src`; only the final field name may differ.
+
+```yaml
+data:
+    gsm8k:
+        path_src: hf://skrishna/gsm8k_only_answer/train/text
+        path_tgt: hf://skrishna/gsm8k_only_answer/train/label
+        transforms: [chat, huggingface_tokenize]
+    estimator:
+        path_src: hf://eole-nlp/estimator_chatml/1720_da/prompt
+        path_sco: hf://eole-nlp/estimator_chatml/1720_da/sco
+        transforms: [huggingface_tokenize]
+```
+
+Compact URIs treat common split names such as `train`, `valid`, `validation`, and `test` as splits. If a dataset config is literally named like a split, use the explicit four-part form: `hf://owner/dataset/config/split/field`.
+
+## Dataset-Level Transform Overrides
+
+Some transforms can opt in to dataset-level overrides via a corpus-local `transforms_configs` block. This is currently supported by the `chat` transform, which lets each corpus use a different prompt while sharing the same transform pipeline.
+
+```yaml
+transforms: [chat, huggingface_tokenize]
+
+transforms_configs:
+    chat:
+        add_generation_prompt: true
+        messages:
+          - role: user
+            content: "{src}"
+    huggingface_tokenize:
+        path: /Users/david/Development/Models/eole/eurollm-1.7B/tokenizer.json
+        max_length: 128
+
+data:
+    wmt24pp-de:
+        path_src: hf://google/wmt24pp/en-de_DE/source
+        path_tgt: hf://google/wmt24pp/en-de_DE/target
+        transforms: [chat, huggingface_tokenize]
+        transforms_configs:
+            chat:
+                messages:
+                  - role: system
+                    content: "You are a professional translator."
+                  - role: user
+                    content: "Translate from English into German.\n\nEnglish: {src}\nGerman:"
+
+    wmt24pp-fr:
+        path_src: hf://google/wmt24pp/en-fr_FR/source
+        path_tgt: hf://google/wmt24pp/en-fr_FR/target
+        transforms: [chat, huggingface_tokenize]
+        transforms_configs:
+            chat:
+                messages:
+                  - role: system
+                    content: "You are a careful localization translator for Canadian French."
+                  - role: user
+                    content: "Translate from English into French for Canada. Preserve names, numbers, and formatting.\n\nEnglish: {src}\nFrench:"
+```
+
+Dataset-level overrides are intentionally scoped. Apply-time prompt settings such as `chat.messages` can vary by corpus. Warm-up settings such as `huggingface_tokenize.path`, `huggingface_tokenize.max_length`, BPE models, or SentencePiece models are global for the transform instance and cannot be overridden per dataset yet. Unsupported dataset-level transform overrides fail during config validation instead of being silently ignored.
+
+If every corpus using `chat` supplies its own `transforms_configs.chat.messages`, the global `transforms_configs.chat.messages` may be empty. Any chat corpus without a dataset-level `messages` override needs global messages as a fallback. Overrides for transforms that are not enabled in the corpus `transforms` list fail during config validation.

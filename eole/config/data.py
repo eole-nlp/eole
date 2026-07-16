@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Literal
+from typing import Any, Dict, List, Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic import create_model
 
@@ -72,6 +72,7 @@ class Dataset(Config):
     path_sco: str | None = None
     path_txt: str | None = None  # not sure we need this one with proper path_src handling
     path_align: str | None = None
+    transforms_configs: Dict[str, Dict[str, Any]] | None = None
     # optional stuff for some transforms
     # TODO: define a better mechanism to support such settings
     src_prefix: str | None = None
@@ -231,6 +232,21 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
             if _transforms is None:
                 logger.info(f"Missing transforms field for {cname} data, " f"set to default: {default_transforms}.")
                 corpus.transforms = default_transforms
+            if corpus.transforms_configs is not None:
+                for transform_name in corpus.transforms_configs:
+                    transform_cls = AVAILABLE_TRANSFORMS.get(transform_name)
+                    if transform_cls is None:
+                        raise ValueError(f"Corpus {cname} overrides unknown transform: {transform_name}.")
+                    if transform_name not in (corpus.transforms or []):
+                        raise ValueError(
+                            f"Corpus {cname} overrides transform {transform_name}, but {transform_name} is not enabled "
+                            f"in corpus transforms."
+                        )
+                    if not getattr(transform_cls, "supports_dataset_overrides", False):
+                        raise ValueError(
+                            f"Corpus {cname} overrides transform {transform_name}, but dataset-level overrides "
+                            f"are not supported for this transform."
+                        )
             # Check path
             if corpus.path_src is None and corpus.path_txt is None:
                 raise ValueError(

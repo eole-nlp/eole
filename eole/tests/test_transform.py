@@ -7,6 +7,7 @@ import random
 import yaml
 import math
 from argparse import Namespace
+from unittest.mock import patch
 from eole.transforms import (
     get_transforms_cls,
     get_specials,
@@ -18,6 +19,19 @@ from eole.transforms.normalize import MosesPunctNormalizer
 from eole.config.run import TrainConfig, PredictConfig
 from eole.config.data import Dataset
 from eole.config.models import CustomModelConfig
+from eole.inputters.text_corpus import ParallelCorpus
+from eole.transforms.tokenize_id import HuggingfaceTokenizer
+
+
+class _FakeHFEncoding:
+    def __init__(self, tokens):
+        self.ids = list(range(len(tokens)))
+        self.tokens = tokens
+
+
+class _FakeHFTokenizer:
+    def encode(self, text):
+        return _FakeHFEncoding(text.split())
 
 
 class TestTransform(unittest.TestCase):
@@ -53,6 +67,427 @@ class TestTransform(unittest.TestCase):
         with self.assertRaises(ValueError):
             transforms_cls["switchout"](opt).warm_up(vocabs=None)
             transforms_cls["bart"](opt).warm_up(vocabs=None)
+
+    def test_hf_dataset_uri_parser_supports_split_and_field(self):
+        dataset_name, dataset_config, split, field = ParallelCorpus._parse_hf_dataset_uri(
+            "hf://skrishna/gsm8k_only_answer/test/label"
+        )
+
+        self.assertEqual(dataset_name, "skrishna/gsm8k_only_answer")
+        self.assertIsNone(dataset_config)
+        self.assertEqual(split, "test")
+        self.assertEqual(field, "label")
+
+    def test_hf_dataset_uri_parser_supports_config_and_default_train_split(self):
+        dataset_name, dataset_config, split, field = ParallelCorpus._parse_hf_dataset_uri(
+            "hf://eole-nlp/estimator_chatml/1720_da/prompt"
+        )
+
+        self.assertEqual(dataset_name, "eole-nlp/estimator_chatml")
+        self.assertEqual(dataset_config, "1720_da")
+        self.assertEqual(split, "train")
+        self.assertEqual(field, "prompt")
+
+    def test_hf_dataset_uri_parser_maps_valid_slice_to_validation_slice(self):
+        self.assertEqual(
+            ParallelCorpus._parse_hf_dataset_uri("hf://owner/name/valid[:100]/text"),
+            ("owner/name", None, "validation[:100]", "text"),
+        )
+
+    def test_hf_streaming_rejects_mixed_local_target(self):
+        corpus = ParallelCorpus("train", "hf://owner/name/train/text", "target.txt")
+
+        with self.assertRaisesRegex(ValueError, "path_tgt.*same hf:// dataset/config/split"):
+            list(corpus.load())
+
+    def test_hf_streaming_rejects_mismatched_target_split(self):
+        corpus = ParallelCorpus("train", "hf://owner/name/train/text", "hf://owner/name/test/label")
+
+        with self.assertRaisesRegex(ValueError, "path_tgt.*same hf:// dataset/config/split"):
+            list(corpus.load())
+
+    def test_hf_streaming_loads_gsm8k_split_fields(self):
+        corpus = ParallelCorpus(
+            "train",
+            "hf://skrishna/gsm8k_only_answer/train/text",
+            "hf://skrishna/gsm8k_only_answer/train/label",
+        )
+        rows = [
+            {"text": "question 1", "label": "answer 1"},
+            {"text": "question 2", "label": "answer 2"},
+        ]
+
+        with patch.object(ParallelCorpus, "_load_hf_dataset", return_value=rows):
+            examples = list(corpus.load())
+
+        self.assertEqual(examples[0]["src"], "question 1")
+        self.assertEqual(examples[0]["tgt"], "answer 1")
+        self.assertEqual(examples[0]["sco"], 1.0)
+        self.assertEqual(examples[1]["src"], "question 2")
+        self.assertEqual(examples[1]["tgt"], "answer 2")
+
+    def test_hf_streaming_loads_estimator_config_fields(self):
+        corpus = ParallelCorpus(
+            "train",
+            "hf://eole-nlp/estimator_chatml/1720_da/prompt",
+            None,
+            "hf://eole-nlp/estimator_chatml/1720_da/sco",
+        )
+        rows = [
+            {"prompt": "prompt 1", "sco": 0.5},
+            {"prompt": "prompt 2", "sco": 0.75},
+        ]
+
+        with patch.object(ParallelCorpus, "_load_hf_dataset", return_value=rows):
+            examples = list(corpus.load())
+
+        self.assertEqual(examples[0]["src"], "prompt 1")
+        self.assertIsNone(examples[0]["tgt"])
+        self.assertEqual(examples[0]["sco"], 0.5)
+        self.assertEqual(examples[1]["src"], "prompt 2")
+        self.assertEqual(examples[1]["sco"], 0.75)
+
+    def test_hf_streaming_applies_offset_and_stride(self):
+        corpus = ParallelCorpus("train", "hf://owner/name/train/text", None)
+        rows = [{"text": "zero"}, {"text": "one"}, {"text": "two"}, {"text": "three"}]
+
+        with patch.object(ParallelCorpus, "_load_hf_dataset", return_value=rows):
+            examples = list(corpus.load(offset=1, stride=2))
+
+        self.assertEqual([example["src"] for example in examples], ["two", "three"])
+
+    def test_hf_streaming_rejects_missing_configured_field(self):
+        corpus = ParallelCorpus("train", "hf://owner/name/train/text", "hf://owner/name/train/label")
+        rows = [{"text": "question"}]
+
+        with patch.object(ParallelCorpus, "_load_hf_dataset", return_value=rows):
+            with self.assertRaisesRegex(ValueError, "path_tgt field: 'label'"):
+                list(corpus.load())
+
+    def test_huggingface_tokenize_max_length_truncates_ids_and_tokens(self):
+        transform = object.__new__(HuggingfaceTokenizer)
+        transform.tokenizer = _FakeHFTokenizer()
+        transform.max_length = 3
+        transform.full_config = Namespace(decoder_start_token="<s>", model=Namespace(encoder=object()))
+
+        ids, tokens = transform.tokenize_string("a b c d", side="src")
+
+        self.assertEqual(ids, [0, 1, 2])
+        self.assertEqual(tokens, ["a", "b", "c"])
+
+    def test_huggingface_tokenize_without_max_length_keeps_full_encoding(self):
+        transform = object.__new__(HuggingfaceTokenizer)
+        transform.tokenizer = _FakeHFTokenizer()
+        transform.max_length = None
+        transform.full_config = Namespace(decoder_start_token="<s>", model=Namespace(encoder=object()))
+
+        ids, tokens = transform.tokenize_string("a b c d", side="src")
+
+        self.assertEqual(ids, [0, 1, 2, 3])
+        self.assertEqual(tokens, ["a", "b", "c", "d"])
+
+    def test_huggingface_tokenize_decoder_only_empty_start_target_keeps_extra_token(self):
+        transform = object.__new__(HuggingfaceTokenizer)
+        transform.tokenizer = _FakeHFTokenizer()
+        transform.max_length = 3
+        transform.full_config = Namespace(decoder_start_token="", model=Namespace(encoder=None))
+
+        ids, tokens = transform.tokenize_string("a b c d", side="tgt")
+
+        self.assertEqual(ids, [0, 1, 2, 3])
+        self.assertEqual(tokens, ["a", "b", "c", "d"])
+
+    def test_chat_transform_renders_messages_with_eole_chat_template(self):
+        transforms_cls = get_transforms_cls(["chat"])
+        chat_template = (
+            "{% for message in messages %}"
+            "<|im_start|>{{ message.role }}\n{{ message.content }}<|im_end|>\n"
+            "{% endfor %}"
+            "{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}"
+        )
+        opt = TrainConfig(
+            data={"dummy": Dataset(path_src="eole/tests/data/src-train.txt")},
+            src_vocab="dummy",
+            share_vocab=True,
+            transforms_configs={
+                "chat": {
+                    "add_generation_prompt": True,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "Respond in XML.\n\n{src}",
+                        }
+                    ],
+                    "target": {"strip_commas": True},
+                }
+            },
+            inference={"chat_template": chat_template},
+            model=CustomModelConfig(),
+        )
+        transform = transforms_cls["chat"](opt)
+        transform.warm_up()
+
+        example = {
+            "src": "What is 1,000 + 5?",
+            "tgt": "1,005",
+            "raw_tgt": "1,005",
+        }
+        transformed = transform.apply(example)
+
+        self.assertEqual(
+            transformed["src"],
+            "<|im_start|>user\nRespond in XML.\n\nWhat is 1,000 + 5?<|im_end|>\n<|im_start|>assistant\n",
+        )
+        self.assertEqual(transformed["tgt"], "1005")
+        self.assertEqual(transformed["raw_tgt"], "1005")
+
+    def test_chat_transform_passes_special_tokens_and_template_kwargs(self):
+        transforms_cls = get_transforms_cls(["chat"])
+        chat_template = "{{ bos_token }}{% if enable_thinking is false %}no-think:{% endif %}{{ messages[0].content }}"
+        opt = TrainConfig(
+            data={"dummy": Dataset(path_src="eole/tests/data/src-train.txt")},
+            src_vocab="dummy",
+            share_vocab=True,
+            transforms_configs={
+                "chat": {
+                    "messages": [{"role": "user", "content": "{src}"}],
+                    "chat_template_kwargs": {"enable_thinking": False},
+                }
+            },
+            inference={"chat_template": chat_template},
+            model=CustomModelConfig(),
+        )
+        transform = transforms_cls["chat"](opt)
+        transform.warm_up(vocabs={"specials": {"bos_token": "<s>"}})
+
+        transformed = transform.apply({"src": "hello"})
+
+        self.assertEqual(transformed["src"], "<s>no-think:hello")
+
+    def test_chat_transform_uses_dataset_message_override(self):
+        transforms_cls = get_transforms_cls(["chat"])
+        opt = TrainConfig(
+            data={
+                "de": Dataset(
+                    path_src="eole/tests/data/src-train.txt",
+                    transforms=["chat"],
+                    transforms_configs={
+                        "chat": {"messages": [{"role": "user", "content": "Translate into German: {src}"}]}
+                    },
+                )
+            },
+            src_vocab="dummy",
+            share_vocab=True,
+            transforms_configs={"chat": {"messages": [{"role": "user", "content": "GLOBAL {src}"}]}},
+            inference={
+                "chat_template": "{{ messages[0].content }}{% if add_generation_prompt %}<assistant>{% endif %}"
+            },
+            model=CustomModelConfig(),
+        )
+        transform = transforms_cls["chat"](opt)
+        transform.warm_up()
+
+        transformed = transform.apply({"src": "Hello"}, corpus_name="de")
+
+        self.assertEqual(transformed["src"], "Translate into German: Hello<assistant>")
+
+    def test_chat_transform_uses_different_dataset_prompts(self):
+        transforms_cls = get_transforms_cls(["chat"])
+        opt = TrainConfig(
+            data={
+                "de": Dataset(
+                    path_src="eole/tests/data/src-train.txt",
+                    transforms=["chat"],
+                    transforms_configs={
+                        "chat": {"messages": [{"role": "user", "content": "Translate into German: {src}"}]}
+                    },
+                ),
+                "fr": Dataset(
+                    path_src="eole/tests/data/src-train.txt",
+                    transforms=["chat"],
+                    transforms_configs={
+                        "chat": {"messages": [{"role": "user", "content": "Translate into French: {src}"}]}
+                    },
+                ),
+            },
+            src_vocab="dummy",
+            share_vocab=True,
+            transforms_configs={"chat": {"messages": [{"role": "user", "content": "GLOBAL {src}"}]}},
+            inference={"chat_template": "{{ messages[0].content }}"},
+            model=CustomModelConfig(),
+        )
+        transform = transforms_cls["chat"](opt)
+        transform.warm_up()
+
+        de = transform.apply({"src": "Hello"}, corpus_name="de")
+        fr = transform.apply({"src": "Hello"}, corpus_name="fr")
+
+        self.assertEqual(de["src"], "Translate into German: Hello")
+        self.assertEqual(fr["src"], "Translate into French: Hello")
+
+    def test_chat_transform_dataset_override_inherits_omitted_global_keys(self):
+        transforms_cls = get_transforms_cls(["chat"])
+        opt = TrainConfig(
+            data={
+                "de": Dataset(
+                    path_src="eole/tests/data/src-train.txt",
+                    transforms=["chat"],
+                    transforms_configs={
+                        "chat": {"messages": [{"role": "user", "content": "Translate into German: {src}"}]}
+                    },
+                )
+            },
+            src_vocab="dummy",
+            share_vocab=True,
+            transforms_configs={
+                "chat": {
+                    "add_generation_prompt": False,
+                    "messages": [{"role": "user", "content": "GLOBAL {src}"}],
+                }
+            },
+            inference={
+                "chat_template": "{{ messages[0].content }}{% if add_generation_prompt %}<assistant>{% endif %}"
+            },
+            model=CustomModelConfig(),
+        )
+        transform = transforms_cls["chat"](opt)
+        transform.warm_up()
+
+        transformed = transform.apply({"src": "Hello"}, corpus_name="de")
+
+        self.assertEqual(transformed["src"], "Translate into German: Hello")
+
+    def test_chat_transform_unknown_corpus_falls_back_to_global_config(self):
+        transforms_cls = get_transforms_cls(["chat"])
+        opt = TrainConfig(
+            data={"de": Dataset(path_src="eole/tests/data/src-train.txt")},
+            src_vocab="dummy",
+            share_vocab=True,
+            transforms_configs={"chat": {"messages": [{"role": "user", "content": "GLOBAL {src}"}]}},
+            inference={"chat_template": "{{ messages[0].content }}"},
+            model=CustomModelConfig(),
+        )
+        transform = transforms_cls["chat"](opt)
+        transform.warm_up()
+
+        transformed = transform.apply({"src": "Hello"}, corpus_name="infer")
+
+        self.assertEqual(transformed["src"], "GLOBAL Hello")
+
+    def test_chat_transform_dataset_override_rejects_unknown_keys(self):
+        transforms_cls = get_transforms_cls(["chat"])
+        opt = TrainConfig(
+            data={
+                "de": Dataset(
+                    path_src="eole/tests/data/src-train.txt",
+                    transforms=["chat"],
+                    transforms_configs={"chat": {"add_generation_promt": False}},
+                )
+            },
+            src_vocab="dummy",
+            share_vocab=True,
+            transforms_configs={"chat": {"messages": [{"role": "user", "content": "GLOBAL {src}"}]}},
+            inference={"chat_template": "{{ messages[0].content }}"},
+            model=CustomModelConfig(),
+        )
+        transform = transforms_cls["chat"](opt)
+
+        with self.assertRaisesRegex(ValueError, "add_generation_promt"):
+            transform.warm_up()
+
+    def test_dataset_override_rejects_unsupported_transform(self):
+        with self.assertRaisesRegex(ValueError, "dataset-level overrides are not supported"):
+            TrainConfig(
+                data={
+                    "de": Dataset(
+                        path_src="eole/tests/data/src-train.txt",
+                        transforms=["huggingface_tokenize"],
+                        transforms_configs={"huggingface_tokenize": {"max_length": 64}},
+                    )
+                },
+                src_vocab="dummy",
+                share_vocab=True,
+                model=CustomModelConfig(),
+            )._validate_data_config()
+
+    def test_chat_transform_allows_empty_global_messages_when_all_chat_corpora_override(self):
+        transforms_cls = get_transforms_cls(["chat"])
+        opt = TrainConfig(
+            data={
+                "de": Dataset(
+                    path_src="eole/tests/data/src-train.txt",
+                    transforms=["chat"],
+                    transforms_configs={
+                        "chat": {"messages": [{"role": "user", "content": "Translate into German: {src}"}]}
+                    },
+                )
+            },
+            src_vocab="dummy",
+            share_vocab=True,
+            transforms_configs={"chat": {"messages": []}},
+            inference={"chat_template": "{{ messages[0].content }}"},
+            model=CustomModelConfig(),
+        )
+        transform = transforms_cls["chat"](opt)
+        transform.warm_up()
+
+        transformed = transform.apply({"src": "Hello"}, corpus_name="de")
+
+        self.assertEqual(transformed["src"], "Translate into German: Hello")
+
+    def test_chat_transform_empty_global_messages_requires_override_for_each_chat_corpus(self):
+        transforms_cls = get_transforms_cls(["chat"])
+        opt = TrainConfig(
+            data={"de": Dataset(path_src="eole/tests/data/src-train.txt", transforms=["chat"])},
+            src_vocab="dummy",
+            share_vocab=True,
+            transforms_configs={"chat": {"messages": []}},
+            inference={"chat_template": "{{ messages[0].content }}"},
+            model=CustomModelConfig(),
+        )
+        transform = transforms_cls["chat"](opt)
+
+        with self.assertRaisesRegex(ValueError, "Missing messages for: de"):
+            transform.warm_up()
+
+    def test_chat_transform_unknown_corpus_with_empty_global_messages_errors(self):
+        transforms_cls = get_transforms_cls(["chat"])
+        opt = TrainConfig(
+            data={
+                "de": Dataset(
+                    path_src="eole/tests/data/src-train.txt",
+                    transforms=["chat"],
+                    transforms_configs={
+                        "chat": {"messages": [{"role": "user", "content": "Translate into German: {src}"}]}
+                    },
+                )
+            },
+            src_vocab="dummy",
+            share_vocab=True,
+            transforms_configs={"chat": {"messages": []}},
+            inference={"chat_template": "{{ messages[0].content }}"},
+            model=CustomModelConfig(),
+        )
+        transform = transforms_cls["chat"](opt)
+        transform.warm_up()
+
+        with self.assertRaisesRegex(ValueError, "no messages for this corpus"):
+            transform.apply({"src": "Hello"}, corpus_name="infer")
+
+    def test_dataset_override_rejects_transform_not_enabled_for_corpus(self):
+        with self.assertRaisesRegex(ValueError, "chat is not enabled in corpus transforms"):
+            TrainConfig(
+                data={
+                    "de": Dataset(
+                        path_src="eole/tests/data/src-train.txt",
+                        transforms=["huggingface_tokenize"],
+                        transforms_configs={"chat": {"messages": [{"role": "user", "content": "{src}"}]}},
+                    )
+                },
+                src_vocab="dummy",
+                share_vocab=True,
+                model=CustomModelConfig(),
+            )._validate_data_config()
 
     def test_transform_specials(self):
         # This test is a bit broken.
