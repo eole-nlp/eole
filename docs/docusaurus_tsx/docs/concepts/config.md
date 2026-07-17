@@ -145,7 +145,6 @@ transforms_configs:
             content: "{src}"
     huggingface_tokenize:
         path: /Users/david/Development/Models/eole/eurollm-1.7B/tokenizer.json
-        max_length: 128
 
 data:
     wmt24pp-de:
@@ -174,6 +173,6 @@ data:
                     content: "Translate from English into French for Canada. Preserve names, numbers, and formatting.\n\nEnglish: {src}\nFrench:"
 ```
 
-Dataset-level overrides are intentionally scoped. Apply-time prompt settings such as `chat.messages` can vary by corpus. Warm-up settings such as `huggingface_tokenize.path`, `huggingface_tokenize.max_length`, BPE models, or SentencePiece models are global for the transform instance and cannot be overridden per dataset yet. Unsupported dataset-level transform overrides fail during config validation instead of being silently ignored.
+Dataset-level overrides are intentionally scoped. Apply-time prompt settings such as `chat.messages` can vary by corpus. Warm-up settings such as `huggingface_tokenize.path`, BPE models, or SentencePiece models are global for the transform instance and cannot be overridden per dataset yet. Unsupported dataset-level transform overrides fail during config validation instead of being silently ignored.
 
 If every corpus using `chat` supplies its own `transforms_configs.chat.messages`, the global `transforms_configs.chat.messages` may be empty. Any chat corpus without a dataset-level `messages` override needs global messages as a fallback. Overrides for transforms that are not enabled in the corpus `transforms` list fail during config validation.

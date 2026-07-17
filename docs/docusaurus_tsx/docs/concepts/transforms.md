@@ -225,11 +225,9 @@ Dataset-level `chat` overrides use shallow per-key replacement:
 | `target` | Replaces global dict |
 | omitted keys | Inherit from global `transforms_configs.chat` |
 
-Only `chat` currently supports dataset-level overrides. Tokenizer warm-up settings such as `huggingface_tokenize.path` and `huggingface_tokenize.max_length` are global for the transform instance and cannot vary per dataset yet.
+Only `chat` currently supports dataset-level overrides. Tokenizer warm-up settings such as `huggingface_tokenize.path` are global for the transform instance and cannot vary per dataset yet.
 
 For HF streaming corpora, dataset `additional_fields` are available to `chat.messages` with the same `{field}` syntax as `{src}` and `{tgt}`. Missing configured additional fields fail when the stream is read.
-
-When configured, `huggingface_tokenize.max_length` truncates encoded token IDs and token strings after rendering. If truncation cuts a target sequence, any EOS token beyond the limit is dropped with the rest of the truncated suffix.
 
 
 #### Augment source segments with fuzzy matches for Neural Fuzzy Repair

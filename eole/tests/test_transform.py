@@ -20,18 +20,6 @@ from eole.config.run import TrainConfig, PredictConfig
 from eole.config.data import Dataset
 from eole.config.models import CustomModelConfig
 from eole.inputters.text_corpus import ParallelCorpus
-from eole.transforms.tokenize_id import HuggingfaceTokenizer
-
-
-class _FakeHFEncoding:
-    def __init__(self, tokens):
-        self.ids = list(range(len(tokens)))
-        self.tokens = tokens
-
-
-class _FakeHFTokenizer:
-    def encode(self, text):
-        return _FakeHFEncoding(text.split())
 
 
 class TestTransform(unittest.TestCase):
@@ -226,39 +214,6 @@ class TestTransform(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "additional_fields.*HF streaming"):
             list(corpus.load())
-
-    def test_huggingface_tokenize_max_length_truncates_ids_and_tokens(self):
-        transform = object.__new__(HuggingfaceTokenizer)
-        transform.tokenizer = _FakeHFTokenizer()
-        transform.max_length = 3
-        transform.full_config = Namespace(decoder_start_token="<s>", model=Namespace(encoder=object()))
-
-        ids, tokens = transform.tokenize_string("a b c d", side="src")
-
-        self.assertEqual(ids, [0, 1, 2])
-        self.assertEqual(tokens, ["a", "b", "c"])
-
-    def test_huggingface_tokenize_without_max_length_keeps_full_encoding(self):
-        transform = object.__new__(HuggingfaceTokenizer)
-        transform.tokenizer = _FakeHFTokenizer()
-        transform.max_length = None
-        transform.full_config = Namespace(decoder_start_token="<s>", model=Namespace(encoder=object()))
-
-        ids, tokens = transform.tokenize_string("a b c d", side="src")
-
-        self.assertEqual(ids, [0, 1, 2, 3])
-        self.assertEqual(tokens, ["a", "b", "c", "d"])
-
-    def test_huggingface_tokenize_decoder_only_empty_start_target_keeps_extra_token(self):
-        transform = object.__new__(HuggingfaceTokenizer)
-        transform.tokenizer = _FakeHFTokenizer()
-        transform.max_length = 3
-        transform.full_config = Namespace(decoder_start_token="", model=Namespace(encoder=None))
-
-        ids, tokens = transform.tokenize_string("a b c d", side="tgt")
-
-        self.assertEqual(ids, [0, 1, 2, 3])
-        self.assertEqual(tokens, ["a", "b", "c", "d"])
 
     def test_chat_transform_renders_messages_with_eole_chat_template(self):
         transforms_cls = get_transforms_cls(["chat"])
