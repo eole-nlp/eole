@@ -107,11 +107,18 @@ Supported URI forms are:
 
 When using HF streaming, `path_tgt` and `path_sco` must point to the same dataset, config, and split as `path_src`; only the final field name may differ.
 
+Use `additional_fields` to copy extra HF columns into each example before transforms run. This is useful when a transform prompt needs metadata such as WMT24++ `domain`, `document_id`, or `segment_id`.
+
 ```yaml
 data:
     gsm8k:
         path_src: hf://skrishna/gsm8k_only_answer/train/text
         path_tgt: hf://skrishna/gsm8k_only_answer/train/label
+        transforms: [chat, huggingface_tokenize]
+    wmt24pp-de:
+        path_src: hf://google/wmt24pp/en-de_DE/source
+        path_tgt: hf://google/wmt24pp/en-de_DE/target
+        additional_fields: [domain, document_id, segment_id]
         transforms: [chat, huggingface_tokenize]
     estimator:
         path_src: hf://eole-nlp/estimator_chatml/1720_da/prompt
@@ -120,6 +127,8 @@ data:
 ```
 
 Compact URIs treat common split names such as `train`, `valid`, `validation`, and `test` as splits. If a dataset config is literally named like a split, use the explicit four-part form: `hf://owner/dataset/config/split/field`.
+
+Missing configured `additional_fields` fail fast when the HF stream is read. `additional_fields` is currently supported only for HF streaming corpora.
 
 ## Dataset-Level Transform Overrides
 
@@ -142,6 +151,7 @@ data:
     wmt24pp-de:
         path_src: hf://google/wmt24pp/en-de_DE/source
         path_tgt: hf://google/wmt24pp/en-de_DE/target
+        additional_fields: [domain, document_id]
         transforms: [chat, huggingface_tokenize]
         transforms_configs:
             chat:
@@ -149,7 +159,7 @@ data:
                   - role: system
                     content: "You are a professional translator."
                   - role: user
-                    content: "Translate from English into German.\n\nEnglish: {src}\nGerman:"
+                    content: "Translate from English into German.\nDomain: {domain}\nDocument: {document_id}\n\nEnglish: {src}\nGerman:"
 
     wmt24pp-fr:
         path_src: hf://google/wmt24pp/en-fr_FR/source

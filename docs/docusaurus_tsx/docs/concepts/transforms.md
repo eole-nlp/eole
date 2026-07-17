@@ -192,6 +192,7 @@ data:
   wmt24pp-de:
     path_src: hf://google/wmt24pp/en-de_DE/source
     path_tgt: hf://google/wmt24pp/en-de_DE/target
+    additional_fields: [domain, document_id]
     transforms: [chat, huggingface_tokenize]
     transforms_configs:
       chat:
@@ -199,7 +200,7 @@ data:
           - role: system
             content: "You are a professional translator."
           - role: user
-            content: "Translate from English into German.\n\nEnglish: {src}\nGerman:"
+            content: "Translate from English into German.\nDomain: {domain}\nDocument: {document_id}\n\nEnglish: {src}\nGerman:"
 
   wmt24pp-fr:
     path_src: hf://google/wmt24pp/en-fr_FR/source
@@ -225,6 +226,8 @@ Dataset-level `chat` overrides use shallow per-key replacement:
 | omitted keys | Inherit from global `transforms_configs.chat` |
 
 Only `chat` currently supports dataset-level overrides. Tokenizer warm-up settings such as `huggingface_tokenize.path` and `huggingface_tokenize.max_length` are global for the transform instance and cannot vary per dataset yet.
+
+For HF streaming corpora, dataset `additional_fields` are available to `chat.messages` with the same `{field}` syntax as `{src}` and `{tgt}`. Missing configured additional fields fail when the stream is read.
 
 When configured, `huggingface_tokenize.max_length` truncates encoded token IDs and token strings after rendering. If truncation cuts a target sequence, any EOS token beyond the limit is dropped with the rest of the truncated suffix.
 

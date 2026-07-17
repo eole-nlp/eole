@@ -164,6 +164,69 @@ class TestTransform(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "path_tgt field: 'label'"):
                 list(corpus.load())
 
+    def test_hf_streaming_copies_additional_fields(self):
+        corpus = ParallelCorpus(
+            "train",
+            "hf://google/wmt24pp/en-de_DE/source",
+            "hf://google/wmt24pp/en-de_DE/target",
+            additional_fields=["domain", "document_id"],
+        )
+        rows = [
+            {
+                "source": "Hello",
+                "target": "Hallo",
+                "domain": "news",
+                "document_id": "doc-1",
+            }
+        ]
+
+        with patch.object(ParallelCorpus, "_load_hf_dataset", return_value=rows):
+            examples = list(corpus.load())
+
+        self.assertEqual(examples[0]["src"], "Hello")
+        self.assertEqual(examples[0]["tgt"], "Hallo")
+        self.assertEqual(examples[0]["domain"], "news")
+        self.assertEqual(examples[0]["document_id"], "doc-1")
+
+    def test_hf_streaming_rejects_missing_additional_field(self):
+        corpus = ParallelCorpus(
+            "train",
+            "hf://google/wmt24pp/en-de_DE/source",
+            "hf://google/wmt24pp/en-de_DE/target",
+            additional_fields=["domain"],
+        )
+        rows = [{"source": "Hello", "target": "Hallo"}]
+
+        with patch.object(ParallelCorpus, "_load_hf_dataset", return_value=rows):
+            with self.assertRaisesRegex(ValueError, "additional_fields field: 'domain'"):
+                list(corpus.load())
+
+    def test_additional_fields_reject_reserved_example_fields(self):
+        with self.assertRaisesRegex(ValueError, "additional_fields.*reserved.*src"):
+            TrainConfig(
+                data={
+                    "wmt24pp-de": Dataset(
+                        path_src="hf://google/wmt24pp/en-de_DE/source",
+                        path_tgt="hf://google/wmt24pp/en-de_DE/target",
+                        additional_fields=["domain", "src"],
+                    )
+                },
+                src_vocab="dummy",
+                share_vocab=True,
+                model=CustomModelConfig(),
+            )
+
+    def test_local_corpus_rejects_additional_fields(self):
+        corpus = ParallelCorpus(
+            "train",
+            "eole/tests/data/src-train.txt",
+            "eole/tests/data/tgt-train.txt",
+            additional_fields=["domain"],
+        )
+
+        with self.assertRaisesRegex(ValueError, "additional_fields.*HF streaming"):
+            list(corpus.load())
+
     def test_huggingface_tokenize_max_length_truncates_ids_and_tokens(self):
         transform = object.__new__(HuggingfaceTokenizer)
         transform.tokenizer = _FakeHFTokenizer()
@@ -325,6 +388,57 @@ class TestTransform(unittest.TestCase):
         self.assertEqual(de["src"], "Translate into German: Hello")
         self.assertEqual(fr["src"], "Translate into French: Hello")
 
+    def test_chat_transform_uses_hf_additional_fields_in_dataset_prompt(self):
+        corpus = ParallelCorpus(
+            "de",
+            "hf://google/wmt24pp/en-de_DE/source",
+            "hf://google/wmt24pp/en-de_DE/target",
+            additional_fields=["domain", "document_id"],
+        )
+        rows = [
+            {
+                "source": "Hello",
+                "target": "Hallo",
+                "domain": "news",
+                "document_id": "doc-1",
+            }
+        ]
+        with patch.object(ParallelCorpus, "_load_hf_dataset", return_value=rows):
+            example = next(corpus.load())
+
+        transforms_cls = get_transforms_cls(["chat"])
+        opt = TrainConfig(
+            data={
+                "de": Dataset(
+                    path_src="hf://google/wmt24pp/en-de_DE/source",
+                    path_tgt="hf://google/wmt24pp/en-de_DE/target",
+                    additional_fields=["domain", "document_id"],
+                    transforms=["chat"],
+                    transforms_configs={
+                        "chat": {
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": "Domain: {domain}\nDocument: {document_id}\nEnglish: {src}\nGerman:",
+                                }
+                            ]
+                        }
+                    },
+                )
+            },
+            src_vocab="dummy",
+            share_vocab=True,
+            transforms_configs={"chat": {"messages": []}},
+            inference={"chat_template": "{{ messages[0].content }}"},
+            model=CustomModelConfig(),
+        )
+        transform = transforms_cls["chat"](opt)
+        transform.warm_up()
+
+        transformed = transform.apply(example, corpus_name="de")
+
+        self.assertEqual(transformed["src"], "Domain: news\nDocument: doc-1\nEnglish: Hello\nGerman:")
+
     def test_chat_transform_dataset_override_inherits_omitted_global_keys(self):
         transforms_cls = get_transforms_cls(["chat"])
         opt = TrainConfig(
@@ -356,6 +470,22 @@ class TestTransform(unittest.TestCase):
         transformed = transform.apply({"src": "Hello"}, corpus_name="de")
 
         self.assertEqual(transformed["src"], "Translate into German: Hello")
+
+    def test_chat_transform_missing_formatted_field_suggests_additional_fields(self):
+        transforms_cls = get_transforms_cls(["chat"])
+        opt = TrainConfig(
+            data={"de": Dataset(path_src="eole/tests/data/src-train.txt", transforms=["chat"])},
+            src_vocab="dummy",
+            share_vocab=True,
+            transforms_configs={"chat": {"messages": [{"role": "user", "content": "Domain: {domain}\n{src}"}]}},
+            inference={"chat_template": "{{ messages[0].content }}"},
+            model=CustomModelConfig(),
+        )
+        transform = transforms_cls["chat"](opt)
+        transform.warm_up()
+
+        with self.assertRaisesRegex(ValueError, "domain.*additional_fields"):
+            transform.apply({"src": "Hello"}, corpus_name="de")
 
     def test_chat_transform_unknown_corpus_falls_back_to_global_config(self):
         transforms_cls = get_transforms_cls(["chat"])

@@ -142,13 +142,14 @@ class ImageTextCorpus(object):
 class ParallelCorpus(object):
     """A parallel corpus file pair that can be loaded to iterate."""
 
-    def __init__(self, name, path_src, path_tgt, path_sco=None, path_align=None):
+    def __init__(self, name, path_src, path_tgt, path_sco=None, path_align=None, additional_fields=None):
         """Initialize src & tgt side file path."""
         self.id = name
         self.src = path_src
         self.tgt = path_tgt
         self.sco = path_sco
         self.align = path_align
+        self.additional_fields = additional_fields or []
 
     @staticmethod
     def _parse_hf_dataset_uri(hf_string):
@@ -242,8 +243,10 @@ class ParallelCorpus(object):
         Therefore we need to apply a stride / offset rule to make sure we do not process the same ex.
         HF streaming uses the same rule because each worker/rank opens an independent streaming iterator.
         """
+        if self.additional_fields and not (isinstance(self.src, str) and self.src.startswith("hf://")):
+            raise ValueError("additional_fields is currently supported only for HF streaming corpora.")
 
-        def make_ex(sline, tline, scoline, align):
+        def make_ex(sline, tline, scoline, align, additional_values=None):
             example = {
                 "src": sline,
                 "tgt": tline,
@@ -251,6 +254,8 @@ class ParallelCorpus(object):
             }
             if align is not None:
                 example["align"] = align
+            if additional_values is not None:
+                example.update(additional_values)
             return example
 
         if isinstance(self.src, list):
@@ -276,7 +281,11 @@ class ParallelCorpus(object):
                     sline = self._get_hf_field(example, src_field, "path_src")
                     tline = self._get_hf_field(example, tgt_field, "path_tgt") if tgt_field is not None else None
                     scoline = self._get_hf_field(example, sco_field, "path_sco") if sco_field is not None else 1.0
-                    yield make_ex(sline, tline, scoline, None)
+                    additional_values = {
+                        field: self._get_hf_field(example, field, "additional_fields")
+                        for field in self.additional_fields
+                    }
+                    yield make_ex(sline, tline, scoline, None, additional_values)
 
         else:
             with exfile_open(self.src, mode="rb") as fs, exfile_open(self.tgt, mode="rb") as ft, exfile_open(
@@ -312,6 +321,7 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
                         corpus_dict.path_tgt,
                         corpus_dict.path_sco,
                         corpus_dict.path_align,
+                        corpus_dict.additional_fields,
                     )
                 elif data_type == "text":
                     corpora_dict[corpus_id] = BlockwiseCorpus(
@@ -341,6 +351,7 @@ def get_corpora(config, task=CorpusTask.TRAIN, src=None, tgt=None, align=None):
                     config.data[CorpusName.VALID].path_tgt,
                     None,
                     config.data[CorpusName.VALID].path_align,
+                    config.data[CorpusName.VALID].additional_fields,
                 )
             elif data_type == "image":
                 corpora_dict[CorpusName.VALID] = ImageTextCorpus(

@@ -93,7 +93,14 @@ class ChatTransform(Transform):
     @staticmethod
     def _format_value(value, fields):
         if isinstance(value, str):
-            return value.format(**fields)
+            try:
+                return value.format(**fields)
+            except KeyError as exc:
+                missing_field = exc.args[0]
+                raise ValueError(
+                    f"chat message references missing field {missing_field!r}; add it to the corpus "
+                    "additional_fields or check the spelling."
+                ) from exc
         if isinstance(value, list):
             return [ChatTransform._format_value(item, fields) for item in value]
         if isinstance(value, dict):

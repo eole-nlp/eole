@@ -72,6 +72,7 @@ class Dataset(Config):
     path_sco: str | None = None
     path_txt: str | None = None  # not sure we need this one with proper path_src handling
     path_align: str | None = None
+    additional_fields: List[str] | None = None
     transforms_configs: Dict[str, Dict[str, Any]] | None = None
     # optional stuff for some transforms
     # TODO: define a better mechanism to support such settings
@@ -97,6 +98,18 @@ class Dataset(Config):
     avg_tok_min: float | None = 3
     avg_tok_max: float | None = 20
     lang_id: List[str] | None = ["en", "fr"]
+
+    @field_validator("additional_fields")
+    @classmethod
+    def _reject_reserved_additional_fields(cls, v):
+        if v is None:
+            return v
+        reserved_fields = {"src", "tgt", "sco", "align"}
+        reserved_additional_fields = sorted(reserved_fields.intersection(v))
+        if reserved_additional_fields:
+            fields = ", ".join(reserved_additional_fields)
+            raise ValueError(f"additional_fields cannot use reserved example fields: {fields}.")
+        return v
 
 
 # add all opts from all transforms (like in eole.opts._add_transform_opt)
