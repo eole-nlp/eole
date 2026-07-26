@@ -36,6 +36,7 @@ class TrainerConfig:
     attention_dropout: List[float] = None
     dropout_steps: List[int] = None
     zero_out_prompt_loss: bool = False
+    empty_cache_steps: int = 0
     estim_loss_lambda: List[float] = None
     estim_loss_lambda_steps: List[int] = None
 
@@ -300,6 +301,7 @@ class Trainer:
 
             # Core training step (overridable by subclasses)
             self._train_step(batches, normalization, total_stats, report_stats, step=step)
+            self._maybe_clear_device_cache(step)
 
             # Update moving average
             if self.config.average_decay > 0 and i % self.config.average_every == 0:
@@ -365,6 +367,11 @@ class Trainer:
             step: Current training step number.
         """
         self._process_accumulated_batches(batches, normalization, total_stats, report_stats)
+
+    def _maybe_clear_device_cache(self, step: int):
+        if self.config.empty_cache_steps <= 0 or step % self.config.empty_cache_steps != 0:
+            return
+        clear_gpu_cache()
 
     def _update_scheduled_params(self, step: int):
         """Update all scheduled parameters."""
@@ -656,6 +663,7 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
         attention_dropout=running_config.attention_dropout,
         dropout_steps=running_config.dropout_steps,
         zero_out_prompt_loss=running_config.zero_out_prompt_loss,
+        empty_cache_steps=running_config.empty_cache_steps,
         estim_loss_lambda=running_config.estim_loss_lambda,
         estim_loss_lambda_steps=running_config.estim_loss_lambda_steps,
     )
