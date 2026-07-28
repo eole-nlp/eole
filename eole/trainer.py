@@ -301,7 +301,8 @@ class Trainer:
 
             # Core training step (overridable by subclasses)
             self._train_step(batches, normalization, total_stats, report_stats, step=step)
-            self._maybe_clear_device_cache(step)
+            if self.optim.training_step > step:
+                self._maybe_clear_device_cache(step)
 
             # Update moving average
             if self.config.average_decay > 0 and i % self.config.average_every == 0:
