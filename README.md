@@ -1,6 +1,6 @@
 # EOLE
 
-## Latest: Comet abd MetricX scoring with Eole-nlp (using converted legacy models)
+## Latest: Comet and MetricX scoring with Eole-nlp (using converted legacy models)
 
 Eole-nlp enables to use the pretrained models for scoring as well as scoring during training.
 
