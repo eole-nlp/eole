@@ -77,6 +77,8 @@ def clear_gpu_cache():
         torch.cuda.empty_cache()
     if torch.backends.mps.is_available():
         torch.mps.empty_cache()
+        if hasattr(torch.mps, "clear_graph_cache"):
+            torch.mps.clear_graph_cache()
 
 
 def get_device_type():

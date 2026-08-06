@@ -2,8 +2,11 @@ import torch
 import torch.nn as nn
 from glob import glob
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Union
 import os
 import itertools
+from safetensors.torch import load_file
 
 from eole.utils.logging import logger
 
@@ -17,18 +20,56 @@ from torch.nn.utils import skip_init
 from torch.nn.init import xavier_uniform_, zeros_, uniform_, normal_
 from eole.utils.misc import get_device
 from eole.inputters.inputter import dict_to_vocabs
+from eole.config.inference import InferenceConfig
 
 # copied from model_builder to facilitate tests, but should not live there in the end
 from eole.encoders import str2enc
 from eole.decoders import str2dec
 from eole.adapters import str2adapter
-from eole.constants import DefaultTokens, LayerNormFP32
-from eole.modules.embeddings import Embeddings
+from eole.constants import DefaultTokens, LayerNormFP32, TORCH_DTYPES
+from eole.modules.embeddings import Embeddings, RobertaEmbeddings
 from eole.models.model_saver import get_metadata, TP_COL_PARALLEL_LAYERS, TP_ROW_PARALLEL_LAYERS
 from eole.modules.estimator import FeedForward
+from eole.modules.representation import LayerwiseAttention, RepresentationExtractor
 
 from eole.encoders.vision import VisionEncoder
 from eole.encoders.audio import AudioEncoder
+
+
+@dataclass
+class ModelOutput:
+    """Structured output from model forward pass.
+
+    Replaces the raw tuple ``(dec_out, attns, estim)`` with a named
+    dataclass while remaining backward-compatible via tuple unpacking.
+
+    Attributes:
+        dec_out: Decoder output tensor ``(batch, tgt_len, hidden)``
+            (or encoder output for encoder-only models).
+        attns: Attention weight dict ``{attn_type: (batch, head, tgt_len, src_len)}``
+            for encoder-decoder/decoder models, or encoder final hidden
+            state(s) (tensor, or tuple thereof for RNNs) for encoder-only
+            models, or None.
+        estim: Estimator output (scalar per sample), or None if estimator is disabled.
+    """
+
+    dec_out: torch.Tensor
+    # attns can be: an attention-weight dict (encoder-decoder/decoder models),
+    # a single tensor of encoder final hidden states, or a tuple of such
+    # tensors for RNN encoders (h_n, c_n), or None (some encoder-only models).
+    attns: Optional[Union[Dict[str, Any], torch.Tensor, tuple]] = None
+    estim: Optional[torch.Tensor] = None
+
+    def __iter__(self):
+        """Allow tuple unpacking: ``dec_out, attns, estim = model(...)``."""
+        return iter((self.dec_out, self.attns, self.estim))
+
+    def __getitem__(self, idx):
+        """Allow indexing: ``model_output[0]`` for dec_out."""
+        return (self.dec_out, self.attns, self.estim)[idx]
+
+    def __len__(self):
+        return 3
 
 
 def build_encoder(model_config, running_config=None):
@@ -69,19 +110,38 @@ def build_decoder(model_config, running_config=None):
 def build_src_emb(model_config, vocabs, running_config=None):
     # Build embeddings.
     pad_token = vocabs["specials"].get("pad_token", DefaultTokens.PAD)
-    src_emb = Embeddings(
-        word_vec_size=model_config.embeddings.src_word_vec_size,
-        position_encoding_type=model_config.embeddings.position_encoding_type,
-        position_shift=model_config.embeddings.position_shift,
-        dropout=getattr(running_config, "dropout", [0.0])[0],
-        word_padding_idx=vocabs["tgt"][pad_token],
-        word_vocab_size=len(vocabs["src"]),
-        sparse=getattr(running_config, "optim", None) == "sparseadam",
-        freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
-        n_positions=model_config.embeddings.n_positions,
-        normalize=model_config.embeddings.normalize,
-    )
+    src_pad_idx = vocabs["src"][pad_token]
+    if getattr(model_config.embeddings, "embedding_type", "standard") == "roberta":
+        src_emb = RobertaEmbeddings(
+            word_vec_size=model_config.embeddings.src_word_vec_size,
+            word_padding_idx=src_pad_idx,
+            word_vocab_size=len(vocabs["src"]),
+            dropout=getattr(running_config, "dropout", [0.0])[0],
+            n_positions=model_config.embeddings.n_positions,
+            token_type_vocab_size=max(1, getattr(model_config.embeddings, "token_type_vocab_size", 0)),
+            embedding_layer_norm=getattr(model_config.embeddings, "embedding_layer_norm", False),
+            norm_eps=model_config.norm_eps,
+        )
+    else:
+        src_emb = Embeddings(
+            word_vec_size=model_config.embeddings.src_word_vec_size,
+            position_encoding_type=model_config.embeddings.position_encoding_type,
+            position_shift=model_config.embeddings.position_shift,
+            dropout=getattr(running_config, "dropout", [0.0])[0],
+            word_padding_idx=src_pad_idx,
+            word_vocab_size=len(vocabs["src"]),
+            sparse=getattr(running_config, "optim", None) == "sparseadam",
+            freeze_word_vecs=model_config.embeddings.freeze_word_vecs_enc,
+            n_positions=model_config.embeddings.n_positions,
+            normalize=model_config.embeddings.normalize,
+        )
     return src_emb
+
+
+def build_scorer_inference_config(model_dir, compute_dtype):
+    config = InferenceConfig(model_path=model_dir, compute_dtype=compute_dtype, estim_only=True, with_score=True)
+    config.check_self_attn_backend()
+    return config
 
 
 def build_tgt_emb(model_config, vocabs, running_config=None, share_embeddings=False, src_emb=None):
@@ -113,6 +173,11 @@ class BaseModel(nn.Module):
     Args:
       encoder (eole.encoders.EncoderBase): an encoder object
       decoder (eole.decoders.DecoderBase): a decoder object"""
+
+    #: Whether ``forward()`` is decoder-only, i.e. it decodes its first
+    #: positional argument and ignores the second (cf. ``DecoderModel``).
+    #: Used by :meth:`compute_log_probs` to route ``tgt`` correctly.
+    is_decoder_only = False
 
     def __init__(self, **kwargs):
         super(BaseModel, self).__init__()
@@ -490,6 +555,86 @@ class BaseModel(nn.Module):
 
         raise NotImplementedError
 
+    def compute_log_probs(self, src, tgt, src_len, **kwargs):
+        """Compute per-token log-probabilities for a given src/tgt pair.
+
+        Runs the model forward and applies the generator + log-softmax to
+        obtain log-probabilities over the vocabulary at each target position.
+        This is useful for RL policy gradient methods and KL-divergence
+        computation against a reference model.
+
+        Args:
+            src (Tensor): Source input ``(batch, src_len)`` or appropriate format.
+                Ignored for decoder-only (LM) models, which decode ``tgt`` directly.
+            tgt (LongTensor): Target sequence ``(batch, tgt_len)``.
+            src_len (LongTensor): Lengths ``(batch,)`` of the sequence passed as the
+                first positional argument to ``forward()``. For encoder-decoder models
+                this is the source lengths; for decoder-only (LM) models ``tgt`` is
+                routed into that first slot, so ``src_len`` must be the lengths of
+                ``tgt`` (not the original ``src``) in that case.
+            **kwargs: Additional arguments passed to forward (e.g. images, prefix_len).
+
+        Returns:
+            A dict with:
+                - 'log_probs': ``(batch, tgt_len - tgt_shift, vocab_size)`` log-probabilities,
+                  in the model's native (generator output) dtype. Cast to float32 if higher
+                  precision is needed (e.g. KL-divergence against a reference model).
+                - 'token_log_probs': ``(batch, tgt_len - tgt_shift)`` log-probs of actual target tokens
+                - 'dec_out': raw decoder output ``(batch, tgt_len, hidden)``
+                - 'estim': estimator output (or None)
+        """
+        if self.generator is None:
+            raise RuntimeError(
+                "compute_log_probs() requires a generator head, but this model "
+                "has generator=None (e.g. encoder-only models)."
+            )
+        if self.is_decoder_only:
+            # Decoder-only LMs embed/decode their first positional argument
+            # and ignore the second (cf. DecoderModel.forward). Route ``tgt``
+            # (the sequence we want log-probs for) into that first slot
+            # instead of ``src``, to avoid silently computing logits for
+            # ``src`` while gathering token log-probs from ``tgt``.
+            dec_out, attns, estim = self.forward(tgt, None, src_len, **kwargs)
+        else:
+            dec_out, attns, estim = self.forward(src, tgt, src_len, **kwargs)
+
+        # Apply generator to get logits over vocabulary
+        # dec_out: (batch, tgt_len, hidden) -> logits: (batch, tgt_len, vocab_size)
+        logits = self.generator(dec_out)
+
+        # Compute log-softmax in the generator's native dtype (matches the inference
+        # path, cf. eole.predict.inference). Callers needing higher precision (e.g.
+        # KL-divergence against a reference model) should cast the result themselves;
+        # forcing float32 here would needlessly double the memory of a (batch, tgt_len,
+        # vocab_size) tensor for every call.
+        log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+
+        # Gather log-probs of actual target tokens
+        # tgt_shift: for NMT models shift=1 (ignore BOS), for LM shift=0
+        tgt_shifted = tgt[:, self.tgt_shift :]
+        # Align tgt_shifted length with dec_out length in case they differ
+        seq_len = min(tgt_shifted.size(1), log_probs.size(1))
+        tgt_shifted = tgt_shifted[:, :seq_len]
+        log_probs = log_probs[:, :seq_len, :]
+        # Create padding mask (padding tokens should not contribute to log-probs)
+        # Use tgt_pad_idx if available (EncoderDecoderModel), otherwise fall back to pad_idx
+        pad_idx = getattr(self, "tgt_pad_idx", getattr(self, "pad_idx", 1))
+        padding_mask = tgt_shifted.ne(pad_idx)
+        # Clamp indices for gather (padding positions will be masked out)
+        tgt_clamped = tgt_shifted.clamp(min=0)
+        token_log_probs = log_probs.gather(2, tgt_clamped.unsqueeze(2)).squeeze(2)
+        # Zero out log-probs at padding positions (match token_log_probs dtype to
+        # avoid an unnecessary upcast to float32).
+        token_log_probs = token_log_probs * padding_mask.to(token_log_probs.dtype)
+
+        return {
+            "log_probs": log_probs,
+            "token_log_probs": token_log_probs,
+            "padding_mask": padding_mask,
+            "dec_out": dec_out,
+            "estim": estim,
+        }
+
     def update_dropout(self, dropout, attention_dropout):
         raise NotImplementedError
 
@@ -590,19 +735,25 @@ class BaseModel(nn.Module):
             else:
                 param.data = sliced.contiguous()
 
+    def _checkpoint_key_for_param(self, full_name):
+        return full_name
+
     def _try_load_parameter(
         self, module_name, module, param_name, param, f, keys_shard, updated_params, buf_list, keyfound, tp_offset
     ):
         """Try to load a parameter from updated_params or keys_shard."""
         # in the case of "adapter.new_line" adapter is not a module hence module_name is ""
         full_name = f"{module_name}.{param_name}" if module_name else f"{param_name}"
+        checkpoint_name = self._checkpoint_key_for_param(full_name)
         ckpt_t = updated_params.get(full_name)
-        if ckpt_t is None and full_name in keys_shard:
-            ckpt_t = f[keys_shard[full_name]].get_tensor(full_name)
+        loaded_name = full_name
+        if ckpt_t is None and checkpoint_name in keys_shard:
+            ckpt_t = f[keys_shard[checkpoint_name]].get_tensor(checkpoint_name)
+            loaded_name = checkpoint_name
         if ckpt_t is None:
             return False
         self._load_param(module_name, module, param_name, param, buf_list, ckpt_t, tp_offset)
-        keyfound[full_name] = True
+        keyfound[loaded_name] = True
         return True
 
     def _maybe_warn_missing_parameter(self, module_name, param_name, module, buffers_list):
@@ -743,6 +894,7 @@ class BaseModel(nn.Module):
         # so we load the weights  module by module and transfer them to GPU for quantization
         dtype = getattr(running_config, "storage_dtype", torch.float32)
         f, keys_shard = self._load_safetensors_shards(model_path)
+        self._last_loaded_checkpoint_keys = set(keys_shard)
         if device == torch.device("cpu"):
             tp_offset = 0
         buf_list = [name for name, _ in self.named_buffers()]
@@ -753,6 +905,7 @@ class BaseModel(nn.Module):
         self._report_extra_keys(keys_shard, keyfound, buf_list)
         self._reset_lora_to_fp32()
         self._reset_invfreq_to_fp32(buf_list)
+        return keyfound
 
     def count_parameters(self, log=print):
         """Count number of parameters in model (& print with `log` callback).
@@ -868,7 +1021,7 @@ class EncoderDecoderModel(BaseModel):
         else:
             estim = None
 
-        return dec_out, attns, estim
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
@@ -877,12 +1030,187 @@ class EncoderDecoderModel(BaseModel):
         self.tgt_emb.update_dropout(dropout)
 
 
+class EncoderDecoderScoringModel(EncoderDecoderModel):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        model_config = kwargs.get("model_config")
+        vocabs = kwargs.get("vocabs")
+        self.model_config = model_config
+        self.vocabs = vocabs
+        self.scoring_type = getattr(model_config, "scoring_type", "token_regression")
+        self.input_mode = getattr(model_config, "input_mode", "reference")
+        self.default_input_mode = getattr(model_config, "default_input_mode", self.input_mode)
+        self.supported_input_modes = list(getattr(model_config, "supported_input_modes", [self.input_mode]))
+        self.input_templates = dict(getattr(model_config, "input_templates", {"reference": "{src} {tgt} {ref}"}))
+        self.requires_reference = bool(getattr(model_config, "requires_reference", True))
+        self.strip_eos = bool(getattr(model_config, "strip_eos", True))
+        self.score_token_id = int(getattr(model_config, "score_token_id", 250089))
+        self.score_position = int(getattr(model_config, "score_position", 0))
+        self.decoder_input_length = int(getattr(model_config, "decoder_input_length", 2))
+        self.score_min = float(getattr(model_config, "score_min", 0.0))
+        self.score_max = float(getattr(model_config, "score_max", 25.0))
+        self.max_length = int(getattr(model_config, "max_length", 1536))
+        self.output_scale = bool(getattr(model_config, "output_scale", True))
+
+        for layer in getattr(self.decoder, "transformer_layers", []):
+            context_attn = getattr(layer, "context_attn", None)
+            if context_attn is not None:
+                context_attn.relative_attention_bias = None
+
+        specials = vocabs["specials"]
+        self.pad_idx = vocabs["src"].lookup_token(specials["pad_token"])
+        self.eos_id = vocabs["src"].lookup_token(specials["eos_token"])
+        decoder_start_token = vocabs.get("decoder_start_token") or specials.get("bos_token") or specials["pad_token"]
+        self.decoder_start_id = vocabs["tgt"].lookup_token(decoder_start_token)
+
+    @staticmethod
+    def _normalize_compute_dtype(compute_dtype):
+        if compute_dtype is None:
+            return torch.float32
+        if isinstance(compute_dtype, torch.dtype):
+            return compute_dtype
+        return TORCH_DTYPES[str(compute_dtype)]
+
+    @staticmethod
+    def _runtime_config(model_dir, model_config, compute_dtype):
+        dtype = EncoderDecoderScoringModel._normalize_compute_dtype(compute_dtype)
+        return build_scorer_inference_config(model_dir, dtype)
+
+    @classmethod
+    def from_model_dir(cls, model_dir, device=None, compute_dtype=None):
+        model, _, _ = cls.for_inference(model_path=model_dir, device=device, compute_dtype=compute_dtype)
+        return model
+
+    @classmethod
+    def for_inference(cls, running_config=None, device_id=0, model_path=None, device=None, compute_dtype=None):
+        model_dir = model_path or running_config.model_path[0]
+        metadata = get_metadata(model_dir)
+        model_config = metadata["config"].model
+        if model_config.architecture != "transformer_encoder_decoder_scorer":
+            raise ValueError(
+                "Expected a transformer_encoder_decoder_scorer model, " f"got architecture={model_config.architecture}"
+            )
+        vocabs = dict_to_vocabs(metadata["vocab"])
+
+        if running_config is None:
+            running_config = cls._runtime_config(model_dir, model_config, compute_dtype)
+        else:
+            update_dict = {"model": model_config}
+            if hasattr(running_config, "model_fields_set") and hasattr(running_config, "update"):
+                training_config = metadata["config"].training
+                if "quant_type" not in running_config.model_fields_set:
+                    update_dict["quant_type"] = training_config.quant_type
+                if "quant_layers" not in running_config.model_fields_set:
+                    update_dict["quant_layers"] = training_config.quant_layers
+                if "quant_exclude_modules" not in running_config.model_fields_set:
+                    update_dict["quant_exclude_modules"] = training_config.quant_exclude_modules
+                if "autoround_packing_format" not in running_config.model_fields_set:
+                    update_dict["autoround_packing_format"] = training_config.autoround_packing_format
+                if "autoround_sym" not in running_config.model_fields_set:
+                    update_dict["autoround_sym"] = training_config.autoround_sym
+                running_config.update(**update_dict)
+
+        if device is not None:
+            resolved_device = torch.device(device)
+        elif isinstance(device_id, (str, torch.device)):
+            resolved_device = torch.device(device_id)
+        else:
+            resolved_device = get_device(device_id=device_id)
+
+        model = cls.build(model_config, vocabs, running_config)
+        _, tp_offset = model._setup_device_and_offset(running_config, device_id)
+        if resolved_device == torch.device("cpu"):
+            tp_offset = 0
+
+        logger.info("Loading data into the model")
+        model.load_safe_state_dict(
+            model_dir,
+            running_config=running_config,
+            vocabs=vocabs,
+            metadata=metadata,
+            device=resolved_device,
+            tp_offset=tp_offset,
+            strict=True,
+        )
+        model._prepare_for_inference(running_config)
+        del metadata
+        return model, vocabs, model_config
+
+    def validate_input_mode(self, input_mode):
+        if input_mode not in self.supported_input_modes:
+            supported = ", ".join(self.supported_input_modes)
+            raise ValueError(
+                "Encoder-decoder scorer model does not support "
+                f"input_mode={input_mode!r}. Supported modes: {supported}."
+            )
+
+    @classmethod
+    def build_blocks(cls, model_config, vocabs, running_config=None):
+        src_emb = build_src_emb(model_config, vocabs, running_config=running_config)
+        encoder = build_encoder(model_config, running_config=running_config)
+        tgt_emb = build_tgt_emb(
+            model_config,
+            vocabs,
+            running_config=running_config,
+            share_embeddings=model_config.share_embeddings,
+            src_emb=src_emb,
+        )
+        model_config.decoder.with_cross_attn = True
+        decoder = build_decoder(model_config, running_config=running_config)
+        return cls(
+            encoder=encoder,
+            decoder=decoder,
+            src_emb=src_emb,
+            tgt_emb=tgt_emb,
+            hidden_size=model_config.decoder.hidden_size,
+            model_config=model_config,
+            vocabs=vocabs,
+        )
+
+    def _encode_ids_batch(self, ids_batch, device):
+        lengths = [len(ids) for ids in ids_batch]
+        max_len = max(lengths) if lengths else 0
+        padded = []
+        for ids in ids_batch:
+            padded.append(ids + [self.pad_idx] * (max_len - len(ids)))
+        return torch.tensor(padded, dtype=torch.long, device=device)
+
+    @torch.inference_mode()
+    def predict_scores(self, rows):
+        if not rows:
+            return torch.tensor([])
+        device = next(self.parameters()).device
+        src = self._encode_ids_batch([row["input_ids"] for row in rows], device)
+        src_pad_mask = src.eq(self.pad_idx).unsqueeze(1)
+        enc_out, enc_final_hs = self.encoder(self.src_emb(src), pad_mask=src_pad_mask)
+
+        # Some decoder implementations route length-1 inputs through cache decoding paths.
+        dec_in = torch.full(
+            (src.size(0), self.decoder_input_length), self.decoder_start_id, dtype=torch.long, device=device
+        )
+        tgt_pad_mask = dec_in.eq(self.tgt_pad_idx).unsqueeze(1)
+        self.decoder.init_state(src=src, enc_out=enc_out, enc_final_hs=enc_final_hs)
+        dec_out, _ = self.decoder(
+            self.tgt_emb(dec_in),
+            enc_out=enc_out,
+            src_pad_mask=src_pad_mask,
+            tgt_pad_mask=tgt_pad_mask,
+        )
+        if self.output_scale:
+            dec_out = dec_out * (self.hidden_size**-0.5)
+        logits = self.generator(dec_out)
+        scores = logits[:, self.score_position, self.score_token_id]
+        return torch.clamp(scores, self.score_min, self.score_max).detach().cpu()
+
+
 class DecoderModel(BaseModel):
     """DecoderModel Class
     Currently TransformerLMDecoder is the only LM decoder implemented
 
     Args:
         decoder (eole.decoders.TransformerLMDecoder): a transformer decoder"""
+
+    is_decoder_only = True
 
     def __init__(self, **kwargs):
         super(DecoderModel, self).__init__(**kwargs)
@@ -933,7 +1261,7 @@ class DecoderModel(BaseModel):
         else:
             estim = None
 
-        return dec_out, attns, estim
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.decoder.update_dropout(dropout, attention_dropout)
@@ -992,10 +1320,454 @@ class EncoderModel(BaseModel):
         else:
             estim = None
 
-        return enc_out, enc_final_hs, estim
+        return ModelOutput(dec_out=enc_out, attns=enc_final_hs, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
+
+
+class EncoderScoringModel(BaseModel):
+    def __init__(self, model_config, encoder, src_emb, device=None, vocabs=None):
+        src_vocab = vocabs["src"]
+        specials = vocabs["specials"]
+        pad_token = specials["pad_token"]
+        bos_token = specials["bos_token"]
+        eos_token = specials["eos_token"]
+        super(EncoderScoringModel, self).__init__(
+            encoder=encoder,
+            src_emb=src_emb,
+            hidden_size=model_config.encoder.hidden_size,
+        )
+        self.model_config = model_config
+        self.vocabs = vocabs
+        self.device = torch.device(device) if device is not None else get_device()
+        self.scoring_type = getattr(model_config, "scoring_type", "comet")
+        self.class_identifier = getattr(model_config, "class_identifier", "regression_metric")
+        self.input_segments = list(getattr(model_config, "input_segments", ["mt", "src", "ref"]))
+        self.requires_reference = bool(getattr(model_config, "requires_reference", True))
+        self.word_layer = getattr(model_config, "word_layer", None)
+        self.error_labels = list(getattr(model_config, "error_labels", ["minor", "major", "critical"]))
+        self.ids_to_error_label = {0: "O"}
+        for idx, label in enumerate(self.error_labels, start=1):
+            self.ids_to_error_label[idx] = f"I-{label}"
+        self.input_weights_spans = list(getattr(model_config, "input_weights_spans", [0.1667, 0.3333, 0.5]))
+        self.score_weights = list(getattr(model_config, "score_weights", [0.12, 0.33, 0.33, 0.22]))
+        self.decoding_threshold = getattr(model_config, "decoding_threshold", None)
+        max_pos = model_config.encoder.n_positions
+        self.max_length = min(max_pos - 2, 512)
+        self.max_positions = min(max_pos, 512)
+        self.pad_idx = src_vocab.lookup_token(pad_token)
+        self.bos_id = src_vocab.lookup_token(bos_token)
+        self.eos_id = src_vocab.lookup_token(eos_token)
+
+        layer = getattr(model_config, "layer", "last")
+        layerwise_attention = None
+        if layer == "mix":
+            layerwise_attention = LayerwiseAttention(
+                num_layers=model_config.encoder.layers + 1,
+                layer_transformation=getattr(model_config, "layer_transformation", "softmax"),
+                layer_norm=bool(getattr(model_config, "layer_norm", False)),
+            )
+        self.representation = RepresentationExtractor(
+            layer=layer,
+            pool=getattr(model_config, "pool", "avg"),
+            layerwise_attention=layerwise_attention,
+        )
+
+        self.estimator = FeedForward(
+            in_dim=self._estimator_in_dim(),
+            hidden_sizes=getattr(model_config, "hidden_sizes", [3072, 1024]),
+            activations=getattr(model_config, "activations", "Tanh"),
+            final_activation=getattr(model_config, "final_activation", None),
+            dropout=float(getattr(model_config, "dropout", 0.1)),
+        )
+        if self.class_identifier == "xcomet_metric":
+            self.hidden2tag = nn.Linear(self.hidden_size, len(self.ids_to_error_label))
+
+    @classmethod
+    def build_blocks(cls, model_config, vocabs, running_config=None, checkpoint_dims=None, device=None):
+        pad_token = vocabs["specials"]["pad_token"]
+        checkpoint_dims = checkpoint_dims or {}
+        vocab_size = checkpoint_dims.get("vocab_size", len(vocabs["src"]))
+        n_positions = checkpoint_dims.get("n_positions", model_config.embeddings.n_positions)
+        src_emb = RobertaEmbeddings(
+            word_vec_size=model_config.embeddings.src_word_vec_size,
+            word_vocab_size=vocab_size,
+            word_padding_idx=vocabs["src"].lookup_token(pad_token),
+            dropout=float(getattr(model_config, "dropout", 0.1)),
+            n_positions=n_positions,
+            token_type_vocab_size=max(1, getattr(model_config.embeddings, "token_type_vocab_size", 1)),
+            embedding_layer_norm=bool(getattr(model_config.embeddings, "embedding_layer_norm", False)),
+            norm_eps=model_config.norm_eps,
+        )
+        encoder = build_encoder(model_config, running_config=running_config)
+        return cls(model_config=model_config, encoder=encoder, src_emb=src_emb, device=device, vocabs=vocabs)
+
+    @staticmethod
+    def _inspect_checkpoint_dims(model_dir):
+        shard_path = os.path.join(model_dir, "model.00.safetensors")
+        state_dict = load_file(shard_path, device="cpu")
+        word_emb = state_dict["encoder.embeddings.word_embeddings.weight"]
+        pos_emb = state_dict["encoder.embeddings.position_embeddings.weight"]
+        return {
+            "vocab_size": int(word_emb.shape[0]),
+            "n_positions": int(pos_emb.shape[0]),
+        }
+
+    @staticmethod
+    def _normalize_compute_dtype(compute_dtype):
+        if compute_dtype is None:
+            return torch.float32
+        if isinstance(compute_dtype, torch.dtype):
+            return compute_dtype
+        return TORCH_DTYPES[str(compute_dtype)]
+
+    @staticmethod
+    def _runtime_config(model_dir, model_config, compute_dtype):
+        dtype = EncoderScoringModel._normalize_compute_dtype(compute_dtype)
+        return build_scorer_inference_config(model_dir, dtype)
+
+    @classmethod
+    def from_model_dir(cls, model_dir, device=None, compute_dtype=None):
+        model, _, _ = cls.for_inference(model_path=model_dir, device=device, compute_dtype=compute_dtype)
+        return model
+
+    @classmethod
+    def for_inference(cls, running_config=None, device_id=0, model_path=None, device=None, compute_dtype=None):
+        model_dir = model_path or running_config.model_path[0]
+        metadata = get_metadata(model_dir)
+        model_config = metadata["config"].model
+        if model_config.architecture != "transformer_encoder_scorer":
+            raise ValueError(
+                f"Expected a transformer_encoder_scorer model, got architecture={model_config.architecture}"
+            )
+        vocabs = dict_to_vocabs(metadata["vocab"])
+        checkpoint_dims = cls._inspect_checkpoint_dims(model_dir)
+        if device is not None:
+            resolved_device = torch.device(device)
+        elif isinstance(device_id, (str, torch.device)):
+            resolved_device = torch.device(device_id)
+        else:
+            resolved_device = get_device(device_id=device_id)
+        if running_config is None:
+            running_config = cls._runtime_config(model_dir, model_config, compute_dtype)
+        model = cls.build_blocks(
+            model_config,
+            vocabs,
+            running_config=running_config,
+            checkpoint_dims=checkpoint_dims,
+            device=resolved_device,
+        )
+        keyfound = model.load_safe_state_dict(
+            model_dir,
+            running_config=running_config,
+            vocabs=vocabs,
+            metadata=metadata,
+            device=resolved_device,
+            strict=True,
+        )
+        model._validate_strict_checkpoint_load(keyfound)
+        model.to(model.device)
+        model.eval()
+        return model, vocabs, model.model_config
+
+    def _estimator_in_dim(self):
+        if self.scoring_type == "pooled_regression":
+            return self.hidden_size
+        if self.class_identifier in {"unified_metric", "xcomet_metric"}:
+            return self.hidden_size
+        if self.requires_reference:
+            return self.hidden_size * 6
+        return self.hidden_size * 4
+
+    def _checkpoint_key_for_param(self, full_name):
+        if full_name.startswith("src_emb."):
+            return "encoder.embeddings." + full_name[len("src_emb.") :]
+        if full_name.startswith("representation.layerwise_attention."):
+            return "layerwise_attention." + full_name[len("representation.layerwise_attention.") :]
+        return full_name
+
+    def _validate_strict_checkpoint_load(self, keyfound):
+        expected = {self._checkpoint_key_for_param(key) for key in self.state_dict()}
+        loaded = set(keyfound)
+        checkpoint_keys = set(getattr(self, "_last_loaded_checkpoint_keys", set()))
+        missing = sorted(expected - loaded)
+        extra = sorted(checkpoint_keys - loaded)
+        if missing or extra:
+            pieces = []
+            if missing:
+                pieces.append("missing keys: " + ", ".join(missing[:10]))
+            if extra:
+                pieces.append("extra keys: " + ", ".join(extra[:10]))
+            raise RuntimeError("Strict checkpoint load failed for EncoderScoringModel (" + "; ".join(pieces) + ")")
+
+    def _encode_ids_batch(self, ids_batch):
+        lengths = [len(ids) for ids in ids_batch]
+        max_len = max(lengths) if lengths else 0
+        padded = []
+        masks = []
+        for ids in ids_batch:
+            pad_len = max_len - len(ids)
+            padded.append(ids + [self.pad_idx] * pad_len)
+            masks.append([1] * len(ids) + [0] * pad_len)
+        return {
+            "input_ids": torch.tensor(padded, dtype=torch.long, device=self.device),
+            "attention_mask": torch.tensor(masks, dtype=torch.long, device=self.device),
+        }
+
+    def _tokens_from_ids(self, token_ids):
+        vocab = self.vocabs["src"]
+        tokens = []
+        for token_id in token_ids:
+            if token_id in {self.bos_id, self.eos_id, self.pad_idx}:
+                continue
+            if hasattr(vocab, "lookup_index"):
+                tokens.append(vocab.lookup_index(int(token_id)))
+            else:
+                tokens.append(str(int(token_id)))
+        return "".join(token.replace("▁", " ") for token in tokens).strip()
+
+    def _hidden_states_from_ids(self, ids_batch):
+        encoded = self._encode_ids_batch(ids_batch)
+        emb = self.src_emb(encoded["input_ids"])
+        pad_mask = encoded["input_ids"].eq(self.pad_idx).unsqueeze(1)
+        layer = getattr(self.model_config, "layer", "last")
+        need_hidden_states = layer != "last" or self.class_identifier == "xcomet_metric"
+        if need_hidden_states:
+            _, _, hidden_states = self.encoder(emb, pad_mask=pad_mask, return_hidden_states=True)
+        else:
+            enc_out, _ = self.encoder(emb, pad_mask=pad_mask)
+            hidden_states = [enc_out]
+        return hidden_states, encoded["attention_mask"]
+
+    def _sentence_embed_from_ids(self, ids_batch):
+        hidden_states, attention_mask = self._hidden_states_from_ids(ids_batch)
+        return self.representation(hidden_states, attention_mask)
+
+    def _concat_segments_from_ids(self, segments):
+        batch = []
+        for items in zip(*segments):
+            new_sequence = items[0]
+            for seq in items[1:]:
+                new_sequence = [
+                    self.bos_id,
+                    *new_sequence[1:-1],
+                    self.eos_id,
+                    self.eos_id,
+                    *seq[1:-1],
+                    self.eos_id,
+                ]
+            if len(new_sequence) > self.max_positions:
+                new_sequence = new_sequence[: self.max_positions]
+            batch.append(new_sequence)
+        return batch
+
+    def _unified_forward_from_ids(self, ids_batch):
+        hidden_states, attention_mask = self._hidden_states_from_ids(ids_batch)
+        embeddings = self.representation.token_embeddings(hidden_states, attention_mask)
+        sentemb = embeddings[:, 0, :]
+        score = self.estimator(sentemb).view(-1)
+        if self.class_identifier != "xcomet_metric":
+            return {"score": score}
+        word_layer = self.word_layer if self.word_layer is not None else len(hidden_states) - 1
+        if word_layer < 0 or word_layer >= len(hidden_states):
+            raise ValueError(f"Invalid xCOMET word_layer={word_layer}; model returned {len(hidden_states)} layers")
+        return {"score": score, "logits": self.hidden2tag(hidden_states[word_layer])}
+
+    def _unified_forward_score_from_ids(self, ids_batch):
+        return self._unified_forward_from_ids(ids_batch)["score"]
+
+    @staticmethod
+    def _xcomet_seq_len(rows, logits_seq_len):
+        return max(min(len(row["mt_ids"]), logits_seq_len) for row in rows)
+
+    def _xcomet_span_text(self, span, mt_text, decode_ids):
+        if decode_ids is not None:
+            return decode_ids(span["tokens"])
+        if mt_text is not None:
+            return mt_text[span["offset"][0] : span["offset"][1]]
+        return self._tokens_from_ids(span["tokens"])
+
+    def _decode_xcomet_spans(self, subword_probs, input_ids, mt_offsets, mt_texts=None, decode_token_ids=None):
+        decoded = []
+        if mt_texts is None:
+            mt_texts = [None] * len(mt_offsets)
+        if decode_token_ids is None:
+            decode_token_ids = [None] * len(mt_offsets)
+        for sentence_ids, sentence_probs, sentence_offsets, mt_text, decode_ids in zip(
+            input_ids, subword_probs, mt_offsets, mt_texts, decode_token_ids
+        ):
+            error_spans = []
+            in_span = False
+            span = {}
+            for token_id, probs, token_offset in zip(
+                sentence_ids[: len(sentence_offsets)], sentence_probs, sentence_offsets
+            ):
+                if self.decoding_threshold is not None:
+                    if torch.sum(probs[1:]) > self.decoding_threshold:
+                        probability, label_value = torch.topk(probs[1:], 1)
+                        label_value += 1
+                    else:
+                        probability, label_value = torch.topk(probs[:1], 1)
+                else:
+                    probability, label_value = torch.topk(probs, 1)
+                label_value = label_value.item() if label_value.dim() < 1 else label_value[0].item()
+                label = self.ids_to_error_label.get(label_value, "O")
+                if label.startswith("I") and not in_span:
+                    in_span = True
+                    span = {
+                        "tokens": [int(token_id.item())],
+                        "severity": label.split("-", 1)[1],
+                        "offset": list(token_offset),
+                        "confidence": [probability.reshape(1)],
+                    }
+                elif label.startswith("I") and in_span:
+                    span["tokens"].append(int(token_id.item()))
+                    span["confidence"].append(probability.reshape(1))
+                    span["offset"][1] = token_offset[1]
+                elif label == "O" and in_span:
+                    error_spans.append(span)
+                    in_span = False
+                    span = {}
+            # Match Unbabel COMET: spans are emitted only when closed by an O label.
+            # A trailing open span at truncation/EOS is intentionally dropped.
+            decoded.append(
+                [
+                    {
+                        "text": self._xcomet_span_text(span, mt_text, decode_ids),
+                        "confidence": torch.cat(span["confidence"]).mean().item(),
+                        "severity": span["severity"],
+                        "start": int(span["offset"][0]),
+                        "end": int(span["offset"][1]),
+                    }
+                    for span in error_spans
+                ]
+            )
+        return decoded
+
+    def _xcomet_mqm_scores(self, error_spans):
+        scores = []
+        for sentence_spans in error_spans:
+            penalty = 0
+            for annotation in sentence_spans:
+                if annotation["severity"] == "minor":
+                    penalty += 1
+                elif annotation["severity"] == "major":
+                    penalty += 5
+                elif annotation["severity"] == "critical":
+                    penalty += 10
+            scores.append((25 - min(penalty, 25)) / 25)
+        return torch.tensor(scores, dtype=torch.float32, device=getattr(self, "device", torch.device("cpu")))
+
+    @torch.inference_mode()
+    def predict_xcomet(self, rows):
+        if not rows:
+            return {"scores": [], "metadata": {"error_spans": []}}
+        if self.class_identifier != "xcomet_metric":
+            raise ValueError("predict_xcomet requires class_identifier='xcomet_metric'.")
+        mt = [r["mt_ids"] for r in rows]
+        src = [r.get("src_ids", [self.bos_id, self.eos_id]) for r in rows]
+        ref = [r.get("ref_ids", [self.bos_id, self.eos_id]) for r in rows]
+        segments_by_name = {"mt": mt, "src": src, "ref": ref}
+        has_ref = all("ref_ids" in r for r in rows)
+        if self.input_segments == ["mt", "src", "ref"] and has_ref:
+            candidate_segments = [["mt", "src"], ["mt", "ref"], ["mt", "src", "ref"]]
+            outputs = [
+                self._unified_forward_from_ids(
+                    self._concat_segments_from_ids([segments_by_name[name] for name in segment_names])
+                )
+                for segment_names in candidate_segments
+            ]
+            regression_scores = torch.stack(
+                [torch.where(o["score"] > 1.0, 1.0, o["score"]) * w for o, w in zip(outputs, self.score_weights[:3])],
+                dim=0,
+            ).sum(dim=0)
+            seq_len = self._xcomet_seq_len(rows, outputs[0]["logits"].shape[1])
+            span_probs = [
+                nn.functional.softmax(o["logits"], dim=2)[:, :seq_len, :] * w
+                for o, w in zip(outputs, self.input_weights_spans)
+            ]
+            subword_probs = torch.sum(torch.stack(span_probs), dim=0)
+            metadata = {
+                "src_scores": outputs[0]["score"].detach().cpu().tolist(),
+                "ref_scores": outputs[1]["score"].detach().cpu().tolist(),
+                "unified_scores": outputs[2]["score"].detach().cpu().tolist(),
+            }
+        else:
+            available_segments = {"mt", "src"}
+            if has_ref:
+                available_segments.add("ref")
+            ordered = [segments_by_name[name] for name in self.input_segments if name in available_segments]
+            outputs = [self._unified_forward_from_ids(self._concat_segments_from_ids(ordered))]
+            regression_score = torch.where(outputs[0]["score"] > 1.0, 1.0, outputs[0]["score"])
+            regression_scores = regression_score * sum(self.score_weights[:3])
+            seq_len = self._xcomet_seq_len(rows, outputs[0]["logits"].shape[1])
+            subword_probs = nn.functional.softmax(outputs[0]["logits"], dim=2)[:, :seq_len, :]
+            metadata = {"src_scores": regression_score.detach().cpu().tolist()}
+
+        default_offsets = [[(0, 0)] * seq_len for _ in rows]
+        mt_offsets = [r.get("mt_offsets", default_offsets[i])[:seq_len] for i, r in enumerate(rows)]
+        mt_texts = [r.get("mt_text") for r in rows]
+        decode_token_ids = [r.get("decode_token_ids") for r in rows]
+        mt_input_ids = self._encode_ids_batch(mt)["input_ids"][:, :seq_len]
+        error_spans = self._decode_xcomet_spans(
+            subword_probs, mt_input_ids, mt_offsets, mt_texts=mt_texts, decode_token_ids=decode_token_ids
+        )
+        mqm_scores = self._xcomet_mqm_scores(error_spans)
+        final_scores = regression_scores + mqm_scores.to(regression_scores.device) * self.score_weights[3]
+        metadata["mqm_scores"] = mqm_scores.detach().cpu().tolist()
+        metadata["error_spans"] = error_spans
+        return {"scores": final_scores.detach().cpu().tolist(), "metadata": metadata}
+
+    @torch.inference_mode()
+    def predict_scores(self, rows):
+        if not rows:
+            return torch.tensor([])
+        if self.scoring_type == "pooled_regression":
+            segment_name = self.input_segments[0] if self.input_segments else "mt"
+            segment_key = {"mt": "mt_ids", "src": "src_ids", "ref": "ref_ids"}.get(segment_name)
+            if segment_key is None:
+                raise ValueError(f"Unsupported pooled_regression input segment: {segment_name}")
+            if any(segment_key not in r for r in rows):
+                raise ValueError(f"pooled_regression requires {segment_name!r} segment ids")
+            seg = [r[segment_key] for r in rows]
+            rep = self._sentence_embed_from_ids(seg)
+            return self.estimator(rep).view(-1).detach().cpu()
+
+        if self.class_identifier == "xcomet_metric":
+            return torch.tensor(self.predict_xcomet(rows)["scores"], dtype=torch.float32)
+
+        if self.class_identifier == "unified_metric":
+            mt = [r["mt_ids"] for r in rows]
+            src = [r.get("src_ids", [self.bos_id, self.eos_id]) for r in rows]
+            ref = [r.get("ref_ids", [self.bos_id, self.eos_id]) for r in rows]
+            segments_by_name = {"mt": mt, "src": src, "ref": ref}
+            if self.input_segments == ["mt", "src", "ref"]:
+                candidate_segments = [["mt", "src"], ["mt", "ref"], ["mt", "src", "ref"]]
+                all_scores = []
+                for segment_names in candidate_segments:
+                    ordered = [segments_by_name[name] for name in segment_names]
+                    all_scores.append(self._unified_forward_score_from_ids(self._concat_segments_from_ids(ordered)))
+                scores = torch.stack(all_scores, dim=0).mean(dim=0)
+            else:
+                ordered = [segments_by_name[name] for name in self.input_segments if name in segments_by_name]
+                scores = self._unified_forward_score_from_ids(self._concat_segments_from_ids(ordered))
+            return scores.detach().cpu()
+
+        src_sentemb = self._sentence_embed_from_ids([r["src_ids"] for r in rows])
+        mt_sentemb = self._sentence_embed_from_ids([r["mt_ids"] for r in rows])
+        if self.requires_reference:
+            ref_sentemb = self._sentence_embed_from_ids([r["ref_ids"] for r in rows])
+            diff_ref = torch.abs(mt_sentemb - ref_sentemb)
+            diff_src = torch.abs(mt_sentemb - src_sentemb)
+            prod_ref = mt_sentemb * ref_sentemb
+            prod_src = mt_sentemb * src_sentemb
+            features = torch.cat((mt_sentemb, ref_sentemb, prod_ref, diff_ref, prod_src, diff_src), dim=1)
+        else:
+            diff_src = torch.abs(mt_sentemb - src_sentemb)
+            prod_src = mt_sentemb * src_sentemb
+            features = torch.cat((mt_sentemb, src_sentemb, prod_src, diff_src), dim=1)
+        return self.estimator(features).view(-1).detach().cpu()
 
 
 class VisionEncoderDecoderModel(BaseModel):
@@ -1081,7 +1853,7 @@ class VisionEncoderDecoderModel(BaseModel):
                 img_ptr += 1
                 HW = H * (W + 1) + 2  # SPECIFIC to HunyuanOCR
                 if HW != length:
-                    raise ValueError(f"image tokens={length} but H*W={HW} at image {img_ptr-1}")
+                    raise ValueError(f"image tokens={length} but H*W={HW} at image {img_ptr - 1}")
                 r = torch.arange(length, device=device)
                 w = r % (W + 1)  # SPECIFIC to HunyuanOCR
                 h = r // (W + 1)  # SPECIFIC to HunyuanOCR
@@ -1239,7 +2011,7 @@ class VisionEncoderDecoderModel(BaseModel):
         else:
             estim = None
 
-        return dec_out, attns, estim
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
@@ -1305,7 +2077,7 @@ class AudioEncoderDecoderModel(BaseModel):
         )
 
         estim = None
-        return dec_out, attns, estim
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
 
     def update_dropout(self, dropout, attention_dropout):
         self.encoder.update_dropout(dropout, attention_dropout)
@@ -1314,7 +2086,18 @@ class AudioEncoderDecoderModel(BaseModel):
 
 
 def get_model_class(model_config):
+    if model_config is None:
+        raise ValueError(
+            "Model config is missing. Expected an EOLE model directory with a valid config.json. "
+            "If this is a local model path, ensure it points to an EOLE-converted model directory "
+            "containing config.json, vocab.json, and model.*.safetensors. If this is a Hugging Face "
+            "model ID, ensure it is either a supported HF Transformers model or a pre-converted EOLE model repo."
+        )
     # might have more cases later
+    if getattr(model_config, "architecture", None) == "transformer_encoder_scorer":
+        return EncoderScoringModel
+    if getattr(model_config, "architecture", None) == "transformer_encoder_decoder_scorer":
+        return EncoderDecoderScoringModel
     if model_config.decoder is None:
         return EncoderModel
     elif model_config.encoder is None:

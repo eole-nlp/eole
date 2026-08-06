@@ -7,6 +7,8 @@ from sacrebleu import corpus_bleu
 class BleuZhScorer(Scorer):
     """BLEU scorer class for Chinese."""
 
+    higher_is_better = True
+
     def __init__(self, config):
         """Initialize the BLEU_zh scorer with the given configuration."""
         super().__init__(config)

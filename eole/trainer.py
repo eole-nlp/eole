@@ -15,7 +15,7 @@ from eole.utils.loss import LossCompute
 from eole.utils.logging import logger
 from eole.utils.misc import clear_gpu_cache, get_autocast
 from eole.utils.scoring_utils import ScoringPreparator
-from eole.scorers import get_scorers_cls, build_scorers
+from eole.scorers import get_scorers_cls, build_scorers, load_scorer_modules
 from eole.models.model_saver import TP_COL_PARALLEL_LAYERS, TP_ROW_PARALLEL_LAYERS
 
 
@@ -36,6 +36,7 @@ class TrainerConfig:
     attention_dropout: List[float] = None
     dropout_steps: List[int] = None
     zero_out_prompt_loss: bool = False
+    empty_cache_steps: int = 0
     estim_loss_lambda: List[float] = None
     estim_loss_lambda_steps: List[int] = None
 
@@ -271,7 +272,11 @@ class Trainer:
         valid_iter=None,
         valid_steps: int = 10000,
     ):
-        """Main training loop."""
+        """Main training loop.
+
+        Subclasses can override ``_train_step()`` to customize the per-step
+        training logic (e.g. for RL training) without duplicating the loop.
+        """
         if valid_iter is None:
             logger.info("Start training loop without validation...")
         else:
@@ -294,8 +299,10 @@ class Trainer:
             if self.config.n_gpu > 1 and self.config.parallel_mode == "data_parallel":
                 normalization = sum(all_gather_list(normalization))
 
-            # Process batches
-            self._process_accumulated_batches(batches, normalization, total_stats, report_stats)
+            # Core training step (overridable by subclasses)
+            self._train_step(batches, normalization, total_stats, report_stats, step=step)
+            if self.optim.training_step > step:
+                self._maybe_clear_device_cache(step)
 
             # Update moving average
             if self.config.average_decay > 0 and i % self.config.average_every == 0:
@@ -338,6 +345,34 @@ class Trainer:
             self.model_saver.save(step, moving_average=self.moving_average)
 
         return total_stats
+
+    def _train_step(
+        self,
+        batches: List[Dict[str, Any]],
+        normalization: int,
+        total_stats: eole.utils.Statistics,
+        report_stats: eole.utils.Statistics,
+        step: int = 0,
+    ):
+        """Execute one training step on accumulated batches.
+
+        This is the main extension point for subclasses (e.g. RLTrainer).
+        Override this method to implement custom training logic while
+        reusing the outer training loop (validation, checkpointing, etc.).
+
+        Args:
+            batches: List of batch dicts for this accumulated step.
+            normalization: Normalization factor for loss.
+            total_stats: Running total statistics.
+            report_stats: Statistics for current reporting period.
+            step: Current training step number.
+        """
+        self._process_accumulated_batches(batches, normalization, total_stats, report_stats)
+
+    def _maybe_clear_device_cache(self, step: int):
+        if self.config.empty_cache_steps <= 0 or step % self.config.empty_cache_steps != 0:
+            return
+        clear_gpu_cache()
 
     def _update_scheduled_params(self, step: int):
         """Update all scheduled parameters."""
@@ -582,6 +617,8 @@ class Trainer:
 
 def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
     """Build trainer from configuration."""
+    load_scorer_modules(config.scorer_modules)
+
     train_loss = LossCompute.from_config(config, model, vocabs)
     valid_loss = LossCompute.from_config(config, model, vocabs, train=False)
 
@@ -605,7 +642,7 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
     earlystopper = (
         eole.utils.EarlyStopping(
             running_config.early_stopping,
-            scorers=eole.utils.scorers_from_config(running_config),
+            scorers=eole.utils.scorers_from_config(config),
         )
         if running_config.early_stopping > 0
         else None
@@ -627,6 +664,7 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
         attention_dropout=running_config.attention_dropout,
         dropout_steps=running_config.dropout_steps,
         zero_out_prompt_loss=running_config.zero_out_prompt_loss,
+        empty_cache_steps=running_config.empty_cache_steps,
         estim_loss_lambda=running_config.estim_loss_lambda,
         estim_loss_lambda_steps=running_config.estim_loss_lambda_steps,
     )

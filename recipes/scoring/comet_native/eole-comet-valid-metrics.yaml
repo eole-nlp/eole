@@ -1,0 +1,3 @@
+valid_metrics: ["EOLE-COMET"]
+comet_model: "${EOLE_MODEL_DIR}/comet/Unbabel--wmt22-comet-da"
+comet_batch_size: 64

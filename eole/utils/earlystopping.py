@@ -57,32 +57,23 @@ class AccuracyScorer(Scorer):
         return stats.accuracy()
 
 
-class BLEUScorer(Scorer):
-    def __init__(self):
-        super(BLEUScorer, self).__init__(float("-inf"), "bleu")
+class ComputedMetricScorer(Scorer):
+    def __init__(self, metric_name, higher_is_better=True):
+        best_score = float("-inf") if higher_is_better else float("inf")
+        super(ComputedMetricScorer, self).__init__(best_score, metric_name)
+        self.metric_name = metric_name
+        self.higher_is_better = higher_is_better
 
     def is_improving(self, stats):
-        return stats.computed_metric("BLEU") > self.best_score
+        score = self._caller(stats)
+        return score > self.best_score if self.higher_is_better else score < self.best_score
 
     def is_decreasing(self, stats):
-        return stats.computed_metric("BLEU") < self.best_score
+        score = self._caller(stats)
+        return score < self.best_score if self.higher_is_better else score > self.best_score
 
     def _caller(self, stats):
-        return stats.computed_metric("BLEU")
-
-
-class TERScorer(Scorer):
-    def __init__(self):
-        super(TERScorer, self).__init__(float("inf"), "bleu")
-
-    def is_improving(self, stats):
-        return stats.computed_metric("TER") < self.best_score
-
-    def is_decreasing(self, stats):
-        return stats.computed_metric("TER") > self.best_score
-
-    def _caller(self, stats):
-        return stats.computed_metric("TER")
+        return stats.computed_metric(self.metric_name)
 
 
 DEFAULT_SCORERS = [PPLScorer(), AccuracyScorer()]
@@ -91,21 +82,51 @@ DEFAULT_SCORERS = [PPLScorer(), AccuracyScorer()]
 SCORER_BUILDER = {
     "ppl": PPLScorer,
     "accuracy": AccuracyScorer,
-    "BLEU": BLEUScorer,
-    "TER": TERScorer,
 }
 
 
+def _computed_metric_scorer_from_registry(criterion, scorer_cls):
+    higher_is_better = getattr(scorer_cls, "higher_is_better", None)
+    if higher_is_better is None:
+        raise ValueError(
+            "Early stopping criterion {} uses registered scorer {}, but the scorer class must define "
+            "higher_is_better.".format(criterion, scorer_cls.__name__)
+        )
+    return ComputedMetricScorer(criterion, higher_is_better=higher_is_better)
+
+
+def _registered_scorer_cls(criterion):
+    from eole.scorers import AVAILABLE_SCORERS
+
+    return AVAILABLE_SCORERS.get(criterion)
+
+
 def scorers_from_config(config):
-    # config is running_config(training) here
-    if config.early_stopping_criteria is None:
+    # Accept either the full train config or the nested training config.
+    criteria = getattr(config, "early_stopping_criteria", None)
+    if criteria is None and getattr(config, "training", None) is not None:
+        criteria = config.training.early_stopping_criteria
+    if criteria is None:
         return DEFAULT_SCORERS
-    else:
-        scorers = []
-        for criterion in set(config.early_stopping_criteria):
-            assert criterion in SCORER_BUILDER.keys(), "Criterion {} not found".format(criterion)
+
+    if isinstance(criteria, str):
+        criteria = [criteria]
+    valid_metrics = getattr(config, "valid_metrics", None)
+    valid_metrics = set(valid_metrics) if valid_metrics is not None else None
+    scorers = []
+    for criterion in dict.fromkeys(criteria):
+        if criterion in SCORER_BUILDER:
             scorers.append(SCORER_BUILDER[criterion]())
-        return scorers
+            continue
+
+        scorer_cls = _registered_scorer_cls(criterion)
+        if scorer_cls is None:
+            raise ValueError("Criterion {} not found".format(criterion))
+        if valid_metrics is not None and criterion not in valid_metrics:
+            raise ValueError("Early stopping criterion {} requires it to be listed in valid_metrics.".format(criterion))
+        registered_scorer = _computed_metric_scorer_from_registry(criterion, scorer_cls)
+        scorers.append(registered_scorer)
+    return scorers
 
 
 class EarlyStopping(object):

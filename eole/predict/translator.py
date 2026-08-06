@@ -172,7 +172,8 @@ class Translator(Inference):
 
         # (1) Run the encoder on the src.
         if self.report_time:
-            torch.cuda.synchronize()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
             beg_time = time()
         src, enc_final_hs, enc_out, src_len = self._run_encoder(batch)
         self.model.decoder.init_state(enc_out=enc_out, enc_final_hs=enc_final_hs)
@@ -205,7 +206,8 @@ class Translator(Inference):
             raise TypeError("enc_out must be either a tensor or a tuple of tensors")
 
         if self.report_time:
-            torch.cuda.synchronize()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
             self.step0_time.append(time() - beg_time)
 
         # (4) warmup for Torch compile

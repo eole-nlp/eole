@@ -12,6 +12,10 @@ from pydantic import model_validator, Field
 class BaseTokenizerConfig(TransformConfig):
     src_subword_model: str | None = Field(default=None, description="Path of subword model for src (or shared).")
     tgt_subword_model: str | None = Field(default=None, description="Path of subword model for tgt.")
+    replace_newline_sentinel: bool = Field(
+        default=True,
+        description="Replace EOLE's internal newline sentinel with a real newline before subword tokenization.",
+    )
 
     src_subword_nbest: int | None = Field(
         default=1,
@@ -117,6 +121,7 @@ class TokenizerTransform(Transform):
         self.tgt_subword_vocab = self.config.tgt_subword_vocab
         self.src_vocab_threshold = self.config.src_vocab_threshold
         self.tgt_vocab_threshold = self.config.tgt_vocab_threshold
+        self.replace_newline_sentinel = self.config.replace_newline_sentinel
         # define which attributes are artifacts to be saved
         self.artifacts = [
             "src_subword_model",
@@ -257,7 +262,8 @@ class SentencePieceTransform(TokenizerTransform):
         """Apply subword sampling or deterministic subwording"""
         sp_model = self.load_models[side]
         nbest_size = self.tgt_subword_nbest if side == "tgt" else self.src_subword_nbest
-        string = string.replace(DefaultTokens.SEP, "\n")
+        if self.replace_newline_sentinel:
+            string = string.replace(DefaultTokens.SEP, "\n")
         if is_train is False or nbest_size in [0, 1]:
             # derterministic subwording
             tokens = sp_model.encode(string, out_type=str)

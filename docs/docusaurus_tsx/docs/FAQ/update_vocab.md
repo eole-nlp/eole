@@ -4,8 +4,8 @@ New vocabulary can be used to continue training from a checkpoint. Existing voca
 
 Run `eole build_vocab` as usual with the new dataset. New vocabulary files will be created.
 
-Training options to perform vocabulary update are:
+Training options for the `yaml` file to perform vocabulary update are:
 
-* `-update_vocab`: set this option
-* `-reset_optim`: set the value to "states"
-* `-train_from`: checkpoint path
+* `update_vocab`: set this option
+* `reset_optim`: set the value to "states"
+* `train_from`: checkpoint path

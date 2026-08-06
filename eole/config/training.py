@@ -176,13 +176,18 @@ class TrainingConfig(
         default=0,
         description="Number of validation steps without improving that " "will trigger early stop of training.",
     )
-    early_stopping_criteria: str | None = Field(
+    early_stopping_criteria: str | List[str] | None = Field(
         default=None, description="Criteria to use for early stopping."
     )  # allowed values are not clear
     max_grad_norm: float = Field(
         default=5,
         description="If the norm of the gradient vector exceeds this value, "
         "renormalize it to have the norm equal to max_grad_norm.",
+    )
+    empty_cache_steps: int = Field(
+        default=0,
+        description="Every N optimizer steps, clear the active PyTorch device cache. "
+        "On MPS, also clear the graph cache when supported. Disabled when set to 0.",
     )
     dropout: List[float] = Field(default=[0.3], description="Dropout probability.")
     attention_dropout: List[float] = Field(default=[0.1], description="Attention dropout probability.")
