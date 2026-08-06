@@ -119,3 +119,6 @@ docs/docusaurus_tsx/docs/recipes
 docs/docusaurus_tsx/docs/reference
 docs/docusaurus_tsx/build
 docs/sphinx_markdown
+
+# Yarn Berry local install metadata
+docs/docusaurus_tsx/.yarn/install-state.gz
