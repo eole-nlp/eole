@@ -189,6 +189,10 @@ class HuggingfaceFiles:
         return KEY_MAPS[self.arch].get("decoder_layer_prefix", None)
 
     @property
+    def mtp_layer_prefix(self):
+        return KEY_MAPS[self.arch].get("mtp_layer_prefix", None)
+
+    @property
     def base_dir(self):
         return os.path.split(self.wmap_path)[0]
 
@@ -694,11 +698,16 @@ def get_shards_map(model_config, hf, nshards):
         n_layers = max(model_config["layers"], model_config["encoder"]["layers"])
     else:
         n_layers = model_config["layers"]
-    layers_per_shard = math.ceil(n_layers / nshards)
+    # Include MTP layers in the shard range computation
+    num_mtp = model_config.get("decoder", {}).get("num_mtp_heads", model_config.get("num_mtp_heads", 0)) or 0
+    _mtp_start_cfg = KEY_MAPS[hf.arch].get("mtp_layer_start", None) if hasattr(hf, "arch") else None
+    mtp_layer_start = n_layers if _mtp_start_cfg is None else _mtp_start_cfg
+    n_layers_total = max(n_layers, mtp_layer_start + num_mtp)
+    layers_per_shard = math.ceil(n_layers_total / nshards)
     shard_layer_ranges = [
         range(
             layers_per_shard * shard,
-            min(layers_per_shard * (shard + 1), n_layers),
+            min(layers_per_shard * (shard + 1), n_layers_total),
         )
         for shard in range(nshards)
     ]
@@ -719,7 +728,7 @@ def get_shards_map(model_config, hf, nshards):
         for shard, layer_range in enumerate(shard_layer_ranges):
             if is_layer_in_range(key, hf.decoder_layer_prefix, layer_range) or is_layer_in_range(
                 key, hf.encoder_layer_prefix, layer_range
-            ):
+            ) or is_layer_in_range(key, hf.mtp_layer_prefix, layer_range):
                 shard_checkpoints[shard].add(ckpt)
 
     return [sorted(s) for s in shard_checkpoints], shard_layer_ranges
@@ -1038,12 +1047,23 @@ def build_shards(model_config, hf, args, params):
                 # re-reading the same stacked tensor (e.g. mlp.experts.gate_up_proj)
                 # hundreds of times when splitting MoE expert weights.
                 _layer_tensor_cache = {}
+                _mtp_start_raw = KEY_MAPS[hf.arch].get("mtp_layer_start", None)
+                if _mtp_start_raw is None:
+                    _mtp_decoder_layers = (
+                        max(model_config["layers"], model_config.get("encoder", {}).get("layers", 0))
+                        if "encoder" in model_config
+                        else model_config["layers"]
+                    )
+                    _mtp_layer_start = _mtp_decoder_layers
+                else:
+                    _mtp_layer_start = _mtp_start_raw
                 prefix_mapping = (
-                    ("encoder", hf.encoder_layer_prefix, "encoder.transformer_layers."),
-                    ("encoder.sam", hf.encoder_sam_layer_prefix, "encoder.sam.blocks."),
-                    ("decoder", hf.decoder_layer_prefix, "decoder.transformer_layers."),
+                    ("encoder", hf.encoder_layer_prefix, "encoder.transformer_layers.", 0),
+                    ("encoder.sam", hf.encoder_sam_layer_prefix, "encoder.sam.blocks.", 0),
+                    ("decoder", hf.decoder_layer_prefix, "decoder.transformer_layers.", 0),
+                    ("mtp", hf.mtp_layer_prefix, "mtp_heads.", _mtp_layer_start),
                 )
-                for section, hf_prefix, eole_prefix in prefix_mapping:
+                for section, hf_prefix, eole_prefix, layer_offset in prefix_mapping:
                     if hf_prefix is None:
                         continue
                     key_map = KEY_MAPS[hf.arch].get(section, {})
@@ -1072,7 +1092,7 @@ def build_shards(model_config, hf, args, params):
                                 if srcmap is not None:
                                     hidden_size = (
                                         model_config["hidden_size"]
-                                        if section.startswith("decoder")
+                                        if section.startswith("decoder") or section == "mtp"
                                         else model_config["encoder"]["hidden_size"]
                                     )
                                     context = {
@@ -1094,7 +1114,7 @@ def build_shards(model_config, hf, args, params):
                                 target1 = target
                                 if target.endswith("."):
                                     target1 = target + param
-                                eole_key = eole_prefix + str(i) + target1
+                                eole_key = eole_prefix + str(i - layer_offset) + target1
                                 if eole_key not in eole_safetensor.keys():
                                     eole_safetensor[eole_key] = w
                                     conversion_details.append(

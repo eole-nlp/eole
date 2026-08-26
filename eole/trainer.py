@@ -153,12 +153,17 @@ class BatchProcessor:
     ) -> Tuple[Optional[torch.Tensor], eole.utils.Statistics]:
         """Compute loss for a batch."""
         with get_autocast(enabled=self.optim.amp):
-            model_out, attns, estim = self.model(src, tgt, src_len, with_align=self.with_align, **kwargs)
+            model_output = self.model(src, tgt, src_len, with_align=self.with_align, **kwargs)
+            model_out, attns, estim = model_output
+            # MTP auxiliary head outputs (None when MTP is disabled)
+            mtp_outputs = getattr(model_output, "mtp_outputs", None)
 
             if self.zero_out_prompt_loss:
                 batch = self.train_loss.ignore_prompt(batch)
 
-            loss, batch_stats, auxloss = self.train_loss(batch, model_out, attns, estim=estim)
+            loss, batch_stats, auxloss = self.train_loss(
+                batch, model_out, attns, estim=estim, mtp_outputs=mtp_outputs
+            )
 
         if loss is not None:
             loss = loss / normalization

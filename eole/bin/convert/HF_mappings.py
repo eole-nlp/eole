@@ -56,6 +56,74 @@ MODEL_OVERRIDES: dict = {}
 MODEL_OVERRIDES["LlamaForCausalLM"] = {}  # default / base
 MODEL_OVERRIDES["MistralForCausalLM"] = {}
 
+
+def _deepseekv3_config_from_hf(top, text, vis):
+    """Config for DeepseekV3ForCausalLM and DeepseekR1ForCausalLM (reasoning variant)."""
+    num_hidden_layers = text.get("num_hidden_layers", top.get("num_hidden_layers", 61))
+    num_mtp_heads = text.get("num_nextn_predict_layers", top.get("num_nextn_predict_layers", 1))
+    return {
+        "decoder": {
+            "layer_norm": "rms",
+            "norm_eps": text.get("rms_norm_eps", 1e-6),
+            "num_mtp_heads": num_mtp_heads,
+            "mtp_lambda": 0.1,
+        },
+    }
+
+
+# DeepSeek-V3 and DeepSeek-R1 use the same decoder layer prefix for MTP layers.
+# MTP heads occupy `model.layers.{num_hidden_layers + k}` in the HF checkpoint.
+# The `mtp_layer_start` entry tells the converter to subtract this offset when
+# computing the EOLE MTP head index (so HF layer 61 → mtp_heads.0, etc.).
+#
+# Note on weight compatibility: DeepSeek-V3 uses a two-stream combination:
+#   eh_proj(concat(hnorm(h), enorm(emb))) → hidden_size
+# whereas EOLE MTPHead uses:
+#   enorm(proj(h)) + tgt_emb  (simpler additive design)
+# As a best-effort mapping:
+#   - HF `hnorm` → EOLE `enorm` (normalize hidden state before combination)
+#   - HF `eh_proj[:, :hidden_size]` → EOLE `proj` (hidden-state half of the projection)
+# This approximation allows reuse of pre-trained DeepSeek-V3 MTP weights as
+# a warm-start for fine-tuning.
+_DEEPSEEKV3_MTP_KEYS = {
+    ".enorm.": ".hnorm.",
+    ".proj.": (".eh_proj.", "[:, :hidden_size]"),
+    ".layer.self_attn.linear_query.": ".self_attn.q_proj.",
+    ".layer.self_attn.linear_keys.": ".self_attn.k_proj.",
+    ".layer.self_attn.linear_values.": ".self_attn.v_proj.",
+    ".layer.self_attn.final_linear.": ".self_attn.o_proj.",
+    ".layer.mlp.gate_up_proj.": ".mlp.gate_proj.",
+    ".layer.mlp.up_proj.": ".mlp.up_proj.",
+    ".layer.mlp.down_proj.": ".mlp.down_proj.",
+    ".layer.input_layernorm.": ".input_layernorm.",
+    ".layer.post_attention_layernorm.": ".post_attention_layernorm.",
+}
+
+MODEL_OVERRIDES["DeepseekV3ForCausalLM"] = {
+    "decoder": {
+        ".mlp.gate.": ".mlp.gate.",
+        **{
+            f".mlp.experts.{i}.{k}": f".mlp.experts.{i}.{v}"
+            for i in range(256)
+            for k, v in {"gate_up_proj.": "gate_proj.", "down_proj.": "down_proj.", "up_proj.": "up_proj."}.items()
+        },
+        **{
+            f".mlp.shared_experts.{k}": f".mlp.shared_experts.{v}"
+            for k, v in {"gate_up_proj.": "gate_proj.", "down_proj.": "down_proj.", "up_proj.": "up_proj."}.items()
+        },
+    },
+    "mtp": _DEEPSEEKV3_MTP_KEYS,
+    "mtp_layer_prefix": "model.layers.",
+    # num_hidden_layers will be substituted at conversion time via config_from_hf
+    # (DeepSeek-V3 has 61 main layers, so MTP head 0 is at model.layers.61)
+    "mtp_layer_start": None,  # set dynamically below via config_from_hf
+    "config_from_hf": _deepseekv3_config_from_hf,
+}
+
+# DeepSeek-R1 shares the same architecture as DeepSeek-V3
+MODEL_OVERRIDES["DeepseekR1ForCausalLM"] = deepcopy(MODEL_OVERRIDES["DeepseekV3ForCausalLM"])
+MODEL_OVERRIDES["DeepseekR1ForCausalLM"]["config_from_hf"] = _deepseekv3_config_from_hf
+
 MODEL_OVERRIDES["Qwen2ForCausalLM"] = {
     "config_from_hf": lambda top, text, vis: {
         "add_qkvbias": True,

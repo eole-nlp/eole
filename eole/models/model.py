@@ -32,7 +32,8 @@ from eole.models.model_saver import get_metadata, TP_COL_PARALLEL_LAYERS, TP_ROW
 from eole.modules.estimator import FeedForward
 from eole.modules.representation import LayerwiseAttention, RepresentationExtractor
 
-from eole.encoders.vision import VisionEncoder
+from eole.modules.mtp import MTPHead
+
 from eole.encoders.audio import AudioEncoder
 
 
@@ -51,6 +52,8 @@ class ModelOutput:
             state(s) (tensor, or tuple thereof for RNNs) for encoder-only
             models, or None.
         estim: Estimator output (scalar per sample), or None if estimator is disabled.
+        mtp_outputs: List of MTP head outputs ``(batch, seq_len, hidden)`` for each
+            auxiliary head, or None when MTP is disabled / during inference.
     """
 
     dec_out: torch.Tensor
@@ -59,6 +62,7 @@ class ModelOutput:
     # tensors for RNN encoders (h_n, c_n), or None (some encoder-only models).
     attns: Optional[Union[Dict[str, Any], torch.Tensor, tuple]] = None
     estim: Optional[torch.Tensor] = None
+    mtp_outputs: Optional[list] = None
 
     def __iter__(self):
         """Allow tuple unpacking: ``dec_out, attns, estim = model(...)``."""
@@ -1222,16 +1226,29 @@ class DecoderModel(BaseModel):
             raise ValueError("DecoderModel requires a Decoder")
         if self.add_estimator:
             self.estimator = FeedForward(self.hidden_size)
+        # MTP heads are stored as a ModuleList (empty when disabled)
+        mtp_heads = kwargs.get("mtp_heads", None)
+        if mtp_heads is not None:
+            self.mtp_heads = mtp_heads
+        else:
+            self.mtp_heads = nn.ModuleList()
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         tgt_emb = build_tgt_emb(model_config, vocabs, running_config=running_config)
         decoder = build_decoder(model_config, running_config=running_config)
+        # Build MTP heads when configured
+        num_mtp_heads = getattr(model_config.decoder, "num_mtp_heads", 0)
+        mtp_heads = nn.ModuleList()
+        if num_mtp_heads > 0:
+            for _ in range(num_mtp_heads):
+                mtp_heads.append(MTPHead(model_config.decoder, running_config=running_config))
         return cls(
             decoder=decoder,
             tgt_emb=tgt_emb,
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.decoder.hidden_size,
+            mtp_heads=mtp_heads,
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
@@ -1261,7 +1278,32 @@ class DecoderModel(BaseModel):
         else:
             estim = None
 
-        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
+        # MTP auxiliary heads — only active during training
+        mtp_outputs = None
+        if self.training and len(self.mtp_heads) > 0:
+            mtp_outputs = []
+            # seq_len is the length of the decoded sequence (tgt_len - 1 for LM)
+            seq_len = dec_out.size(1)
+            # Detach: auxiliary gradients must not flow into the main decoder
+            h_detached = dec_out.detach()
+            for k, head in enumerate(self.mtp_heads, start=1):
+                # Target embeddings shifted by k positions relative to the
+                # input: embed tgt tokens at positions [k : k + seq_len].
+                # src has shape (batch, full_tgt_len); we need positions k..k+seq_len-1.
+                src_len_dim = src.size(1)
+                start = k
+                end = min(k + seq_len, src_len_dim)
+                actual_len = end - start
+                if actual_len <= 0:
+                    break
+                tgt_emb_k = self.tgt_emb.embeddings(src[:, start:end])  # (B, actual_len, H)
+                mtp_out = head(
+                    h_detached[:, :actual_len],
+                    tgt_emb_k,
+                )
+                mtp_outputs.append(mtp_out)
+
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim, mtp_outputs=mtp_outputs)
 
     def update_dropout(self, dropout, attention_dropout):
         self.decoder.update_dropout(dropout, attention_dropout)

@@ -454,6 +454,18 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
         description="Number of value heads for linear attention layers (Qwen3.5 GatedDeltaNet).",
     )
 
+    num_mtp_heads: int = Field(
+        default=0,
+        description="Number of Multi-Token Prediction auxiliary heads (0 = disabled). "
+        "Each head predicts one extra future token during training. "
+        "See https://arxiv.org/abs/2412.19437 (DeepSeek-V3).",
+    )
+    mtp_lambda: float = Field(
+        default=0.1,
+        description="Loss weight applied to the sum of MTP auxiliary head losses. "
+        "Only used when num_mtp_heads > 0.",
+    )
+
     @model_validator(mode="after")
     def _validate_transformer_decoder_config(self):
         # move to specific decoder config ?
