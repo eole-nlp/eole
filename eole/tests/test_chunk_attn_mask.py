@@ -157,7 +157,7 @@ class TestFirstChunkMaskKeyDimension(unittest.TestCase):
             if q_abs + 1 < cache_len_tgt:
                 self.assertFalse(
                     mask_2d[q_offset, q_abs + 1 :].any().item(),
-                    msg=f"q={q_abs}: future positions {q_abs+1}..{cache_len_tgt-1} should all be False",
+                    msg=f"q={q_abs}: future positions {q_abs + 1}..{cache_len_tgt - 1} should all be False",
                 )
 
     def test_first_chunk_same_as_non_first_for_same_positions(self):
@@ -799,7 +799,7 @@ class TestChunkAttnMaskPrefixLM(unittest.TestCase):
                     future_row.any().item(),
                     msg=(
                         f"chunk0, q={q_pos} (prefix query): "
-                        f"future keys {filled_end}..{cache_len-1} should all be False"
+                        f"future keys {filled_end}..{cache_len - 1} should all be False"
                     ),
                 )
 
@@ -829,7 +829,7 @@ class TestChunkAttnMaskPrefixLM(unittest.TestCase):
                 future_row = mask_2d[q_offset, filled_end:]
                 self.assertFalse(
                     future_row.any().item(),
-                    msg=f"q={q_pos} (prefix): future keys {filled_end}..{cache_len-1} should be False",
+                    msg=f"q={q_pos} (prefix): future keys {filled_end}..{cache_len - 1} should be False",
                 )
 
     def test_non_prefix_query_unaffected_by_prefix_guard(self):

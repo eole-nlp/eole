@@ -197,9 +197,9 @@ def main():
     normalizer = EnglishTextNormalizer()
     overall_wer, refs_norm, hyps_norm = compute_wer(ref_list, hyp_list, normalizer)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"LibriSpeech test-clean WER: {overall_wer:.2f}%")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # Per-speaker breakdown
     speaker_refs = defaultdict(list)
@@ -211,7 +211,7 @@ def main():
 
     print(f"\nPer-speaker WER ({len(unique_speakers)} speakers):")
     print(f"{'Speaker':<10} {'Utts':>5} {'WER':>8}")
-    print(f"{'-'*25}")
+    print(f"{'-' * 25}")
 
     speaker_wers = []
     for spk in sorted(speaker_refs.keys()):
