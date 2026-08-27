@@ -726,9 +726,11 @@ def get_shards_map(model_config, hf, nshards):
     # Loop over the weightmap and distribute checkpoints to the appropriate shards
     for key, ckpt in weightmap.items():
         for shard, layer_range in enumerate(shard_layer_ranges):
-            if is_layer_in_range(key, hf.decoder_layer_prefix, layer_range) or is_layer_in_range(
-                key, hf.encoder_layer_prefix, layer_range
-            ) or is_layer_in_range(key, hf.mtp_layer_prefix, layer_range):
+            if (
+                is_layer_in_range(key, hf.decoder_layer_prefix, layer_range)
+                or is_layer_in_range(key, hf.encoder_layer_prefix, layer_range)
+                or is_layer_in_range(key, hf.mtp_layer_prefix, layer_range)
+            ):
                 shard_checkpoints[shard].add(ckpt)
 
     return [sorted(s) for s in shard_checkpoints], shard_layer_ranges

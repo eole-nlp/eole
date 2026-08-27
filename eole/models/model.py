@@ -34,6 +34,7 @@ from eole.modules.representation import LayerwiseAttention, RepresentationExtrac
 
 from eole.modules.mtp import MTPHead
 
+from eole.encoders.vision import VisionEncoder
 from eole.encoders.audio import AudioEncoder
 
 
@@ -1286,10 +1287,11 @@ class DecoderModel(BaseModel):
             seq_len = dec_out.size(1)
             # Detach: auxiliary gradients must not flow into the main decoder
             h_detached = dec_out.detach()
+            # Pre-compute RoPE position table once (shared across heads)
+            _rope = getattr(self.decoder, "rope", None)
             for k, head in enumerate(self.mtp_heads, start=1):
                 # Target embeddings shifted by k positions relative to the
                 # input: embed tgt tokens at positions [k : k + seq_len].
-                # src has shape (batch, full_tgt_len); we need positions k..k+seq_len-1.
                 src_len_dim = src.size(1)
                 start = k
                 end = min(k + seq_len, src_len_dim)
@@ -1297,9 +1299,30 @@ class DecoderModel(BaseModel):
                 if actual_len <= 0:
                     break
                 tgt_emb_k = self.tgt_emb.embeddings(src[:, start:end])  # (B, actual_len, H)
+
+                # Build causal + padding mask: (B, 1, actual_len, actual_len)
+                # True = attend, False = masked.  Key-dimension padding mask
+                # prevents attending to pad positions; causal mask prevents
+                # attending to future positions.
+                pad_m = src[:, start:end].eq(self.pad_idx)  # (B, actual_len)
+                causal = torch.tril(
+                    torch.ones(actual_len, actual_len, dtype=torch.bool, device=src.device)
+                )  # (actual_len, actual_len)
+                # (1,1,L,L) & ~(B,1,1,L) → (B,1,L,L): attend where causal & not padding key
+                mtp_attn_mask = causal[None, None] & ~pad_m[:, None, None, :]
+
+                # RoPE position embeddings for sequence positions [start, start+actual_len)
+                if _rope is not None:
+                    pos_ids = start + torch.arange(actual_len, device=src.device)
+                    mtp_pos_emb = _rope.cos_sin[pos_ids]  # (actual_len, head_dim)
+                else:
+                    mtp_pos_emb = None
+
                 mtp_out = head(
                     h_detached[:, :actual_len],
                     tgt_emb_k,
+                    attn_mask=mtp_attn_mask,
+                    position_embeddings=mtp_pos_emb,
                 )
                 mtp_outputs.append(mtp_out)
 

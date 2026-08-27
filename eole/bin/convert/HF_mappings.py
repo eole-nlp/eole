@@ -143,6 +143,7 @@ MODEL_OVERRIDES["Qwen3ForCausalLM"] = {
     },
 }
 
+
 def _qwen3moe_config_from_hf(top, text, vis):
     """Config for Qwen3MoeForCausalLM, including optional MTP heads."""
     num_mtp_heads = text.get("num_nextn_predict_layers", top.get("num_nextn_predict_layers", 0))

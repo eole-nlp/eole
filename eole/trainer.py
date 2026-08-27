@@ -161,9 +161,7 @@ class BatchProcessor:
             if self.zero_out_prompt_loss:
                 batch = self.train_loss.ignore_prompt(batch)
 
-            loss, batch_stats, auxloss = self.train_loss(
-                batch, model_out, attns, estim=estim, mtp_outputs=mtp_outputs
-            )
+            loss, batch_stats, auxloss = self.train_loss(batch, model_out, attns, estim=estim, mtp_outputs=mtp_outputs)
 
         if loss is not None:
             loss = loss / normalization

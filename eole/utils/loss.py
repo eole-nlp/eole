@@ -387,6 +387,10 @@ class LossCompute(nn.Module):
         ``tgt[:, tgt_shift_index + k :]``, i.e. the main target shifted by
         ``k`` additional positions.
 
+        Positions where the *input* hidden state was computed from a padding
+        token are masked out (set to ``ignore_index``) to avoid spurious
+        training signal from left-padded batches.
+
         Args:
             mtp_outputs (list[Tensor]): List of MTP head outputs
                 ``(batch, seq_len_k, hidden)`` for k=1..N.
@@ -395,9 +399,16 @@ class LossCompute(nn.Module):
                 to the main CE target (0 for LM, 1 for NMT).
 
         Returns:
-            Tensor: Weighted sum of auxiliary CE losses (scalar).
+            tuple[Tensor, float]: ``(weighted_loss, unweighted_per_head_avg)``
+            where *weighted_loss* is the gradient-carrying tensor to add to the
+            total loss, and *unweighted_per_head_avg* is the raw per-head
+            average loss (as a Python float) for statistics — independent of
+            ``mtp_lambda`` so that changing the weight does not affect the
+            reported xent.
         """
+        pad_idx = self.criterion.ignore_index
         mtp_loss = torch.tensor(0.0, device=mtp_outputs[0].device, dtype=mtp_outputs[0].dtype)
+        raw_loss = 0.0  # unweighted sum across heads
         num_heads = len(mtp_outputs)
         tgt = batch["tgt"]  # (batch, full_tgt_len)
         for k, mtp_out in enumerate(mtp_outputs, start=1):
@@ -407,13 +418,23 @@ class LossCompute(nn.Module):
                 break
             # mtp_out may be shorter than tgt (seq_len can differ near end)
             seq_len_k = mtp_out.size(1)
-            flat_tgt_k = tgt[:, extra_shift : extra_shift + seq_len_k].contiguous().view(-1)
+            seq_tgt = tgt[:, extra_shift : extra_shift + seq_len_k]  # (B, seq_len_k)
+            # Mask positions where the *input* hidden state was from a padding token.
+            # For decoder-only LMs batch["tgt"] is the input sequence, so positions
+            # [0 : seq_len_k] of tgt are the source tokens that produced h_detached.
+            src_pad = tgt[:, :seq_len_k].eq(pad_idx)  # (B, seq_len_k)
+            seq_tgt = seq_tgt.masked_fill(src_pad, pad_idx)
+            flat_tgt_k = seq_tgt.contiguous().view(-1)
             head_loss, _ = self._compute_ce_loss(mtp_out, flat_tgt_k)
             mtp_loss = mtp_loss + head_loss
-        # Average over heads and weight by lambda
+            raw_loss += head_loss.item()
+        # Per-head average, then scale by lambda for the backward pass.
+        # raw_loss (unweighted) is returned separately for statistics so that
+        # mtp_xent() is independent of mtp_lambda.
+        unweighted_avg = raw_loss / num_heads if num_heads > 0 else 0.0
         if num_heads > 0:
             mtp_loss = mtp_loss * (self.mtp_lambda / num_heads)
-        return mtp_loss
+        return mtp_loss, unweighted_avg
 
     def forward(self, batch, output, attns, estim=None, mtp_outputs=None):
         """Compute the forward loss, composed of CE + auxiliary losses.
@@ -450,9 +471,8 @@ class LossCompute(nn.Module):
         # MTP auxiliary loss
         mtp_loss_val = 0.0
         if mtp_outputs is not None and len(mtp_outputs) > 0 and self.mtp_lambda > 0.0:
-            mtp_loss = self._compute_mtp_loss(mtp_outputs, batch, self.tgt_shift_index)
-            loss = loss + mtp_loss
-            mtp_loss_val = mtp_loss.item()
+            mtp_loss_tensor, mtp_loss_val = self._compute_mtp_loss(mtp_outputs, batch, self.tgt_shift_index)
+            loss = loss + mtp_loss_tensor
 
         # Estimator loss (separate from main loss, weighted externally)
         estimloss = self._compute_estim_loss(estim, batch, loss.device)

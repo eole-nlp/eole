@@ -45,11 +45,14 @@ class MTPHead(nn.Module):
         # Embedding normalisation before combining with target embeddings.
         self.enorm = LayerNorm[decoder_config.layer_norm](hidden_size, eps=decoder_config.norm_eps)
 
-        # Single transformer layer shared architecture with the main decoder.
-        # We pass idx=0; the layer_types list (if any) is intentionally not
-        # forwarded so the MTP layer is always a standard full-attention layer.
+        # Single transformer layer reusing the main decoder's architecture.
+        # Use the last-layer index so that first_k_dense_replace is respected:
+        # MTP heads in MoE models (e.g. DeepSeek-V3) should be MoE layers, not
+        # dense layers.  layer_types is cleared so the MTP layer is always a
+        # standard full-attention layer (GatedDeltaNet variants are not used).
+        _last_idx = max(0, decoder_config.layers - 1)
         _cfg = decoder_config.model_copy(update={"layer_types": None, "with_cross_attn": False})
-        self.layer = TransformerDecoderLayer(_cfg, idx=0, running_config=running_config)
+        self.layer = TransformerDecoderLayer(_cfg, idx=_last_idx, running_config=running_config)
 
         # Final layer norm applied to the transformer output.
         self.norm = LayerNorm[decoder_config.layer_norm](hidden_size, eps=decoder_config.norm_eps)
