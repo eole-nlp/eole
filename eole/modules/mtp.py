@@ -9,7 +9,6 @@ decoder.
 Reference: https://arxiv.org/abs/2412.19437
 """
 
-import torch
 import torch.nn as nn
 
 from eole.constants import LayerNorm

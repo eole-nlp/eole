@@ -1300,6 +1300,52 @@ def _qwen35_moe_vl_config_from_hf(top, text, vis):
     return recursive_update_dict(cfg, _qwen3vl_encoder_patch(top, vis), {})
 
 
+# Qwen3.5 MoE MTP head key map.
+# The MTP layer (model.layers.{N+k}) contains the same enorm+hnorm+eh_proj fusion
+# as DeepSeek-V3, then a full Qwen3.5-MoE-style decoder layer (GQA + QK-norm + MoE).
+# Expert weights in Qwen3.5 MoE are stored as stacked tensors:
+#   mlp.experts.gate_up_proj  shape [num_experts, 2*moe_ff, hidden]
+#   mlp.experts.down_proj     shape [num_experts, hidden, moe_ff]
+# Note: Qwen3.8-2.4T-A95B has 512 experts; we generate entries for up to 512.
+_QWEN35MOE_MTP_KEYS = {
+    ".enorm.": ".hnorm.",
+    ".proj.": (".eh_proj.", "[:, :hidden_size]"),
+    ".layer.self_attn.linear_query.": ".self_attn.q_proj.",
+    ".layer.self_attn.linear_keys.": ".self_attn.k_proj.",
+    ".layer.self_attn.linear_values.": ".self_attn.v_proj.",
+    ".layer.self_attn.final_linear.": ".self_attn.o_proj.",
+    ".layer.self_attn.q_norm.": ".self_attn.q_norm.",
+    ".layer.self_attn.k_norm.": ".self_attn.k_norm.",
+    ".layer.mlp.gate.weight": ".mlp.gate.weight",
+    # Stacked expert tensors (same slicing as Qwen3_5MoeForConditionalGeneration decoder)
+    **{
+        f".layer.mlp.experts.{j}.gate_up_proj.weight": (
+            ".mlp.experts.gate_up_proj",
+            f"[{j}, :moe_transformer_ff, :]",
+        )
+        for j in range(512)
+    },
+    **{
+        f".layer.mlp.experts.{j}.up_proj.weight": (
+            ".mlp.experts.gate_up_proj",
+            f"[{j}, moe_transformer_ff:, :]",
+        )
+        for j in range(512)
+    },
+    **{f".layer.mlp.experts.{j}.down_proj.weight": (".mlp.experts.down_proj", f"[{j}]") for j in range(512)},
+    # Per-expert fallback (AutoRound / quantised checkpoints stored separately)
+    **{f".layer.mlp.experts.{j}.gate_up_proj.": f".mlp.experts.{j}.gate_proj." for j in range(512)},
+    **{f".layer.mlp.experts.{j}.up_proj.": f".mlp.experts.{j}.up_proj." for j in range(512)},
+    **{f".layer.mlp.experts.{j}.down_proj.": f".mlp.experts.{j}.down_proj." for j in range(512)},
+    ".layer.mlp.shared_experts.gate_up_proj.": ".mlp.shared_expert.gate_proj.",
+    ".layer.mlp.shared_experts.up_proj.": ".mlp.shared_expert.up_proj.",
+    ".layer.mlp.shared_experts.down_proj.": ".mlp.shared_expert.down_proj.",
+    ".layer.mlp.shared_expert_gate.weight": ".mlp.shared_expert_gate.weight",
+    ".layer.input_layernorm.": ".input_layernorm.",
+    ".layer.post_attention_layernorm.": ".post_attention_layernorm.",
+}
+
+
 MODEL_OVERRIDES["Qwen3_5MoeForConditionalGeneration"] = {
     "decoder_layer_prefix": "model.language_model.layers.",
     "tgt_emb.embeddings.weight": "model.language_model.embed_tokens.weight",
@@ -1408,51 +1454,6 @@ def _qwen35moe_config_from_hf(top, text, vis):
         cfg["decoder"]["mtp_lambda"] = 0.1
     return cfg
 
-
-# Qwen3.5 MoE MTP head key map.
-# The MTP layer (model.layers.{N+k}) contains the same enorm+hnorm+eh_proj fusion
-# as DeepSeek-V3, then a full Qwen3.5-MoE-style decoder layer (GQA + QK-norm + MoE).
-# Expert weights in Qwen3.5 MoE are stored as stacked tensors:
-#   mlp.experts.gate_up_proj  shape [num_experts, 2*moe_ff, hidden]
-#   mlp.experts.down_proj     shape [num_experts, hidden, moe_ff]
-# Note: Qwen3.8-2.4T-A95B has 512 experts; we generate entries for up to 512.
-_QWEN35MOE_MTP_KEYS = {
-    ".enorm.": ".hnorm.",
-    ".proj.": (".eh_proj.", "[:, :hidden_size]"),
-    ".layer.self_attn.linear_query.": ".self_attn.q_proj.",
-    ".layer.self_attn.linear_keys.": ".self_attn.k_proj.",
-    ".layer.self_attn.linear_values.": ".self_attn.v_proj.",
-    ".layer.self_attn.final_linear.": ".self_attn.o_proj.",
-    ".layer.self_attn.q_norm.": ".self_attn.q_norm.",
-    ".layer.self_attn.k_norm.": ".self_attn.k_norm.",
-    ".layer.mlp.gate.weight": ".mlp.gate.weight",
-    # Stacked expert tensors (same slicing as Qwen3_5MoeForConditionalGeneration decoder)
-    **{
-        f".layer.mlp.experts.{j}.gate_up_proj.weight": (
-            ".mlp.experts.gate_up_proj",
-            f"[{j}, :moe_transformer_ff, :]",
-        )
-        for j in range(512)
-    },
-    **{
-        f".layer.mlp.experts.{j}.up_proj.weight": (
-            ".mlp.experts.gate_up_proj",
-            f"[{j}, moe_transformer_ff:, :]",
-        )
-        for j in range(512)
-    },
-    **{f".layer.mlp.experts.{j}.down_proj.weight": (".mlp.experts.down_proj", f"[{j}]") for j in range(512)},
-    # Per-expert fallback (AutoRound / quantised checkpoints stored separately)
-    **{f".layer.mlp.experts.{j}.gate_up_proj.": f".mlp.experts.{j}.gate_proj." for j in range(512)},
-    **{f".layer.mlp.experts.{j}.up_proj.": f".mlp.experts.{j}.up_proj." for j in range(512)},
-    **{f".layer.mlp.experts.{j}.down_proj.": f".mlp.experts.{j}.down_proj." for j in range(512)},
-    ".layer.mlp.shared_experts.gate_up_proj.": ".mlp.shared_expert.gate_proj.",
-    ".layer.mlp.shared_experts.up_proj.": ".mlp.shared_expert.up_proj.",
-    ".layer.mlp.shared_experts.down_proj.": ".mlp.shared_expert.down_proj.",
-    ".layer.mlp.shared_expert_gate.weight": ".mlp.shared_expert_gate.weight",
-    ".layer.input_layernorm.": ".input_layernorm.",
-    ".layer.post_attention_layernorm.": ".post_attention_layernorm.",
-}
 
 MODEL_OVERRIDES["Qwen3_5MoeForCausalLM"] = {
     "mtp": _QWEN35MOE_MTP_KEYS,
