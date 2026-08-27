@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.flake8]
 max-line-length = 120
-ignore = ["E203", "E731", "W503"]
+ignore = ["E203", "E731", "W503", "E226", "E741"]
 # exclude = ["tests/*", "migrations/*"]
 
 [tool.black]
