@@ -59,7 +59,6 @@ MODEL_OVERRIDES["MistralForCausalLM"] = {}
 
 def _deepseekv3_config_from_hf(top, text, vis):
     """Config for DeepseekV3ForCausalLM and DeepseekR1ForCausalLM (reasoning variant)."""
-    num_hidden_layers = text.get("num_hidden_layers", top.get("num_hidden_layers", 61))
     num_mtp_heads = text.get("num_nextn_predict_layers", top.get("num_nextn_predict_layers", 1))
     return {
         "decoder": {
