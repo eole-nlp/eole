@@ -1156,9 +1156,16 @@ def _qwen35_decoder_fields(text):
 
 
 def _qwen35_vl_config_from_hf(top, text, vis):
-    """Config for Qwen3_5ForConditionalGeneration."""
+    """Config for Qwen3_5ForConditionalGeneration (Qwen3.8-27B dense hybrid VLM)."""
+    num_mtp_heads = text.get(
+        "mtp_num_hidden_layers",
+        top.get("mtp_num_hidden_layers", text.get("num_nextn_predict_layers", top.get("num_nextn_predict_layers", 0))),
+    )
     decoder = {"query_norm": True, "key_norm": True, "q_gating": True}
     decoder.update(_qwen35_decoder_fields(text))
+    if num_mtp_heads:
+        decoder["num_mtp_heads"] = num_mtp_heads
+        decoder["mtp_lambda"] = 0.1
     cfg = {
         "adapter": "qwen3_5vl",
         "decoder": decoder,
@@ -1176,6 +1183,26 @@ def _qwen35_vl_config_from_hf(top, text, vis):
     }
     return recursive_update_dict(cfg, _qwen3vl_encoder_patch(top, vis), {})
 
+
+# MTP head key map for Qwen3_5ForConditionalGeneration (Qwen3.8-27B dense hybrid).
+# The MTP layer (model.language_model.layers.{N+k}) uses the same enorm+hnorm+eh_proj
+# fusion as DeepSeek-V3 / Qwen3MoE, but the transformer layer inside is a dense
+# Qwen3.5-style layer (GQA + QK-norm + standard gate_proj/up_proj/down_proj FFN).
+_QWEN35_DENSE_MTP_KEYS = {
+    ".enorm.": ".hnorm.",
+    ".proj.": (".eh_proj.", "[:, :hidden_size]"),
+    ".layer.self_attn.linear_query.": ".self_attn.q_proj.",
+    ".layer.self_attn.linear_keys.": ".self_attn.k_proj.",
+    ".layer.self_attn.linear_values.": ".self_attn.v_proj.",
+    ".layer.self_attn.final_linear.": ".self_attn.o_proj.",
+    ".layer.self_attn.q_norm.": ".self_attn.q_norm.",
+    ".layer.self_attn.k_norm.": ".self_attn.k_norm.",
+    ".layer.mlp.gate_up_proj.": ".mlp.gate_proj.",
+    ".layer.mlp.up_proj.": ".mlp.up_proj.",
+    ".layer.mlp.down_proj.": ".mlp.down_proj.",
+    ".layer.input_layernorm.": ".input_layernorm.",
+    ".layer.post_attention_layernorm.": ".post_attention_layernorm.",
+}
 
 MODEL_OVERRIDES["Qwen3_5ForConditionalGeneration"] = {
     "decoder_layer_prefix": "model.language_model.layers.",
@@ -1225,6 +1252,10 @@ MODEL_OVERRIDES["Qwen3_5ForConditionalGeneration"] = {
         ".linear_attn.norm.": ".linear_attn.norm.",
         ".linear_attn.out_proj.": ".linear_attn.out_proj.",
     },
+    "mtp": _QWEN35_DENSE_MTP_KEYS,
+    # MTP layers live at model.language_model.layers.{num_hidden_layers + k}
+    "mtp_layer_prefix": "model.language_model.layers.",
+    "mtp_layer_start": None,
     "config_from_hf": _qwen35_vl_config_from_hf,
 }
 
