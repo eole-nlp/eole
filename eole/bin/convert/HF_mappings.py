@@ -143,6 +143,41 @@ MODEL_OVERRIDES["Qwen3ForCausalLM"] = {
     },
 }
 
+def _qwen3moe_config_from_hf(top, text, vis):
+    """Config for Qwen3MoeForCausalLM, including optional MTP heads."""
+    num_mtp_heads = text.get("num_nextn_predict_layers", top.get("num_nextn_predict_layers", 0))
+    cfg = {
+        "decoder": {
+            "query_norm": True,
+            "key_norm": True,
+        }
+    }
+    if num_mtp_heads:
+        cfg["decoder"]["num_mtp_heads"] = num_mtp_heads
+        cfg["decoder"]["mtp_lambda"] = 0.1
+    return cfg
+
+
+# Qwen3MoE MTP heads use the same enorm+hnorm+eh_proj fusion as DeepSeek-V3,
+# but the transformer layer inside is Qwen3MoE-style (GQA + QK-norm + MoE),
+# matching the main decoder layer structure.
+_QWEN3MOE_MTP_KEYS = {
+    ".enorm.": ".hnorm.",
+    ".proj.": (".eh_proj.", "[:, :hidden_size]"),
+    ".layer.self_attn.linear_query.": ".self_attn.q_proj.",
+    ".layer.self_attn.linear_keys.": ".self_attn.k_proj.",
+    ".layer.self_attn.linear_values.": ".self_attn.v_proj.",
+    ".layer.self_attn.final_linear.": ".self_attn.o_proj.",
+    ".layer.self_attn.q_norm.": ".self_attn.q_norm.",
+    ".layer.self_attn.k_norm.": ".self_attn.k_norm.",
+    ".layer.mlp.gate.": ".mlp.gate.",
+    **{f".layer.mlp.experts.{i}.gate_up_proj.": f".mlp.experts.{i}.gate_proj." for i in range(128)},
+    **{f".layer.mlp.experts.{i}.up_proj.": f".mlp.experts.{i}.up_proj." for i in range(128)},
+    **{f".layer.mlp.experts.{i}.down_proj.": f".mlp.experts.{i}.down_proj." for i in range(128)},
+    ".layer.input_layernorm.": ".input_layernorm.",
+    ".layer.post_attention_layernorm.": ".post_attention_layernorm.",
+}
+
 MODEL_OVERRIDES["Qwen3MoeForCausalLM"] = {
     "decoder": {
         ".self_attn.q_norm.": ".self_attn.q_norm.",
@@ -152,12 +187,12 @@ MODEL_OVERRIDES["Qwen3MoeForCausalLM"] = {
         **{f".mlp.experts.{i}.up_proj.": f".mlp.experts.{i}.up_proj." for i in range(128)},
         **{f".mlp.experts.{i}.down_proj.": f".mlp.experts.{i}.down_proj." for i in range(128)},
     },
-    "config_from_hf": lambda top, text, vis: {
-        "decoder": {
-            "query_norm": True,
-            "key_norm": True,
-        }
-    },
+    "mtp": _QWEN3MOE_MTP_KEYS,
+    # MTP layers live at model.layers.{num_hidden_layers + k} — same prefix as main layers.
+    # mtp_layer_start=None means "use num_hidden_layers at runtime" (resolved dynamically).
+    "mtp_layer_prefix": "model.layers.",
+    "mtp_layer_start": None,
+    "config_from_hf": _qwen3moe_config_from_hf,
 }
 
 MODEL_OVERRIDES["Gemma2ForCausalLM"] = {
