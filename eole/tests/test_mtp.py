@@ -120,7 +120,8 @@ class TestMTPLoss(unittest.TestCase):
         tgt = torch.randint(2, 15, (B, T))
         batch = {"tgt": tgt}
         mtp_loss = self.compute._compute_mtp_loss(mtp_outputs, batch, 0)
-        self.assertGreater(mtp_loss.item(), 0.0)
+        mtp_loss_value = mtp_loss[0].item() if isinstance(mtp_loss, tuple) else mtp_loss.item()
+        self.assertGreater(mtp_loss_value, 0.0)
 
     def test_mtp_loss_zero_lambda(self):
         """With lambda=0 the MTP loss should not affect total loss."""
@@ -151,7 +152,8 @@ class TestMTPLoss(unittest.TestCase):
         batch = {"tgt": tgt}
         mtp_loss = compute._compute_mtp_loss(mtp_outputs, batch, 0)
         # With lambda=0 the mtp_loss should be zero
-        self.assertAlmostEqual(mtp_loss.item(), 0.0, places=5)
+        mtp_loss_value = mtp_loss[0].item() if isinstance(mtp_loss, tuple) else mtp_loss.item()
+        self.assertAlmostEqual(mtp_loss_value, 0.0, places=5)
 
 
 def _make_tiny_vocab(pad_idx):
