@@ -90,7 +90,7 @@ def evaluate(config):
         pred_label_norm = norm_scores.index(max(norm_scores))
         correct += int(pred_label == label)
         correct_norm += int(pred_label_norm == label)
-        print(f"{total} acc: {correct/total:.4f} " f"acc_norm: {correct_norm}/{total}={correct_norm/total:.4f}")
+        print(f"{total} acc: {correct / total:.4f} " f"acc_norm: {correct_norm}/{total}={correct_norm / total:.4f}")
 
 
 @register_bin(name="eval_hellaswag")

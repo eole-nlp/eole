@@ -110,7 +110,7 @@ MODEL_OVERRIDES["MixtralForCausalLM"] = {
     "decoder": {
         ".mlp.gate.": ".block_sparse_moe.gate.",
         **{
-            f".mlp.experts.{i}.{attr}": f".block_sparse_moe.experts.{i}.w{j+1}."
+            f".mlp.experts.{i}.{attr}": f".block_sparse_moe.experts.{i}.w{j + 1}."
             for i in range(8)
             for j, attr in enumerate(["gate_up_proj.", "down_proj.", "up_proj."])
         },
@@ -158,7 +158,7 @@ MODEL_OVERRIDES["PhiMoEForCausalLM"] = {
     "decoder": {
         ".mlp.gate.": ".block_sparse_moe.gate.",
         **{
-            f".mlp.experts.{i}.{attr}": f".block_sparse_moe.experts.{i}.w{j+1}."
+            f".mlp.experts.{i}.{attr}": f".block_sparse_moe.experts.{i}.w{j + 1}."
             for i in range(16)
             for j, attr in enumerate(["gate_up_proj.", "down_proj.", "up_proj."])
         },

@@ -108,7 +108,7 @@ class FuzzyMatcher(object):
             augmented.extend(plist)
 
         end = time.time()
-        logger.debug(f"FuzzyMatch Transform: Added {fuzzy_count} " f"fuzzies in {end-start} secs")
+        logger.debug(f"FuzzyMatch Transform: Added {fuzzy_count}  fuzzies in {end - start} secs")
 
         return augmented
 

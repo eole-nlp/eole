@@ -324,9 +324,9 @@ def evaluate_language(fleurs_lang, whisper_lang, args):
     Returns:
         dict with language results, or None on failure.
     """
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Evaluating: {fleurs_lang} (Whisper code: {whisper_lang})")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     audio_files, references, genders = load_fleurs_data(fleurs_lang, args.split, args.audio_cache_dir)
     print(f"  {len(audio_files)} utterances loaded")
@@ -416,11 +416,11 @@ def main():
             results.append(result)
 
     if len(results) > 1:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("FLEURS Evaluation Summary")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"{'Language':<16} {'Whisper':<8} {'Metric':<6} {'Score':>8} {'Utts':>6}")
-        print(f"{'-'*46}")
+        print(f"{'-' * 46}")
         for r in results:
             print(
                 f"{r['fleurs_lang']:<16} {r['whisper_lang']:<8} {r['metric']:<6} "
@@ -428,7 +428,7 @@ def main():
             )
 
         avg_score = sum(r["score"] for r in results) / len(results)
-        print(f"{'-'*46}")
+        print(f"{'-' * 46}")
         print(f"{'Average':<31} {avg_score:>7.2f}%")
 
     if results:
@@ -440,7 +440,7 @@ def main():
             f.write(f"Split: {args.split}\n")
             f.write(f"Beam size: {args.beam_size}\n\n")
             f.write(f"{'Language':<16} {'Whisper':<8} {'Metric':<6} {'Score':>8} {'Utts':>6}\n")
-            f.write(f"{'-'*46}\n")
+            f.write(f"{'-' * 46}\n")
             for r in results:
                 f.write(
                     f"{r['fleurs_lang']:<16} {r['whisper_lang']:<8} {r['metric']:<6} "
@@ -448,7 +448,7 @@ def main():
                 )
             if len(results) > 1:
                 avg_score = sum(r["score"] for r in results) / len(results)
-                f.write(f"{'-'*46}\n")
+                f.write(f"{'-' * 46}\n")
                 f.write(f"{'Average':<31} {avg_score:>7.2f}%\n")
         print(f"\nSummary saved to {summary_file}")
 
