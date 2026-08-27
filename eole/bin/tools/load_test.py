@@ -248,8 +248,8 @@ class LoadTester:
         print("LOAD TEST RESULTS")
         print("=" * 60)
         print(f"Total requests: {len(results)}")
-        print(f"Successful: {len(successful)} ({len(successful)/len(results)*100:.1f}%)")
-        print(f"Failed: {len(failed)} ({len(failed)/len(results)*100:.1f}%)")
+        print(f"Successful: {len(successful)} ({len(successful) / len(results) * 100:.1f}%)")
+        print(f"Failed: {len(failed)} ({len(failed) / len(results) * 100:.1f}%)")
 
         if successful:
             durations = [r.duration for r in successful]

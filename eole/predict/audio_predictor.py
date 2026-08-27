@@ -285,7 +285,7 @@ class AudioPredictor(Translator):
                         f"avg_logprob={avg_logprob:.2f}<{self._logprob_threshold}"
                         f" & no_speech_prob={self._no_speech_prob:.2f}<{self._no_speech_threshold}"
                     )
-                self._log(f"Fallback: t={t} failed ({', '.join(reasons)}), retrying at t={temperatures[i+1]}")
+                self._log(f"Fallback: t={t} failed ({', '.join(reasons)}), retrying at t={temperatures[i + 1]}")
 
         return best_token_ids, best_score
 

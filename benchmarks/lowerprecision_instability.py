@@ -107,9 +107,9 @@ def test_configuration(heads_kv, num_layers=32, dtype=torch.bfloat16):
     config_name = "MHA (heads=heads_kv=16)" if heads_kv == 16 else f"GQA (heads=16, heads_kv={heads_kv})"
     dtype_name = str(dtype).split(".")[-1]
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"Testing: {config_name} with {dtype_name}")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
 
     model_config = ModelConfig(heads_kv=heads_kv)
 
@@ -178,7 +178,7 @@ def test_configuration(heads_kv, num_layers=32, dtype=torch.bfloat16):
 
                 if i == 0 or (i + 1) % 8 == 0:
                     print(
-                        f"  Layer {i+1:2d}: mean_diff={layer_diff.mean().item():.6e}, "
+                        f"  Layer {i + 1:2d}: mean_diff={layer_diff.mean().item():.6e}, "
                         f"max_diff={layer_diff.max().item():.6e}"
                     )
 
@@ -236,9 +236,9 @@ def main():
     all_results = []
 
     for dtype, dtype_name in dtypes_to_test:
-        print(f"\n{'#'*80}")
+        print(f"\n{'#' * 80}")
         print(f"# Testing with dtype: {dtype_name}")
-        print(f"{'#'*80}")
+        print(f"{'#' * 80}")
 
         for heads_kv in configs_to_test:
             result = test_configuration(heads_kv, num_layers=32, dtype=dtype)
