@@ -29,6 +29,7 @@ class Statistics(object):
         data_stats=None,
         attention_entropy=0,
         n_attention_samples=0,
+        mtp_loss=0.0,
     ):
         self.loss = loss
         self.auxloss = auxloss
@@ -41,6 +42,7 @@ class Statistics(object):
         self.data_stats = data_stats if data_stats is not None else {}
         self.attention_entropy = attention_entropy
         self.n_attention_samples = n_attention_samples
+        self.mtp_loss = mtp_loss
         self.start_time = time.time()
 
     @staticmethod
@@ -105,6 +107,7 @@ class Statistics(object):
         self.n_correct += stat.n_correct
         self.attention_entropy += stat.attention_entropy
         self.n_attention_samples += stat.n_attention_samples
+        self.mtp_loss += stat.mtp_loss
         self.computed_metrics = stat.computed_metrics
         for cid in stat.data_stats.keys():
             if cid in self.data_stats.keys():
@@ -143,6 +146,12 @@ class Statistics(object):
             return self.attention_entropy / self.n_attention_samples
         return 0.0
 
+    def mtp_xent(self):
+        """compute average MTP auxiliary loss per token"""
+        if self.n_tokens > 0:
+            return self.mtp_loss / self.n_tokens
+        return 0.0
+
     def elapsed_time(self):
         """compute elapsed time"""
         return time.time() - self.start_time
@@ -162,7 +171,7 @@ class Statistics(object):
         logger.info(
             (
                 "Step %s; acc: %2.1f; ppl: %5.2f; xent: %2.2f; aux: %2.3f; "
-                + "attn_ent: %2.3f; lr: %7.2e; sents: %7.0f; bsz: %4.0f/%4.0f/%2.0f; "
+                + "mtp: %2.3f; attn_ent: %2.3f; lr: %7.2e; sents: %7.0f; bsz: %4.0f/%4.0f/%2.0f; "
                 + "%3.0f/%3.0f tok/s; %6.0f sec;"
             )
             % (
@@ -171,6 +180,7 @@ class Statistics(object):
                 self.ppl(),
                 self.xent(),
                 self.aux_loss(),
+                self.mtp_xent(),
                 self.avg_attention_entropy(),
                 learning_rate,
                 self.n_sents,
@@ -191,6 +201,7 @@ class Statistics(object):
         writer.add_scalar(prefix + "/xent", self.xent(), step)
         writer.add_scalar(prefix + "/ppl", self.ppl(), step)
         writer.add_scalar(prefix + "/attention_entropy", self.avg_attention_entropy(), step)
+        writer.add_scalar(prefix + "/mtp_xent", self.mtp_xent(), step)
         for k, v in self.computed_metrics.items():
             writer.add_scalar(prefix + "/" + k, round(v, 4), step)
         writer.add_scalar(prefix + "/accuracy", self.accuracy(), step)
@@ -208,6 +219,7 @@ class Statistics(object):
             f"{prefix}/xent": self.xent(),
             f"{prefix}/ppl": self.ppl(),
             f"{prefix}/attention_entropy": self.avg_attention_entropy(),
+            f"{prefix}/mtp_xent": self.mtp_xent(),
             f"{prefix}/accuracy": self.accuracy(),
             f"{prefix}/tgtper": self.n_tokens / (t + 1e-5),
             f"{prefix}/lr": learning_rate,

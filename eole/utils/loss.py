@@ -51,6 +51,7 @@ class LossCompute(nn.Module):
         lm_prior_lambda=None,
         lm_prior_tau=None,
         lm_prior_model=None,
+        mtp_lambda=0.0,
     ):
         super(LossCompute, self).__init__()
         self.criterion = criterion
@@ -63,6 +64,7 @@ class LossCompute(nn.Module):
         self.lm_prior_lambda = lm_prior_lambda
         self.lm_prior_tau = lm_prior_tau
         self.lm_prior_model = lm_prior_model
+        self.mtp_lambda = mtp_lambda
         self.estimloss = nn.MSELoss(reduction="sum")
 
         self.pad_token = self.vocabs["specials"].get("pad_token", DefaultTokens.PAD)
@@ -146,6 +148,7 @@ class LossCompute(nn.Module):
             lm_prior_lambda=lm_prior_lambda,
             lm_prior_tau=lm_prior_tau,
             lm_prior_model=lm_prior_model,
+            mtp_lambda=getattr(config.model.decoder, "mtp_lambda", 0.0) if config.model.decoder is not None else 0.0,
         )
 
         # Store attention entropy configuration
@@ -377,7 +380,63 @@ class LossCompute(nn.Module):
         except Exception:
             return 0.0
 
-    def forward(self, batch, output, attns, estim=None):
+    def _compute_mtp_loss(self, mtp_outputs, batch, flat_tgt_shift):
+        """Compute MTP auxiliary loss for all heads.
+
+        For MTP head ``k`` (1-indexed), the target is
+        ``tgt[:, tgt_shift_index + k :]``, i.e. the main target shifted by
+        ``k`` additional positions.
+
+        Positions where the *input* hidden state was computed from a padding
+        token are masked out (set to ``ignore_index``) to avoid spurious
+        training signal from left-padded batches.
+
+        Args:
+            mtp_outputs (list[Tensor]): List of MTP head outputs
+                ``(batch, seq_len_k, hidden)`` for k=1..N.
+            batch (dict): Current batch.
+            flat_tgt_shift (int): The main ``tgt_shift_index`` already applied
+                to the main CE target (0 for LM, 1 for NMT).
+
+        Returns:
+            tuple[Tensor, float]: ``(weighted_loss, unweighted_per_head_avg)``
+            where *weighted_loss* is the gradient-carrying tensor to add to the
+            total loss, and *unweighted_per_head_avg* is the raw per-head
+            average loss (as a Python float) for statistics — independent of
+            ``mtp_lambda`` so that changing the weight does not affect the
+            reported xent.
+        """
+        pad_idx = self.criterion.ignore_index
+        mtp_loss = torch.tensor(0.0, device=mtp_outputs[0].device, dtype=mtp_outputs[0].dtype)
+        raw_loss = 0.0  # unweighted sum across heads
+        num_heads = len(mtp_outputs)
+        tgt = batch["tgt"]  # (batch, full_tgt_len)
+        for k, mtp_out in enumerate(mtp_outputs, start=1):
+            # Target for head k: positions [tgt_shift_index + k : ]
+            extra_shift = flat_tgt_shift + k
+            if extra_shift >= tgt.size(1):
+                break
+            # mtp_out may be shorter than tgt (seq_len can differ near end)
+            seq_len_k = mtp_out.size(1)
+            seq_tgt = tgt[:, extra_shift : extra_shift + seq_len_k]  # (B, seq_len_k)
+            # Mask positions where the *input* hidden state was from a padding token.
+            # For decoder-only LMs batch["tgt"] is the input sequence, so positions
+            # [0 : seq_len_k] of tgt are the source tokens that produced h_detached.
+            src_pad = tgt[:, :seq_len_k].eq(pad_idx)  # (B, seq_len_k)
+            seq_tgt = seq_tgt.masked_fill(src_pad, pad_idx)
+            flat_tgt_k = seq_tgt.contiguous().view(-1)
+            head_loss, _ = self._compute_ce_loss(mtp_out, flat_tgt_k)
+            mtp_loss = mtp_loss + head_loss
+            raw_loss += head_loss.item()
+        # Per-head average, then scale by lambda for the backward pass.
+        # raw_loss (unweighted) is returned separately for statistics so that
+        # mtp_xent() is independent of mtp_lambda.
+        unweighted_avg = raw_loss / num_heads if num_heads > 0 else 0.0
+        if num_heads > 0:
+            mtp_loss = mtp_loss * (self.mtp_lambda / num_heads)
+        return mtp_loss, unweighted_avg
+
+    def forward(self, batch, output, attns, estim=None, mtp_outputs=None):
         """Compute the forward loss, composed of CE + auxiliary losses.
 
         Args:
@@ -387,6 +446,8 @@ class LossCompute(nn.Module):
           attns (dict) : dictionary of attention weights
               ``(batch, tgt_len, src_len)``
           estim: optional estimator output (scalar per sample)
+          mtp_outputs (list[Tensor], optional): list of MTP head outputs
+              from :class:`~eole.models.model.DecoderModel`.
 
         Returns:
             A tuple (loss, stats, estimloss) with the total loss,
@@ -407,6 +468,12 @@ class LossCompute(nn.Module):
 
         loss = self._compute_lm_prior_loss(output, batch, loss)
 
+        # MTP auxiliary loss
+        mtp_loss_val = 0.0
+        if mtp_outputs is not None and len(mtp_outputs) > 0 and self.mtp_lambda > 0.0:
+            mtp_loss_tensor, mtp_loss_val = self._compute_mtp_loss(mtp_outputs, batch, self.tgt_shift_index)
+            loss = loss + mtp_loss_tensor
+
         # Estimator loss (separate from main loss, weighted externally)
         estimloss = self._compute_estim_loss(estim, batch, loss.device)
 
@@ -423,17 +490,19 @@ class LossCompute(nn.Module):
             batch["cid"],
             batch["cid_line_number"],
             attention_entropy,
+            mtp_loss=mtp_loss_val,
         )
 
         return loss, stats, estimloss
 
-    def _stats(self, bsz, loss, auxloss, scores, target, cids, cids_idx, attention_entropy=0.0):
+    def _stats(self, bsz, loss, auxloss, scores, target, cids, cids_idx, attention_entropy=0.0, mtp_loss=0.0):
         """
         Args:
             loss (int): the loss computed by the loss criterion.
             scores (:obj:`FloatTensor`): a score for each possible output
             target (:obj:`FloatTensor`): true targets
             attention_entropy (float): computed attention entropy for this batch
+            mtp_loss (float): MTP auxiliary loss value for this batch
 
         Returns:
             :obj:`eole.utils.Statistics` : statistics for this batch.
@@ -465,4 +534,5 @@ class LossCompute(nn.Module):
             data_stats=data,
             attention_entropy=attention_entropy * bsz,  # Scale by batch size
             n_attention_samples=bsz,
+            mtp_loss=mtp_loss,
         )
