@@ -1166,6 +1166,7 @@ def _qwen35_vl_config_from_hf(top, text, vis):
     if num_mtp_heads:
         decoder["num_mtp_heads"] = num_mtp_heads
         decoder["mtp_lambda"] = 0.1
+        decoder["mtp_emb_norm"] = True
     cfg = {
         "adapter": "qwen3_5vl",
         "decoder": decoder,
@@ -1209,6 +1210,12 @@ MODEL_OVERRIDES["Qwen3_5ForConditionalGeneration"] = {
     "tgt_emb.embeddings.weight": "model.language_model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.language_model.norm.weight",
     "generator.weight": "lm_head.weight",
+    # Newer Qwen3.5 exports keep their MTP head in
+    # model_extra_tensors.safetensors rather than appending it to decoder layers.
+    "mtp_heads.0.proj.weight": "mtp.fc.weight",
+    "mtp_heads.0.enorm.weight": "mtp.pre_fc_norm_hidden.weight",
+    "mtp_heads.0.emb_norm.weight": "mtp.pre_fc_norm_embedding.weight",
+    "mtp_heads.0.norm.weight": "mtp.norm.weight",
     # Vision encoder (same structure as Qwen3VL)
     "encoder_layer_prefix": "model.visual.blocks.",
     "encoder.patch_conv.weight": "model.visual.patch_embed.proj.weight",

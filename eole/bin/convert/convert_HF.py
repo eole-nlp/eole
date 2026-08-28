@@ -67,6 +67,7 @@ class HuggingfaceFiles:
     tokenizer_json: Optional[str] = None
     wmap_path: Optional[str] = None
     model_path: Optional[str] = None
+    extra_model_paths: list[str] = field(default_factory=list)
     special_tokens_json: Optional[str] = None
     chat_template_jinja_path: Optional[str] = None
 
@@ -130,6 +131,11 @@ class HuggingfaceFiles:
             or get_file_fn("pytorch_model.bin.index.json", required=False),
             "model_path": get_file_fn("model.safetensors", required=False)
             or get_file_fn("pytorch_model.bin", required=False),
+            # AutoRound writes tensors which do not fit in its primary checkpoint
+            # to this companion file, without creating a safetensors index.
+            "extra_model_paths": [
+                path for path in [get_file_fn("model_extra_tensors.safetensors", required=False)] if path is not None
+            ],
             "special_tokens_json": get_file_fn("special_tokens_map.json", required=False),
             "chat_template_jinja_path": get_file_fn("chat_template.jinja", required=False),
         }
@@ -190,11 +196,28 @@ class HuggingfaceFiles:
 
     @property
     def mtp_layer_prefix(self):
+        # Recent Qwen3.5 checkpoints place the MTP transformer in the
+        # unindexed companion file as ``mtp.layers.0`` rather than appending it
+        # to the main decoder layer list.
+        for checkpoint_path in self.extra_model_paths:
+            checkpoint = self.get_load_ckpt(*os.path.split(checkpoint_path))
+            if isinstance(checkpoint, dict):
+                keys = checkpoint.keys()
+            else:
+                with safetensors.safe_open(checkpoint, framework="pt", device="cpu") as f:
+                    keys = f.keys()
+            if any(key.startswith("mtp.layers.") for key in keys):
+                return "mtp.layers."
         return KEY_MAPS[self.arch].get("mtp_layer_prefix", None)
 
     @property
     def base_dir(self):
         return os.path.split(self.wmap_path)[0]
+
+    @property
+    def model_paths(self):
+        """Return all unindexed checkpoint files, in lookup order."""
+        return [path for path in [self.model_path, *self.extra_model_paths] if path is not None]
 
     def get_load_ckpt(self, dir_path, file_path):
         if os.path.exists(os.path.join(dir_path, file_path)):
@@ -221,8 +244,20 @@ class HuggingfaceFiles:
         if self.wmap_path:
             checkpoint = self.get_load_ckpt(self.base_dir, ckpt)
         else:
-            checkpoint = self.get_load_ckpt(*os.path.split(self.model_path))
+            checkpoint = self.get_load_ckpt(*os.path.split(ckpt))
         return checkpoint
+
+    def checkpoint_for_tensor(self, tensor_name):
+        """Return the checkpoint containing *tensor_name*, including companions."""
+        if self.wmap_path:
+            checkpoint_name = self.wmap["weight_map"].get(tensor_name)
+            if checkpoint_name:
+                return self.get_load_ckpt(self.base_dir, checkpoint_name)
+        for checkpoint_path in self.model_paths:
+            checkpoint = self.get_load_ckpt(*os.path.split(checkpoint_path))
+            if get_weight(checkpoint, tensor_name) is not None:
+                return checkpoint
+        return None
 
 
 def get_git_remote_url(model_dir):
@@ -712,7 +747,11 @@ def get_shards_map(model_config, hf, nshards):
         for shard in range(nshards)
     ]
     if hf.wmap_path is None:
-        return [[hf.model_path]] * nshards, shard_layer_ranges
+        # Some exporters (notably AutoRound) put a small set of tensors in
+        # model_extra_tensors.safetensors without emitting an index file.
+        # Inspect every companion checkpoint for every output shard so layer
+        # tensors from that file are not silently skipped.
+        return [hf.model_paths] * nshards, shard_layer_ranges
 
     weightmap = hf.wmap["weight_map"]
 
@@ -733,7 +772,10 @@ def get_shards_map(model_config, hf, nshards):
             ):
                 shard_checkpoints[shard].add(ckpt)
 
-    return [sorted(s) for s in shard_checkpoints], shard_layer_ranges
+    # Some exporters omit companion checkpoint files from their weight map.
+    # Include them in every output shard; key filtering below selects the
+    # tensors assigned to the shard's layer range.
+    return [sorted(shards) + hf.extra_model_paths for shards in shard_checkpoints], shard_layer_ranges
 
 
 class _StreamingTensorStore:
@@ -828,14 +870,25 @@ def _collect_all_source_keys(hf):
     """
     if hf.wmap_path is not None:
         # The weight-map already contains every tensor key as a dict key.
-        return set(hf.wmap["weight_map"].keys())
+        all_keys = set(hf.wmap["weight_map"].keys())
+        for checkpoint_path in hf.extra_model_paths:
+            ckpt = hf.get_load_ckpt(*os.path.split(checkpoint_path))
+            if isinstance(ckpt, dict):
+                all_keys.update(ckpt.keys())
+            else:
+                with safetensors.safe_open(ckpt, framework="pt", device="cpu") as f:
+                    all_keys.update(f.keys())
+        return all_keys
     else:
-        ckpt = hf.get_load_ckpt(*os.path.split(hf.model_path))
-        if isinstance(ckpt, dict):
-            return set(ckpt.keys())
-        else:
-            with safetensors.safe_open(ckpt, framework="pt", device="cpu") as f:
-                return set(f.keys())
+        all_keys = set()
+        for checkpoint_path in hf.model_paths:
+            ckpt = hf.get_load_ckpt(*os.path.split(checkpoint_path))
+            if isinstance(ckpt, dict):
+                all_keys.update(ckpt.keys())
+            else:
+                with safetensors.safe_open(ckpt, framework="pt", device="cpu") as f:
+                    all_keys.update(f.keys())
+        return all_keys
 
 
 def check_conversion_completeness(all_src_keys, consumed_src_keys):
@@ -905,9 +958,9 @@ def check_conversion_equality(hf, conversion_details, target_dtype):
                 continue
             ckpt = hf.get_load_ckpt(hf.base_dir, ckpt_name)
         else:
-            ckpt = hf.get_load_ckpt(*os.path.split(hf.model_path))
+            ckpt = hf.checkpoint_for_tensor(srckey)
 
-        src = get_weight(ckpt, srckey)
+        src = get_weight(ckpt, srckey) if ckpt is not None else None
         if src is None:
             mismatches.append((eole_key, "source tensor '%s' could not be loaded" % srckey))
             continue
@@ -979,16 +1032,7 @@ def build_shards(model_config, hf, args, params):
                 source = KEY_MAPS[hf.arch][target]
                 srckey, srcmap = source if isinstance(source, tuple) else (source, None)
                 if isinstance(srckey, str):
-                    if hf.wmap_path:
-                        if srckey in hf.wmap["weight_map"]:
-                            checkpoint = hf.get_load_ckpt(
-                                hf.base_dir,
-                                hf.wmap["weight_map"][srckey],
-                            )
-                        else:
-                            checkpoint = None
-                    else:
-                        checkpoint = hf.get_load_ckpt(*os.path.split(hf.model_path))
+                    checkpoint = hf.checkpoint_for_tensor(srckey)
                 else:
                     checkpoint = None
                 if checkpoint is None:
@@ -1060,12 +1104,18 @@ def build_shards(model_config, hf, args, params):
                 else:
                     _mtp_layer_start = _mtp_start_raw
                 prefix_mapping = (
-                    ("encoder", hf.encoder_layer_prefix, "encoder.transformer_layers.", 0),
-                    ("encoder.sam", hf.encoder_sam_layer_prefix, "encoder.sam.blocks.", 0),
-                    ("decoder", hf.decoder_layer_prefix, "decoder.transformer_layers.", 0),
-                    ("mtp", hf.mtp_layer_prefix, "mtp_heads.", _mtp_layer_start),
+                    ("encoder", hf.encoder_layer_prefix, "encoder.transformer_layers.", 0, 0),
+                    ("encoder.sam", hf.encoder_sam_layer_prefix, "encoder.sam.blocks.", 0, 0),
+                    ("decoder", hf.decoder_layer_prefix, "decoder.transformer_layers.", 0, 0),
+                    (
+                        "mtp",
+                        hf.mtp_layer_prefix,
+                        "mtp_heads.",
+                        _mtp_layer_start,
+                        _mtp_layer_start if hf.mtp_layer_prefix == "mtp.layers." else 0,
+                    ),
                 )
-                for section, hf_prefix, eole_prefix, layer_offset in prefix_mapping:
+                for section, hf_prefix, eole_prefix, layer_offset, source_layer_offset in prefix_mapping:
                     if hf_prefix is None:
                         continue
                     key_map = KEY_MAPS[hf.arch].get(section, {})
@@ -1078,7 +1128,7 @@ def build_shards(model_config, hf, args, params):
 
                             if srckey.endswith("."):
                                 srckey = srckey + param
-                            full_srckey = hf_prefix + str(i) + srckey
+                            full_srckey = hf_prefix + str(i - source_layer_offset) + srckey
                             if full_srckey not in _layer_tensor_cache:
                                 if full_srckey not in ckpt_keys:
                                     _layer_tensor_cache[full_srckey] = None

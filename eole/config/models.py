@@ -464,6 +464,10 @@ class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
         default=0.1,
         description="Loss weight applied to the sum of MTP auxiliary head losses. " "Only used when num_mtp_heads > 0.",
     )
+    mtp_emb_norm: bool = Field(
+        default=False,
+        description="Apply an MTP-specific normalization to target embeddings bef combining them with hidden states.",
+    )
 
     @model_validator(mode="after")
     def _validate_transformer_decoder_config(self):

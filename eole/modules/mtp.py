@@ -43,6 +43,11 @@ class MTPHead(nn.Module):
 
         # Embedding normalisation before combining with target embeddings.
         self.enorm = LayerNorm[decoder_config.layer_norm](hidden_size, eps=decoder_config.norm_eps)
+        self.emb_norm = (
+            LayerNorm[decoder_config.layer_norm](hidden_size, eps=decoder_config.norm_eps)
+            if decoder_config.mtp_emb_norm
+            else None
+        )
 
         # Single transformer layer reusing the main decoder's architecture.
         # Use the last-layer index so that first_k_dense_replace is respected:
@@ -79,7 +84,7 @@ class MTPHead(nn.Module):
         h = self.enorm(self.proj(hidden_states))
 
         # 2. Combine with shifted target embeddings.
-        combined = h + tgt_emb_k
+        combined = h + (self.emb_norm(tgt_emb_k) if self.emb_norm is not None else tgt_emb_k)
 
         # 3. Transformer layer (no cross-attention).
         layer_out, _ = self.layer(combined, attn_mask=attn_mask, **kwargs)

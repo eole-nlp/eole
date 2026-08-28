@@ -401,11 +401,16 @@ class BaseModel(nn.Module):
         if hasattr(running_config, "quant_layers") and len(nonlora_to_quant) > 0:
             # For models with a vision encoder, only quantize the decoder.
             # Vision encoder weights are full-precision and must not be replaced.
-            quant_target = (
-                self.decoder
-                if (hasattr(self, "encoder") and self.encoder is not None and isinstance(self.encoder, VisionEncoder))
-                else self
+            is_vision_model = (
+                hasattr(self, "encoder") and self.encoder is not None and isinstance(self.encoder, VisionEncoder)
             )
+            # Do not recurse through a vision encoder: its full-precision
+            # projection names overlap with decoder names.  MTP heads belong to
+            # the text model, however, and must receive the same replacements
+            # as the decoder when their checkpoint stores qweight/qzeros/scales.
+            quant_targets = [self.decoder] if is_vision_model else [self]
+            if is_vision_model and hasattr(self, "mtp_heads"):
+                quant_targets.extend(self.mtp_heads)
             if running_config.quant_type in ["bnb_8bit", "bnb_FP4", "bnb_NF4"]:
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
@@ -413,11 +418,12 @@ class BaseModel(nn.Module):
                 except ImportError:
                     raise ImportError("Install bitsandbytes to use 4/8bit compression")
                 # try to do this inplace, not sure it'll work
-                replace_bnb_linear(
-                    quant_target,
-                    module_to_convert=nonlora_to_quant,
-                    q_type=running_config.quant_type,
-                )
+                for quant_target in quant_targets:
+                    replace_bnb_linear(
+                        quant_target,
+                        module_to_convert=nonlora_to_quant,
+                        q_type=running_config.quant_type,
+                    )
             elif running_config.quant_type in ["awq_gemm", "awq_gemv"]:
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
@@ -425,38 +431,41 @@ class BaseModel(nn.Module):
                 except ImportError:
                     raise ImportError("Install AutoAWQ to use awq quantized model")
                 # try to do this inplace, not sure it'll work
-                replace_awq_linear(
-                    quant_target,
-                    module_to_convert=nonlora_to_quant,
-                    w_bit=running_config.w_bit,
-                    group_size=running_config.group_size,
-                    q_type=running_config.quant_type,
-                )
+                for quant_target in quant_targets:
+                    replace_awq_linear(
+                        quant_target,
+                        module_to_convert=nonlora_to_quant,
+                        w_bit=running_config.w_bit,
+                        group_size=running_config.group_size,
+                        q_type=running_config.quant_type,
+                    )
             elif running_config.quant_type == "autoround":
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
                     from eole.modules.autoround_linear import replace_autoround_linear
                 except ImportError:
                     raise ImportError("Install auto-round to use autoround quantized model")
-                replace_autoround_linear(
-                    quant_target,
-                    module_to_convert=nonlora_to_quant,
-                    w_bit=running_config.w_bit,
-                    group_size=running_config.group_size,
-                    packing_format=getattr(running_config, "autoround_packing_format", "auto_round:auto_gptq"),
-                    sym=getattr(running_config, "autoround_sym", True),
-                    module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
-                )
+                for quant_target in quant_targets:
+                    replace_autoround_linear(
+                        quant_target,
+                        module_to_convert=nonlora_to_quant,
+                        w_bit=running_config.w_bit,
+                        group_size=running_config.group_size,
+                        packing_format=getattr(running_config, "autoround_packing_format", "auto_round:auto_gptq"),
+                        sym=getattr(running_config, "autoround_sym", True),
+                        module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
+                    )
             elif running_config.quant_type == "gguf":
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
                     from eole.modules.gguf_linear import replace_gguf_linear
                 except ImportError:
                     raise ImportError("Install gguf to use GGUF quantized models: pip install gguf")
-                replace_gguf_linear(
-                    quant_target,
-                    module_to_convert=nonlora_to_quant,
-                )
+                for quant_target in quant_targets:
+                    replace_gguf_linear(
+                        quant_target,
+                        module_to_convert=nonlora_to_quant,
+                    )
             else:
                 logger.info("compression type %s not supported." % running_config.quant_type)
 
@@ -1853,6 +1862,10 @@ class VisionEncoderDecoderModel(BaseModel):
             self.view_separator = nn.Parameter(torch.randn(self.hidden_size) * embed_std)
         if self.add_estimator:
             self.estimator = FeedForward(self.hidden_size)
+        # Keep MTP heads on vision-language models as well.  Qwen3.5 VL stores
+        # these weights in its companion safetensors checkpoint.
+        mtp_heads = kwargs.get("mtp_heads", None)
+        self.mtp_heads = mtp_heads if mtp_heads is not None else nn.ModuleList()
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
@@ -1865,6 +1878,10 @@ class VisionEncoderDecoderModel(BaseModel):
             share_embeddings=model_config.share_embeddings,
         )
         decoder = build_decoder(model_config, running_config=running_config)
+        num_mtp_heads = getattr(model_config.decoder, "num_mtp_heads", 0)
+        mtp_heads = nn.ModuleList(
+            [MTPHead(model_config.decoder, running_config=running_config) for _ in range(num_mtp_heads)]
+        )
         return cls(
             encoder=encoder,
             decoder=decoder,
@@ -1875,6 +1892,7 @@ class VisionEncoderDecoderModel(BaseModel):
             image_token_id=model_config.encoder.image_token_id,
             patch_size=model_config.encoder.patch_size,
             spatial_merge_size=model_config.spatial_merge_size,
+            mtp_heads=mtp_heads,
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
