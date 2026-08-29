@@ -669,6 +669,23 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
         estim_loss_lambda_steps=running_config.estim_loss_lambda_steps,
     )
 
+    if running_config.rl_algorithm is not None:
+        return _build_rl_trainer(
+            config,
+            device_id,
+            model,
+            vocabs,
+            optim,
+            trainer_config,
+            train_loss,
+            valid_loss,
+            scoring_preparator,
+            valid_scorers,
+            report_manager,
+            model_saver,
+            earlystopper,
+        )
+
     return Trainer(
         model=model,
         train_loss=train_loss,
@@ -677,6 +694,76 @@ def build_trainer(config, device_id, model, vocabs, optim, model_saver=None):
         valid_scorers=valid_scorers,
         optim=optim,
         config=trainer_config,
+        report_manager=report_manager,
+        model_saver=model_saver,
+        earlystopper=earlystopper,
+    )
+
+
+def _build_rl_trainer(
+    config,
+    device_id,
+    model,
+    vocabs,
+    optim,
+    trainer_config,
+    train_loss,
+    valid_loss,
+    scoring_preparator,
+    valid_scorers,
+    report_manager,
+    model_saver,
+    earlystopper,
+):
+    """Build an :class:`eole.trainer_rl.RLTrainer` for on-policy RL fine-tuning
+    (e.g. REINFORCE). Split out from :func:`build_trainer` to keep RL-specific
+    imports/wiring (rl_loss, generate_utils, reference model loading) local to
+    the RL path, and to avoid a circular import at module load time.
+    """
+    from eole.trainer_rl import RLTrainer
+    from eole.utils.rl_loss import build_rl_loss_compute
+    from eole.utils.generate_utils import GenerationConfig
+    from eole.models.model import get_model_class, get_metadata
+
+    running_config = config.training
+
+    rl_loss_compute = build_rl_loss_compute(config, vocabs)
+
+    reward_scorers_cls = get_scorers_cls([running_config.rl_reward_metric])
+    reward_scorers = build_scorers(config, reward_scorers_cls)
+
+    reference_model = None
+    if running_config.rl_kl_coef != 0.0:
+        _ref_meta = get_metadata(running_config.rl_reference_model)
+        _ref_model_class = get_model_class(_ref_meta["config"].model)
+        reference_model, _, _ = _ref_model_class.for_inference(
+            config, device_id=device_id, model_path=running_config.rl_reference_model
+        )
+        reference_model.eval()
+
+    rl_gen_config = GenerationConfig(
+        max_length=running_config.rl_gen_max_length,
+        temperature=running_config.rl_gen_temperature,
+        top_k=running_config.rl_gen_top_k,
+        top_p=running_config.rl_gen_top_p,
+    )
+
+    return RLTrainer(
+        model=model,
+        train_loss=train_loss,
+        valid_loss=valid_loss,
+        scoring_preparator=scoring_preparator,
+        valid_scorers=valid_scorers,
+        optim=optim,
+        config=trainer_config,
+        rl_loss_compute=rl_loss_compute,
+        reward_scorers=reward_scorers,
+        rl_reward_metric=running_config.rl_reward_metric,
+        vocabs=vocabs,
+        model_config=config.model,
+        device_id=device_id,
+        rl_gen_config=rl_gen_config,
+        reference_model=reference_model,
         report_manager=report_manager,
         model_saver=model_saver,
         earlystopper=earlystopper,
