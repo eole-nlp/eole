@@ -1,11 +1,105 @@
 """ Report manager utility """
 
+import json
+import os
+import re
+import subprocess
+import tempfile
 import time
 from datetime import datetime
+from pathlib import Path
+
+import yaml
 
 import eole
 
 from eole.utils.logging import logger
+
+
+def _git_short_commit():
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=eole.ROOT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+        return out.stdout.strip() or None
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def _build_trackio_config(config):
+    trackio_config = {}
+    if hasattr(config, "model") and config.model is not None:
+        trackio_config["model"] = config.model.model_dump()
+    if hasattr(config, "training") and config.training is not None:
+        trackio_config["training"] = config.training.model_dump()
+    trackio_config["eole_version"] = eole.__version__
+    commit = _git_short_commit()
+    if commit:
+        trackio_config["git_commit"] = commit
+    return trackio_config
+
+
+def _artifact_safe_name(name, default):
+    # Trackio artifact names must match ^[A-Za-z0-9._-]+$.
+    safe = re.sub(r"[^A-Za-z0-9._-]", "-", name)
+    return safe or default
+
+
+def _config_artifact_names(config_file):
+    """Derive (original, effective) artifact names from the config file basename.
+
+    Falls back to fixed names when no config file was provided. The effective
+    artifact keeps the original suffix only for YAML; other extensions would
+    mislabel the YAML content.
+    """
+    if not (config_file and os.path.exists(config_file)):
+        return None, "config-effective.yaml"
+    config_path = Path(config_file)
+    original_name = _artifact_safe_name(config_path.name, "config.yaml")
+    suffix = config_path.suffix if config_path.suffix.lower() in (".yaml", ".yml") else ".yaml"
+    effective_name = _artifact_safe_name(f"{config_path.stem}-effective{suffix}", "config-effective.yaml")
+    return original_name, effective_name
+
+
+def _log_trackio_config_artifact(trackio, config):
+    """Upload the run's config pair: the user's original file plus the full runtime config.
+
+    The original config artifact uses the original basename, sanitized for
+    Trackio artifact safety; the effective artifact is ``<stem>-effective<suffix>``
+    (CLI-only runs: ``config-effective.yaml``). The effective content is the
+    complete config after validation, defaulting, and normalization, snapshotted
+    when the report manager is built. Private attrs (e.g. ``_config_file``) are
+    excluded by pydantic.
+    """
+    if not config.trackio_log_config_artifact:
+        return
+    try:
+        config_file = config._config_file
+        original_name, effective_name = _config_artifact_names(config_file)
+        if original_name is not None:
+            # The effective config is the more important reproducibility artifact, so an
+            # original-file upload failure (e.g. path removed, backend name rejection) must
+            # not skip it: isolate this upload.
+            try:
+                trackio.log_artifact(config_file, name=original_name, type="config")
+            except Exception:
+                logger.warning("trackio original config artifact upload failed; continuing.", exc_info=True)
+
+        with tempfile.TemporaryDirectory(prefix="eole-config-") as tmpdir:
+            effective_path = os.path.join(tmpdir, effective_name)
+            with open(effective_path, "w", encoding="utf-8") as f:
+                # json round-trip normalizes the dump to plain containers and
+                # stringifies non-JSON values (e.g. torch.dtype -> "torch.float32"),
+                # which yaml.SafeDumper cannot represent.
+                yaml.safe_dump(json.loads(json.dumps(config.model_dump(), default=str)), f, sort_keys=False)
+            trackio.log_artifact(effective_path, name=effective_name, type="config")
+    except Exception:
+        logger.warning("trackio config artifact logging failed; continuing.", exc_info=True)
 
 
 def build_report_manager(config, gpu_rank):
@@ -33,15 +127,14 @@ def build_report_manager(config, gpu_rank):
                 name=config.trackio_run_name,
                 space_id=config.trackio_space_id,
                 bucket_id=config.trackio_bucket_id,
+                group=config.trackio_group,
+                config=_build_trackio_config(config),
+                auto_log_cpu=config.trackio_auto_log_cpu,
+                auto_log_gpu=config.trackio_auto_log_gpu,
+                cpu_log_interval=config.trackio_system_log_interval,
+                gpu_log_interval=config.trackio_system_log_interval,
             )
-            # Log model and training config as hyperparameters
-            trackio_config = {}
-            if hasattr(config, "model") and config.model is not None:
-                trackio_config["model"] = config.model.model_dump()
-            if hasattr(config, "training") and config.training is not None:
-                trackio_config["training"] = config.training.model_dump()
-            if trackio_config:
-                trackio.config.update(trackio_config)
+            _log_trackio_config_artifact(trackio, config)
             managers.append(TrackioReportMgr(config.report_every))
         except ImportError:
             logger.warning("trackio not installed; skipping trackio logging.")
