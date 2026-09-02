@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Literal
+from typing import Any, Dict, List, Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic import create_model
 
@@ -72,6 +72,8 @@ class Dataset(Config):
     path_sco: str | None = None
     path_txt: str | None = None  # not sure we need this one with proper path_src handling
     path_align: str | None = None
+    additional_fields: List[str] | None = None
+    transforms_configs: Dict[str, Dict[str, Any]] | None = None
     # optional stuff for some transforms
     # TODO: define a better mechanism to support such settings
     src_prefix: str | None = None
@@ -96,6 +98,18 @@ class Dataset(Config):
     avg_tok_min: float | None = 3
     avg_tok_max: float | None = 20
     lang_id: List[str] | None = ["en", "fr"]
+
+    @field_validator("additional_fields")
+    @classmethod
+    def _reject_reserved_additional_fields(cls, v):
+        if v is None:
+            return v
+        reserved_fields = {"src", "tgt", "sco", "align"}
+        reserved_additional_fields = sorted(reserved_fields.intersection(v))
+        if reserved_additional_fields:
+            fields = ", ".join(reserved_additional_fields)
+            raise ValueError(f"additional_fields cannot use reserved example fields: {fields}.")
+        return v
 
 
 # add all opts from all transforms (like in eole.opts._add_transform_opt)
@@ -231,6 +245,21 @@ class DataConfig(VocabConfig):  # , AllTransformsConfig):
             if _transforms is None:
                 logger.info(f"Missing transforms field for {cname} data, " f"set to default: {default_transforms}.")
                 corpus.transforms = default_transforms
+            if corpus.transforms_configs is not None:
+                for transform_name in corpus.transforms_configs:
+                    transform_cls = AVAILABLE_TRANSFORMS.get(transform_name)
+                    if transform_cls is None:
+                        raise ValueError(f"Corpus {cname} overrides unknown transform: {transform_name}.")
+                    if transform_name not in (corpus.transforms or []):
+                        raise ValueError(
+                            f"Corpus {cname} overrides transform {transform_name}, but {transform_name} is not enabled "
+                            f"in corpus transforms."
+                        )
+                    if not getattr(transform_cls, "supports_dataset_overrides", False):
+                        raise ValueError(
+                            f"Corpus {cname} overrides transform {transform_name}, but dataset-level overrides "
+                            f"are not supported for this transform."
+                        )
             # Check path
             if corpus.path_src is None and corpus.path_txt is None:
                 raise ValueError(
