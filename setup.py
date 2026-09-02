@@ -121,7 +121,11 @@ setup(
     ],
     extras_require={
         "wer": ["jiwer>=3.0", "whisper-normalizer>=0.1"],
-        "trackio": ["trackio>=0.23.0"],
+        "trackio": [
+            "trackio>=0.35.0,<0.38.0",
+            "nvidia-ml-py>=12.0.0; sys_platform != 'darwin'",
+            "psutil>=5.9.0",
+        ],
     },
     entry_points={"console_scripts": ["eole=eole.bin.main:main"]},
 )

@@ -1,6 +1,6 @@
 import torch
 from typing import Any, Dict, List, Literal, Union
-from pydantic import Field, field_validator
+from pydantic import Field, PrivateAttr, field_validator
 from importlib import import_module
 from eole.config.config import Config, get_config_dict
 from eole.constants import TORCH_DTYPES
@@ -180,6 +180,23 @@ class LoggingConfig(Config):
         default=None,
         description="HuggingFace Bucket ID for metric persistence.",
     )
+    trackio_group: str | None = Field(default=None, description="Trackio group to organize related runs together.")
+    trackio_auto_log_cpu: bool | None = Field(
+        default=None,
+        description="Log CPU/RAM/disk/network/sensor metrics. None = auto-detect (requires psutil).",
+    )
+    trackio_auto_log_gpu: bool | None = Field(
+        default=None,
+        description="Log GPU metrics. None = auto-detect (requires nvidia-ml-py or psutil for Apple Silicon).",
+    )
+    trackio_system_log_interval: float = Field(
+        default=10.0, description="Interval in seconds between automatic system (CPU/GPU) metric logs."
+    )
+    trackio_log_config_artifact: bool = Field(
+        default=True, description="Upload the run config as a file artifact against the trackio run."
+    )
+    # Path of the YAML file this config was built from (see RunBin.build_config).
+    _config_file: str | None = PrivateAttr(default=None)
 
 
 class RunningConfig(DistributedConfig):
