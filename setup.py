@@ -96,6 +96,7 @@ setup(
         "fasttext-wheel",
         "huggingface_hub",
         "datasets",
+        "jinja2",
         "numpy>=2.0",
         "pandas",
         "protobuf==3.20.1",

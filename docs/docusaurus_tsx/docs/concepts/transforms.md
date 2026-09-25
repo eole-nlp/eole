@@ -148,6 +148,88 @@ When working with several workers, this require some precaution in order to make
 Example: `max_context=1` and 1 GPU, then num_workers must be 2 or 4.
 
 
+#### Render chat prompts
+
+Transform name: `chat`
+
+Class: `eole.transforms.chat.ChatTransform`
+
+Renders one or more configured messages with the converted model's `inference.chat_template`. This is useful for instruction-tuning or chat-style datasets where the source field contains a question, instruction, or other raw fields that need to be wrapped in the model's chat format.
+
+Use `chat` before an id-tokenizing transform such as `huggingface_tokenize`:
+
+```yaml
+transforms: [chat, huggingface_tokenize]
+transforms_configs:
+  chat:
+    add_generation_prompt: true
+    messages:
+      - role: user
+        content: "Solve this problem.\n\n{src}"
+  huggingface_tokenize:
+    path: ${EOLE_MODEL_DIR}/qwen3-0.6B/tokenizer.json
+
+data:
+  corpus_1:
+    path_src: hf://skrishna/gsm8k_only_answer/train/text
+    path_tgt: hf://skrishna/gsm8k_only_answer/train/label
+    transforms: [chat, huggingface_tokenize]
+```
+
+Message values are formatted with Python `str.format` against the example fields, so `{src}` inserts the source field and `{tgt}` inserts the target field when present. Escape literal braces as `{{` and `}}`.
+
+Options:
+
+- `messages`: list of chat messages to render. Each message is usually a mapping with `role` and `content`.
+- `add_generation_prompt`: whether to ask the template to append the assistant generation prefix.
+- `chat_template_kwargs`: extra variables passed to the chat template, such as `enable_thinking: false` for templates that support it.
+- `target.strip_commas`: remove commas from `tgt` and `raw_tgt`, useful for numeric answer datasets.
+
+The `chat` transform also supports dataset-level overrides in each corpus's `transforms_configs.chat` block. This lets one training run use different prompts for different datasets or language pairs.
+
+```yaml
+data:
+  wmt24pp-de:
+    path_src: hf://google/wmt24pp/en-de_DE/source
+    path_tgt: hf://google/wmt24pp/en-de_DE/target
+    additional_fields: [domain, document_id]
+    transforms: [chat, huggingface_tokenize]
+    transforms_configs:
+      chat:
+        messages:
+          - role: system
+            content: "You are a professional translator."
+          - role: user
+            content: "Translate from English into German.\nDomain: {domain}\nDocument: {document_id}\n\nEnglish: {src}\nGerman:"
+
+  wmt24pp-fr:
+    path_src: hf://google/wmt24pp/en-fr_FR/source
+    path_tgt: hf://google/wmt24pp/en-fr_FR/target
+    transforms: [chat, huggingface_tokenize]
+    transforms_configs:
+      chat:
+        messages:
+          - role: system
+            content: "You are a careful localization translator for Canadian French."
+          - role: user
+            content: "Translate from English into French for Canada.\n\nEnglish: {src}\nFrench:"
+```
+
+Dataset-level `chat` overrides use shallow per-key replacement:
+
+| Key | Override behavior |
+| --- | --- |
+| `messages` | Replaces global `messages` wholesale |
+| `add_generation_prompt` | Replaces global value |
+| `chat_template_kwargs` | Replaces global dict |
+| `target` | Replaces global dict |
+| omitted keys | Inherit from global `transforms_configs.chat` |
+
+Only `chat` currently supports dataset-level overrides. Tokenizer warm-up settings such as `huggingface_tokenize.path` are global for the transform instance and cannot vary per dataset yet.
+
+For HF streaming corpora, dataset `additional_fields` are available to `chat.messages` with the same `{field}` syntax as `{src}` and `{tgt}`. Missing configured additional fields fail when the stream is read.
+
+
 #### Augment source segments with fuzzy matches for Neural Fuzzy Repair
 
 Transform name: `fuzzymatch`
