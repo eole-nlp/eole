@@ -245,6 +245,16 @@ class GeneratorLM(Inference):
                     images=batch.get("images", None) if step == 0 else None,
                     return_hidden=True,
                 )
+                # Absolute position of `dec_out` (the hidden state that
+                # produced the token `decode_strategy.advance()` is about to
+                # pick). `cur_pos` above doubles as the `step` kwarg for
+                # `_decode_and_generate`, which must be 0 on the prefill
+                # round to trigger cache init -- but `dec_out` there is the
+                # hidden state of the *last prompt token*, at absolute
+                # position `prefill_length - 1`, not 0. Keep them distinct so
+                # `_speculative_draft_verify`'s MTP head RoPE position is
+                # correct right out of the prefill.
+                h_pos = prefill_length - 1 if step == 0 else cur_pos
 
                 if step == 0:
                     log_probs = self.tile_to_beam_size_after_initial_step(fn_tile, log_probs)
@@ -270,7 +280,7 @@ class GeneratorLM(Inference):
                     step = self._speculative_draft_verify(
                         decode_strategy,
                         dec_out,
-                        cur_pos,
+                        h_pos,
                         prefill_length,
                         step,
                         streamer=streamer,
@@ -349,7 +359,7 @@ class GeneratorLM(Inference):
             estim,
         )
 
-    def _speculative_draft_verify(self, decode_strategy, dec_out, cur_pos, prefill_length, step, streamer=None):
+    def _speculative_draft_verify(self, decode_strategy, dec_out, h_pos, prefill_length, step, streamer=None):
         """Draft extra candidate tokens with the model's MTP heads and verify
         them against the main model in a single additional forward pass
         (self-speculative decoding).
@@ -369,8 +379,11 @@ class GeneratorLM(Inference):
             dec_out (Tensor): ``(batch, 1, hidden)`` hidden state (pre
                 generator) that produced the last confirmed token
                 (``decode_strategy.current_predictions``), at absolute
-                position ``cur_pos``.
-            cur_pos (int): absolute position of ``dec_out``.
+                position ``h_pos``.
+            h_pos (int): absolute position of ``dec_out`` (for the prefill
+                round this is ``prefill_length - 1``, the position of the
+                *last prompt token*, not the ``step=0`` value used to
+                trigger cache init in the main loop's forward call).
             prefill_length (int): length of the initial prompt (unused here,
                 kept for symmetry with the main loop's position bookkeeping).
             step (int): number of tokens generated so far (i.e. length of
@@ -381,7 +394,7 @@ class GeneratorLM(Inference):
             int: updated ``step`` after accepting zero or more extra tokens.
         """
         seed_token = decode_strategy.current_predictions.view(-1, 1)
-        draft_tokens = self.model.draft_mtp_tokens(dec_out, seed_token, cur_pos)
+        draft_tokens = self.model.draft_mtp_tokens(dec_out, seed_token, h_pos)
         num_draft = len(draft_tokens)
         # Do not draft past max_length.
         num_draft = min(num_draft, decode_strategy.max_length - step)
@@ -398,7 +411,7 @@ class GeneratorLM(Inference):
             verify_input,
             None,
             src_len=decode_strategy.src_len,
-            step=cur_pos + 1,
+            step=h_pos + 1,
         )
         predicted = verify_log_probs.argmax(dim=-1)  # (B, num_draft + 1)
 

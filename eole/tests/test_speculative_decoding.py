@@ -214,6 +214,86 @@ class TestSpeculativeDecodingEquivalence(unittest.TestCase):
         self.assertTrue(torch.equal(true_seq, spec_seq))
 
 
+def _make_generator_lm(model, self_speculative_decoding, min_length=0, max_length=12):
+    """Build a bare ``GeneratorLM`` (no real ``Inference.__init__``) wired
+    just enough to exercise the real ``predict_batch`` /
+    ``_predict_batch_with_strategy`` / ``_speculative_draft_verify`` code
+    path end-to-end, deterministically (``top_k=1``), so it can be directly
+    compared against the same path with ``self_speculative_decoding=False``.
+    """
+    from eole.predict import GeneratorLM
+
+    gen = GeneratorLM.__new__(GeneratorLM)
+    gen._tgt_pad_idx = model.tgt_emb.word_padding_idx
+    gen._tgt_bos_idx = 2
+    gen._tgt_eos_idx = [3]
+    gen._tgt_unk_idx = 0
+    gen._tgt_start_with = 2
+    gen.n_best = 1
+    gen.global_scorer = SimpleNamespace(has_cov_pen=False, alpha=0.0, length_penalty=lambda step, alpha: 1.0)
+    gen.min_length = min_length
+    gen.block_ngram_repeat = 0
+    gen._exclusion_idxs = set()
+    gen.replace_unk = False
+    gen.temperature = 1.0
+    gen.top_k = 1  # deterministic greedy regardless of self_speculative_decoding
+    gen.top_p = 0
+    gen.beam_size = 1
+    gen.ban_unk_token = False
+    gen.add_estimator = False
+    gen.dump_beam = ""
+    gen.stepwise_penalty = False
+    gen.ratio = -0.0
+    gen.self_speculative_decoding = self_speculative_decoding
+    gen.max_length = max_length
+    gen.estim_only = False
+    gen.dynamic_shapes = False
+    gen.report_time = False
+    gen.report_align = False
+    gen.model = model
+    gen.tgt_file_prefix = False
+    return gen
+
+
+class TestSpeculativeDecodingGeneratorLMIntegration(unittest.TestCase):
+    """Exercises the *real* ``GeneratorLM`` decode loop (not the standalone
+    reimplementation used by ``TestSpeculativeDecodingEquivalence``), with a
+    multi-token prompt. This specifically guards against a regression where
+    the main loop's ``cur_pos`` (0 on the prefill round, to trigger cache
+    init) was reused as the absolute position of ``dec_out`` for drafting --
+    which is only correct for single-token prompts; for any longer prompt
+    ``dec_out`` is actually at position ``prefill_length - 1``, so passing
+    the wrong position corrupted the RoPE embeddings used by the MTP heads
+    and desynchronized the very first speculative round, producing garbled
+    output (e.g. with multi-token prompts as used by real inference)."""
+
+    def test_matches_plain_greedy_with_multi_token_prompt(self):
+        model1, vocab_size = _build_model(seed=0, num_mtp_heads=2, hidden_size=32)
+        model2 = copy.deepcopy(model1)
+
+        torch.manual_seed(123)
+        prompt = torch.randint(6, vocab_size, (2, 7))  # prefill_length == 7
+
+        gen_false = _make_generator_lm(model1, self_speculative_decoding=False, min_length=10)
+        gen_true = _make_generator_lm(model2, self_speculative_decoding=True, min_length=10)
+
+        with torch.no_grad():
+            res_false = gen_false.predict_batch(
+                {"srclen": torch.tensor([7, 7]), "src": prompt.clone(), "left_pad": True},
+                attn_debug=False,
+            )
+            res_true = gen_true.predict_batch(
+                {"srclen": torch.tensor([7, 7]), "src": prompt.clone(), "left_pad": True},
+                attn_debug=False,
+            )
+
+        for pred_false, pred_true in zip(res_false["predictions"], res_true["predictions"]):
+            self.assertTrue(
+                torch.equal(pred_false[0], pred_true[0]),
+                f"Mismatch: plain={pred_false[0]} speculative={pred_true[0]}",
+            )
+
+
 class TestResolveSelfSpeculativeDecoding(unittest.TestCase):
     """``Inference._resolve_self_speculative_decoding`` must gate on
     whether the model actually implements ``draft_mtp_tokens`` -- not just
