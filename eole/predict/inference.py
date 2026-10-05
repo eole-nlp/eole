@@ -107,18 +107,6 @@ class Inference(object):
         self.top_k = config.top_k
         self.top_p = config.top_p
 
-        # Self-speculative decoding via MTP auxiliary heads (no-op unless the
-        # model was trained with num_mtp_heads > 0). Only meaningful for
-        # greedy, single-beam decoding: silently disabled otherwise so that
-        # the flag can be left on regardless of other decoding settings.
-        num_mtp_heads = len(getattr(self.model, "mtp_heads", []))
-        self.self_speculative_decoding = (
-            getattr(config, "self_speculative_decoding", False)
-            and num_mtp_heads > 0
-            and self.beam_size == 1
-            and (self.top_k == 1 or self.temperature == 0.0)
-        )
-
         self.min_length = config.min_length
         self.ban_unk_token = config.ban_unk_token
         self.ratio = config.ratio
@@ -144,6 +132,32 @@ class Inference(object):
         self.gold_align = config.gold_align
         self.report_score = report_score
         self.logger = logger
+
+        # Self-speculative decoding via MTP auxiliary heads (no-op unless the
+        # model was trained with num_mtp_heads > 0). Only meaningful for
+        # greedy, single-beam decoding: silently disabled otherwise so that
+        # the flag can be left on regardless of other decoding settings.
+        num_mtp_heads = len(getattr(self.model, "mtp_heads", []))
+        requested_self_speculative_decoding = getattr(config, "self_speculative_decoding", False)
+        self.self_speculative_decoding = (
+            requested_self_speculative_decoding
+            and num_mtp_heads > 0
+            and self.beam_size == 1
+            and (self.top_k == 1 or self.temperature == 0.0)
+        )
+        if requested_self_speculative_decoding and not self.self_speculative_decoding:
+            reasons = []
+            if num_mtp_heads == 0:
+                reasons.append(
+                    "the model has no MTP heads built at inference time (set "
+                    "self_speculative_decoding=True in the inference config before loading the model "
+                    "so the heads are built, and ensure num_mtp_heads > 0 was used at training time)"
+                )
+            if self.beam_size != 1:
+                reasons.append(f"beam_size={self.beam_size} (must be 1)")
+            if not (self.top_k == 1 or self.temperature == 0.0):
+                reasons.append(f"top_k={self.top_k} and temperature={self.temperature} (need top_k=1 or temperature=0)")
+            self._log("self_speculative_decoding was requested but is disabled because: " + "; ".join(reasons))
 
         self.use_filter_pred = False
         self._filter_pred = None

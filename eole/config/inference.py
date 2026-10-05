@@ -157,8 +157,9 @@ class DecodingConfig(Config):
         "(see the decoder's num_mtp_heads) to draft extra candidate tokens and verify "
         "them against the main model in a single additional forward pass, reducing the "
         "number of sequential decoding steps. No-op if the model has no MTP heads. "
-        "Only supported for greedy, single-beam decoding (beam_size=1) so that outputs "
-        "are identical to standard greedy decoding.",
+        "Only supported for greedy, single-beam decoding: requires beam_size=1 and either "
+        "top_k=1 or temperature=0 (otherwise it is silently disabled, with a log message "
+        "explaining why) so that outputs are identical to standard greedy decoding.",
     )
 
 

@@ -36,7 +36,12 @@ class GeneratorLM(Inference):
         batch_size = batch["srclen"].size(0)
         max_length = 0 if scoring else self.max_length
         with torch.no_grad():
-            if self.top_k != 0 or self.top_p != 0:
+            # self_speculative_decoding is only wired into GreedySearchLM's
+            # decode loop (see _predict_batch_with_strategy): route to it
+            # even when top_k/top_p are left at their sampling-disabled
+            # defaults, so the feature isn't silently dropped to
+            # BeamSearchLM when the user enables it with temperature=0.
+            if self.top_k != 0 or self.top_p != 0 or self.self_speculative_decoding:
                 decode_strategy = GreedySearchLM(
                     pad=self._tgt_pad_idx,
                     bos=self._tgt_bos_idx,
