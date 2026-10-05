@@ -1257,9 +1257,7 @@ class DecoderModel(BaseModel):
         num_mtp_heads = getattr(model_config.decoder, "num_mtp_heads", 0)
         mtp_heads = nn.ModuleList()
         needs_mtp_heads_at_inference = getattr(running_config, "self_speculative_decoding", False)
-        if num_mtp_heads > 0 and (
-            not isinstance(running_config, InferenceConfig) or needs_mtp_heads_at_inference
-        ):
+        if num_mtp_heads > 0 and (not isinstance(running_config, InferenceConfig) or needs_mtp_heads_at_inference):
             for _ in range(num_mtp_heads):
                 mtp_heads.append(MTPHead(model_config.decoder, running_config=running_config))
         return cls(
