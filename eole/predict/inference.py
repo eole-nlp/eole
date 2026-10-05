@@ -7,6 +7,7 @@ from time import time
 from math import exp
 import codecs
 
+from eole import EOLE_TORCH_COMPILE
 from eole.transforms import TransformPipe, AVAILABLE_TRANSFORMS
 from eole.constants import DefaultTokens
 from eole.predict.prediction import PredictionBuilder
@@ -210,6 +211,7 @@ class Inference(object):
             and supports_mtp_drafting
             and beam_size == 1
             and (top_k == 1 or temperature == 0.0)
+            and not EOLE_TORCH_COMPILE
         )
         reasons = []
         if requested and not enabled:
@@ -225,6 +227,12 @@ class Inference(object):
                 reasons.append(f"beam_size={beam_size} (must be 1)")
             if not (top_k == 1 or temperature == 0.0):
                 reasons.append(f"top_k={top_k} and temperature={temperature} (need top_k=1 or temperature=0)")
+            if EOLE_TORCH_COMPILE:
+                reasons.append(
+                    "EOLE_TORCH_COMPILE=1 is set: the compiled/warmed-up decode graph only handles "
+                    "single-token decode steps, so the multi-token verification forward used by "
+                    "self-speculative decoding is not supported under torch.compile"
+                )
         return enabled, reasons
 
     def _gold_score(self, batch, enc_out, src_len, enc_final_hs, batch_size, src):

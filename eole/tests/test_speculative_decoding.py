@@ -355,6 +355,26 @@ class TestResolveSelfSpeculativeDecoding(unittest.TestCase):
         self.assertFalse(enabled)
         self.assertEqual(reasons, [])
 
+    def test_disabled_when_torch_compile_enabled(self):
+        """The compiled/warmed-up decode graph (see `generator.py` /
+        `translator.py` warmup) only ever traces a single-token decode step;
+        self-speculative decoding's verify call feeds a multi-token chunk
+        through the same decoder, a shape that was never warmed up for under
+        `torch.compile`. This must be gated off rather than silently
+        producing corrupted output."""
+        import eole.predict.inference as inference_module
+
+        original = inference_module.EOLE_TORCH_COMPILE
+        try:
+            inference_module.EOLE_TORCH_COMPILE = True
+            enabled, reasons = Inference._resolve_self_speculative_decoding(
+                self._model(with_drafting=True), True, beam_size=1, top_k=1, temperature=1.0
+            )
+            self.assertFalse(enabled)
+            self.assertTrue(any("EOLE_TORCH_COMPILE" in r for r in reasons))
+        finally:
+            inference_module.EOLE_TORCH_COMPILE = original
+
 
 class TestVisionEncoderDecoderModelMtpDrafting(unittest.TestCase):
     """Vision-language models (``VisionEncoderDecoderModel``) must support
