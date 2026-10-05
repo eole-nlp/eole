@@ -16,7 +16,8 @@ import pyonmttok
 
 from eole.constants import DefaultTokens
 from eole.modules.mtp import MTPHead
-from eole.config.models import TransformerDecoderConfig
+from eole.config.models import TransformerDecoderConfig, TransformerLMModelConfig
+from eole.models.model import DecoderModel
 from eole.utils.statistics import Statistics
 
 
@@ -72,17 +73,18 @@ class TestStatisticsMTP(unittest.TestCase):
         self.assertEqual(stat.mtp_loss, 0.0)
 
     def test_mtp_loss_update(self):
-        s1 = Statistics(mtp_loss=1.5, n_tokens=10)
-        s2 = Statistics(mtp_loss=0.5, n_tokens=5)
+        s1 = Statistics(mtp_loss=1.5, mtp_ntokens=10)
+        s2 = Statistics(mtp_loss=0.5, mtp_ntokens=5)
         s1.update(s2)
         self.assertAlmostEqual(s1.mtp_loss, 2.0)
+        self.assertEqual(s1.mtp_ntokens, 15)
 
     def test_mtp_xent(self):
-        stat = Statistics(mtp_loss=2.0, n_tokens=4)
+        stat = Statistics(mtp_loss=2.0, mtp_ntokens=4)
         self.assertAlmostEqual(stat.mtp_xent(), 0.5)
 
     def test_mtp_xent_zero_tokens(self):
-        stat = Statistics(mtp_loss=1.0, n_tokens=0)
+        stat = Statistics(mtp_loss=1.0, mtp_ntokens=0)
         self.assertEqual(stat.mtp_xent(), 0.0)
 
 
@@ -119,9 +121,10 @@ class TestMTPLoss(unittest.TestCase):
         mtp_outputs = [torch.randn(B, T - 1, H), torch.randn(B, T - 2, H)]
         tgt = torch.randint(2, 15, (B, T))
         batch = {"tgt": tgt}
-        mtp_loss = self.compute._compute_mtp_loss(mtp_outputs, batch, 0)
-        mtp_loss_value = mtp_loss[0].item() if isinstance(mtp_loss, tuple) else mtp_loss.item()
-        self.assertGreater(mtp_loss_value, 0.0)
+        mtp_loss, raw_loss, n_mtp_tokens = self.compute._compute_mtp_loss(mtp_outputs, batch, 0)
+        self.assertGreater(mtp_loss.item(), 0.0)
+        self.assertGreater(raw_loss, 0.0)
+        self.assertGreater(n_mtp_tokens, 0)
 
     def test_mtp_loss_zero_lambda(self):
         """With lambda=0 the MTP loss should not affect total loss."""
@@ -150,16 +153,16 @@ class TestMTPLoss(unittest.TestCase):
         mtp_outputs = [torch.randn(B, T - 1, H)]
         tgt = torch.randint(2, 15, (B, T))
         batch = {"tgt": tgt}
-        mtp_loss = compute._compute_mtp_loss(mtp_outputs, batch, 0)
+        mtp_loss, _, _ = compute._compute_mtp_loss(mtp_outputs, batch, 0)
         # With lambda=0 the mtp_loss should be zero
-        mtp_loss_value = mtp_loss[0].item() if isinstance(mtp_loss, tuple) else mtp_loss.item()
-        self.assertAlmostEqual(mtp_loss_value, 0.0, places=5)
+        self.assertAlmostEqual(mtp_loss.item(), 0.0, places=5)
 
 
-def _make_tiny_vocab(pad_idx):
+def _make_tiny_vocab(pad_idx, extra_tokens=0):
     """Build a minimal pyonmttok vocab with DefaultTokens specials."""
+    tokens = Counter({f"tok{i}": 1 for i in range(extra_tokens)})
     vocab = pyonmttok.build_vocab_from_tokens(
-        Counter(),
+        tokens,
         maximum_size=0,
         minimum_frequency=1,
         special_tokens=[
@@ -170,6 +173,75 @@ def _make_tiny_vocab(pad_idx):
         ],
     )
     return vocab
+
+
+class TestDecoderModelMTP(unittest.TestCase):
+    """Integration test: build a real DecoderModel with MTP heads and run
+    its training forward pass, checking per-head output shapes."""
+
+    def _build_model_and_vocabs(self, num_mtp_heads=2):
+        pad_idx = 1
+        vocab = _make_tiny_vocab(pad_idx, extra_tokens=16)
+        vocabs = {
+            "tgt": vocab,
+            "specials": {
+                "pad_token": DefaultTokens.PAD,
+                "unk_token": DefaultTokens.UNK,
+                "eos_token": DefaultTokens.EOS,
+                "bos_token": DefaultTokens.BOS,
+            },
+        }
+        model_config = TransformerLMModelConfig(
+            hidden_size=16,
+            embeddings={"tgt_word_vec_size": 16},
+            decoder={
+                "decoder_type": "transformer",
+                "layers": 2,
+                "heads": 2,
+                "hidden_size": 16,
+                "transformer_ff": 32,
+                "num_mtp_heads": num_mtp_heads,
+                "mtp_lambda": 0.1,
+            },
+        )
+        model = DecoderModel.build_blocks(model_config, vocabs, running_config=None)
+        return model, vocabs
+
+    def test_build_and_training_forward_shapes(self):
+        model, vocabs = self._build_model_and_vocabs(num_mtp_heads=2)
+        self.assertEqual(len(model.mtp_heads), 2)
+        model.train()
+
+        B, T = 2, 6
+        pad_idx = vocabs["tgt"][DefaultTokens.PAD]
+        src = torch.randint(2, 10, (B, T))
+        src_len = torch.full((B,), T, dtype=torch.long)
+
+        output = model(src, None, src_len)
+
+        self.assertIsNotNone(output.mtp_outputs)
+        self.assertEqual(len(output.mtp_outputs), 2)
+        # Head k output should have length (T - k) and hidden dim 16.
+        for k, mtp_out in enumerate(output.mtp_outputs, start=1):
+            self.assertEqual(mtp_out.shape[0], B)
+            self.assertEqual(mtp_out.shape[1], T - k)
+            self.assertEqual(mtp_out.shape[2], 16)
+        self.assertEqual(pad_idx, model.pad_idx)
+
+    def test_no_mtp_outputs_in_eval_mode(self):
+        model, _ = self._build_model_and_vocabs(num_mtp_heads=2)
+        model.eval()
+        B, T = 2, 6
+        src = torch.randint(2, 10, (B, T))
+        src_len = torch.full((B,), T, dtype=torch.long)
+        output = model(src, None, src_len)
+        self.assertIsNone(output.mtp_outputs)
+
+    def test_update_dropout_propagates_to_mtp_heads(self):
+        model, _ = self._build_model_and_vocabs(num_mtp_heads=2)
+        model.update_dropout(0.37, 0.42)
+        for head in model.mtp_heads:
+            self.assertAlmostEqual(head.layer.dropout.p, 0.37)
 
 
 if __name__ == "__main__":

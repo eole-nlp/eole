@@ -148,6 +148,10 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
             - 'predictions': list of list of strings (batch_size x n_best)
             - 'scores': list of list of floats (batch_size x n_best prediction scores)
             - 'estim': list of list of floats (batch_size x n_best estimator scores, if available)
+            - 'references': list of strings (batch_size), the gold/reference text rebuilt from
+              ``batch['tgt']`` when present (``None`` entries otherwise). Handy as ``texts_ref``
+              for reward scorers in RL training (e.g. REINFORCE/GRPO), avoiding a second,
+              separate detokenization pass.
             - 'token_ids': (optional) list of list of LongTensor (batch_size x n_best token sequences)
     """
     was_training = predictor.model.training
@@ -184,6 +188,7 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
         "predictions": [],
         "scores": [],
         "estim": [],
+        "references": [],
     }
 
     if return_token_ids:
@@ -198,6 +203,19 @@ def generate_from_batch(predictor, batch, return_token_ids=False):
         results["predictions"].append(preds)
         results["scores"].append(trans.pred_scores[: predictor.n_best])
         results["estim"].append(trans.estim[: predictor.n_best])
+
+        # Reference text, rebuilt from batch['tgt'] if it was provided (None otherwise).
+        tokenizer = getattr(predictor, "_tokenizer", None)
+        if trans.gold_sent is not None:
+            if predictor.id_tokenization and tokenizer is not None:
+                ref = tokenizer.decode(trans.gold_sent, skip_special_tokens=True)
+            elif predictor.id_tokenization:
+                ref = trans.gold_sent
+            else:
+                ref = " ".join(trans.gold_sent)
+        else:
+            ref = None
+        results["references"].append(ref)
 
         if return_token_ids:
             # Use the original index to correctly align with raw predictions
@@ -226,7 +244,10 @@ def generate_and_score(predictor, batch, scorers, texts_ref=None, texts_src=None
             most scorers (e.g. BLEU); if a scorer that requires references is
             given ``texts_ref=None``, it will raise/propagate its own error
             when ``compute_score()`` is called. Pass None only when all given
-            scorers are reference-free (e.g. some QE metrics).
+            scorers are reference-free (e.g. some QE metrics). If ``None`` and
+            ``batch['tgt']`` was provided, the references rebuilt by
+            ``generate_from_batch`` (``gen_results['references']``) are used
+            automatically.
         texts_src: Source texts for scoring (list of strings). Optional.
         return_token_ids: If True, also return raw token ID sequences.
 
@@ -238,6 +259,9 @@ def generate_and_score(predictor, batch, scorers, texts_ref=None, texts_src=None
 
     # Flatten predictions for scoring (take first/best prediction per sample)
     preds_flat = [p[0] for p in gen_results["predictions"]]
+
+    if texts_ref is None and any(ref is not None for ref in gen_results["references"]):
+        texts_ref = gen_results["references"]
 
     rewards = {}
     for metric_name, scorer in scorers.items():

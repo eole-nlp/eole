@@ -229,6 +229,8 @@ class BaseModel(nn.Module):
         if running_config.freeze_decoder:
             self.decoder.requires_grad_(False)
             self.generator.requires_grad_(False)
+            if getattr(self, "mtp_heads", None) is not None:
+                self.mtp_heads.requires_grad_(False)
 
     def _initialize_weights_and_embeddings(self, running_config):
         """Initialize model weights and load pretrained embeddings."""
@@ -1247,10 +1249,17 @@ class DecoderModel(BaseModel):
     def build_blocks(cls, model_config, vocabs, running_config=None):
         tgt_emb = build_tgt_emb(model_config, vocabs, running_config=running_config)
         decoder = build_decoder(model_config, running_config=running_config)
-        # Build MTP heads when configured
+        # Build MTP heads when configured. MTP heads are only used during
+        # training and, when self-speculative decoding is requested, during
+        # inference (see forward() / draft_mtp_tokens()); otherwise skip
+        # building them for inference to avoid needlessly allocating extra
+        # parameters (and potential OOM).
         num_mtp_heads = getattr(model_config.decoder, "num_mtp_heads", 0)
         mtp_heads = nn.ModuleList()
-        if num_mtp_heads > 0:
+        needs_mtp_heads_at_inference = getattr(running_config, "self_speculative_decoding", False)
+        if num_mtp_heads > 0 and (
+            not isinstance(running_config, InferenceConfig) or needs_mtp_heads_at_inference
+        ):
             for _ in range(num_mtp_heads):
                 mtp_heads.append(MTPHead(model_config.decoder, running_config=running_config))
         return cls(
@@ -1312,19 +1321,23 @@ class DecoderModel(BaseModel):
                 # Build causal + padding mask: (B, 1, actual_len, actual_len)
                 # True = attend, False = masked.  Key-dimension padding mask
                 # prevents attending to pad positions; causal mask prevents
-                # attending to future positions.
-                pad_m = src[:, start:end].eq(self.pad_idx)  # (B, actual_len)
+                # attending to future positions.  A key position is padding
+                # if either the hidden state it carries (h_detached, sourced
+                # from src[:, :actual_len]) or the shifted embedding combined
+                # with it (src[:, start:end]) came from a pad token, so union
+                # both padding masks (relevant for left-padded batches).
+                hs_pad_m = src[:, :actual_len].eq(self.pad_idx)  # (B, actual_len)
+                emb_pad_m = src[:, start:end].eq(self.pad_idx)  # (B, actual_len)
+                pad_m = hs_pad_m | emb_pad_m
                 causal = torch.tril(
                     torch.ones(actual_len, actual_len, dtype=torch.bool, device=src.device)
                 )  # (actual_len, actual_len)
                 # (1,1,L,L) & ~(B,1,1,L) → (B,1,L,L): attend where causal & not padding key
                 mtp_attn_mask = causal[None, None] & ~pad_m[:, None, None, :]
 
-                # RoPE position embeddings for sequence positions [start, start+actual_len)
-                # (non-rotary decoders build a NoOpPosition rope with cos_sin=None;
-                # guard against it so non-rotary architectures don't crash here).
-                if _rope is not None and getattr(_rope, "cos_sin", None) is not None:
-                    pos_ids = start + torch.arange(actual_len, device=src.device)
+                # RoPE position embeddings for sequence positions [0, actual_len)
+                if _rope is not None and _rope.cos_sin is not None:
+                    pos_ids = torch.arange(actual_len, device=src.device)
                     mtp_pos_emb = _rope.cos_sin[pos_ids]  # (actual_len, head_dim)
                 else:
                     mtp_pos_emb = None
@@ -1378,14 +1391,17 @@ class DecoderModel(BaseModel):
         # causal mask (attend to self only), no padding to mask out.
         trivial_mask = torch.ones(batch_size, 1, 1, 1, dtype=torch.bool, device=device)
         _rope = getattr(self.decoder, "rope", None)
+        # RoPE position embeddings correspond to the position of `h_last`
+        # itself (not of the shifted embedding token), mirroring the
+        # `torch.arange(actual_len)` convention used in `forward()` -- the
+        # same `h_last` is reused, unmodified, by every head in the chain.
+        if _rope is not None and _rope.cos_sin is not None:
+            pos_emb = _rope.cos_sin[torch.tensor([pos_id], device=device)]
+        else:
+            pos_emb = None
         cur_tok = seed_token
-        for k, head in enumerate(self.mtp_heads, start=1):
+        for head in self.mtp_heads:
             tok_emb = self.tgt_emb.embeddings(cur_tok)  # (B, 1, H)
-            if _rope is not None and getattr(_rope, "cos_sin", None) is not None:
-                pos_ids = torch.tensor([pos_id + k], device=device)
-                pos_emb = _rope.cos_sin[pos_ids]
-            else:
-                pos_emb = None
             head_out = head(h_last, tok_emb, attn_mask=trivial_mask, position_embeddings=pos_emb)
             logits = self.generator(head_out[:, -1, :])
             cur_tok = logits.argmax(dim=-1, keepdim=True)
@@ -1395,6 +1411,8 @@ class DecoderModel(BaseModel):
     def update_dropout(self, dropout, attention_dropout):
         self.decoder.update_dropout(dropout, attention_dropout)
         self.tgt_emb.update_dropout(dropout)
+        for head in self.mtp_heads:
+            head.update_dropout(dropout, attention_dropout)
 
 
 class EncoderModel(BaseModel):
@@ -1918,9 +1936,18 @@ class VisionEncoderDecoderModel(BaseModel):
         if self.add_estimator:
             self.estimator = FeedForward(self.hidden_size)
         # Keep MTP heads on vision-language models as well.  Qwen3.5 VL stores
-        # these weights in its companion safetensors checkpoint.
+        # these weights in its companion safetensors checkpoint, but the
+        # VLM forward pass below does not (yet) implement the corresponding
+        # MTP loss path, so these heads are never trained/used here.
         mtp_heads = kwargs.get("mtp_heads", None)
         self.mtp_heads = mtp_heads if mtp_heads is not None else nn.ModuleList()
+        if len(self.mtp_heads) > 0:
+            logger.warning(
+                "num_mtp_heads > 0 is set for this vision-language model, but MTP "
+                "auxiliary loss is not implemented for VisionEncoderDecoderModel. "
+                "The MTP heads are built/loaded for checkpoint compatibility only "
+                "and will not receive gradient updates during training."
+            )
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):

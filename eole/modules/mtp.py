@@ -1,10 +1,10 @@
 """Multi-Token Prediction (MTP) auxiliary heads.
 
-Each :class:`MTPHead` predicts the token ``t+k`` from the hidden state at
-position ``t``.  Following the DeepSeek-V3 paper the auxiliary heads share the
-embedding table with the main model and receive a **detached** copy of the
-main hidden states so that their gradients do not back-propagate into the core
-decoder.
+Each :class:`MTPHead` predicts the token ``t+k+1`` by combining the hidden
+state at position ``t`` with the embedding of token ``t+k``.  Following the
+DeepSeek-V3 paper the auxiliary heads share the embedding table with the main
+model and receive a **detached** copy of the main hidden states so that their
+gradients do not back-propagate into the core decoder.
 
 Reference: https://arxiv.org/abs/2412.19437
 """
@@ -91,3 +91,6 @@ class MTPHead(nn.Module):
 
         # 4. Final norm.
         return self.norm(layer_out)
+
+    def update_dropout(self, dropout, attention_dropout):
+        self.layer.update_dropout(dropout, attention_dropout)

@@ -30,6 +30,7 @@ class Statistics(object):
         attention_entropy=0,
         n_attention_samples=0,
         mtp_loss=0.0,
+        mtp_ntokens=0,
     ):
         self.loss = loss
         self.auxloss = auxloss
@@ -43,6 +44,7 @@ class Statistics(object):
         self.attention_entropy = attention_entropy
         self.n_attention_samples = n_attention_samples
         self.mtp_loss = mtp_loss
+        self.mtp_ntokens = mtp_ntokens
         self.start_time = time.time()
 
     @staticmethod
@@ -108,6 +110,7 @@ class Statistics(object):
         self.attention_entropy += stat.attention_entropy
         self.n_attention_samples += stat.n_attention_samples
         self.mtp_loss += stat.mtp_loss
+        self.mtp_ntokens += stat.mtp_ntokens
         self.computed_metrics = stat.computed_metrics
         for cid in stat.data_stats.keys():
             if cid in self.data_stats.keys():
@@ -147,9 +150,9 @@ class Statistics(object):
         return 0.0
 
     def mtp_xent(self):
-        """compute average MTP auxiliary loss per token"""
-        if self.n_tokens > 0:
-            return self.mtp_loss / self.n_tokens
+        """compute average MTP auxiliary loss per (valid) MTP token"""
+        if self.mtp_ntokens > 0:
+            return self.mtp_loss / self.mtp_ntokens
         return 0.0
 
     def elapsed_time(self):
