@@ -1,13 +1,14 @@
 """Tests for MTP-based self-speculative decoding.
 
 These tests exercise:
-* ``DecoderModel.draft_mtp_tokens`` (shape / chaining behaviour).
+* ``MTPDraftingMixin.draft_mtp_tokens`` (shape / chaining behaviour),
+  shared by ``DecoderModel`` and ``VisionEncoderDecoderModel``.
 * End-to-end equivalence between draft+verify+accept/reject speculative
   decoding and plain step-by-step greedy decoding, proving that the
   speculative path is a pure latency optimization (identical outputs).
 * ``Inference._resolve_self_speculative_decoding`` gating, including model
-  classes (e.g. vision-language models) that carry MTP heads for checkpoint
-  compatibility but don't implement ``draft_mtp_tokens``.
+  classes that don't mix in ``MTPDraftingMixin`` and therefore don't
+  implement ``draft_mtp_tokens``.
 """
 
 import copy
@@ -21,7 +22,7 @@ import torch.nn as nn
 
 from eole.config.models import CustomModelConfig
 from eole.constants import DefaultTokens
-from eole.models.model import DecoderModel
+from eole.models.model import DecoderModel, MTPDraftingMixin, VisionEncoderDecoderModel
 from eole.predict.inference import Inference
 
 
@@ -216,10 +217,11 @@ class TestSpeculativeDecodingEquivalence(unittest.TestCase):
 class TestResolveSelfSpeculativeDecoding(unittest.TestCase):
     """``Inference._resolve_self_speculative_decoding`` must gate on
     whether the model actually implements ``draft_mtp_tokens`` -- not just
-    on whether it carries MTP heads -- since some model classes (e.g.
-    ``VisionEncoderDecoderModel``) keep MTP heads for checkpoint
-    compatibility only and would otherwise crash with an ``AttributeError``
-    in the decode loop when self-speculative decoding is requested."""
+    on whether it carries MTP heads -- since some (hypothetical, future)
+    model classes could keep MTP heads around for checkpoint compatibility
+    only, without mixing in ``MTPDraftingMixin``, and would otherwise crash
+    with an ``AttributeError`` in the decode loop when self-speculative
+    decoding is requested."""
 
     def _model(self, num_mtp_heads=2, with_drafting=True):
         attrs = {"mtp_heads": list(range(num_mtp_heads))}
@@ -235,8 +237,8 @@ class TestResolveSelfSpeculativeDecoding(unittest.TestCase):
         self.assertEqual(reasons, [])
 
     def test_disabled_without_crashing_when_model_lacks_drafting(self):
-        """Models with MTP heads but no ``draft_mtp_tokens`` (e.g. vision-
-        language models) must be disabled, not crash."""
+        """Models with MTP heads but no ``draft_mtp_tokens`` must be
+        disabled, not crash."""
         enabled, reasons = Inference._resolve_self_speculative_decoding(
             self._model(with_drafting=False), True, beam_size=1, top_k=1, temperature=1.0
         )
@@ -271,6 +273,35 @@ class TestResolveSelfSpeculativeDecoding(unittest.TestCase):
             self._model(num_mtp_heads=0, with_drafting=False), False, beam_size=4, top_k=5, temperature=1.0
         )
         self.assertFalse(enabled)
+        self.assertEqual(reasons, [])
+
+
+class TestVisionEncoderDecoderModelMtpDrafting(unittest.TestCase):
+    """Vision-language models (``VisionEncoderDecoderModel``) must support
+    self-speculative decoding exactly like decoder-only models: once past
+    the (vision) prefill step, incremental decoding only consumes the
+    previous token's embedding plus the KV cache -- identical to a
+    decoder-only LM -- so the same ``draft_mtp_tokens`` implementation
+    applies unchanged."""
+
+    def test_decoder_and_vision_model_share_the_same_drafting_implementation(self):
+        # Both classes must resolve `draft_mtp_tokens` to the exact same
+        # function (from MTPDraftingMixin), not independent/divergent
+        # reimplementations, so fixes/behaviour stay in sync.
+        self.assertIs(DecoderModel.draft_mtp_tokens, MTPDraftingMixin.draft_mtp_tokens)
+        self.assertIs(VisionEncoderDecoderModel.draft_mtp_tokens, MTPDraftingMixin.draft_mtp_tokens)
+
+    def test_vision_model_passes_the_mtp_drafting_gate(self):
+        # Duck-typed gate (Inference._resolve_self_speculative_decoding)
+        # must now accept a VisionEncoderDecoderModel-shaped object.
+        fake_vlm = SimpleNamespace(
+            mtp_heads=[object(), object()],
+            draft_mtp_tokens=VisionEncoderDecoderModel.draft_mtp_tokens,
+        )
+        enabled, reasons = Inference._resolve_self_speculative_decoding(
+            fake_vlm, True, beam_size=1, top_k=1, temperature=1.0
+        )
+        self.assertTrue(enabled)
         self.assertEqual(reasons, [])
 
 

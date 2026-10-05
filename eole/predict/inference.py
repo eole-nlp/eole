@@ -186,14 +186,16 @@ class Inference(object):
         """Determine whether self-speculative decoding (via MTP auxiliary
         heads) can actually be enabled for this model/config combination.
 
-        ``draft_mtp_tokens`` is only implemented on ``DecoderModel``: other
-        model classes (e.g. ``VisionEncoderDecoderModel``, which keeps MTP
-        heads around for checkpoint compatibility only and never trains
-        them, per its own warning) don't support drafting and must be
-        excluded here to avoid an ``AttributeError`` in the decode loop.
-        Only meaningful for greedy, single-beam decoding: silently disabled
-        otherwise so the flag can be left on regardless of other decoding
-        settings.
+        ``draft_mtp_tokens`` is implemented by any model class mixing in
+        ``MTPDraftingMixin`` (currently ``DecoderModel`` and
+        ``VisionEncoderDecoderModel``: once past the initial prefill step,
+        incremental decoding for a VLM only consumes the previous token's
+        embedding plus the KV cache, identical to a decoder-only LM, so
+        drafting works the same way). Other model classes without this
+        method are excluded here to avoid an ``AttributeError`` in the
+        decode loop. Only meaningful for greedy, single-beam decoding:
+        silently disabled otherwise so the flag can be left on regardless
+        of other decoding settings.
 
         Returns:
             tuple[bool, list[str]]: whether to enable it, and (when
@@ -218,10 +220,7 @@ class Inference(object):
                     "so the heads are built, and ensure num_mtp_heads > 0 was used at training time)"
                 )
             if num_mtp_heads > 0 and not supports_mtp_drafting:
-                reasons.append(
-                    f"the loaded model class ({type(model).__name__}) does not implement "
-                    "MTP-based drafting (currently only supported for decoder-only models)"
-                )
+                reasons.append(f"the loaded model class ({type(model).__name__}) does not implement MTP-based drafting")
             if beam_size != 1:
                 reasons.append(f"beam_size={beam_size} (must be 1)")
             if not (top_k == 1 or temperature == 0.0):
