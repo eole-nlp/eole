@@ -5,6 +5,9 @@ These tests exercise:
 * End-to-end equivalence between draft+verify+accept/reject speculative
   decoding and plain step-by-step greedy decoding, proving that the
   speculative path is a pure latency optimization (identical outputs).
+* ``Inference._resolve_self_speculative_decoding`` gating, including model
+  classes (e.g. vision-language models) that carry MTP heads for checkpoint
+  compatibility but don't implement ``draft_mtp_tokens``.
 """
 
 import copy
@@ -19,6 +22,7 @@ import torch.nn as nn
 from eole.config.models import CustomModelConfig
 from eole.constants import DefaultTokens
 from eole.models.model import DecoderModel
+from eole.predict.inference import Inference
 
 
 def _build_model(seed, num_mtp_heads=2, hidden_size=32):
@@ -207,6 +211,67 @@ class TestSpeculativeDecodingEquivalence(unittest.TestCase):
         true_seq = _run_true_stepwise(model1, prompt, n_extra)
         spec_seq = _run_speculative(model2, prompt, n_extra)
         self.assertTrue(torch.equal(true_seq, spec_seq))
+
+
+class TestResolveSelfSpeculativeDecoding(unittest.TestCase):
+    """``Inference._resolve_self_speculative_decoding`` must gate on
+    whether the model actually implements ``draft_mtp_tokens`` -- not just
+    on whether it carries MTP heads -- since some model classes (e.g.
+    ``VisionEncoderDecoderModel``) keep MTP heads for checkpoint
+    compatibility only and would otherwise crash with an ``AttributeError``
+    in the decode loop when self-speculative decoding is requested."""
+
+    def _model(self, num_mtp_heads=2, with_drafting=True):
+        attrs = {"mtp_heads": list(range(num_mtp_heads))}
+        if with_drafting:
+            attrs["draft_mtp_tokens"] = lambda *a, **k: []
+        return SimpleNamespace(**attrs)
+
+    def test_enabled_when_model_supports_drafting(self):
+        enabled, reasons = Inference._resolve_self_speculative_decoding(
+            self._model(with_drafting=True), True, beam_size=1, top_k=1, temperature=1.0
+        )
+        self.assertTrue(enabled)
+        self.assertEqual(reasons, [])
+
+    def test_disabled_without_crashing_when_model_lacks_drafting(self):
+        """Models with MTP heads but no ``draft_mtp_tokens`` (e.g. vision-
+        language models) must be disabled, not crash."""
+        enabled, reasons = Inference._resolve_self_speculative_decoding(
+            self._model(with_drafting=False), True, beam_size=1, top_k=1, temperature=1.0
+        )
+        self.assertFalse(enabled)
+        self.assertTrue(any("does not implement" in r for r in reasons))
+
+    def test_disabled_when_no_mtp_heads(self):
+        enabled, reasons = Inference._resolve_self_speculative_decoding(
+            self._model(num_mtp_heads=0, with_drafting=True), True, beam_size=1, top_k=1, temperature=1.0
+        )
+        self.assertFalse(enabled)
+        self.assertTrue(any("no MTP heads" in r for r in reasons))
+
+    def test_disabled_when_beam_size_not_one(self):
+        enabled, reasons = Inference._resolve_self_speculative_decoding(
+            self._model(with_drafting=True), True, beam_size=4, top_k=1, temperature=1.0
+        )
+        self.assertFalse(enabled)
+        self.assertTrue(any("beam_size" in r for r in reasons))
+
+    def test_disabled_when_not_deterministic(self):
+        enabled, reasons = Inference._resolve_self_speculative_decoding(
+            self._model(with_drafting=True), True, beam_size=1, top_k=5, temperature=1.0
+        )
+        self.assertFalse(enabled)
+        self.assertTrue(any("top_k" in r for r in reasons))
+
+    def test_no_reasons_when_not_requested(self):
+        """When the user never asked for it, there's nothing to warn about,
+        even if the model/config wouldn't have supported it anyway."""
+        enabled, reasons = Inference._resolve_self_speculative_decoding(
+            self._model(num_mtp_heads=0, with_drafting=False), False, beam_size=4, top_k=5, temperature=1.0
+        )
+        self.assertFalse(enabled)
+        self.assertEqual(reasons, [])
 
 
 if __name__ == "__main__":

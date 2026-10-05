@@ -137,27 +137,16 @@ class Inference(object):
         # model was trained with num_mtp_heads > 0). Only meaningful for
         # greedy, single-beam decoding: silently disabled otherwise so that
         # the flag can be left on regardless of other decoding settings.
-        num_mtp_heads = len(getattr(self.model, "mtp_heads", []))
         requested_self_speculative_decoding = getattr(config, "self_speculative_decoding", False)
-        self.self_speculative_decoding = (
-            requested_self_speculative_decoding
-            and num_mtp_heads > 0
-            and self.beam_size == 1
-            and (self.top_k == 1 or self.temperature == 0.0)
+        self.self_speculative_decoding, disabled_reasons = self._resolve_self_speculative_decoding(
+            self.model,
+            requested_self_speculative_decoding,
+            self.beam_size,
+            self.top_k,
+            self.temperature,
         )
         if requested_self_speculative_decoding and not self.self_speculative_decoding:
-            reasons = []
-            if num_mtp_heads == 0:
-                reasons.append(
-                    "the model has no MTP heads built at inference time (set "
-                    "self_speculative_decoding=True in the inference config before loading the model "
-                    "so the heads are built, and ensure num_mtp_heads > 0 was used at training time)"
-                )
-            if self.beam_size != 1:
-                reasons.append(f"beam_size={self.beam_size} (must be 1)")
-            if not (self.top_k == 1 or self.temperature == 0.0):
-                reasons.append(f"top_k={self.top_k} and temperature={self.temperature} (need top_k=1 or temperature=0)")
-            self._log("self_speculative_decoding was requested but is disabled because: " + "; ".join(reasons))
+            self._log("self_speculative_decoding was requested but is disabled because: " + "; ".join(disabled_reasons))
 
         self.use_filter_pred = False
         self._filter_pred = None
@@ -191,6 +180,53 @@ class Inference(object):
             self.logger.info(msg)
         else:
             print(msg)
+
+    @staticmethod
+    def _resolve_self_speculative_decoding(model, requested, beam_size, top_k, temperature):
+        """Determine whether self-speculative decoding (via MTP auxiliary
+        heads) can actually be enabled for this model/config combination.
+
+        ``draft_mtp_tokens`` is only implemented on ``DecoderModel``: other
+        model classes (e.g. ``VisionEncoderDecoderModel``, which keeps MTP
+        heads around for checkpoint compatibility only and never trains
+        them, per its own warning) don't support drafting and must be
+        excluded here to avoid an ``AttributeError`` in the decode loop.
+        Only meaningful for greedy, single-beam decoding: silently disabled
+        otherwise so the flag can be left on regardless of other decoding
+        settings.
+
+        Returns:
+            tuple[bool, list[str]]: whether to enable it, and (when
+            ``requested`` is True but it couldn't be enabled) the list of
+            reasons it was disabled.
+        """
+        num_mtp_heads = len(getattr(model, "mtp_heads", []))
+        supports_mtp_drafting = callable(getattr(model, "draft_mtp_tokens", None))
+        enabled = (
+            requested
+            and num_mtp_heads > 0
+            and supports_mtp_drafting
+            and beam_size == 1
+            and (top_k == 1 or temperature == 0.0)
+        )
+        reasons = []
+        if requested and not enabled:
+            if num_mtp_heads == 0:
+                reasons.append(
+                    "the model has no MTP heads built at inference time (set "
+                    "self_speculative_decoding=True in the inference config before loading the model "
+                    "so the heads are built, and ensure num_mtp_heads > 0 was used at training time)"
+                )
+            if num_mtp_heads > 0 and not supports_mtp_drafting:
+                reasons.append(
+                    f"the loaded model class ({type(model).__name__}) does not implement "
+                    "MTP-based drafting (currently only supported for decoder-only models)"
+                )
+            if beam_size != 1:
+                reasons.append(f"beam_size={beam_size} (must be 1)")
+            if not (top_k == 1 or temperature == 0.0):
+                reasons.append(f"top_k={top_k} and temperature={temperature} (need top_k=1 or temperature=0)")
+        return enabled, reasons
 
     def _gold_score(self, batch, enc_out, src_len, enc_final_hs, batch_size, src):
         if "tgt" in batch.keys() and not self.tgt_file_prefix:
