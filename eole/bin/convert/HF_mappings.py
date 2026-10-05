@@ -56,6 +56,73 @@ MODEL_OVERRIDES: dict = {}
 MODEL_OVERRIDES["LlamaForCausalLM"] = {}  # default / base
 MODEL_OVERRIDES["MistralForCausalLM"] = {}
 
+
+def _deepseekv3_config_from_hf(top, text, vis):
+    """Config for DeepseekV3ForCausalLM and DeepseekR1ForCausalLM (reasoning variant)."""
+    num_mtp_heads = text.get("num_nextn_predict_layers", top.get("num_nextn_predict_layers", 1))
+    return {
+        "decoder": {
+            "layer_norm": "rms",
+            "norm_eps": text.get("rms_norm_eps", 1e-6),
+            "num_mtp_heads": num_mtp_heads,
+            "mtp_lambda": 0.1,
+        },
+    }
+
+
+# DeepSeek-V3 and DeepSeek-R1 use the same decoder layer prefix for MTP layers.
+# MTP heads occupy `model.layers.{num_hidden_layers + k}` in the HF checkpoint.
+# The `mtp_layer_start` entry tells the converter to subtract this offset when
+# computing the EOLE MTP head index (so HF layer 61 → mtp_heads.0, etc.).
+#
+# Note on weight compatibility: DeepSeek-V3 uses a two-stream combination:
+#   eh_proj(concat(hnorm(h), enorm(emb))) → hidden_size
+# whereas EOLE MTPHead uses:
+#   enorm(proj(h)) + tgt_emb  (simpler additive design)
+# As a best-effort mapping:
+#   - HF `hnorm` → EOLE `enorm` (normalize hidden state before combination)
+#   - HF `eh_proj[:, :hidden_size]` → EOLE `proj` (hidden-state half of the projection)
+# This approximation allows reuse of pre-trained DeepSeek-V3 MTP weights as
+# a warm-start for fine-tuning.
+_DEEPSEEKV3_MTP_KEYS = {
+    ".enorm.": ".hnorm.",
+    ".proj.": (".eh_proj.", "[:, :hidden_size]"),
+    ".layer.self_attn.linear_query.": ".self_attn.q_proj.",
+    ".layer.self_attn.linear_keys.": ".self_attn.k_proj.",
+    ".layer.self_attn.linear_values.": ".self_attn.v_proj.",
+    ".layer.self_attn.final_linear.": ".self_attn.o_proj.",
+    ".layer.mlp.gate_up_proj.": ".mlp.gate_proj.",
+    ".layer.mlp.up_proj.": ".mlp.up_proj.",
+    ".layer.mlp.down_proj.": ".mlp.down_proj.",
+    ".layer.input_layernorm.": ".input_layernorm.",
+    ".layer.post_attention_layernorm.": ".post_attention_layernorm.",
+}
+
+MODEL_OVERRIDES["DeepseekV3ForCausalLM"] = {
+    "decoder": {
+        ".mlp.gate.": ".mlp.gate.",
+        **{
+            f".mlp.experts.{i}.{k}": f".mlp.experts.{i}.{v}"
+            for i in range(256)
+            for k, v in {"gate_up_proj.": "gate_proj.", "down_proj.": "down_proj.", "up_proj.": "up_proj."}.items()
+        },
+        **{
+            f".mlp.shared_experts.{k}": f".mlp.shared_experts.{v}"
+            for k, v in {"gate_up_proj.": "gate_proj.", "down_proj.": "down_proj.", "up_proj.": "up_proj."}.items()
+        },
+    },
+    "mtp": _DEEPSEEKV3_MTP_KEYS,
+    "mtp_layer_prefix": "model.layers.",
+    # num_hidden_layers will be substituted at conversion time via config_from_hf
+    # (DeepSeek-V3 has 61 main layers, so MTP head 0 is at model.layers.61)
+    "mtp_layer_start": None,  # set dynamically below via config_from_hf
+    "config_from_hf": _deepseekv3_config_from_hf,
+}
+
+# DeepSeek-R1 shares the same architecture as DeepSeek-V3
+MODEL_OVERRIDES["DeepseekR1ForCausalLM"] = deepcopy(MODEL_OVERRIDES["DeepseekV3ForCausalLM"])
+MODEL_OVERRIDES["DeepseekR1ForCausalLM"]["config_from_hf"] = _deepseekv3_config_from_hf
+
 MODEL_OVERRIDES["Qwen2ForCausalLM"] = {
     "config_from_hf": lambda top, text, vis: {
         "add_qkvbias": True,
@@ -75,6 +142,42 @@ MODEL_OVERRIDES["Qwen3ForCausalLM"] = {
     },
 }
 
+
+def _qwen3moe_config_from_hf(top, text, vis):
+    """Config for Qwen3MoeForCausalLM, including optional MTP heads."""
+    num_mtp_heads = text.get("num_nextn_predict_layers", top.get("num_nextn_predict_layers", 0))
+    cfg = {
+        "decoder": {
+            "query_norm": True,
+            "key_norm": True,
+        }
+    }
+    if num_mtp_heads:
+        cfg["decoder"]["num_mtp_heads"] = num_mtp_heads
+        cfg["decoder"]["mtp_lambda"] = 0.1
+    return cfg
+
+
+# Qwen3MoE MTP heads use the same enorm+hnorm+eh_proj fusion as DeepSeek-V3,
+# but the transformer layer inside is Qwen3MoE-style (GQA + QK-norm + MoE),
+# matching the main decoder layer structure.
+_QWEN3MOE_MTP_KEYS = {
+    ".enorm.": ".hnorm.",
+    ".proj.": (".eh_proj.", "[:, :hidden_size]"),
+    ".layer.self_attn.linear_query.": ".self_attn.q_proj.",
+    ".layer.self_attn.linear_keys.": ".self_attn.k_proj.",
+    ".layer.self_attn.linear_values.": ".self_attn.v_proj.",
+    ".layer.self_attn.final_linear.": ".self_attn.o_proj.",
+    ".layer.self_attn.q_norm.": ".self_attn.q_norm.",
+    ".layer.self_attn.k_norm.": ".self_attn.k_norm.",
+    ".layer.mlp.gate.": ".mlp.gate.",
+    **{f".layer.mlp.experts.{i}.gate_up_proj.": f".mlp.experts.{i}.gate_proj." for i in range(128)},
+    **{f".layer.mlp.experts.{i}.up_proj.": f".mlp.experts.{i}.up_proj." for i in range(128)},
+    **{f".layer.mlp.experts.{i}.down_proj.": f".mlp.experts.{i}.down_proj." for i in range(128)},
+    ".layer.input_layernorm.": ".input_layernorm.",
+    ".layer.post_attention_layernorm.": ".post_attention_layernorm.",
+}
+
 MODEL_OVERRIDES["Qwen3MoeForCausalLM"] = {
     "decoder": {
         ".self_attn.q_norm.": ".self_attn.q_norm.",
@@ -84,12 +187,12 @@ MODEL_OVERRIDES["Qwen3MoeForCausalLM"] = {
         **{f".mlp.experts.{i}.up_proj.": f".mlp.experts.{i}.up_proj." for i in range(128)},
         **{f".mlp.experts.{i}.down_proj.": f".mlp.experts.{i}.down_proj." for i in range(128)},
     },
-    "config_from_hf": lambda top, text, vis: {
-        "decoder": {
-            "query_norm": True,
-            "key_norm": True,
-        }
-    },
+    "mtp": _QWEN3MOE_MTP_KEYS,
+    # MTP layers live at model.layers.{num_hidden_layers + k} — same prefix as main layers.
+    # mtp_layer_start=None means "use num_hidden_layers at runtime" (resolved dynamically).
+    "mtp_layer_prefix": "model.layers.",
+    "mtp_layer_start": None,
+    "config_from_hf": _qwen3moe_config_from_hf,
 }
 
 MODEL_OVERRIDES["Gemma2ForCausalLM"] = {
@@ -1053,9 +1156,17 @@ def _qwen35_decoder_fields(text):
 
 
 def _qwen35_vl_config_from_hf(top, text, vis):
-    """Config for Qwen3_5ForConditionalGeneration."""
+    """Config for Qwen3_5ForConditionalGeneration (Qwen3.8-27B dense hybrid VLM)."""
+    num_mtp_heads = text.get(
+        "mtp_num_hidden_layers",
+        top.get("mtp_num_hidden_layers", text.get("num_nextn_predict_layers", top.get("num_nextn_predict_layers", 0))),
+    )
     decoder = {"query_norm": True, "key_norm": True, "q_gating": True}
     decoder.update(_qwen35_decoder_fields(text))
+    if num_mtp_heads:
+        decoder["num_mtp_heads"] = num_mtp_heads
+        decoder["mtp_lambda"] = 0.1
+        decoder["mtp_emb_norm"] = True
     cfg = {
         "adapter": "qwen3_5vl",
         "decoder": decoder,
@@ -1074,11 +1185,37 @@ def _qwen35_vl_config_from_hf(top, text, vis):
     return recursive_update_dict(cfg, _qwen3vl_encoder_patch(top, vis), {})
 
 
+# MTP head key map for Qwen3_5ForConditionalGeneration (Qwen3.8-27B dense hybrid).
+# The MTP layer (model.language_model.layers.{N+k}) uses the same enorm+hnorm+eh_proj
+# fusion as DeepSeek-V3 / Qwen3MoE, but the transformer layer inside is a dense
+# Qwen3.5-style layer (GQA + QK-norm + standard gate_proj/up_proj/down_proj FFN).
+_QWEN35_DENSE_MTP_KEYS = {
+    ".enorm.": ".hnorm.",
+    ".proj.": (".eh_proj.", "[:, :hidden_size]"),
+    ".layer.self_attn.linear_query.": ".self_attn.q_proj.",
+    ".layer.self_attn.linear_keys.": ".self_attn.k_proj.",
+    ".layer.self_attn.linear_values.": ".self_attn.v_proj.",
+    ".layer.self_attn.final_linear.": ".self_attn.o_proj.",
+    ".layer.self_attn.q_norm.": ".self_attn.q_norm.",
+    ".layer.self_attn.k_norm.": ".self_attn.k_norm.",
+    ".layer.mlp.gate_up_proj.": ".mlp.gate_proj.",
+    ".layer.mlp.up_proj.": ".mlp.up_proj.",
+    ".layer.mlp.down_proj.": ".mlp.down_proj.",
+    ".layer.input_layernorm.": ".input_layernorm.",
+    ".layer.post_attention_layernorm.": ".post_attention_layernorm.",
+}
+
 MODEL_OVERRIDES["Qwen3_5ForConditionalGeneration"] = {
     "decoder_layer_prefix": "model.language_model.layers.",
     "tgt_emb.embeddings.weight": "model.language_model.embed_tokens.weight",
     "decoder.layer_norm.weight": "model.language_model.norm.weight",
     "generator.weight": "lm_head.weight",
+    # Newer Qwen3.5 exports keep their MTP head in
+    # model_extra_tensors.safetensors rather than appending it to decoder layers.
+    "mtp_heads.0.proj.weight": "mtp.fc.weight",
+    "mtp_heads.0.enorm.weight": "mtp.pre_fc_norm_hidden.weight",
+    "mtp_heads.0.emb_norm.weight": "mtp.pre_fc_norm_embedding.weight",
+    "mtp_heads.0.norm.weight": "mtp.norm.weight",
     # Vision encoder (same structure as Qwen3VL)
     "encoder_layer_prefix": "model.visual.blocks.",
     "encoder.patch_conv.weight": "model.visual.patch_embed.proj.weight",
@@ -1122,12 +1259,20 @@ MODEL_OVERRIDES["Qwen3_5ForConditionalGeneration"] = {
         ".linear_attn.norm.": ".linear_attn.norm.",
         ".linear_attn.out_proj.": ".linear_attn.out_proj.",
     },
+    "mtp": _QWEN35_DENSE_MTP_KEYS,
+    # MTP layers live at model.language_model.layers.{num_hidden_layers + k}
+    "mtp_layer_prefix": "model.language_model.layers.",
+    "mtp_layer_start": None,
     "config_from_hf": _qwen35_vl_config_from_hf,
 }
 
 
 def _qwen35_moe_vl_config_from_hf(top, text, vis):
     """Config for Qwen3_5MoeForConditionalGeneration."""
+    num_mtp_heads = text.get(
+        "mtp_num_hidden_layers",
+        top.get("mtp_num_hidden_layers", text.get("num_nextn_predict_layers", top.get("num_nextn_predict_layers", 0))),
+    )
     decoder = {
         "query_norm": True,
         "key_norm": True,
@@ -1136,6 +1281,9 @@ def _qwen35_moe_vl_config_from_hf(top, text, vis):
         "moe_renormalize": True,
     }
     decoder.update(_qwen35_decoder_fields(text))
+    if num_mtp_heads:
+        decoder["num_mtp_heads"] = num_mtp_heads
+        decoder["mtp_lambda"] = 0.1
     cfg = {
         "adapter": "qwen3_5vl",
         "decoder": decoder,
@@ -1157,6 +1305,52 @@ def _qwen35_moe_vl_config_from_hf(top, text, vis):
         cfg["moe_transformer_ff"] = moe_ff
         cfg["decoder"]["moe_transformer_ff"] = moe_ff
     return recursive_update_dict(cfg, _qwen3vl_encoder_patch(top, vis), {})
+
+
+# Qwen3.5 MoE MTP head key map.
+# The MTP layer (model.layers.{N+k}) contains the same enorm+hnorm+eh_proj fusion
+# as DeepSeek-V3, then a full Qwen3.5-MoE-style decoder layer (GQA + QK-norm + MoE).
+# Expert weights in Qwen3.5 MoE are stored as stacked tensors:
+#   mlp.experts.gate_up_proj  shape [num_experts, 2*moe_ff, hidden]
+#   mlp.experts.down_proj     shape [num_experts, hidden, moe_ff]
+# Note: Qwen3.8-2.4T-A95B has 512 experts; we generate entries for up to 512.
+_QWEN35MOE_MTP_KEYS = {
+    ".enorm.": ".hnorm.",
+    ".proj.": (".eh_proj.", "[:, :hidden_size]"),
+    ".layer.self_attn.linear_query.": ".self_attn.q_proj.",
+    ".layer.self_attn.linear_keys.": ".self_attn.k_proj.",
+    ".layer.self_attn.linear_values.": ".self_attn.v_proj.",
+    ".layer.self_attn.final_linear.": ".self_attn.o_proj.",
+    ".layer.self_attn.q_norm.": ".self_attn.q_norm.",
+    ".layer.self_attn.k_norm.": ".self_attn.k_norm.",
+    ".layer.mlp.gate.weight": ".mlp.gate.weight",
+    # Stacked expert tensors (same slicing as Qwen3_5MoeForConditionalGeneration decoder)
+    **{
+        f".layer.mlp.experts.{j}.gate_up_proj.weight": (
+            ".mlp.experts.gate_up_proj",
+            f"[{j}, :moe_transformer_ff, :]",
+        )
+        for j in range(512)
+    },
+    **{
+        f".layer.mlp.experts.{j}.up_proj.weight": (
+            ".mlp.experts.gate_up_proj",
+            f"[{j}, moe_transformer_ff:, :]",
+        )
+        for j in range(512)
+    },
+    **{f".layer.mlp.experts.{j}.down_proj.weight": (".mlp.experts.down_proj", f"[{j}]") for j in range(512)},
+    # Per-expert fallback (AutoRound / quantised checkpoints stored separately)
+    **{f".layer.mlp.experts.{j}.gate_up_proj.": f".mlp.experts.{j}.gate_proj." for j in range(512)},
+    **{f".layer.mlp.experts.{j}.up_proj.": f".mlp.experts.{j}.up_proj." for j in range(512)},
+    **{f".layer.mlp.experts.{j}.down_proj.": f".mlp.experts.{j}.down_proj." for j in range(512)},
+    ".layer.mlp.shared_experts.gate_up_proj.": ".mlp.shared_expert.gate_proj.",
+    ".layer.mlp.shared_experts.up_proj.": ".mlp.shared_expert.up_proj.",
+    ".layer.mlp.shared_experts.down_proj.": ".mlp.shared_expert.down_proj.",
+    ".layer.mlp.shared_expert_gate.weight": ".mlp.shared_expert_gate.weight",
+    ".layer.input_layernorm.": ".input_layernorm.",
+    ".layer.post_attention_layernorm.": ".post_attention_layernorm.",
+}
 
 
 MODEL_OVERRIDES["Qwen3_5MoeForConditionalGeneration"] = {
@@ -1229,6 +1423,10 @@ MODEL_OVERRIDES["Qwen3_5MoeForConditionalGeneration"] = {
         ".mlp.shared_experts.down_proj.": ".mlp.shared_expert.down_proj.",
         ".mlp.shared_expert_gate.weight": ".mlp.shared_expert_gate.weight",
     },
+    "mtp": _QWEN35MOE_MTP_KEYS,
+    # MTP layers live at model.language_model.layers.{num_hidden_layers + k}
+    "mtp_layer_prefix": "model.language_model.layers.",
+    "mtp_layer_start": None,
     "config_from_hf": _qwen35_moe_vl_config_from_hf,
 }
 
@@ -1239,10 +1437,37 @@ MODEL_OVERRIDES["Qwen3_5TextForCausalLM"] = {
     },
 }
 
+
+def _qwen35moe_config_from_hf(top, text, vis):
+    """Config for Qwen3_5MoeForCausalLM (text-only), including optional MTP heads.
+
+    Qwen3.8-2.4T-A95B uses ``mtp_num_hidden_layers`` (not ``num_nextn_predict_layers``)
+    to declare the number of MTP heads.  We read both keys for forward compatibility.
+    """
+    num_mtp_heads = text.get(
+        "mtp_num_hidden_layers",
+        top.get("mtp_num_hidden_layers", text.get("num_nextn_predict_layers", top.get("num_nextn_predict_layers", 0))),
+    )
+    cfg = {
+        "decoder": {
+            "query_norm": True,
+            "key_norm": True,
+            "q_gating": True,
+            **_qwen35_decoder_fields(text),
+        }
+    }
+    if num_mtp_heads:
+        cfg["decoder"]["num_mtp_heads"] = num_mtp_heads
+        cfg["decoder"]["mtp_lambda"] = 0.1
+    return cfg
+
+
 MODEL_OVERRIDES["Qwen3_5MoeForCausalLM"] = {
-    "config_from_hf": lambda top, text, vis: {
-        "decoder": {"query_norm": True, "key_norm": True, "q_gating": True, **_qwen35_decoder_fields(text)}
-    },
+    "mtp": _QWEN35MOE_MTP_KEYS,
+    # MTP layers live at model.layers.{num_hidden_layers + k}
+    "mtp_layer_prefix": "model.layers.",
+    "mtp_layer_start": None,
+    "config_from_hf": _qwen35moe_config_from_hf,
 }
 
 # Qwen3 VL (text-only Qwen3VL variant without Mamba layers)

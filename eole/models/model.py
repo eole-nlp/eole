@@ -32,6 +32,8 @@ from eole.models.model_saver import get_metadata, TP_COL_PARALLEL_LAYERS, TP_ROW
 from eole.modules.estimator import FeedForward
 from eole.modules.representation import LayerwiseAttention, RepresentationExtractor
 
+from eole.modules.mtp import MTPHead
+
 from eole.encoders.vision import VisionEncoder
 from eole.encoders.audio import AudioEncoder
 
@@ -51,6 +53,8 @@ class ModelOutput:
             state(s) (tensor, or tuple thereof for RNNs) for encoder-only
             models, or None.
         estim: Estimator output (scalar per sample), or None if estimator is disabled.
+        mtp_outputs: List of MTP head outputs ``(batch, seq_len, hidden)`` for each
+            auxiliary head, or None when MTP is disabled / during inference.
     """
 
     dec_out: torch.Tensor
@@ -59,6 +63,7 @@ class ModelOutput:
     # tensors for RNN encoders (h_n, c_n), or None (some encoder-only models).
     attns: Optional[Union[Dict[str, Any], torch.Tensor, tuple]] = None
     estim: Optional[torch.Tensor] = None
+    mtp_outputs: Optional[list] = None
 
     def __iter__(self):
         """Allow tuple unpacking: ``dec_out, attns, estim = model(...)``."""
@@ -224,6 +229,8 @@ class BaseModel(nn.Module):
         if running_config.freeze_decoder:
             self.decoder.requires_grad_(False)
             self.generator.requires_grad_(False)
+            if getattr(self, "mtp_heads", None) is not None:
+                self.mtp_heads.requires_grad_(False)
 
     def _initialize_weights_and_embeddings(self, running_config):
         """Initialize model weights and load pretrained embeddings."""
@@ -396,11 +403,16 @@ class BaseModel(nn.Module):
         if hasattr(running_config, "quant_layers") and len(nonlora_to_quant) > 0:
             # For models with a vision encoder, only quantize the decoder.
             # Vision encoder weights are full-precision and must not be replaced.
-            quant_target = (
-                self.decoder
-                if (hasattr(self, "encoder") and self.encoder is not None and isinstance(self.encoder, VisionEncoder))
-                else self
+            is_vision_model = (
+                hasattr(self, "encoder") and self.encoder is not None and isinstance(self.encoder, VisionEncoder)
             )
+            # Do not recurse through a vision encoder: its full-precision
+            # projection names overlap with decoder names.  MTP heads belong to
+            # the text model, however, and must receive the same replacements
+            # as the decoder when their checkpoint stores qweight/qzeros/scales.
+            quant_targets = [self.decoder] if is_vision_model else [self]
+            if is_vision_model and hasattr(self, "mtp_heads"):
+                quant_targets.extend(self.mtp_heads)
             if running_config.quant_type in ["bnb_8bit", "bnb_FP4", "bnb_NF4"]:
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
@@ -408,11 +420,12 @@ class BaseModel(nn.Module):
                 except ImportError:
                     raise ImportError("Install bitsandbytes to use 4/8bit compression")
                 # try to do this inplace, not sure it'll work
-                replace_bnb_linear(
-                    quant_target,
-                    module_to_convert=nonlora_to_quant,
-                    q_type=running_config.quant_type,
-                )
+                for quant_target in quant_targets:
+                    replace_bnb_linear(
+                        quant_target,
+                        module_to_convert=nonlora_to_quant,
+                        q_type=running_config.quant_type,
+                    )
             elif running_config.quant_type in ["awq_gemm", "awq_gemv"]:
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
@@ -420,38 +433,41 @@ class BaseModel(nn.Module):
                 except ImportError:
                     raise ImportError("Install AutoAWQ to use awq quantized model")
                 # try to do this inplace, not sure it'll work
-                replace_awq_linear(
-                    quant_target,
-                    module_to_convert=nonlora_to_quant,
-                    w_bit=running_config.w_bit,
-                    group_size=running_config.group_size,
-                    q_type=running_config.quant_type,
-                )
+                for quant_target in quant_targets:
+                    replace_awq_linear(
+                        quant_target,
+                        module_to_convert=nonlora_to_quant,
+                        w_bit=running_config.w_bit,
+                        group_size=running_config.group_size,
+                        q_type=running_config.quant_type,
+                    )
             elif running_config.quant_type == "autoround":
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
                     from eole.modules.autoround_linear import replace_autoround_linear
                 except ImportError:
                     raise ImportError("Install auto-round to use autoround quantized model")
-                replace_autoround_linear(
-                    quant_target,
-                    module_to_convert=nonlora_to_quant,
-                    w_bit=running_config.w_bit,
-                    group_size=running_config.group_size,
-                    packing_format=getattr(running_config, "autoround_packing_format", "auto_round:auto_gptq"),
-                    sym=getattr(running_config, "autoround_sym", True),
-                    module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
-                )
+                for quant_target in quant_targets:
+                    replace_autoround_linear(
+                        quant_target,
+                        module_to_convert=nonlora_to_quant,
+                        w_bit=running_config.w_bit,
+                        group_size=running_config.group_size,
+                        packing_format=getattr(running_config, "autoround_packing_format", "auto_round:auto_gptq"),
+                        sym=getattr(running_config, "autoround_sym", True),
+                        module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
+                    )
             elif running_config.quant_type == "gguf":
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
                     from eole.modules.gguf_linear import replace_gguf_linear
                 except ImportError:
                     raise ImportError("Install gguf to use GGUF quantized models: pip install gguf")
-                replace_gguf_linear(
-                    quant_target,
-                    module_to_convert=nonlora_to_quant,
-                )
+                for quant_target in quant_targets:
+                    replace_gguf_linear(
+                        quant_target,
+                        module_to_convert=nonlora_to_quant,
+                    )
             else:
                 logger.info("compression type %s not supported." % running_config.quant_type)
 
@@ -1222,16 +1238,31 @@ class DecoderModel(BaseModel):
             raise ValueError("DecoderModel requires a Decoder")
         if self.add_estimator:
             self.estimator = FeedForward(self.hidden_size)
+        # MTP heads are stored as a ModuleList (empty when disabled)
+        mtp_heads = kwargs.get("mtp_heads", None)
+        if mtp_heads is not None:
+            self.mtp_heads = mtp_heads
+        else:
+            self.mtp_heads = nn.ModuleList()
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
         tgt_emb = build_tgt_emb(model_config, vocabs, running_config=running_config)
         decoder = build_decoder(model_config, running_config=running_config)
+        # Build MTP heads when configured. MTP heads are only used during
+        # training (see forward()), so skip building them for inference to
+        # avoid needlessly allocating extra parameters (and potential OOM).
+        num_mtp_heads = getattr(model_config.decoder, "num_mtp_heads", 0)
+        mtp_heads = nn.ModuleList()
+        if num_mtp_heads > 0 and not isinstance(running_config, InferenceConfig):
+            for _ in range(num_mtp_heads):
+                mtp_heads.append(MTPHead(model_config.decoder, running_config=running_config))
         return cls(
             decoder=decoder,
             tgt_emb=tgt_emb,
             add_estimator=model_config.add_estimator,
             hidden_size=model_config.decoder.hidden_size,
+            mtp_heads=mtp_heads,
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
@@ -1261,11 +1292,66 @@ class DecoderModel(BaseModel):
         else:
             estim = None
 
-        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim)
+        # MTP auxiliary heads — only active during training
+        mtp_outputs = None
+        if self.training and len(self.mtp_heads) > 0:
+            mtp_outputs = []
+            # seq_len is the length of the decoded sequence (tgt_len - 1 for LM)
+            seq_len = dec_out.size(1)
+            # Detach: auxiliary gradients must not flow into the main decoder
+            h_detached = dec_out.detach()
+            # Pre-compute RoPE position table once (shared across heads)
+            _rope = getattr(self.decoder, "rope", None)
+            for k, head in enumerate(self.mtp_heads, start=1):
+                # Target embeddings shifted by k positions relative to the
+                # input: embed tgt tokens at positions [k : k + seq_len].
+                src_len_dim = src.size(1)
+                start = k
+                end = min(k + seq_len, src_len_dim)
+                actual_len = end - start
+                if actual_len <= 0:
+                    break
+                tgt_emb_k = self.tgt_emb.embeddings(src[:, start:end])  # (B, actual_len, H)
+
+                # Build causal + padding mask: (B, 1, actual_len, actual_len)
+                # True = attend, False = masked.  Key-dimension padding mask
+                # prevents attending to pad positions; causal mask prevents
+                # attending to future positions.  A key position is padding
+                # if either the hidden state it carries (h_detached, sourced
+                # from src[:, :actual_len]) or the shifted embedding combined
+                # with it (src[:, start:end]) came from a pad token, so union
+                # both padding masks (relevant for left-padded batches).
+                hs_pad_m = src[:, :actual_len].eq(self.pad_idx)  # (B, actual_len)
+                emb_pad_m = src[:, start:end].eq(self.pad_idx)  # (B, actual_len)
+                pad_m = hs_pad_m | emb_pad_m
+                causal = torch.tril(
+                    torch.ones(actual_len, actual_len, dtype=torch.bool, device=src.device)
+                )  # (actual_len, actual_len)
+                # (1,1,L,L) & ~(B,1,1,L) → (B,1,L,L): attend where causal & not padding key
+                mtp_attn_mask = causal[None, None] & ~pad_m[:, None, None, :]
+
+                # RoPE position embeddings for sequence positions [0, actual_len)
+                if _rope is not None and _rope.cos_sin is not None:
+                    pos_ids = torch.arange(actual_len, device=src.device)
+                    mtp_pos_emb = _rope.cos_sin[pos_ids]  # (actual_len, head_dim)
+                else:
+                    mtp_pos_emb = None
+
+                mtp_out = head(
+                    h_detached[:, :actual_len],
+                    tgt_emb_k,
+                    attn_mask=mtp_attn_mask,
+                    position_embeddings=mtp_pos_emb,
+                )
+                mtp_outputs.append(mtp_out)
+
+        return ModelOutput(dec_out=dec_out, attns=attns, estim=estim, mtp_outputs=mtp_outputs)
 
     def update_dropout(self, dropout, attention_dropout):
         self.decoder.update_dropout(dropout, attention_dropout)
         self.tgt_emb.update_dropout(dropout)
+        for head in self.mtp_heads:
+            head.update_dropout(dropout, attention_dropout)
 
 
 class EncoderModel(BaseModel):
@@ -1788,6 +1874,19 @@ class VisionEncoderDecoderModel(BaseModel):
             self.view_separator = nn.Parameter(torch.randn(self.hidden_size) * embed_std)
         if self.add_estimator:
             self.estimator = FeedForward(self.hidden_size)
+        # Keep MTP heads on vision-language models as well.  Qwen3.5 VL stores
+        # these weights in its companion safetensors checkpoint, but the
+        # VLM forward pass below does not (yet) implement the corresponding
+        # MTP loss path, so these heads are never trained/used here.
+        mtp_heads = kwargs.get("mtp_heads", None)
+        self.mtp_heads = mtp_heads if mtp_heads is not None else nn.ModuleList()
+        if len(self.mtp_heads) > 0:
+            logger.warning(
+                "num_mtp_heads > 0 is set for this vision-language model, but MTP "
+                "auxiliary loss is not implemented for VisionEncoderDecoderModel. "
+                "The MTP heads are built/loaded for checkpoint compatibility only "
+                "and will not receive gradient updates during training."
+            )
 
     @classmethod
     def build_blocks(cls, model_config, vocabs, running_config=None):
@@ -1800,6 +1899,10 @@ class VisionEncoderDecoderModel(BaseModel):
             share_embeddings=model_config.share_embeddings,
         )
         decoder = build_decoder(model_config, running_config=running_config)
+        num_mtp_heads = getattr(model_config.decoder, "num_mtp_heads", 0)
+        mtp_heads = nn.ModuleList(
+            [MTPHead(model_config.decoder, running_config=running_config) for _ in range(num_mtp_heads)]
+        )
         return cls(
             encoder=encoder,
             decoder=decoder,
@@ -1810,6 +1913,7 @@ class VisionEncoderDecoderModel(BaseModel):
             image_token_id=model_config.encoder.image_token_id,
             patch_size=model_config.encoder.patch_size,
             spatial_merge_size=model_config.spatial_merge_size,
+            mtp_heads=mtp_heads,
         )
         # from there, the base blocks exist, and the rest is done in the from_opt from base class
 
