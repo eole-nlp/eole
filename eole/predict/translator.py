@@ -246,6 +246,8 @@ class Translator(Inference):
             self._log(f"Warmup lasted: {time() - start_wu:.1f} sec")
 
         # (5) We start the Decoding loop
+        self._log_inference_backends()
+
         for step in range(decode_strategy.max_length):
             decoder_input = decode_strategy.current_predictions.view(-1, 1)
             log_probs, attn = self._decode_and_generate(

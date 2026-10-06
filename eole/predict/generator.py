@@ -211,7 +211,8 @@ class GeneratorLM(Inference):
         if self.self_speculative_decoding and not use_spec_decoding:
             self._log(
                 "self_speculative_decoding requires one sequence, one hypothesis, deterministic greedy selection, "
-                "no decode constraints, text-only inputs, no attention output, and a model with loaded MTP heads; using normal decoding"
+                "no decode constraints, text-only inputs, no attention output, "
+                "and a model with loaded MTP heads; using normal decoding"
             )
 
         # (4) warmup for Torch compile
@@ -235,16 +236,12 @@ class GeneratorLM(Inference):
                     # S=1 decode and leave every speculative verifier pass in
                     # eager mode.
                     qwen_recurrent_mtp = getattr(self.model.mtp_heads[0], "emb_norm", None) is not None
-                    draft_count = (
-                        self.self_speculative_num_tokens if qwen_recurrent_mtp else len(self.model.mtp_heads)
-                    )
+                    draft_count = self.self_speculative_num_tokens if qwen_recurrent_mtp else len(self.model.mtp_heads)
                     verify_len = min(draft_count + 1, self.max_length)
                     dummy_verify = torch.zeros(
                         emb.size(0), verify_len, self.model.decoder.hidden_size, device=emb.device, dtype=emb.dtype
                     )
-                    dummy_verify_mask = torch.zeros(
-                        emb.size(0), 1, verify_len, dtype=torch.bool, device=emb.device
-                    )
+                    dummy_verify_mask = torch.zeros(emb.size(0), 1, verify_len, dtype=torch.bool, device=emb.device)
                     linear_layers = [
                         module
                         for module in self.model.decoder.modules()
@@ -280,6 +277,8 @@ class GeneratorLM(Inference):
             self.warmup_time.append(time() - start_wu)
             self._log(f"Warmup lasted: {time() - start_wu:.1f} sec")
 
+        self._log_inference_backends(speculative=use_spec_decoding)
+
         # (5) Start the decoding loop with timers
         if not self.estim_only:
             # (5) Begin decoding step by step:
@@ -296,7 +295,16 @@ class GeneratorLM(Inference):
             self._speculative_accepted_by_position = [0] * self.self_speculative_num_tokens
             self._mtp_profile_enabled = use_spec_decoding and self.report_time and torch.cuda.is_available()
             self._mtp_profile_events = {
-                name: [] for name in ("draft", "mtp_head", "draft_vocab", "verify", "verify_decoder", "verify_vocab", "state_commit")
+                name: []
+                for name in (
+                    "draft",
+                    "mtp_head",
+                    "draft_vocab",
+                    "verify",
+                    "verify_decoder",
+                    "verify_vocab",
+                    "state_commit",
+                )
             }
             if use_spec_decoding:
                 # Keep the single batch row stable while a verification chunk
@@ -404,7 +412,8 @@ class GeneratorLM(Inference):
                         "MTP phase time (GPU ms): "
                         f"draft={phase_ms['draft']:.1f}, verify={phase_ms['verify']:.1f}, "
                         f"mtp_head={phase_ms['mtp_head']:.1f}, draft_vocab={phase_ms['draft_vocab']:.1f}, "
-                        f"verify_decoder={phase_ms['verify_decoder']:.1f}, verify_vocab={phase_ms['verify_vocab']:.1f}, "
+                        f"verify_decoder={phase_ms['verify_decoder']:.1f}, "
+                        f"verify_vocab={phase_ms['verify_vocab']:.1f}, "
                         f"state_commit={phase_ms['state_commit']:.1f}, "
                         f"cycles={len(self._mtp_profile_events['draft'])}"
                     )
@@ -625,8 +634,8 @@ class GeneratorLM(Inference):
                     break
 
         self.model.set_mtp_context(
-            verify_hidden[:, :last_advanced + 1, :],
-            predicted[:, :last_advanced + 1],
+            verify_hidden[:, : last_advanced + 1, :],
+            predicted[:, : last_advanced + 1],
             hidden_position + 1,
         )
 

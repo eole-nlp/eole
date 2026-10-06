@@ -162,6 +162,29 @@ class Inference(object):
         self.self_speculative_decoding = bool(getattr(config, "self_speculative_decoding", False))
         self.self_speculative_num_tokens = max(1, int(getattr(config, "self_speculative_num_tokens", 1)))
 
+    def _log_inference_backends(self, speculative=False):
+        from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
+        from eole.utils.inference_backends import inference_backend_summary
+
+        signature = (
+            id(self.model),
+            EOLE_TORCH_COMPILE,
+            EOLE_COMPILE_MODE,
+            speculative,
+            getattr(self, "self_speculative_num_tokens", 0),
+        )
+        if getattr(self, "_backend_log_signature", None) == signature:
+            return
+        for line in inference_backend_summary(
+            self.model,
+            EOLE_TORCH_COMPILE,
+            EOLE_COMPILE_MODE,
+            speculative,
+            getattr(self, "self_speculative_num_tokens", 0),
+        ):
+            self._log(line)
+        self._backend_log_signature = signature
+
     def _log(self, msg):
         if self.logger:
             self.logger.info(msg)

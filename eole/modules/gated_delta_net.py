@@ -50,8 +50,12 @@ except ImportError:
             # Keep it opaque to Dynamo while declaring the cache mutation,
             # so the surrounding decoder remains one compilable graph.
             out, _ = _fla_causal_conv1d_update(
-                x.squeeze(-1), conv_state, residual=None,
-                weight=weight, bias=bias, activation=activation,
+                x.squeeze(-1),
+                conv_state,
+                residual=None,
+                weight=weight,
+                bias=bias,
+                activation=activation,
             )
             return out.unsqueeze(-1)
 
@@ -128,7 +132,6 @@ def _torch_causal_conv1d_update(hidden_states, conv_state, weight, bias=None, ac
     else:
         out = out[:, :, -seq_len:]
     return out.to(hidden_states.dtype)
-
 
 
 def _torch_speculative_conv1d(conv_extended, weight, bias=None):
@@ -538,10 +541,12 @@ class GatedDeltaNet(nn.Module):
         # share shapes, so their replay can be batched as independent rows.
         query_shape = specs[0]["query"].shape[1:]
         can_batch = all(
-            all(spec[name].shape == specs[0][name].shape
+            all(
+                spec[name].shape == specs[0][name].shape
                 and spec[name].dtype == specs[0][name].dtype
                 and spec[name].device == specs[0][name].device
-                for name in ("query", "key", "value", "g", "beta"))
+                for name in ("query", "key", "value", "g", "beta")
+            )
             and spec["query"].shape[1:] == query_shape
             and layer.recurrent_state.shape == layers[0].recurrent_state.shape
             and layer.recurrent_state.device == layers[0].recurrent_state.device
@@ -559,8 +564,10 @@ class GatedDeltaNet(nn.Module):
             # only to split it into the original per-layer shapes again.
             torch._foreach_copy_(
                 [layer.conv_state for layer in layers],
-                [spec["conv_extended"][:, :, n_kept : n_kept + layer.conv_kernel_size]
-                 for layer, spec in zip(layers, specs)],
+                [
+                    spec["conv_extended"][:, :, n_kept : n_kept + layer.conv_kernel_size]
+                    for layer, spec in zip(layers, specs)
+                ],
             )
             torch._foreach_copy_(
                 [layer.recurrent_state for layer in layers],
@@ -573,20 +580,30 @@ class GatedDeltaNet(nn.Module):
             # view provides the current replay shape without new
             # large allocations on every rejection.
             owner = layers[0]
-            signature = tuple((name, tuple(specs[0][name].shape), specs[0][name].dtype,
-                               specs[0][name].device) for name in ("query", "key", "value", "g", "beta"))
-            signature += ((len(layers), tuple(owner.recurrent_state.shape),
-                           owner.recurrent_state.dtype, owner.recurrent_state.device),)
+            signature = tuple(
+                (name, tuple(specs[0][name].shape), specs[0][name].dtype, specs[0][name].device)
+                for name in ("query", "key", "value", "g", "beta")
+            )
+            signature += (
+                (
+                    len(layers),
+                    tuple(owner.recurrent_state.shape),
+                    owner.recurrent_state.dtype,
+                    owner.recurrent_state.device,
+                ),
+            )
             if getattr(owner, "_spec_replay_signature", None) != signature:
                 owner._spec_replay_buffers = {
-                    name: torch.empty((len(layers) * tensor.size(0), *tensor.shape[1:]),
-                                      dtype=tensor.dtype, device=tensor.device)
+                    name: torch.empty(
+                        (len(layers) * tensor.size(0), *tensor.shape[1:]), dtype=tensor.dtype, device=tensor.device
+                    )
                     for name, tensor in specs[0].items()
                     if name in ("query", "key", "value", "g", "beta")
                 }
                 owner._spec_replay_buffers["state"] = torch.empty(
                     (len(layers) * owner.recurrent_state.size(0), *owner.recurrent_state.shape[1:]),
-                    dtype=owner.recurrent_state.dtype, device=owner.recurrent_state.device,
+                    dtype=owner.recurrent_state.dtype,
+                    device=owner.recurrent_state.device,
                 )
                 owner._spec_replay_signature = signature
             packed = owner._spec_replay_buffers
@@ -596,14 +613,11 @@ class GatedDeltaNet(nn.Module):
                 rows = buffer.size(0)
                 # Preserve contiguous inputs for fused kernels that flatten
                 # batch and sequence without accepting arbitrary strides.
-                compact = buffer.view(-1, *buffer.shape[2:])[:rows * n_kept].view(
-                    rows, n_kept, *buffer.shape[2:]
-                )
+                compact = buffer.view(-1, *buffer.shape[2:])[: rows * n_kept].view(rows, n_kept, *buffer.shape[2:])
                 torch.cat([spec[name][:, :n_kept] for spec in specs], dim=0, out=compact)
                 replay_inputs[name] = compact
             torch.cat([layer.recurrent_state for layer in layers], dim=0, out=packed["state"])
-            query, key, value, g, beta = (replay_inputs[name]
-                                         for name in ("query", "key", "value", "g", "beta"))
+            query, key, value, g, beta = (replay_inputs[name] for name in ("query", "key", "value", "g", "beta"))
             initial_state = packed["state"]
             _, recurrent_states = layers[0]._recurrent_gated_delta_rule(
                 query,
@@ -670,9 +684,9 @@ class GatedDeltaNet(nn.Module):
             # valid convolution output belongs to the cache-only history.
             conv_extended = torch.cat([self.conv_state, mixed_qkv.to(self.conv_state.dtype)], dim=-1)
             if torch.compiler.is_compiling():
-                mixed_qkv = _torch_speculative_conv1d(
-                    conv_extended, self.conv1d.weight, self.conv1d.bias
-                ).to(hidden_states.dtype)
+                mixed_qkv = _torch_speculative_conv1d(conv_extended, self.conv1d.weight, self.conv1d.bias).to(
+                    hidden_states.dtype
+                )
             else:
                 conv_out = F.conv1d(
                     conv_extended,

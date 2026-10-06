@@ -1,4 +1,5 @@
 """Check graph integration without executing GPU-only FLA kernels."""
+
 import unittest
 from unittest.mock import patch
 

@@ -102,7 +102,6 @@ class TestGatedDeltaNetSpeculation(unittest.TestCase):
             torch.testing.assert_close(speculative.conv_state, sequential.conv_state, atol=1e-6, rtol=1e-6)
             torch.testing.assert_close(speculative.recurrent_state, sequential.recurrent_state, atol=1e-5, rtol=1e-5)
 
-
     def test_speculative_buffers_follow_state_dtype(self):
         layer = self._new_layer()
         self._init_state(layer)
@@ -183,7 +182,7 @@ class TestGatedDeltaNetSpeculation(unittest.TestCase):
             for layer, reference in zip(layers, references):
                 inputs = torch.randn(1, 3, layer.hidden_size)
                 for index in range(count):
-                    reference(inputs[:, index:index + 1])
+                    reference(inputs[:, index : index + 1])
                 layer.begin_speculation(3)
                 layer(inputs)
                 layer.end_speculation()

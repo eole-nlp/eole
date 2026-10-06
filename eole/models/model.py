@@ -1236,8 +1236,12 @@ class MTPDraftingMixin:
         capacity = max(prefix_len + max_new_tokens + 2, 1)
         old_cache = attention.kcache, attention.vcache, attention.cache_leftpad
         attention.kcache = torch.zeros(
-            batch_size, capacity, attention.heads_kv, attention.dim_per_head,
-            device=target_hidden.device, dtype=target_hidden.dtype,
+            batch_size,
+            capacity,
+            attention.heads_kv,
+            attention.dim_per_head,
+            device=target_hidden.device,
+            dtype=target_hidden.dtype,
         )
         attention.vcache = torch.zeros_like(attention.kcache)
         attention.cache_leftpad = torch.zeros(batch_size, device=target_hidden.device, dtype=torch.int32)
@@ -1254,12 +1258,12 @@ class MTPDraftingMixin:
         positions = torch.arange(prefix_len, device=device)
         pad_idx = getattr(self, "pad_idx", None)
         rope = getattr(self.decoder, "rope", None)
-        position_embeddings = (
-            rope.cos_sin[:prefix_len] if rope is not None and rope.cos_sin is not None else None
-        )
+        position_embeddings = rope.cos_sin[:prefix_len] if rope is not None and rope.cos_sin is not None else None
         cache_seqlens = torch.zeros(batch_size, device=device, dtype=torch.int32)
-        use_flash_cache = target_hidden.is_cuda and hasattr(attention, "flash_attn_with_kvcache") and (
-            pad_idx is None or not input_ids.eq(pad_idx).any()
+        use_flash_cache = (
+            target_hidden.is_cuda
+            and hasattr(attention, "flash_attn_with_kvcache")
+            and (pad_idx is None or not input_ids.eq(pad_idx).any())
         )
         mask = None
         if not use_flash_cache:
@@ -1267,7 +1271,9 @@ class MTPDraftingMixin:
             mask = (key_positions[None, :] <= positions[:, None])[None, None]
             if pad_idx is not None:
                 key_valid = torch.ones(batch_size, capacity, dtype=torch.bool, device=device)
-                key_valid[:, :prefix_len] = input_ids[:, 1 : prefix_len + 1].ne(pad_idx) & input_ids[:, :prefix_len].ne(pad_idx)
+                key_valid[:, :prefix_len] = input_ids[:, 1 : prefix_len + 1].ne(pad_idx) & input_ids[:, :prefix_len].ne(
+                    pad_idx
+                )
                 mask = mask & key_valid[:, None, None, :]
         cache_kwargs = (
             {"cache_seqlens": cache_seqlens}
@@ -1399,9 +1405,7 @@ class MTPDraftingMixin:
                     token_embedding,
                     attn_mask=attn_mask,
                     position_embeddings=position_embeddings,
-                    cache_seqlens=torch.full(
-                        (hidden.size(0),), cache_index, device=hidden.device, dtype=torch.int32
-                    ),
+                    cache_seqlens=torch.full((hidden.size(0),), cache_index, device=hidden.device, dtype=torch.int32),
                     **(
                         {}
                         if use_flash_cache

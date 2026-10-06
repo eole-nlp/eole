@@ -69,9 +69,7 @@ class TestMTPHead(unittest.TestCase):
         head.layer = IdentityLayer()
         hidden = torch.randn(2, 3, hidden_size)
         embedding = torch.randn(2, 3, hidden_size)
-        expected = head.norm(
-            head.proj(torch.cat([head.emb_norm(embedding), head.enorm(hidden)], dim=-1))
-        )
+        expected = head.norm(head.proj(torch.cat([head.emb_norm(embedding), head.enorm(hidden)], dim=-1)))
         actual = head(hidden, embedding)
         torch.testing.assert_close(actual, expected)
 
@@ -400,7 +398,7 @@ class TestDecoderModelMTP(unittest.TestCase):
                 first_position = prefix_hidden.size(1)
                 fresh_hidden = torch.randn(1, accepted_inputs, 16)
                 correction = torch.randint(2, len(vocab), (1, 1))
-                fresh_tokens = torch.cat(cached_drafts[:accepted_inputs - 1] + [correction], dim=1)
+                fresh_tokens = torch.cat(cached_drafts[: accepted_inputs - 1] + [correction], dim=1)
                 model.set_mtp_context(fresh_hidden, fresh_tokens, first_position)
         model.clear_mtp_cache()
         self.assertIsNone(model._mtp_refresh)
