@@ -38,7 +38,30 @@ except ImportError:
             out, _ = _fla_causal_conv1d(x.transpose(1, 2), weight=weight, bias=bias, activation=activation)
             return out.transpose(1, 2)  # back to [B, D, L]
 
+        @torch.library.custom_op("eole::_fla_causal_conv1d_update", mutates_args={"conv_state"})
+        def _compiled_fla_causal_conv1d_update(
+            x: torch.Tensor,
+            conv_state: torch.Tensor,
+            weight: torch.Tensor,
+            bias: torch.Tensor | None = None,
+            activation: str | None = None,
+        ) -> torch.Tensor:
+            # FLA 0.5.2 dispatch marks this entry point compiler.disable.
+            # Keep it opaque to Dynamo while declaring the cache mutation,
+            # so the surrounding decoder remains one compilable graph.
+            out, _ = _fla_causal_conv1d_update(
+                x.squeeze(-1), conv_state, residual=None,
+                weight=weight, bias=bias, activation=activation,
+            )
+            return out.unsqueeze(-1)
+
+        @_compiled_fla_causal_conv1d_update.register_fake
+        def _fake_fla_causal_conv1d_update(x, conv_state, weight, bias=None, activation=None):
+            return torch.empty_like(x, memory_format=torch.contiguous_format)
+
         def causal_conv1d_update(x, conv_state, weight, bias=None, activation=None):
+            if torch.compiler.is_compiling():
+                return _compiled_fla_causal_conv1d_update(x, conv_state, weight, bias, activation)
             # x: [B, D, 1] channel-first → FLA expects [B, D] (2-D)
             # FLA signature: (x, cache, residual=None, weight=None, bias=None, activation=None)
             out, _ = _fla_causal_conv1d_update(
@@ -259,7 +282,35 @@ def _torch_recurrent_gated_delta_rule(
 # pure-PyTorch implementation that is behaviourally identical.
 
 try:
-    from fla.modules.fused_norm_gate import FusedRMSNormGated as RMSNormGated
+    from fla.modules.fused_norm_gate import FusedRMSNormGated as _FLARMSNormGated
+    from fla.modules.fused_norm_gate import rms_norm_gated as _fla_rms_norm_gated
+
+    @torch.library.custom_op("eole::_fla_rms_norm_gated", mutates_args=())
+    def _compiled_fla_rms_norm_gated(
+        x: torch.Tensor,
+        gate: torch.Tensor,
+        weight: torch.Tensor | None,
+        bias: torch.Tensor | None,
+        eps: float,
+        activation: str,
+    ) -> torch.Tensor:
+        # FLA 0.5.2 dispatches to a compiler-disabled forward kernel inside
+        # its autograd Function. The inference graph only needs its output.
+        return _fla_rms_norm_gated(x, gate, weight, bias, activation, eps=eps)
+
+    @_compiled_fla_rms_norm_gated.register_fake
+    def _fake_fla_rms_norm_gated(x, gate, weight, bias, eps, activation):
+        return torch.empty_like(x, memory_format=torch.contiguous_format)
+
+    class RMSNormGated(_FLARMSNormGated):
+        """FLA norm with a fullgraph-compatible inference boundary."""
+
+        _fla_backend = True
+
+        def forward(self, x, g, residual=None, prenorm=False, residual_in_fp32=False):
+            if torch.compiler.is_compiling() and not torch.is_grad_enabled() and residual is None and not prenorm:
+                return _compiled_fla_rms_norm_gated(x, g, self.weight, self.bias, self.eps, self.activation)
+            return super().forward(x, g, residual=residual, prenorm=prenorm, residual_in_fp32=residual_in_fp32)
 
     _fla_rmsnorm_gated = True
 except ImportError:
