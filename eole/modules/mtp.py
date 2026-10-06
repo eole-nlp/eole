@@ -9,6 +9,7 @@ gradients do not back-propagate into the core decoder.
 Reference: https://arxiv.org/abs/2412.19437
 """
 
+import torch
 import torch.nn as nn
 
 from eole.constants import LayerNorm
@@ -18,14 +19,12 @@ from eole.decoders.transformer import TransformerDecoderLayer
 class MTPHead(nn.Module):
     """Single Multi-Token Prediction auxiliary head.
 
-    Architecture (per DeepSeek-V3):
-    1. Project the detached main hidden state: ``h' = enorm(linear(h.detach()))``
-    2. Add the embedding of the shifted target token:
-       ``combined = h' + emb(tgt[:, k-1:-1])``
-    3. Run a single :class:`~eole.decoders.transformer.TransformerDecoderLayer`.
-    4. Apply a final layer norm.
-    5. The output is fed to the *shared* generator (lm_head) in the loss
-       computation — no separate projection needed here.
+    Qwen3.5 normalizes the hidden and token-embedding streams, concatenates
+    ``[embedding, hidden]``, and applies a fused projection. DeepSeek-style
+    heads retain their additive hidden-projection and embedding formulation.
+    Both variants then run one
+    :class:`~eole.decoders.transformer.TransformerDecoderLayer` and a final
+    layer norm. The result is projected by the shared generator (lm_head).
 
     Args:
         decoder_config: :class:`~eole.config.models.TransformerDecoderConfig`
@@ -38,8 +37,10 @@ class MTPHead(nn.Module):
         super().__init__()
         hidden_size = decoder_config.hidden_size
 
-        # Linear projection applied to the (detached) main hidden states.
-        self.proj = nn.Linear(hidden_size, hidden_size, bias=False)
+        # Qwen3.5 projects the concatenation of the two normalized input
+        # streams. The other MTP family uses a hidden-only projection.
+        projection_size = hidden_size * (2 if decoder_config.mtp_emb_norm else 1)
+        self.proj = nn.Linear(projection_size, hidden_size, bias=False)
 
         # Embedding normalisation before combining with target embeddings.
         self.enorm = LayerNorm[decoder_config.layer_norm](hidden_size, eps=decoder_config.norm_eps)
@@ -80,11 +81,13 @@ class MTPHead(nn.Module):
             Tensor: MTP head output ``(batch, seq_len, hidden_size)``, ready
             to be projected through the shared ``generator`` (lm_head).
         """
-        # 1. Project main hidden states.
-        h = self.enorm(self.proj(hidden_states))
-
-        # 2. Combine with shifted target embeddings.
-        combined = h + (self.emb_norm(tgt_emb_k) if self.emb_norm is not None else tgt_emb_k)
+        # Qwen3.5 MTP normalizes each stream, concatenates [embedding,
+        # hidden], then applies the checkpoint's full 2H -> H projection.
+        if self.emb_norm is not None:
+            combined = self.proj(torch.cat([self.emb_norm(tgt_emb_k), self.enorm(hidden_states)], dim=-1))
+        else:
+            # DeepSeek-style MTP uses a projected hidden stream plus embedding.
+            combined = self.enorm(self.proj(hidden_states)) + tgt_emb_k
 
         # 3. Transformer layer (no cross-attention).
         layer_out, _ = self.layer(combined, attn_mask=attn_mask, **kwargs)
