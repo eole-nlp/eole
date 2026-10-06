@@ -107,6 +107,22 @@ def _torch_causal_conv1d_update(hidden_states, conv_state, weight, bias=None, ac
     return out.to(hidden_states.dtype)
 
 
+
+def _torch_speculative_conv1d(conv_extended, weight, bias=None):
+    """Short causal stencil, suitable for fusion by the verifier compiler.
+
+    The first window consists only of cached history, so skip it. Accumulate
+    in float32 like the low-precision convolution, then round before SiLU.
+    This avoids dispatching a general grouped convolution for a few tokens.
+    """
+    kernel = weight.size(-1)
+    windows = conv_extended.unfold(-1, kernel, 1)[:, :, 1:, :]
+    output = (windows.float() * weight[:, 0, :].float()[None, :, None, :]).sum(dim=-1)
+    if bias is not None:
+        output = output + bias.float()[None, :, None]
+    return F.silu(output.to(conv_extended.dtype))
+
+
 def _l2norm(x, dim=-1, eps=1e-6):
     return x * torch.rsqrt((x * x).sum(dim=dim, keepdim=True) + eps)
 
@@ -368,6 +384,206 @@ class GatedDeltaNet(nn.Module):
         # Inference state (set by TransformerDecoder._init_cache / _disable_cache)
         self.conv_state = None
         self.recurrent_state = None
+        # Transaction used by speculative verification. The persistent state is
+        # left untouched until the accepted input prefix is known.
+        self._speculating = False
+        self._spec_buffers = None
+
+    def begin_speculation(self, seq_len):
+        if self.conv_state is None or self.recurrent_state is None:
+            raise RuntimeError("GatedDeltaNet speculation requires initialized decode state")
+        batch_size = self.recurrent_state.size(0)
+        device = self.recurrent_state.device
+        state_dtype = self.recurrent_state.dtype
+        if (
+            self._spec_buffers is None
+            or self._spec_buffers["query"].shape[:2] != (batch_size, seq_len)
+            or self._spec_buffers["query"].dtype != state_dtype
+            or self._spec_buffers["query"].device != device
+            or self._spec_buffers["conv_extended"].dtype != self.conv_state.dtype
+            or self._spec_buffers["conv_extended"].device != self.conv_state.device
+        ):
+            self._spec_buffers = {
+                "query": torch.empty(
+                    batch_size, seq_len, self.num_v_heads, self.head_k_dim, dtype=state_dtype, device=device
+                ),
+                "key": torch.empty(
+                    batch_size, seq_len, self.num_v_heads, self.head_k_dim, dtype=state_dtype, device=device
+                ),
+                "value": torch.empty(
+                    batch_size, seq_len, self.num_v_heads, self.head_v_dim, dtype=state_dtype, device=device
+                ),
+                "g": torch.empty(batch_size, seq_len, self.num_v_heads, dtype=torch.float32, device=device),
+                "beta": torch.empty(batch_size, seq_len, self.num_v_heads, dtype=state_dtype, device=device),
+                "conv_extended": torch.empty(
+                    batch_size,
+                    self.conv_dim,
+                    self.conv_kernel_size + seq_len,
+                    dtype=self.conv_state.dtype,
+                    device=self.conv_state.device,
+                ),
+                "final_recurrent_state": torch.empty_like(self.recurrent_state),
+            }
+        self._speculating = True
+
+    def end_speculation(self):
+        self._speculating = False
+
+    def discard_speculation(self):
+        self._speculating = False
+
+    def commit_speculation(self, n_kept):
+        """Commit the first n inputs consumed by the last speculative pass."""
+        spec = self._spec_buffers
+        if spec is None:
+            raise RuntimeError("GatedDeltaNet has no speculative buffers to commit")
+        seq_len = spec["query"].size(1)
+        if not 1 <= n_kept <= seq_len:
+            raise ValueError(f"n_kept must be in [1, {seq_len}], got {n_kept}")
+
+        if n_kept == seq_len:
+            recurrent_state = spec["final_recurrent_state"]
+        else:
+            # Re-run only this linear-attention layer's short accepted prefix
+            # through the fused recurrent kernel. This avoids another full
+            # decoder pass and avoids materializing a recurrent-state snapshot
+            # for every speculative token.
+            _, recurrent_state = self._recurrent_gated_delta_rule(
+                spec["query"][:, :n_kept],
+                spec["key"][:, :n_kept],
+                spec["value"][:, :n_kept],
+                spec["g"][:, :n_kept],
+                spec["beta"][:, :n_kept],
+                initial_state=self.recurrent_state,
+                output_final_state=True,
+                use_qk_l2norm_in_kernel=True,
+            )
+
+        kernel = self.conv_kernel_size
+        self.conv_state.copy_(spec["conv_extended"][:, :, n_kept : n_kept + kernel])
+        self.recurrent_state.copy_(recurrent_state.to(self.recurrent_state.dtype))
+
+    @staticmethod
+    @torch.no_grad()
+    def commit_speculation_group(layers, n_kept):
+        """Commit a verified prefix for several GDN layers with one replay.
+
+        Partial acceptance needs the recurrent state at an intermediate token
+        boundary. The FLA recurrent operator returns only the final state, so
+        replay that short accepted prefix. Running one operator per layer
+        caused a long chain of tiny launches for hybrid models; concatenate
+        same-shaped layer states along the batch dimension and replay them in
+        one call instead.
+        """
+        if not layers:
+            return
+
+        specs = [layer._spec_buffers for layer in layers]
+        seq_len = specs[0]["query"].size(1)
+        if not 1 <= n_kept <= seq_len:
+            raise ValueError(f"n_kept must be in [1, {seq_len}], got {n_kept}")
+
+        # Fall back for uncommon heterogeneous GDN layouts. Qwen3.5 layers
+        # share shapes, so their replay can be batched as independent rows.
+        query_shape = specs[0]["query"].shape[1:]
+        can_batch = all(
+            all(spec[name].shape == specs[0][name].shape
+                and spec[name].dtype == specs[0][name].dtype
+                and spec[name].device == specs[0][name].device
+                for name in ("query", "key", "value", "g", "beta"))
+            and spec["query"].shape[1:] == query_shape
+            and layer.recurrent_state.shape == layers[0].recurrent_state.shape
+            and layer.recurrent_state.device == layers[0].recurrent_state.device
+            and layer.recurrent_state.dtype == layers[0].recurrent_state.dtype
+            for layer, spec in zip(layers, specs)
+        )
+        if not can_batch:
+            for layer in layers:
+                layer.commit_speculation(n_kept)
+            return
+
+        if n_kept == seq_len:
+            # The verifier already computed these states in the persistent
+            # dtype. Copy them directly instead of packing a large temporary
+            # only to split it into the original per-layer shapes again.
+            torch._foreach_copy_(
+                [layer.conv_state for layer in layers],
+                [spec["conv_extended"][:, :, n_kept : n_kept + layer.conv_kernel_size]
+                 for layer, spec in zip(layers, specs)],
+            )
+            torch._foreach_copy_(
+                [layer.recurrent_state for layer in layers],
+                [spec["final_recurrent_state"] for spec in specs],
+            )
+            return
+        else:
+            # Reuse packing storage across cycles. Accepted prefix lengths
+            # vary, but the allocated verifier span stays fixed; a compact
+            # view provides the current replay shape without new
+            # large allocations on every rejection.
+            owner = layers[0]
+            signature = tuple((name, tuple(specs[0][name].shape), specs[0][name].dtype,
+                               specs[0][name].device) for name in ("query", "key", "value", "g", "beta"))
+            signature += ((len(layers), tuple(owner.recurrent_state.shape),
+                           owner.recurrent_state.dtype, owner.recurrent_state.device),)
+            if getattr(owner, "_spec_replay_signature", None) != signature:
+                owner._spec_replay_buffers = {
+                    name: torch.empty((len(layers) * tensor.size(0), *tensor.shape[1:]),
+                                      dtype=tensor.dtype, device=tensor.device)
+                    for name, tensor in specs[0].items()
+                    if name in ("query", "key", "value", "g", "beta")
+                }
+                owner._spec_replay_buffers["state"] = torch.empty(
+                    (len(layers) * owner.recurrent_state.size(0), *owner.recurrent_state.shape[1:]),
+                    dtype=owner.recurrent_state.dtype, device=owner.recurrent_state.device,
+                )
+                owner._spec_replay_signature = signature
+            packed = owner._spec_replay_buffers
+            replay_inputs = {}
+            for name in ("query", "key", "value", "g", "beta"):
+                buffer = packed[name]
+                rows = buffer.size(0)
+                # Preserve contiguous inputs for fused kernels that flatten
+                # batch and sequence without accepting arbitrary strides.
+                compact = buffer.view(-1, *buffer.shape[2:])[:rows * n_kept].view(
+                    rows, n_kept, *buffer.shape[2:]
+                )
+                torch.cat([spec[name][:, :n_kept] for spec in specs], dim=0, out=compact)
+                replay_inputs[name] = compact
+            torch.cat([layer.recurrent_state for layer in layers], dim=0, out=packed["state"])
+            query, key, value, g, beta = (replay_inputs[name]
+                                         for name in ("query", "key", "value", "g", "beta"))
+            initial_state = packed["state"]
+            _, recurrent_states = layers[0]._recurrent_gated_delta_rule(
+                query,
+                key,
+                value,
+                g,
+                beta,
+                initial_state=initial_state,
+                output_final_state=True,
+                use_qk_l2norm_in_kernel=True,
+            )
+            if recurrent_states is None:
+                raise RuntimeError("GatedDeltaNet speculative replay did not return its recurrent state")
+
+        batch_size = layers[0].recurrent_state.size(0)
+        conv_sources = []
+        recurrent_sources = []
+        for index, (layer, spec) in enumerate(zip(layers, specs)):
+            kernel = layer.conv_kernel_size
+            conv_sources.append(spec["conv_extended"][:, :, n_kept : n_kept + kernel])
+            start = index * batch_size
+            recurrent_sources.append(recurrent_states[start : start + batch_size])
+
+        # One cast plus foreach copies avoids a separate conversion/copy launch
+        # for every recurrent layer after the replay.
+        recurrent_dtype = layers[0].recurrent_state.dtype
+        if recurrent_states.dtype != recurrent_dtype:
+            recurrent_states = recurrent_states.to(recurrent_dtype)
+            recurrent_sources = [recurrent_states[i * batch_size : (i + 1) * batch_size] for i in range(len(layers))]
+        torch._foreach_copy_([layer.conv_state for layer in layers], conv_sources)
+        torch._foreach_copy_([layer.recurrent_state for layer in layers], recurrent_sources)
 
     # ------------------------------------------------------------------
     # Forward
@@ -381,6 +597,7 @@ class GatedDeltaNet(nn.Module):
             hidden_states = (hidden_states * attn_mask[:, :, None]).to(hidden_states.dtype)
 
         use_precomputed = self.conv_state is not None and self.recurrent_state is not None and seq_len == 1
+        use_speculative = self._speculating and seq_len > 1
 
         mixed_qkv = self.in_proj_qkv(hidden_states).transpose(1, 2)  # (B, conv_dim, S)
         z = self.in_proj_z(hidden_states)  # (B, S, value_dim)
@@ -396,6 +613,23 @@ class GatedDeltaNet(nn.Module):
                 self.conv1d.bias,
                 "silu",
             )
+        elif use_speculative:
+            # Extend the cached raw QKV history and compute exactly the same
+            # causal-convolution outputs as sequential decode. The extra first
+            # valid convolution output belongs to the cache-only history.
+            conv_extended = torch.cat([self.conv_state, mixed_qkv.to(self.conv_state.dtype)], dim=-1)
+            if torch.compiler.is_compiling():
+                mixed_qkv = _torch_speculative_conv1d(
+                    conv_extended, self.conv1d.weight, self.conv1d.bias
+                ).to(hidden_states.dtype)
+            else:
+                conv_out = F.conv1d(
+                    conv_extended,
+                    self.conv1d.weight,
+                    self.conv1d.bias,
+                    groups=self.conv_dim,
+                )
+                mixed_qkv = F.silu(conv_out[:, :, 1:]).to(hidden_states.dtype)
         else:
             if self.conv_state is not None:
                 # save state for next step
@@ -464,6 +698,27 @@ class GatedDeltaNet(nn.Module):
             )
             if new_recurrent_state is not None:
                 self.recurrent_state.copy_(new_recurrent_state.to(self.recurrent_state.dtype))
+        elif use_speculative:
+            output, new_recurrent_state = self._recurrent_gated_delta_rule(
+                query,
+                key,
+                value,
+                g,
+                beta,
+                initial_state=self.recurrent_state,
+                output_final_state=True,
+                use_qk_l2norm_in_kernel=True,
+            )
+            if new_recurrent_state is None:
+                raise RuntimeError("GatedDeltaNet speculative forward did not return its recurrent state")
+            buffers = self._spec_buffers
+            buffers["query"].copy_(query)
+            buffers["key"].copy_(key)
+            buffers["value"].copy_(value)
+            buffers["g"].copy_(g)
+            buffers["beta"].copy_(beta)
+            buffers["conv_extended"].copy_(conv_extended)
+            buffers["final_recurrent_state"].copy_(new_recurrent_state)
         else:
             output, new_recurrent_state = self._chunk_gated_delta_rule(
                 query,
