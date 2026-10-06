@@ -330,6 +330,24 @@ class GreedySearchLM(GreedySearch):
     def update_finished(self):
         super(GreedySearchLM, self).update_finished()
 
+    def advance_speculative(self, token_ids, log_probs, count, finished):
+        """Append an already-verified greedy token chunk in one state update.
+
+        Speculative decoding is restricted to unconstrained greedy decoding,
+        where each output is simply the row argmax. Avoid calling ``advance``
+        once per token: that method materializes an EOS tensor as a Python
+        list on every call, synchronizing the GPU repeatedly.
+        """
+        token_ids = token_ids[:, :count]
+        selected_log_probs = log_probs[:, :count, :].gather(2, token_ids.unsqueeze(-1)).squeeze(-1)
+        self.beams_scores += selected_log_probs.sum(dim=1, keepdim=True)
+        self.alive_seq = torch.cat([self.alive_seq, token_ids], dim=1)
+        self.topk_scores = selected_log_probs[:, -1:]
+        self.is_finished_list = [[finished]]
+        self.src_len += count
+        self.ensure_max_length()
+        return token_ids
+
     def initialize(self, src, src_len, device=None, target_prefix=None):
         """Initialize for decoding."""
 
