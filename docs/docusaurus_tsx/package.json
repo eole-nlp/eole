@@ -24,7 +24,7 @@
     "docusaurus-lunr-search": "^3.4.2",
     "prism-react-renderer": "^2.3.0",
     "react": "^19.3.0",
-    "react-dom": "^18.0.0"
+    "react-dom": "^19.3.0"
   },
   "resolutions": {
     "fast-uri": "^3.1.5",
