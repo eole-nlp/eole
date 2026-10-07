@@ -2,19 +2,29 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
-## Unreleased
+## 0.6.1
 
-* Native MTP training heads and Qwen3.8-27B speculative greedy inference (#407, #412).
-* REINFORCE fine-tuning with scorer rewards and optional reference-model KL penalty (#400).
-* RL training extension points and generation utilities (#389).
-* Opt-in periodic device cache clearing during training (#402).
-* Reference-optional XCOMET prediction scoring fix (#399).
-* Keep advertised server context limits stable across requests with different generation budgets.
-* Preserve declared numeric/boolean/container tool argument types for Qwen XML tool calls in Anthropic Messages responses.
-* Task-oriented README and recipe index; Qwen3.8/MTP and Claude Code recipes.
+* Add native MTP training heads and Qwen3.8-27B speculative greedy inference ([#407](https://github.com/eole-nlp/eole/pull/407), [#412](https://github.com/eole-nlp/eole/pull/412)).
+* Add REINFORCE fine-tuning with scorer rewards and an optional reference-model KL penalty ([#400](https://github.com/eole-nlp/eole/pull/400)), following RL training extension points and generation utilities ([#389](https://github.com/eole-nlp/eole/pull/389)).
+* Add opt-in periodic device cache clearing during training ([#402](https://github.com/eole-nlp/eole/pull/402)).
+* Fix reference-optional XCOMET prediction scoring ([#399](https://github.com/eole-nlp/eole/pull/399)) and remove the nonexistent `prepare_transforms` export ([#411](https://github.com/eole-nlp/eole/pull/411)).
+* Keep server context limits stable across generation budgets and preserve declared numeric, boolean, and container tool argument types in Qwen XML tool calls ([#413](https://github.com/eole-nlp/eole/pull/413)).
+* Revamp the README and recipe index; add YAML-based Qwen3.8/MTP validation and Claude Code endpoint recipes ([#413](https://github.com/eole-nlp/eole/pull/413)).
+* Refresh installation prerequisites, CUDA kernel build instructions, Docker usage, quickstart, FAQs, and generated API references; validate the complete documentation website in CI ([#414](https://github.com/eole-nlp/eole/pull/414)).
+* Refresh dependencies, the documentation lockfile, and Python CI configuration ([#403](https://github.com/eole-nlp/eole/pull/403), [#404](https://github.com/eole-nlp/eole/pull/404), [#406](https://github.com/eole-nlp/eole/pull/406)).
 
-These features require a source checkout after 0.6.0; they are not included in
-the published 0.6.0 Docker image. DPO, GRPO, and PPO are still planned.
+Qwen3.8 MTP inference currently supports single-sequence greedy text requests.
+Exact token parity with ordinary greedy decoding remains unresolved for the
+validated INT4/BF16 checkpoint. Vision-language fine-tuning loads MTP heads but
+does not implement their auxiliary loss. See the
+[Qwen3.8 recipe](recipes/qwen38/README.md) for details. DPO, GRPO, and PPO remain
+planned; this release implements REINFORCE.
+
+Release images contain the source at their release; the published 0.6.0 Docker
+image does not include these changes. See the [Docker guide](docs/docker.md) to
+build an image from the current checkout.
+
+**Full Changelog**: https://github.com/eole-nlp/eole/compare/0.6.0...0.6.1
 
 ## 0.6.0
 
