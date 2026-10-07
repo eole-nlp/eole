@@ -15,11 +15,11 @@ const config: Config = {
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'eole', // Usually your GitHub org/user name.
+  organizationName: 'eole-nlp', // Usually your GitHub org/user name.
   projectName: 'eole', // Usually your repo name.
 
   onBrokenLinks: 'throw',
-  onBrokenMarkdownLinks: 'warn',
+  onBrokenAnchors: 'throw',
 
   // Even if you don't use internationalization, you can use this field to set
   // useful metadata like html lang. For example, if your site is Chinese, you
@@ -49,7 +49,11 @@ const config: Config = {
       },
   ],
 
+  themes: ['@docusaurus/theme-mermaid'],
+
   markdown: {
+    hooks: {onBrokenMarkdownLinks: 'throw'},
+    mermaid: true,
     format: "md",
 
   },
@@ -59,6 +63,7 @@ const config: Config = {
       'classic',
       {
         docs: {
+          path: '../build/site-docs',
           sidebarPath: './sidebars.ts',
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.

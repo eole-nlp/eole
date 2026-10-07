@@ -3,7 +3,7 @@
 ## Configuration conversion
 
 One of the main pillars of EOLE is the full revamping of the configuration structure and validation logic. That means OpenNMT-py configuration files are not supported by default.
-That being said, a conversion tool has been created to facilitate the transition: [`eole convert onmt_config`](https://github.com/eole-nlp/eole/blob/master/eole/bin/convert/convert_onmt_config.py)
+That being said, a conversion tool has been created to facilitate the transition: [`eole convert onmt_config`](https://github.com/eole-nlp/eole/blob/main/eole/bin/convert/convert_onmt_config.py)
 
 There are a few key things to know:
 - what was previous fully "flat" in OpenNMT-py configurations is now mostly nested in nested sections with specific scope such as `training`, `model`, `transforms_configs`;

@@ -1,6 +1,7 @@
 # Qwen3.5: text, vision, streaming, and serving
 
-Run from the repository root. Install Eole in a CUDA-enabled PyTorch environment.
+Run from the repository root. Follow the [installation guide](../../README.md#installation)
+for Eole CUDA kernels, FlashAttention, and `fla-core` in your CUDA-enabled environment.
 The inference scripts use `Qwen/Qwen3.5-4B`; the server example uses a separate
 27B INT4 checkpoint. These are different model paths, not interchangeable steps.
 

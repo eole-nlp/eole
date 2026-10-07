@@ -1,7 +1,9 @@
 Eole Core API
 ---------------
 
-**Note** : These sections are built via sphinx and converted into Markdown. Some layout or links might be shaky.
+These configuration and API references are generated from the current Python
+source. See the website quickstart and recipes for complete workflows; individual
+config classes describe their own fields, not necessarily a standalone run file.
 
 .. toctree::
    :maxdepth: 2
@@ -29,6 +31,5 @@ Eole Core API
    :caption: References
 
    bibliography
-   ref
 
 

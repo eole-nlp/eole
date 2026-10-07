@@ -20,12 +20,12 @@ function HomepageHeader() {
           <Link
             className={`button button--secondary button--lg ${styles.mybutton}`}
             to="/docs/quickstart">
-            Get Started - 5min ⏱️
+            Get started
           </Link>
           <span className={styles.indexCtasGitHubButtonWrapper}>
             <iframe
               className={styles.indexCtasGitHubButton}
-              src="https://ghbtns.com/github-btn.html?user=eole-nlp&amp;repo=eole&amp;type=star&amp;count=true&amp;size=large"
+              src="https://ghbtns.com/github-btn.html?user=eole-nlp&repo=eole&type=star&count=true&size=large"
               width={160}
               height={30}
               title="GitHub Stars"
@@ -42,7 +42,7 @@ export default function Home(): JSX.Element {
   return (
     <Layout
       title={`${siteConfig.title}`}
-      description="Description will go into a meta tag in <head />">
+      description="Train, fine-tune, evaluate, and serve language, translation, vision, and speech models with Eole.">
       <HomepageHeader />
       <main>
         <HomepageFeatures />

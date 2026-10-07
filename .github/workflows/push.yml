@@ -391,8 +391,14 @@ jobs:
         pip install -r docs/requirements.txt
         pip install -r requirements.opt.txt
         pip install rich
-    - name: Build docs
-      run: |
-        set -e
-        # Check that docs are built without errors
-        cd docs/ && make html && cd ..
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+    - name: Install website dependencies
+      working-directory: docs/docusaurus_tsx
+      run: corepack yarn install --immutable
+    - name: Build Sphinx HTML
+      run: PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" python -m sphinx -E -a -W -b html docs/source docs/build/html
+    - name: Build documentation website
+      run: bash docs/build_docs.sh

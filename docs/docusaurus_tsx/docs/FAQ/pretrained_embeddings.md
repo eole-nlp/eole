@@ -1,49 +1,23 @@
-# How do I use Pretrained embeddings (e.g. GloVe)?
+# Initialize pretrained word embeddings
 
-This is handled in the initial steps of the `onmt_train` execution.
-
-Pretrained embeddings can be configured in the main YAML configuration file.
-
-### Example
-
-1. Get GloVe files:
-
-```bash
-mkdir "glove_dir"
-wget http://nlp.stanford.edu/data/glove.6B.zip
-unzip glove.6B.zip -d "glove_dir"
-```
-
-2. Adapt the configuration:
+Eole prepares pretrained embeddings during `eole train` initialization.
+Supply the embedding text file and type in a complete training YAML:
 
 ```yaml
-# <your_config>.yaml
-
-<Your data config...>
-
-...
-
-# this means embeddings will be used for both encoder and decoder sides
+save_data: run/embeddings
 both_embeddings: glove_dir/glove.6B.100d.txt
-# to set src and tgt embeddings separately:
-# src_embeddings: ...
-# tgt_embeddings: ...
-
-# supported types: GloVe, word2vec
-embeddings_type: "GloVe"
-
-# word_vec_size need to match with the pretrained embeddings dimensions
-word_vec_size: 100
-
+embeddings_type: GloVe
+model:
+  architecture: transformer
+  embeddings:
+    word_vec_size: 100
+    freeze_word_vecs_enc: false
+    freeze_word_vecs_dec: false
 ```
 
-3. Train:
-
-```bash
-eole train -config <your_config>.yaml
-```
-
-Notes:
-
-- the matched embeddings will be saved at `<save_data>.enc_embeddings.pt` and `<save_data>.dec_embeddings.pt`;
-- additional flags `freeze_word_vecs_enc` and `freeze_word_vecs_dec` are available to freeze the embeddings.
+Use `src_embeddings` and `tgt_embeddings` for separate files. `GloVe` and
+`word2vec` text formats are supported. Embedding dimensions must match the model;
+set the freeze fields under `model.embeddings` to keep those weights fixed.
+Matched tensors are saved as `<save_data>.enc_embeddings.pt` and
+`<save_data>.dec_embeddings.pt`. Download and extract the selected vectors before
+training; the placeholder path above is not a bundled asset.

@@ -15,13 +15,15 @@ compatible INT4 checkpoint with its **MTP weights retained**, or multiple GPUs
 for an appropriately configured BF16 deployment. This example is single-GPU;
 it does not establish MTP support for tensor-parallel inference.
 
-Install Eole in a CUDA-enabled environment. For this configuration install
-FlashAttention and the hybrid-attention kernels used by Qwen:
+Install Eole in a CUDA-enabled environment with the CUDA toolkit and build tools
+from the [installation guide](../../README.md#installation). For this configuration
+install FlashAttention and the hybrid-attention kernels used by Qwen:
 
 ```bash
-pip install -e .
-pip install flash-attn --no-build-isolation
-pip install fla-core causal-conv1d
+MAX_JOBS=2 python -m pip install -e . --no-build-isolation
+MAX_JOBS=2 python -m pip install flash-attn --no-build-isolation
+python -m pip install fla-core
+MAX_JOBS=2 python -m pip install causal-conv1d --no-build-isolation
 ```
 
 INT4 AutoRound/GPTQ checkpoints require a supported packing layout and Eole's

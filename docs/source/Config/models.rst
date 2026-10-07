@@ -48,3 +48,10 @@ CNN
 .. autopydantic_model:: eole.config.models.CnnDecoderConfig
 .. autopydantic_model:: eole.config.models.CnnModelConfig
 
+
+
+Translation Scorers
+-------------------
+
+.. autopydantic_model:: eole.config.models.TransformerEncoderScorerModelConfig
+.. autopydantic_model:: eole.config.models.TransformerEncoderDecoderScorerModelConfig

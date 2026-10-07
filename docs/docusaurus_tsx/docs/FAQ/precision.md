@@ -4,6 +4,10 @@ Various compute precisions are supported. Below is a quick recap of the current 
 
 ## How to configure
 
+Training uses `training.compute_dtype` and `training.use_amp`; prediction uses
+top-level `compute_dtype`. The [training precision guide](../guides/training-precision.md)
+contains complete mode fragments.
+
 It's important to note that compute precision does not necessarily reflect model parameters dtype.
 With this considered, compute precision can be configured by setting the `compute_dtype` field.
 From that, and other optimization settings (or specicic cases), the `storage_dtype` computed field is deduced.
@@ -14,20 +18,20 @@ This is different from the specific quantization logic configured via `quant_lay
 ## Available modes
 
 ### Full precision
-`compute_dtype: {fp32, torch.float32}`
+`compute_dtype: fp32` (Python also accepts `torch.float32`)
 Standard float precision.
 
 **Note**: flash attention is not compatible with float32 precision.
 
 ### Half precision
-`compute_dtype: {fp16, torch.float16}`
+`compute_dtype: fp16` (Python also accepts `torch.float16`)
 
 In most cases, the main model `storage_dtype` will be `torch.float32`, and some parameters will be automatically casted to `torch.float16` with torch [Automatic Mixed Precision](https://pytorch.org/tutorials/recipes/recipes/amp_recipe.html).
 
 **Note**: this means that checkpoints will be stored in `torch.float32` in the `amp` case.
 
 ### BFloat16
-`compute_dtype: {bf16, torch.bfloat16}`
+`compute_dtype: bf16` (Python also accepts `torch.bfloat16`)
 
 See [bfloat16 floating-point format](https://en.wikipedia.org/wiki/Bfloat16_floating-point_format) for specificities.
 
@@ -37,7 +41,7 @@ When using use_amp=False, we switch to torch-optimi which enables pure BF16 trai
 
 
 ### Int8
-`compute_dtype: {int8, torch.int8}`
+`compute_dtype: int8` (Python also accepts `torch.int8`)
 
 This specific setting is only valid for **CPU prediction**, to enable [Dynamic Quantization](https://pytorch.org/tutorials/recipes/recipes/dynamic_quantization.html).
 
