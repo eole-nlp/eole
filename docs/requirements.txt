@@ -5,7 +5,7 @@ sphinxcontrib.bibtex==2.7.0
 sphinxcontrib.mermaid==2.0.1
 sphinx-rtd-theme==3.1.0
 myst-parser==4.0.1
-sphinx-argparse==0.5.2
+sphinx-argparse==0.6.1
 sphinx-markdown-tables==0.0.17
 autodoc-pydantic==2.2.0
 sphinx-markdown-builder==0.6.10
