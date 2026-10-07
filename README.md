@@ -10,6 +10,15 @@ Use it for language generation, machine translation, neural translation scoring,
 vision and OCR, and speech recognition. Bring supported Hugging Face checkpoints
 or train your own architecture.
 
+## Latest: 0.6.1
+
+This release adds Qwen3.8-27B MTP speculative inference, REINFORCE fine-tuning,
+server tool-use fixes, and refreshed installation, Docker, and recipe guides.
+Start with the [Qwen3.8/MTP recipe](recipes/qwen38/README.md), the
+[Claude Code endpoint](recipes/claude-code/README.md), or the
+[REINFORCE recipe](recipes/rl/README.md). See the [changelog](CHANGELOG.md#061)
+for the release details and current limitations.
+
 ## Choose your workflow
 
 | I want to… | Start here |
