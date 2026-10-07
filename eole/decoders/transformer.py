@@ -1141,7 +1141,8 @@ class TransformerDecoder(DecoderBase):
                     device=device,
                 )
             else:
-                heads_kv = layer.self_attn.heads_kv
+                # KV projections are sharded across tensor-parallel ranks.
+                heads_kv = layer.self_attn.heads_kv // layer.self_attn.parallel_gpu
                 dph = layer.self_attn.dim_per_head
                 layer.self_attn.kcache = torch.zeros((b, self.cache_len_tgt, heads_kv, dph), dtype=dtype, device=device)
                 layer.self_attn.vcache = torch.zeros((b, self.cache_len_tgt, heads_kv, dph), dtype=dtype, device=device)
