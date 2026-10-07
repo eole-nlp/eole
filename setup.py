@@ -122,7 +122,7 @@ setup(
     extras_require={
         "wer": ["jiwer>=3.0", "whisper-normalizer>=0.1"],
         "trackio": [
-            "trackio>=0.35.0,<0.38.0",
+            "trackio>=0.38.1,<0.41.0",
             "nvidia-ml-py>=12.0.0; sys_platform != 'darwin'",
             "psutil>=5.9.0",
         ],

@@ -13,7 +13,11 @@ import uuid
 try:
     import psutil  # noqa: F401
     import trackio
-except ImportError as exc:
+except ModuleNotFoundError as exc:
+    # Skip only when an optional dependency itself is absent; an installed package that
+    # fails to import (e.g. an incompatible huggingface_hub) must fail the test.
+    if exc.name not in ("psutil", "trackio"):
+        raise
     print(f"SKIP: optional trackio dependency missing: {exc}")
     sys.exit(77)
 
@@ -105,5 +109,7 @@ assert effective_config["tensorboard"] is False
 assert effective_config["training"]["save_format"] == "pytorch"
 assert effective_config["training"]["compute_dtype"] == "torch.float32"
 assert "_config_file" not in effective_config
+assert "storage_dtype" not in effective_config["training"]
+assert TrainConfig(**effective_config).training.batch_size == 2
 
 print(f"OK (trackio {trackio.__version__})")

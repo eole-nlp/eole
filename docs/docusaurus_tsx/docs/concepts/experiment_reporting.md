@@ -50,7 +50,7 @@ Trackio is an optional dependency:
 pip install -e ".[trackio]"
 ```
 
-The extra installs `trackio` (>=0.35,<0.38), `psutil` (CPU/system metrics on all platforms, including Apple Silicon GPU stats), and `nvidia-ml-py` (NVIDIA GPU metrics; skipped on macOS, where CUDA is not available).
+The extra installs `trackio` (>=0.38.1,<0.41), `psutil` (CPU/system metrics on all platforms, including Apple Silicon GPU stats), and `nvidia-ml-py` (NVIDIA GPU metrics; skipped on macOS, where CUDA is not available).
 
 Enable Trackio in your train config:
 
@@ -90,9 +90,9 @@ EOLE also logs run metadata to Trackio's run config: the model and training sect
 With `trackio_log_config_artifact: true`, each run gets two artifacts:
 
 - The original config artifact uses the original basename, sanitized for Trackio artifact safety (characters outside `A-Z a-z 0-9 . _ -` are replaced with `-`). For example `wmt17-mini.yml` → `wmt17-mini.yml`, `my run (v2).yaml` → `my-run--v2-.yaml`. It is the exact file you launched with, uploaded byte-for-byte.
-- The effective config artifact is named `<stem>-effective<suffix>` (e.g. `wmt17-mini-effective.yml`) and contains the complete runtime config after validation and default-filling. All defaults are included, and non-YAML-native values are stringified (e.g. `compute_dtype: torch.bfloat16`). For non-YAML source configs (e.g. `config.json`), the effective artifact uses the `.yaml` extension since its content is YAML.
+- The effective config artifact is named `<stem>-effective<suffix>` (e.g. `wmt17-mini-effective.yml`) and contains the complete runtime config after validation and default-filling. All defaults are included, and non-YAML-native values are stringified (e.g. `compute_dtype: torch.bfloat16`). Derived values such as `training.storage_dtype` are omitted so the file can be loaded back as a training config. For non-YAML source configs (e.g. `config.json`), the effective artifact uses the `.yaml` extension since its content is YAML.
 
-Runs launched from CLI flags only (no `--config` file) upload just `config-effective.yaml`.
+When no source config file is available, Trackio uploads only `config-effective.yaml`.
 
 Artifacts are versioned per project: repeated runs in the same project land as `v0`, `v1`, ..., each linked to its own run via lineage, so earlier configs are never overwritten.
 

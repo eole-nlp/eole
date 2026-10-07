@@ -41,7 +41,7 @@ def _build_trackio_config(config):
     commit = _git_short_commit()
     if commit:
         trackio_config["git_commit"] = commit
-    return trackio_config
+    return json.loads(json.dumps(trackio_config, default=str))
 
 
 def _artifact_safe_name(name, default):
@@ -53,7 +53,7 @@ def _artifact_safe_name(name, default):
 def _config_artifact_names(config_file):
     """Derive (original, effective) artifact names from the config file basename.
 
-    Falls back to fixed names when no config file was provided. The effective
+    Falls back to a fixed effective name when no source config file is available. The effective
     artifact keeps the original suffix only for YAML; other extensions would
     mislabel the YAML content.
     """
@@ -71,7 +71,7 @@ def _log_trackio_config_artifact(trackio, config):
 
     The original config artifact uses the original basename, sanitized for
     Trackio artifact safety; the effective artifact is ``<stem>-effective<suffix>``
-    (CLI-only runs: ``config-effective.yaml``). The effective content is the
+    (runs without a source config: ``config-effective.yaml``). The effective content is the
     complete config after validation, defaulting, and normalization, snapshotted
     when the report manager is built. Private attrs (e.g. ``_config_file``) are
     excluded by pydantic.
@@ -93,10 +93,12 @@ def _log_trackio_config_artifact(trackio, config):
         with tempfile.TemporaryDirectory(prefix="eole-config-") as tmpdir:
             effective_path = os.path.join(tmpdir, effective_name)
             with open(effective_path, "w", encoding="utf-8") as f:
-                # json round-trip normalizes the dump to plain containers and
-                # stringifies non-JSON values (e.g. torch.dtype -> "torch.float32"),
-                # which yaml.SafeDumper cannot represent.
-                yaml.safe_dump(json.loads(json.dumps(config.model_dump(), default=str)), f, sort_keys=False)
+                # round_trip excludes computed fields (e.g. training.storage_dtype) so the
+                # artifact loads back into TrainConfig. The json round-trip normalizes the
+                # dump to plain containers and stringifies non-JSON values
+                # (e.g. torch.dtype -> "torch.float32"), which yaml.SafeDumper cannot represent.
+                effective_config = json.loads(json.dumps(config.model_dump(round_trip=True), default=str))
+                yaml.safe_dump(effective_config, f, sort_keys=False)
             trackio.log_artifact(effective_path, name=effective_name, type="config")
     except Exception:
         logger.warning("trackio config artifact logging failed; continuing.", exc_info=True)

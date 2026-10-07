@@ -155,7 +155,7 @@ class TestBuildReportManagerTrackio(unittest.TestCase):
         self.enterContext(patch("eole.utils.report_manager._git_short_commit", return_value="abc1234"))
 
     def _make_config(self, config_file=None, **overrides):
-        cfg = TrainConfig(
+        kwargs = dict(
             src_vocab="src.vocab",
             tgt_vocab="tgt.vocab",
             data={},
@@ -165,8 +165,8 @@ class TestBuildReportManagerTrackio(unittest.TestCase):
             trackio=True,
             trackio_project="proj",
             trackio_group="grp",
-            **overrides,
         )
+        cfg = TrainConfig(**{**kwargs, **overrides})
         cfg._config_file = config_file
         return cfg
 
@@ -230,6 +230,7 @@ class TestBuildReportManagerTrackio(unittest.TestCase):
         self.assertEqual(init_kwargs["config"]["git_commit"], "abc1234")
         self.assertEqual(init_kwargs["config"]["model"]["architecture"], "rnn")
         self.assertEqual(init_kwargs["config"]["training"]["batch_size"], 2)
+        self.assertEqual(init_kwargs["config"]["training"]["compute_dtype"], "torch.float32")
         self.assertIn("auto_log_cpu", init_kwargs)
         self.assertIn("auto_log_gpu", init_kwargs)
         self.assertEqual(init_kwargs["cpu_log_interval"], 10.0)
@@ -257,6 +258,23 @@ class TestBuildReportManagerTrackio(unittest.TestCase):
         # private attrs are excluded from the dump
         self.assertNotIn("_config_file", effective)
 
+    def test_effective_artifact_reloads_as_train_config(self):
+        trackio, state = self._new_trackio()
+        config = self._make_config(training={"batch_size": 2, "train_steps": 1, "compute_dtype": "bf16"})
+        with patch.dict("sys.modules", {"trackio": trackio}):
+            build_report_manager(config, gpu_rank=0)
+
+        effective = yaml.safe_load(state["artifacts"][0]["content"])
+        # computed fields are not configurable inputs and would be rejected on reload
+        self.assertNotIn("storage_dtype", effective["training"])
+
+        reloaded = TrainConfig(**effective)
+        self.assertEqual(reloaded.training.compute_dtype, config.training.compute_dtype)
+        self.assertEqual(reloaded.training.storage_dtype, config.training.storage_dtype)
+        self.assertEqual(reloaded.training.batch_size, 2)
+        self.assertEqual(reloaded.model.architecture, "rnn")
+        self.assertEqual(reloaded.trackio_group, "grp")
+
     def test_system_log_interval_must_be_positive(self):
         for interval in (0, -1):
             with self.subTest(interval=interval), self.assertRaises(ValueError):
@@ -264,7 +282,7 @@ class TestBuildReportManagerTrackio(unittest.TestCase):
 
         self.assertEqual(self._make_config(trackio_system_log_interval=0.1).trackio_system_log_interval, 0.1)
 
-    def test_cli_only_run_uploads_only_effective(self):
+    def test_run_without_source_config_uploads_only_effective(self):
         trackio, state = self._new_trackio()
         config = self._make_config()
         with patch.dict("sys.modules", {"trackio": trackio}):
