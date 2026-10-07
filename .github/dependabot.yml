@@ -8,9 +8,10 @@ updates:
       docusaurus:
         patterns:
           - "@docusaurus/*"
-      documentation-transitives:
-        dependency-type: indirect
+      documentation-security:
         applies-to: security-updates
+        patterns:
+          - "*"
   - package-ecosystem: pip
     directory: /
     schedule:
