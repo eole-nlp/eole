@@ -109,32 +109,46 @@ These save `/tmp/qwen38-baseline.txt` and `/tmp/qwen38-mtp.txt`. Compare the tex
 and inspect `report_time` / draft-acceptance logs. For repeated warm measurements,
 the benchmark reads those **same inference YAML files**:
 
-```bash
-python recipes/qwen38/benchmark.py -c recipes/qwen38/predict.yaml \
-  --output /tmp/qwen38-baseline.json
-python recipes/qwen38/benchmark.py -c recipes/qwen38/predict-mtp.yaml \
-  --output /tmp/qwen38-mtp.json
-```
-
-Each invocation loads one engine, excludes one warmup, and repeats the same
-prompt three times. Compilation is disabled for the initial comparison.
-Outputs include wall time, peak allocated VRAM, decoded text, and approximate
-retokenized output counts. Use Eole's logs for internal timing and acceptance.
-EOS can end a completion early; inspect output lengths before comparing.
-Latency includes prefill and decoding. The harness fails if an MTP run reports
-fallback or never logs draft acceptance.
-
-To try compilation after establishing the eager baseline:
+Run all four configurations explicitly, so inherited environment variables do
+not change the comparison. Stop other GPU model workloads first. From the
+repository root, with `QWEN38_MODEL` set:
 
 ```bash
-EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
-  python recipes/qwen38/benchmark.py -c recipes/qwen38/predict-mtp.yaml \
-  --output /tmp/qwen38-mtp-compile.json
+BENCH_DIR="/tmp/eole-qwen38-bench-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BENCH_DIR"
+nvidia-smi > "$BENCH_DIR/gpu.txt"
+git rev-parse HEAD > "$BENCH_DIR/commit.txt"
+
+for COMPILE in 0 1; do
+  if [ "$COMPILE" = 0 ]; then MODE=eager; else MODE=compiled; fi
+  for PATH_MODE in baseline mtp; do
+    if [ "$PATH_MODE" = baseline ]; then
+      CONFIG=recipes/qwen38/predict.yaml
+    else
+      CONFIG=recipes/qwen38/predict-mtp.yaml
+    fi
+    EOLE_TORCH_COMPILE="$COMPILE" EOLE_COMPILE_MODE=0 \
+      python recipes/qwen38/benchmark.py -c "$CONFIG" --runs 5 \
+      --output "$BENCH_DIR/$MODE-$PATH_MODE.json" \
+      > "$BENCH_DIR/$MODE-$PATH_MODE.log" 2>&1 || exit 1
+  done
+done
+echo "$BENCH_DIR"
 ```
 
-Repeat the baseline with the same compile settings. Record GPU/driver,
-PyTorch/kernel versions, checkpoint ID, precision, prompt/output lengths, and
-draft acceptance with any shared result. Try `self_speculative_num_tokens: 1`,
+Each invocation loads one engine, excludes one warmup, and measures five runs
+of the same prompt. Compile mode 0 requests CUDA graphs; backend diagnostics do
+not prove graph capture. Check measured runs for remaining warmup or timing
+outliers. Outputs include wall time, peak allocated VRAM, decoded text, and
+approximate retokenized output counts. Use Eole's logs for internal generated
+counts, decode timing, and acceptance; retokenization can change token counts.
+EOS can end a completion early, so verify equal generated lengths. Request wall
+time includes prefill, decoding, and other overhead. `report_time` also enables
+MTP GPU phase profiling, whose instrumentation is included in these timings.
+The harness fails if an MTP run reports fallback or never logs draft acceptance.
+
+Record GPU/driver, PyTorch/kernel versions, checkpoint ID, precision,
+prompt/output lengths, compile mode, and draft acceptance with shared results. Try `self_speculative_num_tokens: 1`,
 `2`, and `3` in a local YAML copy; more drafts can be slower when rejected.
 
 ## Run the complete local validation
@@ -161,27 +175,45 @@ task for that additional check.
 
 ## Measured RTX 5090 example (2026-10-07)
 
-The recipe's prompt fixture was run with the local converted
+The recipe's prompt fixture was run at commit
+`ff2ab2eb3edfe5c09e449284b62c16f050973081` with the local converted
 `Frozenlock/Qwen3.8-27B-int4-Autoround` checkpoint, INT4 weights / BF16 compute,
-PyTorch 2.12.1+cu132, FlashAttention 2.8.3, and FLA gated-delta kernels. Compilation
-was disabled. One warmup was excluded; each of three measured runs generated
-256 tokens with batch size one.
+PyTorch 2.12.1+cu132, FlashAttention 2.8.3, FLA 0.5.2, and Triton 3.7.1.
+The driver was 610.43.02 and the pre-run power limit was 575 W; sustained power
+and clocks were not recorded. One warmup was excluded per configuration; each
+of five measured runs generated 256 tokens with batch size one. Compiled runs
+used mode 0; CUDA graph capture was requested but not verified.
 
-| Path | Mean request wall time | Reported decode throughput | Peak allocated GPU memory |
-|---|---|---|---|
-| Ordinary greedy | 10.85 s | 23.6–24.5 tokens/s | 19.25 GB |
-| MTP, three drafts | 3.89 s | 66.2–70.5 tokens/s | 19.65 GB |
+| Configuration | Median request wall time | Median reported decode throughput | End-to-end throughput | Maximum peak allocated GPU memory |
+|---|---|---|---|---|
+| Eager, ordinary greedy | 11.12 s | 23.3 tokens/s | 23.0 tokens/s | 19.25 GB |
+| Eager, MTP (three drafts) | 3.85 s | 69.2 tokens/s | 66.4 tokens/s | 19.65 GB |
+| Compiled, ordinary greedy | 4.24 s | 63.0 tokens/s | 60.3 tokens/s | 23.59 GB |
+| Compiled, MTP (three drafts) | 2.64 s | 115.1 tokens/s | 97.0 tokens/s | 23.92 GB |
 
-MTP accepted 186/204 drafted tokens (91.2%). This is about **2.79× faster by
-request wall time for this prompt**. However, all three MTP outputs differed
-from the corresponding baseline text. At the 256-token cap, extra comments in
-the MTP answer also left the code incomplete. This is a throughput measurement,
-not evidence of exact greedy parity or complete/correct generated code. Use
-longer output limits for coding tasks and validate the resulting files.
+End-to-end throughput is 256 divided by median request wall time; reported
+decode throughput comes from Eole's internal timing and excludes prefill and
+some request overhead. Memory is PyTorch peak allocated memory in decimal GB,
+not total process VRAM. Medians include all five runs. Compiled baseline run 2
+was slower (5.22 s versus 4.20–4.26 s for the others); it was retained.
+Compiled MTP wall time ranged from 2.636 to 2.648 s.
 
-The [recorded measurements](benchmark-results.json) preserve the fixture hash,
-per-run timings, backend versions, and comparison limits. Do not generalize
-this single-prompt result to other workloads, draft counts, or checkpoints.
+**Compare MTP against the baseline with the same compilation setting.**
+Compilation alone brings baseline decode throughput from 23.3 to 63.6 tokens/s.
+Adding MTP to the compiled baseline gives about **1.81× reported decode
+throughput** and **1.61× end-to-end throughput** on this fixture. In eager mode,
+the corresponding gains are 2.97× and 2.89×. The eager comparison alone does
+not describe the benefit over compiled ordinary decoding.
+
+MTP accepted 186/204 drafts (91.2%) in every eager run and 184/211 (87.2%) in
+every compiled run. Text was repeatable within each configuration, but MTP and
+baseline outputs differed in both modes. These fixed-length timings do not
+establish exact greedy parity or complete/correct generated code. Use longer
+output limits for coding tasks and validate the resulting files.
+
+The [recorded measurements](benchmark-results.json) preserve all five timings,
+decode rates, output hashes, backend diagnostics, and comparison limits. This
+is one short prompt, not a general ranking across workloads or engines.
 
 34 CPU fallback tests exercise native MTP and greedy verification; those tests
 alone do not certify GPU behavior. The live API run confirmed text generation

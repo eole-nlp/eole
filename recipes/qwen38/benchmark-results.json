@@ -1,53 +1,291 @@
 {
   "date": "2026-10-07",
+  "commit": "ff2ab2eb3edfe5c09e449284b62c16f050973081",
   "gpu": "RTX 5090 (32 GB)",
+  "driver": "610.43.02",
+  "power_limit_watts": 575,
+  "power_note": "Limit from pre-run nvidia-smi snapshot; sustained power and clocks were not recorded.",
   "torch": "2.12.1+cu132",
-  "cuda": "13.2",
+  "cuda_build": "13.2",
   "checkpoint": "Frozenlock/Qwen3.8-27B-int4-Autoround (converted local artifact)",
   "precision": "INT4 weights / BF16 compute",
-  "attention": "FlashAttention KV-cache; FLA gated-delta kernels",
   "flash_attn": "2.8.3+cu132torch2.12",
-  "compile": false,
+  "fla_core": "0.5.2",
+  "triton": "3.7.1",
   "batch_size": 1,
   "prompt_fixture": "prompts.txt",
   "prompt_sha256": "3ac16e9867dd3fd634a961c1a1df96c6e4556a67a1c60b190a9c3f04067806b0",
   "generated_tokens_per_run": 256,
   "warmup_runs_excluded": 1,
-  "measured_runs": 3,
+  "measured_runs": 5,
   "draft_tokens": 3,
-  "baseline": {
-    "wall_seconds": [
-      10.590113622951321,
-      10.993507746956311,
-      10.95417872397229
-    ],
-    "mean_wall_seconds": 10.84593336462664,
-    "reported_decode_tokens_per_second": [
-      24.5,
-      23.6,
-      23.7
-    ],
-    "peak_allocated_bytes": 19247356416
+  "compile_mode": "0",
+  "cuda_graph_capture_verified": false,
+  "configurations": {
+    "eager-baseline": {
+      "compile": false,
+      "config_path": "recipes/qwen38/predict.yaml",
+      "wall_seconds": [
+        11.056253198999912,
+        10.947907043999294,
+        11.159363714999927,
+        11.133363491999262,
+        11.121188716000688
+      ],
+      "mean_wall_seconds": 11.083615233199817,
+      "median_wall_seconds": 11.121188716000688,
+      "reported_decode_tokens_per_second": [
+        23.5,
+        23.7,
+        23.2,
+        23.3,
+        23.3
+      ],
+      "median_reported_decode_tokens_per_second": 23.3,
+      "end_to_end_tokens_per_second_from_median_wall": 23.01912201450895,
+      "peak_allocated_bytes_per_run": [
+        19247356416,
+        19247356416,
+        19247356416,
+        19247356416,
+        19247356416
+      ],
+      "retokenized_tokens_approx_per_run": [
+        243,
+        243,
+        243,
+        243,
+        243
+      ],
+      "output_sha256_per_run": [
+        "d003399c982fca52aa1d963ed47ba4c6e1e4970e4ec9c246ceb253e1f231ebe0",
+        "d003399c982fca52aa1d963ed47ba4c6e1e4970e4ec9c246ceb253e1f231ebe0",
+        "d003399c982fca52aa1d963ed47ba4c6e1e4970e4ec9c246ceb253e1f231ebe0",
+        "d003399c982fca52aa1d963ed47ba4c6e1e4970e4ec9c246ceb253e1f231ebe0",
+        "d003399c982fca52aa1d963ed47ba4c6e1e4970e4ec9c246ceb253e1f231ebe0"
+      ],
+      "backend_diagnostics": [
+        "Inference runtime: torch=2.12.1+cu132, CUDA build=13.2, device=cuda:0, dtype=torch.bfloat16",
+        "Inference compile: enabled=False, mode=0, decoder path=eager, CUDA graphs requested=False; capture not verified",
+        "Inference speculation: enabled=False, drafts=0, verifier=unused",
+        "Inference attention: FlashAttention KV-cache selected=True, layers=16, MTP layers selected=0, flash-attn=2.8.3+cu132torch2.12, provider=flash_attn.flash_attn_interface; other attention calls use PyTorch SDPA/manual attention (SDPA kernel chosen at runtime)",
+        "Inference extensions: eole CUDA/C++ available=True, fla-core=0.5.2, causal-conv1d=unavailable, triton=3.7.1",
+        "Inference conv prefill: FLA causal_conv1d_fn (Triton JIT) [layers=48]",
+        "Inference conv decode: FLA causal_conv1d_update (Triton JIT) [layers=48]",
+        "Inference GDN prefill: fla.ops.gated_delta_rule.chunk.chunk_gated_delta_rule (Triton JIT) [layers=48]",
+        "Inference GDN decode/verify/replay: FLA fused_recurrent_gated_delta_rule (Triton JIT) [layers=48]",
+        "Inference GDN norm/gate: eole.modules.gated_delta_net.RMSNormGated (FLA; inference compile adapter) [layers=48]",
+        "Inference quantized projections: MarlinQuantLinear=407"
+      ]
+    },
+    "eager-mtp": {
+      "compile": false,
+      "config_path": "recipes/qwen38/predict-mtp.yaml",
+      "wall_seconds": [
+        4.019411241999478,
+        3.835645918999944,
+        3.8536613950000174,
+        3.84055705100036,
+        3.8723697820005327
+      ],
+      "mean_wall_seconds": 3.8843290778000665,
+      "median_wall_seconds": 3.8536613950000174,
+      "reported_decode_tokens_per_second": [
+        66.3,
+        69.5,
+        69.2,
+        69.4,
+        68.8
+      ],
+      "median_reported_decode_tokens_per_second": 69.2,
+      "end_to_end_tokens_per_second_from_median_wall": 66.43033047276818,
+      "peak_allocated_bytes_per_run": [
+        19648846336,
+        19648846336,
+        19648846336,
+        19648846336,
+        19648846336
+      ],
+      "retokenized_tokens_approx_per_run": [
+        239,
+        239,
+        239,
+        239,
+        239
+      ],
+      "output_sha256_per_run": [
+        "ca13066cb96abe10c8ec37af428d29899b2d02b81443ef40c5ff6863e1894515",
+        "ca13066cb96abe10c8ec37af428d29899b2d02b81443ef40c5ff6863e1894515",
+        "ca13066cb96abe10c8ec37af428d29899b2d02b81443ef40c5ff6863e1894515",
+        "ca13066cb96abe10c8ec37af428d29899b2d02b81443ef40c5ff6863e1894515",
+        "ca13066cb96abe10c8ec37af428d29899b2d02b81443ef40c5ff6863e1894515"
+      ],
+      "backend_diagnostics": [
+        "Inference runtime: torch=2.12.1+cu132, CUDA build=13.2, device=cuda:0, dtype=torch.bfloat16",
+        "Inference compile: enabled=False, mode=0, decoder path=eager, CUDA graphs requested=False; capture not verified",
+        "Inference speculation: enabled=True, drafts=3, verifier=eager",
+        "Inference attention: FlashAttention KV-cache selected=True, layers=16, MTP layers selected=1, flash-attn=2.8.3+cu132torch2.12, provider=flash_attn.flash_attn_interface; other attention calls use PyTorch SDPA/manual attention (SDPA kernel chosen at runtime)",
+        "Inference extensions: eole CUDA/C++ available=True, fla-core=0.5.2, causal-conv1d=unavailable, triton=3.7.1",
+        "Inference conv prefill: FLA causal_conv1d_fn (Triton JIT) [layers=48]",
+        "Inference conv decode: FLA causal_conv1d_update (Triton JIT) [layers=48]",
+        "Inference GDN prefill: fla.ops.gated_delta_rule.chunk.chunk_gated_delta_rule (Triton JIT) [layers=48]",
+        "Inference GDN decode/verify/replay: FLA fused_recurrent_gated_delta_rule (Triton JIT) [layers=48]",
+        "Inference GDN norm/gate: eole.modules.gated_delta_net.RMSNormGated (FLA; inference compile adapter) [layers=48]",
+        "Inference conv verify: PyTorch grouped conv1d + SiLU",
+        "Inference MTP: context refresh=eager, recurrent head=eager, vocabulary projection=eager",
+        "Inference quantized projections: MarlinQuantLinear=407"
+      ],
+      "draft_acceptance_per_run": [
+        "MTP draft acceptance: 186/204 tokens (91.2%)",
+        "MTP draft acceptance: 186/204 tokens (91.2%)",
+        "MTP draft acceptance: 186/204 tokens (91.2%)",
+        "MTP draft acceptance: 186/204 tokens (91.2%)",
+        "MTP draft acceptance: 186/204 tokens (91.2%)"
+      ]
+    },
+    "compiled-baseline": {
+      "compile": true,
+      "config_path": "recipes/qwen38/predict.yaml",
+      "wall_seconds": [
+        4.201017574001526,
+        5.215284686999439,
+        4.243409546999828,
+        4.202479087000029,
+        4.263414596000075
+      ],
+      "mean_wall_seconds": 4.425121098200179,
+      "median_wall_seconds": 4.243409546999828,
+      "reported_decode_tokens_per_second": [
+        63.7,
+        50.9,
+        63.0,
+        63.6,
+        62.6
+      ],
+      "median_reported_decode_tokens_per_second": 63.0,
+      "end_to_end_tokens_per_second_from_median_wall": 60.328845746458036,
+      "peak_allocated_bytes_per_run": [
+        23590884864,
+        23590885888,
+        21443395072,
+        21443396096,
+        21443397120
+      ],
+      "retokenized_tokens_approx_per_run": [
+        239,
+        239,
+        239,
+        239,
+        239
+      ],
+      "output_sha256_per_run": [
+        "ca13066cb96abe10c8ec37af428d29899b2d02b81443ef40c5ff6863e1894515",
+        "ca13066cb96abe10c8ec37af428d29899b2d02b81443ef40c5ff6863e1894515",
+        "ca13066cb96abe10c8ec37af428d29899b2d02b81443ef40c5ff6863e1894515",
+        "ca13066cb96abe10c8ec37af428d29899b2d02b81443ef40c5ff6863e1894515",
+        "ca13066cb96abe10c8ec37af428d29899b2d02b81443ef40c5ff6863e1894515"
+      ],
+      "backend_diagnostics": [
+        "Inference runtime: torch=2.12.1+cu132, CUDA build=13.2, device=cuda:0, dtype=torch.bfloat16",
+        "Inference compile: enabled=True, mode=0, decoder path=compiled, CUDA graphs requested=True; capture not verified",
+        "Inference speculation: enabled=False, drafts=0, verifier=unused",
+        "Inference attention: FlashAttention KV-cache selected=True, layers=16, MTP layers selected=0, flash-attn=2.8.3+cu132torch2.12, provider=flash_attn.flash_attn_interface; other attention calls use PyTorch SDPA/manual attention (SDPA kernel chosen at runtime)",
+        "Inference extensions: eole CUDA/C++ available=True, fla-core=0.5.2, causal-conv1d=unavailable, triton=3.7.1",
+        "Inference conv prefill: FLA causal_conv1d_fn (Triton JIT) [layers=48]",
+        "Inference conv decode: FLA causal_conv1d_update (Triton JIT) [layers=48]",
+        "Inference GDN prefill: fla.ops.gated_delta_rule.chunk.chunk_gated_delta_rule (Triton JIT) [layers=48]",
+        "Inference GDN decode/verify/replay: FLA fused_recurrent_gated_delta_rule (Triton JIT) [layers=48]",
+        "Inference GDN norm/gate: eole.modules.gated_delta_net.RMSNormGated (FLA; inference compile adapter) [layers=48]",
+        "Inference quantized projections: MarlinQuantLinear=407"
+      ]
+    },
+    "compiled-mtp": {
+      "compile": true,
+      "config_path": "recipes/qwen38/predict-mtp.yaml",
+      "wall_seconds": [
+        2.6476397099995665,
+        2.6384369899988087,
+        2.6360854009999457,
+        2.6396884780006076,
+        2.6368559660004394
+      ],
+      "mean_wall_seconds": 2.6397413089998736,
+      "median_wall_seconds": 2.6384369899988087,
+      "reported_decode_tokens_per_second": [
+        114.6,
+        115.1,
+        115.1,
+        115.3,
+        115.2
+      ],
+      "median_reported_decode_tokens_per_second": 115.1,
+      "end_to_end_tokens_per_second_from_median_wall": 97.02714181554724,
+      "peak_allocated_bytes_per_run": [
+        23924552192,
+        23924555264,
+        23924558336,
+        23924561408,
+        23924564480
+      ],
+      "retokenized_tokens_approx_per_run": [
+        243,
+        243,
+        243,
+        243,
+        243
+      ],
+      "output_sha256_per_run": [
+        "d003399c982fca52aa1d963ed47ba4c6e1e4970e4ec9c246ceb253e1f231ebe0",
+        "d003399c982fca52aa1d963ed47ba4c6e1e4970e4ec9c246ceb253e1f231ebe0",
+        "d003399c982fca52aa1d963ed47ba4c6e1e4970e4ec9c246ceb253e1f231ebe0",
+        "d003399c982fca52aa1d963ed47ba4c6e1e4970e4ec9c246ceb253e1f231ebe0",
+        "d003399c982fca52aa1d963ed47ba4c6e1e4970e4ec9c246ceb253e1f231ebe0"
+      ],
+      "backend_diagnostics": [
+        "Inference runtime: torch=2.12.1+cu132, CUDA build=13.2, device=cuda:0, dtype=torch.bfloat16",
+        "Inference compile: enabled=True, mode=0, decoder path=compiled, CUDA graphs requested=True; capture not verified",
+        "Inference speculation: enabled=True, drafts=3, verifier=compiled",
+        "Inference attention: FlashAttention KV-cache selected=True, layers=16, MTP layers selected=1, flash-attn=2.8.3+cu132torch2.12, provider=flash_attn.flash_attn_interface; other attention calls use PyTorch SDPA/manual attention (SDPA kernel chosen at runtime)",
+        "Inference extensions: eole CUDA/C++ available=True, fla-core=0.5.2, causal-conv1d=unavailable, triton=3.7.1",
+        "Inference conv prefill: FLA causal_conv1d_fn (Triton JIT) [layers=48]",
+        "Inference conv decode: FLA causal_conv1d_update (Triton JIT) [layers=48]",
+        "Inference GDN prefill: fla.ops.gated_delta_rule.chunk.chunk_gated_delta_rule (Triton JIT) [layers=48]",
+        "Inference GDN decode/verify/replay: FLA fused_recurrent_gated_delta_rule (Triton JIT) [layers=48]",
+        "Inference GDN norm/gate: eole.modules.gated_delta_net.RMSNormGated (FLA; inference compile adapter) [layers=48]",
+        "Inference conv verify: compiled PyTorch stencil + SiLU",
+        "Inference MTP: context refresh=eager, recurrent head=eager, vocabulary projection=eager",
+        "Inference quantized projections: MarlinQuantLinear=407"
+      ],
+      "draft_acceptance_per_run": [
+        "MTP draft acceptance: 184/211 tokens (87.2%)",
+        "MTP draft acceptance: 184/211 tokens (87.2%)",
+        "MTP draft acceptance: 184/211 tokens (87.2%)",
+        "MTP draft acceptance: 184/211 tokens (87.2%)",
+        "MTP draft acceptance: 184/211 tokens (87.2%)"
+      ]
+    }
   },
-  "mtp": {
-    "wall_seconds": [
-      4.0336857959628105,
-      3.8451905041001737,
-      3.7873874929500744
+  "output_text_matches": {
+    "eager": [
+      false,
+      false,
+      false,
+      false,
+      false
     ],
-    "mean_wall_seconds": 3.8887545976710194,
-    "reported_decode_tokens_per_second": [
-      66.2,
-      69.6,
-      70.5
-    ],
-    "peak_allocated_bytes": 19648846336,
-    "draft_acceptance": "186/204 (91.2%)"
+    "compiled": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
   },
-  "output_text_matches": [
-    false,
-    false,
-    false
-  ],
-  "limitation": "Generated texts differ. Fixed-token-count timing comparison does not establish sequential-greedy token parity or general coding quality."
+  "limitations": [
+    "Single short prompt; not a general workload ranking.",
+    "MTP and baseline texts differ in both execution modes; greedy parity and coding quality are not established.",
+    "Retokenized counts are approximate; throughput uses internal generated-token counts.",
+    "Compiled baseline run 2 is slower and retained in all summaries.",
+    "report_time enables MTP GPU phase profiling; these runs include that instrumentation."
+  ]
 }
