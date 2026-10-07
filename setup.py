@@ -98,7 +98,7 @@ setup(
         "datasets",
         "numpy>=2.0",
         "pandas",
-        "protobuf==3.20.1",
+        "protobuf==7.36.2",
         "pyahocorasick",
         "pyonmttok>=1.38.1,<2",
         "pyyaml",
