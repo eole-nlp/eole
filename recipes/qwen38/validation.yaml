@@ -1,5 +1,6 @@
 # Run from the repository root in a CUDA-enabled environment.
 # Override model_path and output_dir in a local copy for your machine.
+recipe_type: qwen38_validation
 model_path: "${QWEN38_MODEL}"
 output_dir: /tmp/eole-qwen38-validation
 baseline_config: recipes/qwen38/predict.yaml

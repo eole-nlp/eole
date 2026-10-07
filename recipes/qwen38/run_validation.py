@@ -17,7 +17,9 @@ def main():
     args = parser.parse_args()
     import yaml
 
-    settings = yaml.safe_load(os.path.expandvars(args.config.read_text()))
+    from eole.config.recipes import Qwen38ValidationConfig
+
+    settings = Qwen38ValidationConfig(**yaml.safe_load(os.path.expandvars(args.config.read_text()))).model_dump()
     model_path = settings["model_path"]
     if not model_path or "$" in model_path:
         parser.error("Set QWEN38_MODEL or edit model_path in the validation YAML")
