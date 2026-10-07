@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 ##################################################################################
 # This script will download wikitext-103-raw and will do basic data preparation
@@ -29,7 +30,7 @@ echo "Downloading and extracting WikiText-103 (183 MB) for training and inferenc
 # unzip wikitext-103-raw-v1.zip
 # rm wikitext-103-raw-v1.zip
 # cd wikitext-103-raw
-huggingface-cli download wikitext --repo-type dataset --local-dir $DATA_PATH --revision b08601e04326c79dfdd32d625aee71d232d685c3
+hf download Salesforce/wikitext --repo-type dataset --local-dir "$DATA_PATH" --revision b08601e04326c79dfdd32d625aee71d232d685c3 --include "wikitext-103-raw-v1/*.parquet"
 python3 parse_wikitext_103_parquet.py $DATA_PATH/wikitext-103-raw-v1
 cd $DATA_PATH/wikitext-103-raw-v1
 

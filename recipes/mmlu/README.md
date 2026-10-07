@@ -2,6 +2,13 @@
 
 ## How to run
 
+Install Eole and convert the model named in your inference YAML first. This
+harness requires `pandas` and the MMLU CSV layout `data/dev/*_dev.csv` and
+`data/test/*_test.csv`; the repository includes those splits. Use `--data_dir`
+to select a different data root. It generates a one-token answer for each
+five-shot prompt; it does not rank answer-option log probabilities.
+
+
 To run the MMLU benchmark with a specific model, execute the following command from the recipe directory (`recipes/mmlu`):
 
 ```

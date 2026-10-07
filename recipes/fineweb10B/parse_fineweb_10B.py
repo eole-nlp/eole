@@ -9,12 +9,16 @@ import tqdm
 
 parser = ArgumentParser()
 parser.add_argument("data_dir")
-parser.add_argument("--valid_size", default=10**8, help="Valid set size in tokens.")
+parser.add_argument("--valid_size", type=int, default=10**8, help="Valid set size in tokens.")
 args = parser.parse_args()
 
 
-file_pattern = os.path.join(args.data_dir, "*")
+file_pattern = os.path.join(args.data_dir, "*.parquet")
 files = sorted(glob(file_pattern))
+if not files:
+    parser.error("No Parquet files found in data_dir")
+if args.valid_size < 0:
+    parser.error("valid_size must be nonnegative")
 
 enc = tiktoken.get_encoding("gpt2")
 
@@ -29,7 +33,7 @@ n_tokens = 0
 for file in files:
     df = pd.read_parquet(file)
     for line in tqdm.tqdm(df["text"], desc=file):
-        if n_tokens > args.valid_size and current_path != train_path:
+        if n_tokens >= args.valid_size and current_path != train_path:
             # Switch to train file once valid size is exceeded
             current_file.close()
             current_path = train_path
@@ -38,3 +42,5 @@ for file in files:
             n_tokens += len(enc.encode_ordinary(line))
         if line.strip() != "":
             current_file.write(line + "\n")
+
+current_file.close()

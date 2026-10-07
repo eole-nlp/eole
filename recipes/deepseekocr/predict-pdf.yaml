@@ -1,0 +1,16 @@
+model_path: "${EOLE_MODEL_DIR}/DeepSeek-OCR"
+src: dummy
+data_type: image
+max_length: 8192
+gpu_ranks: [0]
+compute_dtype: bf16
+self_attn_backend: flash
+top_p: 0.0
+top_k: 1
+beam_size: 1
+seed: 12
+batch_size: 1
+batch_type: sents
+report_time: true
+fuse_kvq: true
+fuse_gate: true

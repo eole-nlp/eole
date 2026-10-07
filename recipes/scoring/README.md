@@ -1,6 +1,11 @@
 # Scoring Recipes
 
-This directory contains validated examples for EOLE scoring models and metrics.
+This directory contains examples for EOLE scoring models and metrics.
+Run commands from the repository root. Inference YAMLs use placeholder input
+paths: supply `--src`, `--tgt`, and, when required, `--ref`. The `*valid-metrics.yaml`
+files are fragments to merge into a complete training YAML, not standalone
+prediction configurations. Existing parity results do not imply every example
+was rerun on the current checkout.
 Start with the hosted pre-converted EOLE Hugging Face models in each recipe;
 convert raw upstream checkpoints only when you need a custom, local, or offline
 artifact.

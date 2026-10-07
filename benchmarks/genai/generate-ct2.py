@@ -2,9 +2,12 @@
 from transformers import AutoTokenizer
 import ctranslate2
 import time
+import os
 
 tok = AutoTokenizer.from_pretrained("google/gemma-3-1b-it")
-gen = ctranslate2.Generator("$EOLE_MODEL_DIR/gemma-3-1b-it-ct2", device="cuda", device_index=0)
+gen = ctranslate2.Generator(
+    os.path.join(os.environ["EOLE_MODEL_DIR"], "gemma-3-1b-it-ct2"), device="cuda", device_index=0
+)
 
 prompt = (
     "<start_of_turn>user\nGenerate a 200 word text talking about George Orwell.<end_of_turn>\n<start_of_turn>model\n",

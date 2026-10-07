@@ -1,0 +1,16 @@
+model_path: "${EOLE_MODEL_DIR}/mistral-7b-v0.3"
+src: test_prompt.txt
+output: test_output.txt
+compute_dtype: bf16
+self_attn_backend: pytorch
+gpu_ranks: [0]
+world_size: 1
+batch_type: sents
+batch_size: 1
+beam_size: 1
+n_best: 1
+top_k: 1
+top_p: 0.0
+max_length: 256
+seed: 42
+report_time: true

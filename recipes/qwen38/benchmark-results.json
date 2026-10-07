@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-07",
+  "gpu": "RTX 5090 (32 GB)",
+  "torch": "2.12.1+cu132",
+  "cuda": "13.2",
+  "checkpoint": "Frozenlock/Qwen3.8-27B-int4-Autoround (converted local artifact)",
+  "precision": "INT4 weights / BF16 compute",
+  "attention": "FlashAttention KV-cache; FLA gated-delta kernels",
+  "flash_attn": "2.8.3+cu132torch2.12",
+  "compile": false,
+  "batch_size": 1,
+  "prompt_fixture": "prompts.txt",
+  "prompt_sha256": "3ac16e9867dd3fd634a961c1a1df96c6e4556a67a1c60b190a9c3f04067806b0",
+  "generated_tokens_per_run": 256,
+  "warmup_runs_excluded": 1,
+  "measured_runs": 3,
+  "draft_tokens": 3,
+  "baseline": {
+    "wall_seconds": [
+      10.590113622951321,
+      10.993507746956311,
+      10.95417872397229
+    ],
+    "mean_wall_seconds": 10.84593336462664,
+    "reported_decode_tokens_per_second": [
+      24.5,
+      23.6,
+      23.7
+    ],
+    "peak_allocated_bytes": 19247356416
+  },
+  "mtp": {
+    "wall_seconds": [
+      4.0336857959628105,
+      3.8451905041001737,
+      3.7873874929500744
+    ],
+    "mean_wall_seconds": 3.8887545976710194,
+    "reported_decode_tokens_per_second": [
+      66.2,
+      69.6,
+      70.5
+    ],
+    "peak_allocated_bytes": 19648846336,
+    "draft_acceptance": "186/204 (91.2%)"
+  },
+  "output_text_matches": [
+    false,
+    false,
+    false
+  ],
+  "limitation": "Generated texts differ. Fixed-token-count timing comparison does not establish sequential-greedy token parity or general coding quality."
+}

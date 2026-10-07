@@ -1,0 +1,1 @@
+<|im_start|>user｟newline｠Write a Python function that merges two sorted lists, then explain it.<|im_end|>｟newline｠<|im_start|>assistant｟newline｠<think>｟newline｠｟newline｠</think>｟newline｠｟newline｠
