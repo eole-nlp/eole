@@ -18,6 +18,7 @@ from eole.constants import DefaultTokens
 from eole.modules.mtp import MTPHead
 from eole.config.inference import InferenceConfig
 from eole.config.models import TransformerDecoderConfig, TransformerLMModelConfig
+from eole.config.training import TrainingConfig
 from eole.models.model import DecoderModel
 from eole.utils.statistics import Statistics
 
@@ -274,6 +275,10 @@ class TestDecoderModelMTP(unittest.TestCase):
         )
         model = DecoderModel.build_blocks(model_config, vocabs, running_config=InferenceConfig())
         model.build_generator(model_config, InferenceConfig(), vocabs)
+        # Construction uses skip_init; these tests do not load a checkpoint.
+        with torch.random.fork_rng(devices=[]):
+            torch.manual_seed(3431)
+            model.init_weights(TrainingConfig(param_init_method="uniform", param_init=0.1))
         model.eval()
 
         self.assertEqual(len(model.mtp_heads), 2)
@@ -310,6 +315,10 @@ class TestDecoderModelMTP(unittest.TestCase):
         )
         model = DecoderModel.build_blocks(model_config, vocabs, running_config=InferenceConfig())
         model.build_generator(model_config, InferenceConfig(), vocabs)
+        # Construction uses skip_init; these tests do not load a checkpoint.
+        with torch.random.fork_rng(devices=[]):
+            torch.manual_seed(3431)
+            model.init_weights(TrainingConfig(param_init_method="uniform", param_init=0.1))
         model.eval()
 
         hidden_context = torch.randn(1, 4, 16)
