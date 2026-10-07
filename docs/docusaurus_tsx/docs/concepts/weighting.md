@@ -14,9 +14,8 @@ This is naturally embedded in the data configuration format introduced in OpenNM
 In the following example, we will sequentially sample 7 examples from *corpus_1*, and 3 examples from *corpus_2*, and so on:
 
 ```yaml
-# <your_config>.yaml
+# your_config.yaml
 
-...
 
 # Corpus opts:
 data:
@@ -31,6 +30,5 @@ data:
     valid:
         path_src: toy-ende/src-val.txt
         path_tgt: toy-ende/tgt-val.txt
-...
 
 ```

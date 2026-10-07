@@ -42,7 +42,7 @@ requirements and optional kernels.
 ```bash
 git clone https://github.com/eole-nlp/eole
 cd eole
-pip install -e .
+python -m pip install -e . --no-build-isolation
 export EOLE_MODEL_DIR="$PWD/models"
 mkdir -p "$EOLE_MODEL_DIR"
 eole convert HF --model_dir Qwen/Qwen3.5-0.8B \
@@ -117,44 +117,108 @@ must be measured on the chosen checkpoint.
 ### From source
 
 - Python >= 3.11 (current CI uses Python 3.12).
-- PyTorch >= 2.10 and < 2.13, with a build compatible with your GPU and driver.
+- PyTorch >= 2.10 and < 2.13, with a CUDA build compatible with your GPU and driver.
+- To compile CUDA extensions: the CUDA toolkit (`nvcc`), a compatible C++ compiler,
+  and the build dependencies below. The CUDA runtime bundled with PyTorch alone
+  does not provide `nvcc`.
+
+Install CUDA-enabled PyTorch first in your chosen environment, then run from the
+repository root:
 
 ```bash
-pip install -e .
+python -m pip install "setuptools<69" wheel packaging ninja psutil
+python -c 'import torch; print(torch.__version__, torch.version.cuda); print("GPU available:", torch.cuda.is_available())'
+nvcc --version
+MAX_JOBS=2 python -m pip install -e . --no-build-isolation
 ```
 
-Install optional task dependencies as needed:
+`setup.py` builds Eole's `eole._ops` CUDA extension, including normalization,
+rotary embeddings, activations, and Marlin quantization kernels. It only enables
+the extension when PyTorch is installed and `torch.cuda.is_available()` is true.
+`--no-build-isolation` lets the build use that PyTorch installation. `MAX_JOBS`
+limits compilation memory use; increase it if your machine has sufficient RAM.
+
+### Build kernels for running directly from a clone
+
+If your environment already contains Eole's Python dependencies and you prefer
+to run scripts without installing the package, build the extension in place:
 
 ```bash
-pip install -r requirements.opt.txt
+# Run from the repository root, with CUDA-enabled PyTorch and build tools above.
+MAX_JOBS=2 python setup.py build_ext --inplace
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+python -m eole.bin.main --help
 ```
 
-FlashAttention is optional; the quickstart uses the PyTorch attention backend:
+This builds `eole/_ops*.so`; it does not install Python dependencies or the
+`eole` console command. Use `python -m eole.bin.main` in place of `eole` in recipes.
+Rebuild after changing PyTorch, CUDA, Python, or extension sources. The current
+build targets the visible GPU's compute capability; it is not a universal wheel
+for every GPU architecture. A successful command on a CPU-only environment may
+skip the extension entirely. Check it in the GPU environment:
 
 ```bash
-pip install flash-attn --no-build-isolation
+python -c 'import torch; from eole import _ops; assert torch.cuda.is_available(); print("Eole CUDA extension loaded")'
 ```
 
-Quantization and fast hybrid-attention kernels have additional dependencies;
-follow the corresponding recipe. Use `HF_TOKEN` with `--token "$HF_TOKEN"` for
-checkpoints requiring Hugging Face authentication. If installation runs out of
-memory, reduce build parallelism; `--no-cache-dir` can reduce pip cache usage.
+### FlashAttention and hybrid-attention kernels
+
+Install these separately in the same Python environment. FlashAttention is
+optional for the small-model quickstart, which uses `self_attn_backend: pytorch`.
+For recipes selecting `self_attn_backend: flash`, follow the
+[FlashAttention installation requirements](https://github.com/Dao-AILab/flash-attention#installation-and-features):
+
+```bash
+MAX_JOBS=2 python -m pip install flash-attn --no-build-isolation
+python -c 'from flash_attn import flash_attn_func, flash_attn_with_kvcache; print("FlashAttention interfaces loaded")'
+```
+
+Use a release or wheel compatible with your GPU, Python, PyTorch, and CUDA
+versions. The Qwen3.8 measurements used FlashAttention 2.8.3; installing a newer
+package alone does not reproduce that environment.
+
+For Qwen3.5/Qwen3.8 fast gated-delta computation, install
+[FLA kernels (`fla-core`)](https://pypi.org/project/fla-core/):
+
+```bash
+python -m pip install fla-core
+python -c 'from fla.ops.gated_delta_rule import chunk_gated_delta_rule, fused_recurrent_gated_delta_rule; print("FLA gated-delta interfaces loaded")'
+```
+
+Eole also supports the separate CUDA convolution package:
+
+```bash
+MAX_JOBS=2 python -m pip install causal-conv1d --no-build-isolation
+```
+
+When `causal-conv1d` is absent, Eole can use FLA's convolution implementation;
+without either, it has a PyTorch fallback. FLA uses Triton kernels compiled at
+runtime. Import checks confirm availability, not kernel execution or backend
+selection; inspect the recipe's backend diagnostics during a GPU run. INT4
+Marlin recipes require Eole's compiled CUDA extension.
+
+Install other optional task dependencies as needed:
+
+```bash
+python -m pip install -r requirements.opt.txt
+```
+
+Use `HF_TOKEN` with `--token "$HF_TOKEN"` for checkpoints requiring Hugging Face
+authentication. See individual recipes for model-specific requirements.
 
 ### Docker
 
-[Published images](https://github.com/eole-nlp/eole/pkgs/container/eole) provide a
-versioned environment:
+Requires Docker, a compatible NVIDIA driver, and the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
-```bash
-docker run --rm -it --gpus all \
-  ghcr.io/eole-nlp/eole:0.6.0-torch2.11.0-ubuntu24.04-cuda13.0
-```
+Use a [published image](https://github.com/eole-nlp/eole/pkgs/container/eole) or
+build an image from your checkout. The [Docker guide](docs/docker.md) covers GPU
+prerequisites, local builds, CUDA kernels, model/data mounts, YAML inference and
+training, and serving an API endpoint.
 
-Requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
-This image is the **0.6.0 release**; newer source features such as MTP inference
-and REINFORCE require a checkout containing those changes. See [docker/](https://github.com/eole-nlp/eole/tree/main/docker)
-for building an image from your checkout. Mount model storage and forward port
-5000 when serving from a container.
+Release images contain that release's features; use a current checkout image for
+newer features such as MTP. Eole's CUDA extension must be built with GPU access,
+which a normal Docker image build does not provide.
 
 ## Documentation and contributing
 

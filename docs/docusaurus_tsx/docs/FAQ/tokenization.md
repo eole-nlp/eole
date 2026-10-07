@@ -12,7 +12,6 @@ This example applies sentencepiece tokenization with `pyonmttok`, with `nbest=20
 ```yaml
 # <your_config>.yaml
 
-...
 transforms_configs:
     onmt_tokenize:
         # Tokenization options
@@ -22,12 +21,14 @@ transforms_configs:
         tgt_subword_model: examples/subword.spm.model
 
         # Number of candidates for SentencePiece sampling
-        subword_nbest: 20
+        src_subword_nbest: 20
+        tgt_subword_nbest: 20
         # Smoothing parameter for SentencePiece sampling
-        subword_alpha: 0.1
+        src_subword_alpha: 0.1
+        tgt_subword_alpha: 0.1
         # Specific arguments for pyonmttok
-        src_onmttok_kwargs: "{'mode': 'none', 'spacer_annotate': True}"
-        tgt_onmttok_kwargs: "{'mode': 'none', 'spacer_annotate': True}"
+        src_onmttok_kwargs: {mode: none, spacer_annotate: true}
+        tgt_onmttok_kwargs: {mode: none, spacer_annotate: true}
 
 # transforms: [onmt_tokenize] # if you don't need to specify at dataset level
 
@@ -42,7 +43,6 @@ data:
         path_src: toy-ende/src-val.txt
         path_tgt: toy-ende/tgt-val.txt
         transforms: [onmt_tokenize]
-...
 
 ```
 

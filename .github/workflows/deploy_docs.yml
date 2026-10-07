@@ -22,16 +22,12 @@ jobs:
     - name: Install Eole
       run: |
         pip install .
-    - name: Install pandoc (bibtex to markdown)
-      run: |
-        wget https://github.com/jgm/pandoc/releases/download/3.2.1/pandoc-3.2.1-1-amd64.deb;
-        sudo dpkg -i pandoc-3.2.1-1-amd64.deb
     - name: Install docusaurus and deps
       run: |
-        cd docs/docusaurus_tsx && npm install
+        cd docs/docusaurus_tsx && corepack yarn install --immutable
     - name: Build docs
       run: |
-        cd docs && pip cache purge && pip install -r requirements.txt && ./build_docs.sh
+        cd docs && pip install -r requirements.txt && bash build_docs.sh
     - name: Deploy to Github Pages
       uses: JamesIves/github-pages-deploy-action@v4
       with:

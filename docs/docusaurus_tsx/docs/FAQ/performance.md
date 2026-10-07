@@ -2,6 +2,9 @@
 
 ## Training
 
+Set compute, batching, optimizer, and worker options under `training:`;
+`vocab_size_multiple` remains a top-level vocabulary option.
+
 * Use `compute_dtype: bf16` or `fp16` for mixed precision training
 * Use `batch_size_multiple: 8`
 * Use `vocab_size_multiple: 8`
@@ -11,7 +14,10 @@
 
 ## Inference
 
+Set inference options at the top level of a prediction YAML. See
+[installation](../index.md#installation) for Eole CUDA, FlashAttention, and FLA builds.
+
 * Use Flash Attention for fast attention computation (install with `pip install flash-attn --no-build-isolation`)
- * Enable `torch.compile` for maximum inference speed — set `EOLE_TORCH_COMPILE=1` (use `EOLE_COMPILE_MODE=0` or `2` to enable CUDA graph capture; `1` and `3` disable CUDA graphs). See [TORCHCOMPILE_README](https://github.com/eole-nlp/eole/blob/main/TORCHCOMPILE_README.md) for details
+* Try `torch.compile` and measure warm inference speed — set `EOLE_TORCH_COMPILE=1` (use `EOLE_COMPILE_MODE=0` or `2` to enable CUDA graph capture; `1` and `3` disable CUDA graphs). See [TORCHCOMPILE_README](https://github.com/eole-nlp/eole/blob/main/TORCHCOMPILE_README.md) for details
 * Use quantization (`quant_type: bnb_NF4` or `awq_gemm`) to reduce VRAM usage
 * For tensor parallel inference across multiple GPUs, set `parallel_mode: tensor_parallel` with appropriate `world_size` and `gpu_ranks`

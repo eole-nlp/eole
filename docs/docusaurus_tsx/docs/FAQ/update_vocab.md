@@ -1,11 +1,17 @@
-# How can I update a checkpoint's vocabulary?
+# Update a checkpoint vocabulary
 
-New vocabulary can be used to continue training from a checkpoint. Existing vocabulary embeddings will be mapped to the new vocabulary, and new vocabulary tokens will be initialized as usual.
+Build vocabulary files for the new corpus, then point a complete training YAML
+at those files and the existing checkpoint. Existing token embeddings are mapped
+to the new vocabulary; newly added tokens receive initialized embeddings.
 
-Run `eole build_vocab` as usual with the new dataset. New vocabulary files will be created.
+```yaml
+src_vocab: /path/to/new.src.vocab
+training:
+  train_from: /path/to/checkpoint
+  update_vocab: true
+  reset_optim: states
+```
 
-Training options for the `yaml` file to perform vocabulary update are:
-
-* `update_vocab`: set this option
-* `reset_optim`: set the value to "states"
-* `train_from`: checkpoint path
+For a separate target vocabulary, set `tgt_vocab` as well. The config validator
+requires `reset_optim: states` or `all` when updating a vocabulary. Keep tokenizer
+artifacts and vocabulary IDs consistent, especially for converted HF models.

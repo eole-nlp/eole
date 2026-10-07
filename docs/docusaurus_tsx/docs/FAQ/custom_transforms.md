@@ -52,7 +52,7 @@ Methods:
 - `apply` is where the transform happens;
 - `_repr_args` is for clean logging purposes.
 
-As you can see, there is the `@register_transform` wrapper before the class definition. This will allow for the class to be automatically detected (if put in the proper `transforms` folder) and usable in your training configurations through its `name` argument.
+As you can see, there is the `@register_transform` wrapper before the class definition. This will allow for the class to be automatically registered when its module in `eole/transforms` is imported and usable in your training configurations through its `name` argument.
 
 You could also collect statistics for your custom transform by creating a class inheriting `ObservableStats`:
 
@@ -69,7 +69,7 @@ class FilterTooLongStats(ObservableStats):
 ```
 
 NOTE:
-- Add elements to keep track in the `__init__` and also `__slot__` to make it lightweight;
+- Add elements to keep track in the `__init__` and also `__slots__` to make it lightweight;
 - Supply update logic in `update` method;
 - (Optional) override `__str__` to change default log message format;
 - Instantiate and passing the statistic object in the `apply` method of the corresponding transform class;
@@ -78,11 +78,16 @@ NOTE:
 The `example` argument of `apply` is a `dict` of the form:
 ```
 {
-	"src": <source string>,
-	"tgt": <target string>,
+	"src": <string before tokenization, token list afterward>,
+	"tgt": <target string/token list, or None>,
 	"align": <alignment pharaoh string> # optional
 }
 ```
 
 This is defined in `eole.inputters.text_corpus.ParallelCorpus.load`. This class is not easily extendable for now but it can be considered for future developments. For instance, we could create some `CustomParallelCorpus` class that would handle other kind of inputs.
 
+
+The nested transform configuration schema is assembled from registered
+`config_model` classes. Add the module before importing the run configs; a class
+written in an arbitrary external file is not automatically discovered by the CLI.
+Transform order matters: length filtering usually follows tokenization.

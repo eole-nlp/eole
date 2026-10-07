@@ -5,7 +5,7 @@ Cf paper: [LoRA](https://arxiv.org/abs/2106.09685)
 LoRA is a mechanism that helps to finetune bigger models on a single GPU card by limiting the amount of VRAM needed.
 The principle is to make only a few layers trainable (hence reducing the amount of required memory especially for the Adam optimizer).
 
-You need to train_from a model (for instance NLLB-200 3.3B) and use the following options:
+Set `training.train_from` to a model (for instance NLLB-200 3.3B) and use the following options:
 
 * `lora_layers: ['linear_values', 'linear_query']` these are the two layers of the Self-Attention module the paper recommends to make trainable.
 * `lora_rank: 2`
@@ -16,7 +16,7 @@ You need to train_from a model (for instance NLLB-200 3.3B) and use the followin
 Bitsandbytes enables quantization of Linear layers. For more information: https://github.com/TimDettmers/bitsandbytes
 Also you can read the blog post here: https://huggingface.co/blog/hf-bitsandbytes-integration
 
-You need to add the following options:
+Add the following fields under `training:` for fine-tuning (top-level for prediction):
 
 * `quant_layers: ['up_proj', 'down_proj', 'linear_values', 'linear_query']`
 * `quant_type: "bnb_NF4"`
@@ -25,3 +25,7 @@ You can for instance quantize the layers of the PositionWise Feed-Forward from t
 Choices for quantization are `"bnb_8bit"`, `"bnb_FP4"`, `"bnb_NF4"`, `"awq_gemm"`, `"awq_gemv"`, `"autoround"`, `"gguf"`.
 
 
+
+Use the [Llama2 recipe](../recipes/llama2/README.md) for a complete YAML.
+Supported format names are not a guarantee that every quantized checkpoint
+layout can be loaded or fine-tuned.

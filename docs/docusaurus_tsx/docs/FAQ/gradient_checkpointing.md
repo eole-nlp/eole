@@ -1,5 +1,12 @@
-# How to use gradient checkpointing when dealing with a big model ?
+# Gradient checkpointing
 
-* `use_ckpting: ["ffn", "mha", "lora"]`
+In a complete training YAML, set the layers to recompute during backward:
 
-Be carefull, the module that you use checkpointing needs to have gradients.
+```yaml
+training:
+  use_ckpting: [ffn, mha, lora]
+```
+
+Supported names are `ffn`, `mha`, and `lora`. Checkpointed modules must participate
+in gradient computation. This trades extra computation for lower activation
+memory during training; it is not an inference cache option.

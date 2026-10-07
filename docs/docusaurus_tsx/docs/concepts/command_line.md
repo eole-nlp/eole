@@ -13,10 +13,11 @@ description: Recap of command line utilities and how to call them.
 - **`build_vocab`**
 - **`train`**
 - **`predict`**
+- **`serve`**
 
 ### Model Conversion Tools
 - **`convert`** 
-  - Flavors: `HF` (universal Hugging Face converter), `T5`, `COMET`, `onmt_config` (legacy OpenNMT-py config migration)
+  - Flavors: `HF` (supported Hugging Face architectures), `T5`, `COMET`, `MetricX`, `onmt_config` (legacy OpenNMT-py config migration)
 
 ### Model Management Tools
 - **`model`**
@@ -28,7 +29,7 @@ description: Recap of command line utilities and how to call them.
 
 ## Usage
 
-The main entrypoints are typically used with a `yaml` configuration file. Most parameters can also be overridden via corresponding command line flags if needed.
+The main entrypoints are typically used with a `yaml` configuration file. Top-level run parameters can be overridden with CLI flags; edit nested YAML fields directly. Dotted overrides are not supported.
 
 ### Examples
 
@@ -45,7 +46,9 @@ All other tools have specific arguments that can be inspected via the command he
 ### Example
 
 ```sh
-eole tool_name -h
+eole convert HF -h
+eole model lora -h
+eole serve -h
 ```
 
 ## Native EOLE COMET Scoring
@@ -125,3 +128,11 @@ eole convert MetricX --model google/metricx-24-hybrid-large-v2p6 --dtype fp32 --
 
 See `recipes/scoring/metricx_native/` for hosted model IDs, direct scoring
 examples, conversion options, and MetricX-23/24 input mode details.
+
+
+## Serving and speculative decoding
+
+Use [the server recipe](../recipes/server/README.md) for YAML configuration and
+API examples. [Qwen3.8/MTP](../recipes/qwen38/README.md) and
+[Claude Code](../recipes/claude-code/README.md) document native drafting,
+verification, current parity limitations, and the local client setup.

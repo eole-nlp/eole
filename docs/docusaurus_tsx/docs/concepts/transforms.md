@@ -5,7 +5,9 @@ description: Recap of available on-the-fly data transforms.
 
 # Data Transforms
 
-It's your lucky day! We already embedded several transforms that can be used easily.
+Configure transform names in `transforms` and their options under
+`transforms_configs.<transform_name>`. These options are shared across corpora;
+corpus-specific prefix/suffix values are supported in each `data` entry.
 
 Note: all the details about every flag and options for each transform can be found in the [Transforms Config](../reference/Config/transforms.md) section.
 
@@ -52,8 +54,11 @@ data:
 
 At inference if you want to use the target prefix feature to prefix your target segment with a unique prefix (as opposed to a target prefix coming from a line-by-line file)
 you need to set your yaml file as follow (example given with a target language as in the NLLB-200 case):
-``` yaml
-tgt_prefix: "spa_Latn" 
+```yaml
+transforms: [prefix]
+transforms_configs:
+  prefix:
+    tgt_prefix: "spa_Latn"
 tgt_file_prefix: true
 ```
 
@@ -86,7 +91,7 @@ Converts source and target (if present) examples to uppercase so the model can l
 sentences in all caps. This transform normalizes the examples so the uppercased strings are stripped from
 any diacritics and accents. Usually this is desirable for most languages, although there are few exceptions.
 
-The following option can be added to the main configuration (same ratio for all dataset with this transform):
+The following option can be added under `transforms_configs.<transform_name>` (same ratio for all dataset with this transform):
 - `upper_corpus_ratio`: ratio of the corpus that will be transformed to uppercase (default: 0.01);
 
 #### Normalize punctuation
@@ -137,13 +142,13 @@ Pre-requisite:
 
 Dataset must be "Docs" separated by an empty line which will make clear a story ends at this empty line.
 
-The following options can be added to the main configuration (same options for all dataset with this transform):
+The following options can be added under `transforms_configs.<transform_name>` (same options for all dataset with this transform):
 - `doc_length`: max token to be concatenated (default=200)
 - `max_context`: number of delimiter (default=1 , ie 2 segments concatenated)
 
 When working with several workers, this require some precaution in order to make sure "doc" are read linearly.
 
-`max_context + 1` needs to be a multiple of `stride` = `Number of gpu x num_workers`
+`max_context + 1` must divide `stride` = `Number of gpu x num_workers`
 
 Example: `max_context=1` and 1 GPU, then num_workers must be 2 or 4.
 
@@ -161,9 +166,9 @@ The Translation Memory (TM) format should be a flat text file, with each line co
 - You should increase the `num_workers` and `prefetch_factor` so your GPU does not have to wait for the batches to be augmented with fuzzy matches;
 - Try to use a sensible Translation Memory size. 200k-250k translation units should be enough for yielding a sufficient number of matches;
 - Although the transform performs some basic filtering both in the TM and in the corpus for very short or very long segments, some examples may still be long enough, so you should increase a bit the `src_seq_length`;
-- Currently, when using `n_sample`, examples are always processed one by one and not in batches.
+- Use sampled transformed output to inspect augmentation before full training.
 
-The following options can be added to the main configuration (valid for all datasets using this transform):
+The following options can be added under `transforms_configs.<transform_name>` (valid for all datasets using this transform):
 - `tm_path`: The path to the Translation Memory text file;
 - `fuzzy_corpus_ratio`: Ratio of corpus to augment with fuzzy matches (default: 0.1);
 - `fuzzy_threshold`: The fuzzy matching threshold (default: 70);
@@ -180,7 +185,7 @@ Class: `eole.transforms.inlinetags.InlineTagsTransform`
 
 Augments source and target segments with inline tags (placeholders). The transform adds 2 kind of tags, paired tags (an opening and a closing tag) and isolated (standalone) tags, and requires a tab-delimited dictionary text file with source and target terms and phrases. A dictionary with 20-30k entries is recommended. User-defined tags must include the number placeholder #, e.g. "｟user_start_tag_#｠".
 
-The following options can be added to the main configuration (valid for all datasets using this transform):
+The following options can be added under `transforms_configs.<transform_name>` (valid for all datasets using this transform):
 - `tags_dictionary_path`: The path to the dictionary text file;
 - `tags_corpus_ratio`: Ratio of corpus to augment with inline tags (default: 0.1);
 - `max_tags`: Maximum number of tags that can be added to a single sentence. (default: 12);
@@ -198,7 +203,7 @@ Class: `eole.transforms.terminology.TerminologyTransform`
 Augments source segments with terms so the model can learn to use user-provided terms at inference. It requires a dictionary with source and target terms, delimited with a tab. The transform uses Spacy's lemmatization facilities in order to a) solve the word inflection problem when searching for terms in any form, and b) make the model inflect correctly most target terms at inference. The lemmatization is applied at the dictionary entries and also at the source and target examples, and the term searches during training are performed on the lemmatized examples.
  The format of a processed segment augmented with terms is as follows:
 `This is an ｟src_term_start｠ augmented ｟tgt_term_start｠ target_lemma_for_augmented ｟tgt_term_end｠ example.`
-The following options can be added to the main configuration (valid for all datasets using this transform):
+The following options can be added under `transforms_configs.<transform_name>` (valid for all datasets using this transform):
 - `termbase_path`: The path to the dictionary text file;
 - `src_spacy_language_model`: Name of the spacy language model for the source corpus;
 - `tgt_spacy_language_model`: Name of the spacy language model for the target corpus;
@@ -294,3 +299,10 @@ Class: `eole.transforms.sampling.TokenMaskTransform`
 Options:
 
 - `tokenmask_temperature`: sampling temperature for token masking.
+
+
+#### Hugging Face tokenizers
+
+Transform name: `huggingface_tokenize`. Configure `huggingface_model` or a local
+`path` under `transforms_configs.huggingface_tokenize`. Converted checkpoints
+save their tokenization configuration; inference loads it automatically.

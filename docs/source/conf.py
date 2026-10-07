@@ -43,8 +43,12 @@ extensions = [
 ]
 
 linkcode_url = "https://github.com/eole-nlp/eole/"
-linkcode_blob = "master"
+linkcode_blob = "main"
 linkcode_link_text = "[source]"
+
+# Preserve API/section IDs for links in the assembled Docusaurus site.
+markdown_anchor_signatures = True
+markdown_anchor_sections = True
 
 # Show base classes
 autodoc_default_options = {"show-inheritance": True}
@@ -84,7 +88,7 @@ release = ""
 #
 # This is also used if you do content translation via gettext catalogs.
 # Usually you set "language" from the command line for these cases.
-language = "EN"
+language = "en"
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
@@ -197,3 +201,33 @@ texinfo_documents = [
 ]
 
 github_doc_root = "https://github.com/eole-nlp/eole/tree/main/docs/"
+
+
+def setup(app):
+    # The Markdown builder does not handle these Sphinx/docutils nodes itself.
+    from docutils import nodes
+    from sphinx_markdown_builder.translator import MarkdownTranslator
+
+    class ToolkitMarkdownTranslator(MarkdownTranslator):
+        def visit_abbreviation(self, node):
+            self.add(node.astext())
+            raise nodes.SkipNode
+
+        def visit_mermaid(self, node):
+            self.add("```mermaid\n" + node["code"] + "\n```", prefix_eol=2, suffix_eol=2)
+            raise nodes.SkipNode
+
+        def visit_citation(self, node):
+            for identifier in node.get("ids", []):
+                self.add(f'<a id="{identifier}"></a>', prefix_eol=2, suffix_eol=1)
+
+        def depart_citation(self, node):
+            self.add("\n")
+
+        def visit_label(self, node):
+            if isinstance(node.parent, nodes.citation):
+                self.add("[" + node.astext() + "] ")
+                raise nodes.SkipNode
+            super().visit_label(node)
+
+    app.set_translator("markdown", ToolkitMarkdownTranslator, override=True)

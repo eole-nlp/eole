@@ -76,7 +76,7 @@ training:
     max_grad_norm: 0
     label_smoothing: 0.1
     param_init: 0
-    param_init_glorot: true
+    param_init_method: xavier_uniform
     normalization: "tokens"
     # Where to save the checkpoints (creates a directory)
     model_path: my_model
@@ -85,3 +85,13 @@ training:
     train_steps: 50
     valid_steps: 500
 ```
+
+
+Training optimizer/device settings belong under `training:`, architecture settings
+under `model:`, and transform settings under `transforms_configs:`. Prediction
+settings such as `gpu_ranks`, `beam_size`, and `model_path` are top-level in a
+prediction YAML. Unknown fields are rejected. Environment variables in YAML
+paths are expanded by the command runner.
+
+Examples here specify paths you must supply. Edit nested YAML fields directly;
+the CLI does not support dotted overrides such as `--training.compute_dtype`.

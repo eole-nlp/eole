@@ -162,6 +162,7 @@ class TransformerEncoder(EncoderBase):
         Returns:
             If ``return_hidden_states`` is ``False``:
                 - (encoded_output, None)
+
             If ``return_hidden_states`` is ``True``:
                 - (encoded_output, None, hidden_states)
 
