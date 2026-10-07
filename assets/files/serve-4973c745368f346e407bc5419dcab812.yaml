@@ -1,9 +1,0 @@
-models_root: "." # used only for HF downloads for now, but might override $EOLE_MODEL_DIR at some point
-models:
-# local model
-- id: "EuroLLM-9B-Instruct"
-  path: "${EOLE_MODEL_DIR}/EuroLLM-9B-Instruct"
-  preload: true
-#  config:
-#    quant_layers: ['gate_up_proj', 'down_proj', 'up_proj', 'linear_values', 'linear_query', 'linear_keys', 'final_linear']
-#    quant_type: "bnb_NF4"
