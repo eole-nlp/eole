@@ -166,6 +166,15 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
         "Useful to test the performance of learnt alignments.",
     )
     report_time: bool = Field(default=False, description="Report some translation time metrics.")
+    self_speculative_decoding: bool = Field(
+        default=False,
+        description="Draft tokens with MTP heads during deterministic greedy inference and verify them in one pass.",
+    )
+    self_speculative_num_tokens: int = Field(
+        default=1,
+        ge=1,
+        description="Maximum tokens to draft per self-speculative verification pass.",
+    )
     fuse_kvq: bool = Field(default=False, description="Fuse K, V, Q Linear layers into a single KVQ in Self Attn.")
     fuse_gate: bool = Field(
         default=False, description="Fuse gate_up_proj and up_proj Linear layers into a single Linear."

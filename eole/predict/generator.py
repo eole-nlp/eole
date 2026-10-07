@@ -6,6 +6,7 @@ from eole.predict.greedy_search import GreedySearchLM
 from eole.predict.beam_search import BeamSearchLM
 from eole.utils.misc import tile
 from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
+from eole.modules.gated_delta_net import GatedDeltaNet
 from time import time
 
 
@@ -36,7 +37,7 @@ class GeneratorLM(Inference):
         batch_size = batch["srclen"].size(0)
         max_length = 0 if scoring else self.max_length
         with torch.no_grad():
-            if self.top_k != 0 or self.top_p != 0:
+            if self.top_k != 0 or self.top_p != 0 or self.self_speculative_decoding:
                 decode_strategy = GreedySearchLM(
                     pad=self._tgt_pad_idx,
                     bos=self._tgt_bos_idx,
@@ -132,6 +133,22 @@ class GeneratorLM(Inference):
             decoder._disable_cache()
 
     def _predict_batch_with_strategy(self, batch, decode_strategy, streamer=None):
+        try:
+            return self._predict_batch_with_strategy_impl(batch, decode_strategy, streamer=streamer)
+        except Exception:
+            # Restore request-local MTP attention state even if prefill,
+            # drafting, compilation, or streaming failed before normal cleanup.
+            if hasattr(self.model, "clear_mtp_cache"):
+                self.model.clear_mtp_cache()
+            decoder = self.model.decoder
+            decoder._speculative_forward = False
+            for module in decoder.modules():
+                if isinstance(module, GatedDeltaNet):
+                    module.discard_speculation()
+            decoder._disable_cache()
+            raise
+
+    def _predict_batch_with_strategy_impl(self, batch, decode_strategy, streamer=None):
         """Predict a batch of sentences step by step using cache.
 
         Args:
@@ -176,6 +193,28 @@ class GeneratorLM(Inference):
         )
         prefill_length = max(src_len.tolist())
 
+        use_spec_decoding = (
+            self.self_speculative_decoding
+            and isinstance(decode_strategy, GreedySearchLM)
+            and self.beam_size == 1
+            and self.n_best == 1
+            and batch_size == 1
+            and (self.top_k == 1 or self.temperature == 0.0)
+            and self.min_length == 0
+            and not self.ban_unk_token
+            and self.block_ngram_repeat == 0
+            and not decode_strategy.return_attention
+            and decode_strategy.target_prefix is None
+            and batch.get("images") is None
+            and len(getattr(self.model, "mtp_heads", [])) > 0
+        )
+        if self.self_speculative_decoding and not use_spec_decoding:
+            self._log(
+                "self_speculative_decoding requires one sequence, one hypothesis, deterministic greedy selection, "
+                "no decode constraints, text-only inputs, no attention output, "
+                "and a model with loaded MTP heads; using normal decoding"
+            )
+
         # (4) warmup for Torch compile
         # use the current batch to generate the decode graph (B, 1)
         # we need proper set up to run the forward pass of the decoder or decoder layer
@@ -191,6 +230,40 @@ class GeneratorLM(Inference):
             self.model.decoder.map_state(fn_tile)
             if EOLE_COMPILE_MODE in ["0", "1"]:
                 self.model.decoder._compile_decoder(emb=emb, tgt_pad_mask=tgt_pad_mask)
+                if use_spec_decoding and self.max_length > 1:
+                    # Compile the short verifier chunk too. Without this
+                    # shape-specific warmup, compile modes 0/1 compile only
+                    # S=1 decode and leave every speculative verifier pass in
+                    # eager mode.
+                    qwen_recurrent_mtp = getattr(self.model.mtp_heads[0], "emb_norm", None) is not None
+                    draft_count = self.self_speculative_num_tokens if qwen_recurrent_mtp else len(self.model.mtp_heads)
+                    verify_len = min(draft_count + 1, self.max_length)
+                    dummy_verify = torch.zeros(
+                        emb.size(0), verify_len, self.model.decoder.hidden_size, device=emb.device, dtype=emb.dtype
+                    )
+                    dummy_verify_mask = torch.zeros(emb.size(0), 1, verify_len, dtype=torch.bool, device=emb.device)
+                    linear_layers = [
+                        module
+                        for module in self.model.decoder.modules()
+                        if isinstance(module, GatedDeltaNet)
+                        and module.conv_state is not None
+                        and module.recurrent_state is not None
+                    ]
+                    try:
+                        for layer in linear_layers:
+                            layer.begin_speculation(verify_len)
+                        self.model.decoder._speculative_forward = True
+                        self.model.decoder(
+                            dummy_verify,
+                            enc_out=None,
+                            step=1,
+                            return_attn=False,
+                            tgt_pad_mask=dummy_verify_mask,
+                        )
+                    finally:
+                        self.model.decoder._speculative_forward = False
+                        for layer in linear_layers:
+                            layer.end_speculation()
             elif EOLE_COMPILE_MODE in ["2", "3"]:
                 current_step = self.model.decoder.cache_seqlens[0]
                 pos_ids_1d = current_step + torch.arange(1, device=emb.device)
@@ -204,6 +277,8 @@ class GeneratorLM(Inference):
             self.warmup_time.append(time() - start_wu)
             self._log(f"Warmup lasted: {time() - start_wu:.1f} sec")
 
+        self._log_inference_backends(speculative=use_spec_decoding)
+
         # (5) Start the decoding loop with timers
         if not self.estim_only:
             # (5) Begin decoding step by step:
@@ -212,27 +287,79 @@ class GeneratorLM(Inference):
                     torch.cuda.synchronize()
                 beg_time = time()
 
-            for step in range(decode_strategy.max_length):
+            step = 0
+            pending_spec = None
+            self._speculative_drafted_tokens = 0
+            self._speculative_accepted_tokens = 0
+            self._speculative_drafted_by_position = [0] * self.self_speculative_num_tokens
+            self._speculative_accepted_by_position = [0] * self.self_speculative_num_tokens
+            self._mtp_profile_enabled = use_spec_decoding and self.report_time and torch.cuda.is_available()
+            self._mtp_profile_events = {
+                name: []
+                for name in (
+                    "draft",
+                    "mtp_head",
+                    "draft_vocab",
+                    "verify",
+                    "verify_decoder",
+                    "verify_vocab",
+                    "state_commit",
+                )
+            }
+            if use_spec_decoding:
+                # Keep the single batch row stable while a verification chunk
+                # is temporarily longer than a normal decode step.
+                decode_strategy.static_batch_size = True
+            while step < decode_strategy.max_length:
+                if use_spec_decoding and pending_spec is not None:
+                    hidden, hidden_position = pending_spec
+                    step, next_hidden, next_position = self._speculative_draft_verify(
+                        decode_strategy, hidden, hidden_position, step, streamer
+                    )
+                    pending_spec = (next_hidden, next_position)
+                    any_finished = any([any(sublist) for sublist in decode_strategy.is_finished_list])
+                    if any_finished:
+                        decode_strategy.update_finished()
+                        if decode_strategy.done:
+                            break
+                    # The next verifier reserves its full input chunk. Skip
+                    # the redundant dynamic-cache growth check and host sync.
+                    continue
 
                 decoder_input = src if step == 0 else decode_strategy.current_predictions.view(-1, 1)
-
-                log_probs, attn = self._decode_and_generate(
+                cur_position = step if step == 0 else step + prefill_length - 1
+                decoded = self._decode_and_generate(
                     decoder_input,
                     None,
                     src_len=decode_strategy.src_len,
-                    step=step if step == 0 else step + prefill_length - 1,
+                    step=cur_position,
                     images=batch.get("images", None) if step == 0 else None,
+                    return_hidden=use_spec_decoding,
+                    return_all_hidden=use_spec_decoding and step == 0,
                 )
+                if use_spec_decoding:
+                    if step == 0:
+                        log_probs, attn, hidden, all_hidden = decoded
+                        if getattr(self.model.mtp_heads[0], "emb_norm", None) is not None:
+                            self.model.init_mtp_cache(all_hidden, decoder_input, self.max_length)
+                    else:
+                        log_probs, attn, hidden = decoded
+                    hidden_position = prefill_length - 1 if step == 0 else cur_position
+                else:
+                    log_probs, attn = decoded
 
                 if step == 0:
                     log_probs = self.tile_to_beam_size_after_initial_step(fn_tile, log_probs)
 
                 decode_strategy.advance(log_probs, attn)
+                step += 1
+                if self.report_time and step == 1:
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
+                    self.step0_time.append(time() - beg_time)
                 any_finished = any([any(sublist) for sublist in decode_strategy.is_finished_list])
 
                 if streamer is not None:
-                    # Push the newly generated token for the first sequence.
-                    # current_predictions has shape (batch_size * beam_size,).
                     streamer.put(decode_strategy.current_predictions[:1])
 
                 if any_finished:
@@ -240,16 +367,59 @@ class GeneratorLM(Inference):
                     if decode_strategy.done:
                         break
 
+                if use_spec_decoding and step < decode_strategy.max_length:
+                    step, next_hidden, next_position = self._speculative_draft_verify(
+                        decode_strategy, hidden, hidden_position, step, streamer
+                    )
+                    pending_spec = (next_hidden, next_position)
+                    any_finished = any([any(sublist) for sublist in decode_strategy.is_finished_list])
+                    if any_finished:
+                        decode_strategy.update_finished()
+                        if decode_strategy.done:
+                            break
+
                 if parallel_paths > 1 or (any_finished and not decode_strategy.static_batch_size):
-                    # select indexes in model state/cache
                     self.model.decoder.map_state(lambda state: state[decode_strategy.select_indices])
 
-                if self.report_time and step == 0:
-                    if torch.cuda.is_available():
-                        torch.cuda.synchronize()
-                    self.step0_time.append(time() - beg_time)
+                if not (use_spec_decoding and pending_spec is not None):
+                    # The speculative verifier has already reserved capacity
+                    # for its entire chunk; no normal one-token growth check
+                    # is needed before the next speculative step.
+                    self.model.decoder._extend_cache()
 
-                self.model.decoder._extend_cache()  # noop when dynamic_shape is False
+            if use_spec_decoding and self._speculative_drafted_tokens:
+                accepted_rate = self._speculative_accepted_tokens / self._speculative_drafted_tokens
+                self._log(
+                    "MTP draft acceptance: "
+                    f"{self._speculative_accepted_tokens}/{self._speculative_drafted_tokens} tokens "
+                    f"({accepted_rate:.1%})"
+                )
+                position_rates = [
+                    f"p{index + 1}={accepted / drafted:.1%}"
+                    for index, (accepted, drafted) in enumerate(
+                        zip(self._speculative_accepted_by_position, self._speculative_drafted_by_position)
+                    )
+                    if drafted
+                ]
+                self._log("MTP acceptance by draft position: " + ", ".join(position_rates))
+                if self._mtp_profile_enabled:
+                    torch.cuda.synchronize()
+                    phase_ms = {
+                        name: sum(start.elapsed_time(end) for start, end in events)
+                        for name, events in self._mtp_profile_events.items()
+                    }
+                    self._log(
+                        "MTP phase time (GPU ms): "
+                        f"draft={phase_ms['draft']:.1f}, verify={phase_ms['verify']:.1f}, "
+                        f"mtp_head={phase_ms['mtp_head']:.1f}, draft_vocab={phase_ms['draft_vocab']:.1f}, "
+                        f"verify_decoder={phase_ms['verify_decoder']:.1f}, "
+                        f"verify_vocab={phase_ms['verify_vocab']:.1f}, "
+                        f"state_commit={phase_ms['state_commit']:.1f}, "
+                        f"cycles={len(self._mtp_profile_events['draft'])}"
+                    )
+
+            if use_spec_decoding and hasattr(self.model, "clear_mtp_cache"):
+                self.model.clear_mtp_cache()
 
             self.model.decoder._disable_cache()
             if torch.cuda.is_available():
@@ -305,6 +475,176 @@ class GeneratorLM(Inference):
             batch_size,
             decode_strategy,
             estim,
+        )
+
+    def _speculative_draft_verify(self, decode_strategy, hidden, hidden_position, step, streamer=None):
+        """Draft with MTP heads and verify the chunk in one main-model pass."""
+        seed = decode_strategy.current_predictions.view(-1, 1)
+        remaining = decode_strategy.max_length - step
+        if remaining <= 1:
+            # Speculative iterations skip the normal end-of-step cache growth;
+            # reserve this last token explicitly when no further verifier will
+            # run to reserve capacity for us.
+            if hasattr(self.model.decoder, "_extend_cache"):
+                self.model.decoder._extend_cache(threshold=1, addzeros=32)
+            log_probs, _, next_hidden = self._decode_and_generate(
+                seed,
+                None,
+                src_len=decode_strategy.src_len,
+                step=hidden_position + 1,
+                return_hidden=True,
+                profile_events=self._mtp_profile_events if self._mtp_profile_enabled else None,
+            )
+            decode_strategy.advance(log_probs, None)
+            if streamer is not None:
+                streamer.put(decode_strategy.current_predictions[:1])
+            return step + 1, next_hidden[:, -1:, :], hidden_position + 1
+
+        draft_events = None
+        if self._mtp_profile_enabled:
+            draft_events = (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
+            draft_events[0].record()
+        drafts = self.model.draft_mtp_tokens(
+            hidden,
+            seed,
+            hidden_position,
+            max_tokens=min(self.self_speculative_num_tokens, remaining - 1),
+            profile_events=self._mtp_profile_events if self._mtp_profile_enabled else None,
+        )
+        if draft_events is not None:
+            draft_events[1].record()
+            self._mtp_profile_events["draft"].append(draft_events)
+        num_draft = min(len(drafts), remaining - 1)
+        if num_draft == 0:
+            return step, hidden, hidden_position
+        drafts = drafts[:num_draft]
+        draft_tensor = torch.cat(drafts, dim=1)
+        verify_input = torch.cat([seed, draft_tensor], dim=1)
+
+        # Eager decoding grows its KV cache on demand. The ordinary decode
+        # loop extends it after each forward, but speculative verification
+        # consumes several positions in one forward and runs before that
+        # extension point. Reserve the entire chunk first; otherwise
+        # flash_attn_with_kvcache can write past the dynamic cache allocation
+        # when compilation is disabled.
+        if hasattr(self.model.decoder, "_extend_cache"):
+            self.model.decoder._extend_cache(threshold=verify_input.size(1), addzeros=max(32, verify_input.size(1)))
+
+        linear_layers = [
+            module
+            for module in self.model.decoder.modules()
+            if isinstance(module, GatedDeltaNet)
+            and module.conv_state is not None
+            and module.recurrent_state is not None
+        ]
+        for layer in linear_layers:
+            layer.begin_speculation(verify_input.size(1))
+        self.model.decoder._speculative_forward = True
+        verify_events = None
+        if self._mtp_profile_enabled:
+            verify_events = (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
+            verify_events[0].record()
+        try:
+            verify_log_probs, _, verify_hidden = self._decode_and_generate(
+                verify_input,
+                None,
+                src_len=decode_strategy.src_len,
+                step=hidden_position + 1,
+                return_hidden=True,
+                profile_events=self._mtp_profile_events if self._mtp_profile_enabled else None,
+            )
+            if verify_events is not None:
+                verify_events[1].record()
+                self._mtp_profile_events["verify"].append(verify_events)
+        except Exception:
+            for layer in linear_layers:
+                layer.discard_speculation()
+            self.model.commit_mtp_draft(0)
+            raise
+        finally:
+            self.model.decoder._speculative_forward = False
+            for layer in linear_layers:
+                layer.end_speculation()
+
+        predicted = verify_log_probs.argmax(dim=-1)
+        fast_greedy_advance = decode_strategy.target_prefix is None
+        if fast_greedy_advance:
+            # Determine the accepted draft prefix and any EOS truncation on
+            # device. A per-position torch.equal() loop synchronizes once for
+            # every proposed token; transfer the three scalar decisions only
+            # once for this batch-one greedy path.
+            matches = predicted[:, :num_draft].eq(draft_tensor)
+            mismatches = ~matches
+            first_mismatch = mismatches.to(torch.int32).argmax(dim=1)
+            accepted_tensor = torch.where(mismatches.any(dim=1), first_mismatch, num_draft)
+            candidate_count = accepted_tensor + 1  # accepted drafts plus target correction/bonus
+            candidate_positions = torch.arange(predicted.size(1), device=predicted.device).unsqueeze(0)
+            eos_hits = torch.isin(predicted, decode_strategy.eos_t)
+            eos_hits = eos_hits & candidate_positions.lt(candidate_count.unsqueeze(1))
+            has_eos = eos_hits.any(dim=1)
+            first_eos = eos_hits.to(torch.int32).argmax(dim=1)
+            count_tensor = torch.where(has_eos, first_eos + 1, candidate_count)
+            accepted, advance_count, finished = map(
+                int,
+                torch.stack((accepted_tensor[0], count_tensor[0], has_eos[0].to(torch.int64))).tolist(),
+            )
+        else:
+            accepted = 0
+            while accepted < num_draft and torch.equal(predicted[:, accepted], drafts[accepted].squeeze(1)):
+                accepted += 1
+        self._speculative_drafted_tokens += num_draft
+        self._speculative_accepted_tokens += accepted
+        for index in range(num_draft):
+            self._speculative_drafted_by_position[index] += 1
+            if index < accepted:
+                self._speculative_accepted_by_position[index] += 1
+        state_commit_events = None
+        if self._mtp_profile_enabled:
+            state_commit_events = (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
+            state_commit_events[0].record()
+        self.model.commit_mtp_draft(accepted + 1)
+
+        # The verifier consumed seed plus all draft inputs. Commit only those
+        # through the last accepted draft; attention cache writes after that
+        # point are discarded by rewinding its position counter.
+        GatedDeltaNet.commit_speculation_group(linear_layers, accepted + 1)
+        rejected = num_draft - accepted
+        if rejected and self.model.decoder.cache_seqlens is not None:
+            self.model.decoder.cache_seqlens.sub_(rejected)
+        if state_commit_events is not None:
+            state_commit_events[1].record()
+            self._mtp_profile_events["state_commit"].append(state_commit_events)
+
+        if fast_greedy_advance:
+            emitted = decode_strategy.advance_speculative(predicted, verify_log_probs, advance_count, finished)
+            step += advance_count
+            last_advanced = advance_count - 1
+            if streamer is not None:
+                for index in range(advance_count):
+                    streamer.put(emitted[:, index])
+        else:
+            last_advanced = 0
+            for index in range(accepted + 1):
+                decode_strategy.advance(verify_log_probs[:, index, :], None)
+                step += 1
+                last_advanced = index
+                if streamer is not None:
+                    streamer.put(decode_strategy.current_predictions[:1])
+                if any(any(done) for done in decode_strategy.is_finished_list):
+                    break
+
+        self.model.set_mtp_context(
+            verify_hidden[:, : last_advanced + 1, :],
+            predicted[:, : last_advanced + 1],
+            hidden_position + 1,
+        )
+
+        # The verifier's hidden at `last_advanced` produced the current token,
+        # so it is the correct context for drafting the next chunk.
+        return (
+            step,
+            verify_hidden[:, last_advanced : last_advanced + 1, :],
+            hidden_position + 1 + last_advanced,
         )
 
     def _score_target(self, batch, enc_out, src_len):

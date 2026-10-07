@@ -159,6 +159,31 @@ class Inference(object):
         self.image_token_id_list = image_token_id_list
 
         self.self_attn_backend = config.self_attn_backend
+        self.self_speculative_decoding = bool(getattr(config, "self_speculative_decoding", False))
+        self.self_speculative_num_tokens = max(1, int(getattr(config, "self_speculative_num_tokens", 1)))
+
+    def _log_inference_backends(self, speculative=False):
+        from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
+        from eole.utils.inference_backends import inference_backend_summary
+
+        signature = (
+            id(self.model),
+            EOLE_TORCH_COMPILE,
+            EOLE_COMPILE_MODE,
+            speculative,
+            getattr(self, "self_speculative_num_tokens", 0),
+        )
+        if getattr(self, "_backend_log_signature", None) == signature:
+            return
+        for line in inference_backend_summary(
+            self.model,
+            EOLE_TORCH_COMPILE,
+            EOLE_COMPILE_MODE,
+            speculative,
+            getattr(self, "self_speculative_num_tokens", 0),
+        ):
+            self._log(line)
+        self._backend_log_signature = signature
 
     def _log(self, msg):
         if self.logger:
@@ -551,6 +576,9 @@ class Inference(object):
         step=None,
         return_attn=False,
         images=None,
+        return_hidden=False,
+        return_all_hidden=False,
+        profile_events=None,
     ):
 
         # Decoder forward, takes [batch, tgt_len, nfeats] as input
@@ -579,10 +607,19 @@ class Inference(object):
             image_locations = None
 
         tgt_pad_mask = decoder_in.eq(self._tgt_pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+        if step is not None and step > 0:
+            # Generated tokens are real cache inputs, even if their ID equals
+            # PAD. Sequential decode already consumes them; a multi-token
+            # verifier must not turn those same inputs into GDN no-ops.
+            tgt_pad_mask = torch.zeros_like(tgt_pad_mask)
 
         if step == 0:
             self.model.decoder._init_cache(emb, tgt_pad_mask, enc_out=enc_out)
 
+        decoder_events = None
+        if profile_events is not None:
+            decoder_events = (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
+            decoder_events[0].record()
         dec_out, dec_attn = self.model.decoder(
             emb,
             enc_out=enc_out,
@@ -597,16 +634,32 @@ class Inference(object):
             src_ids=decoder_in if step == 0 else None,
         )
 
+        if decoder_events is not None:
+            decoder_events[1].record()
+            profile_events.setdefault("verify_decoder", []).append(decoder_events)
+
         # Generator forward.
+        all_hidden = dec_out if return_all_hidden else None
         if "std" in dec_attn:
             attn = dec_attn["std"]
         else:
             attn = None
         if step == 0 and dec_out.dim() == 3 and dec_out.size(1) > 1:
             dec_out = dec_out[:, -1:, :]
+        vocab_events = None
+        if profile_events is not None:
+            vocab_events = (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
+            vocab_events[0].record()
         scores = self.model.generator(dec_out.squeeze(1))
         log_probs = log_softmax(scores, dim=-1)  # we keep float16 if FP16
+        if vocab_events is not None:
+            vocab_events[1].record()
+            profile_events.setdefault("verify_vocab", []).append(vocab_events)
         # returns [(batch_size x beam_size), vocab_size]
+        if return_hidden:
+            if return_all_hidden:
+                return log_probs, attn, dec_out, all_hidden
+            return log_probs, attn, dec_out
         return log_probs, attn
 
     def predict_batch(self, batch, attn_debug, streamer=None):

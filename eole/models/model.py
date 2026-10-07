@@ -1219,7 +1219,230 @@ class EncoderDecoderScoringModel(EncoderDecoderModel):
         return torch.clamp(scores, self.score_min, self.score_max).detach().cpu()
 
 
-class DecoderModel(BaseModel):
+class MTPDraftingMixin:
+    """Inference-time greedy drafting shared by decoder-only and VL models."""
+
+    @torch.no_grad()
+    def init_mtp_cache(self, target_hidden, input_ids, max_new_tokens):
+        """Prime Qwen's recurrent MTP attention cache from target prefill states."""
+        self.clear_mtp_cache()
+        if not self.mtp_heads or getattr(self.mtp_heads[0], "emb_norm", None) is None:
+            return
+
+        head = self.mtp_heads[0]
+        attention = head.layer.self_attn
+        batch_size, prompt_len, hidden_size = target_hidden.shape
+        prefix_len = max(prompt_len - 1, 0)
+        capacity = max(prefix_len + max_new_tokens + 2, 1)
+        old_cache = attention.kcache, attention.vcache, attention.cache_leftpad
+        attention.kcache = torch.zeros(
+            batch_size,
+            capacity,
+            attention.heads_kv,
+            attention.dim_per_head,
+            device=target_hidden.device,
+            dtype=target_hidden.dtype,
+        )
+        attention.vcache = torch.zeros_like(attention.kcache)
+        attention.cache_leftpad = torch.zeros(batch_size, device=target_hidden.device, dtype=torch.int32)
+        self._mtp_cache_attention = attention
+        self._mtp_cache_old = old_cache
+        self._mtp_cache_len = 0
+        self._mtp_cache_capacity = capacity
+        self._mtp_pending = None
+
+        if prefix_len == 0:
+            return
+
+        device = target_hidden.device
+        positions = torch.arange(prefix_len, device=device)
+        pad_idx = getattr(self, "pad_idx", None)
+        rope = getattr(self.decoder, "rope", None)
+        position_embeddings = rope.cos_sin[:prefix_len] if rope is not None and rope.cos_sin is not None else None
+        cache_seqlens = torch.zeros(batch_size, device=device, dtype=torch.int32)
+        use_flash_cache = (
+            target_hidden.is_cuda
+            and hasattr(attention, "flash_attn_with_kvcache")
+            and (pad_idx is None or not input_ids.eq(pad_idx).any())
+        )
+        mask = None
+        if not use_flash_cache:
+            key_positions = torch.arange(capacity, device=device)
+            mask = (key_positions[None, :] <= positions[:, None])[None, None]
+            if pad_idx is not None:
+                key_valid = torch.ones(batch_size, capacity, dtype=torch.bool, device=device)
+                key_valid[:, :prefix_len] = input_ids[:, 1 : prefix_len + 1].ne(pad_idx) & input_ids[:, :prefix_len].ne(
+                    pad_idx
+                )
+                mask = mask & key_valid[:, None, None, :]
+        cache_kwargs = (
+            {"cache_seqlens": cache_seqlens}
+            if use_flash_cache
+            else {"cache_seqlens": cache_seqlens, "cache_slice": positions}
+        )
+        head(
+            target_hidden[:, :prefix_len],
+            self.tgt_emb.embeddings(input_ids[:, 1 : prefix_len + 1]),
+            attn_mask=None if use_flash_cache else mask,
+            position_embeddings=position_embeddings,
+            **cache_kwargs,
+        )
+        self._mtp_cache_len = prefix_len
+
+    def commit_mtp_draft(self, accepted_inputs):
+        """Keep only MTP KV entries corresponding to verified input tokens."""
+        pending = getattr(self, "_mtp_pending", None)
+        if pending is None:
+            return
+        start, target_inputs = pending
+        # Only the first proposal pass uses verified target states. Later
+        # recurrent passes use draft states and must be overwritten next cycle,
+        # even when the corresponding draft tokens were accepted.
+        self._mtp_cache_len = start + target_inputs if accepted_inputs > 0 else start
+        self._mtp_pending = None
+
+    def set_mtp_context(self, target_hidden, shifted_tokens, position):
+        """Queue the next first proposal pass, as vLLM shifts target inputs.
+
+        Each verified target hidden is paired with its following token. The
+        final token is the target correction/bonus, so this block also catches
+        up the MTP cache after a fully accepted speculative block.
+        """
+        if getattr(self, "_mtp_cache_attention", None) is not None:
+            self._mtp_refresh = (target_hidden, shifted_tokens, position)
+
+    @torch.no_grad()
+    def clear_mtp_cache(self):
+        """Release the per-request MTP KV cache and restore prior module state."""
+        attention = getattr(self, "_mtp_cache_attention", None)
+        if attention is not None:
+            attention.kcache, attention.vcache, attention.cache_leftpad = self._mtp_cache_old
+        self._mtp_cache_attention = None
+        self._mtp_cache_old = None
+        self._mtp_cache_len = 0
+        self._mtp_cache_capacity = 0
+        self._mtp_pending = None
+        self._mtp_refresh = None
+
+    @torch.no_grad()
+    def draft_mtp_tokens(self, hidden, seed_token, position, max_tokens=None, profile_events=None):
+        """Draft tokens with native MTP heads and their causal prefix state."""
+        drafts = []
+        if not self.mtp_heads:
+            return drafts
+
+        def record_start():
+            if profile_events is None:
+                return None
+            start_event = torch.cuda.Event(enable_timing=True)
+            start_event.record()
+            return start_event
+
+        def record_end(events, start_event):
+            if start_event is not None:
+                end_event = torch.cuda.Event(enable_timing=True)
+                end_event.record()
+                events.append((start_event, end_event))
+
+        qwen_recurrent_mtp = getattr(self.mtp_heads[0], "emb_norm", None) is not None
+        rope = getattr(self.decoder, "rope", None)
+        token = seed_token
+
+        if qwen_recurrent_mtp:
+            # Like vLLM, refresh the first pass from verified target states;
+            # feed the last MTP output back for subsequent draft positions.
+            draft_count = max_tokens if max_tokens is not None else len(self.mtp_heads)
+            head = self.mtp_heads[0]
+            attention = getattr(self, "_mtp_cache_attention", None)
+            if attention is None:
+                # Direct callers without a prefill cache can still request the
+                # first draft token, but cannot use recurrent context safely.
+                position_embeddings = None
+                if rope is not None and rope.cos_sin is not None:
+                    position_embeddings = rope.cos_sin[position : position + 1]
+                output = head(
+                    hidden,
+                    self.tgt_emb.embeddings(seed_token),
+                    position_embeddings=position_embeddings,
+                )
+                return [self.generator(output[:, -1, :]).argmax(dim=-1, keepdim=True)]
+            start_cache_len = self._mtp_cache_len
+            refresh = getattr(self, "_mtp_refresh", None)
+            if refresh is not None:
+                hidden_states, token, first_position = refresh
+                self._mtp_refresh = None
+            else:
+                hidden_states, first_position = hidden, position
+            first_input_len = hidden_states.size(1)
+            if start_cache_len != first_position:
+                raise RuntimeError(
+                    f"MTP prefix length {start_cache_len} does not match target position {first_position}"
+                )
+            self._mtp_pending = (start_cache_len, first_input_len)
+            use_flash_cache = hidden.is_cuda and hasattr(attention, "flash_attn_with_kvcache")
+            for index in range(draft_count):
+                input_len = first_input_len if index == 0 else 1
+                cache_index = start_cache_len if index == 0 else start_cache_len + first_input_len + index - 1
+                input_position = first_position if index == 0 else position + index
+                token_embedding = self.tgt_emb.embeddings(token)
+                # FlashAttention's KV-cache kernel gets the causal boundary
+                # from cache_seqlens. Building a capacity-sized mask here is
+                # both redundant and expensive (especially with long-context
+                # cache reservations), and the Flash path never consumes it.
+                attn_mask = None
+                if not use_flash_cache:
+                    query_positions = torch.arange(cache_index, cache_index + input_len, device=hidden.device)
+                    attn_mask = (
+                        torch.arange(self._mtp_cache_capacity, device=hidden.device)[None, :]
+                        <= query_positions[:, None]
+                    )[None, None]
+                position_embeddings = None
+                if rope is not None and rope.cos_sin is not None:
+                    position_embeddings = rope.cos_sin[input_position : input_position + input_len]
+                head_start = record_start()
+                output = head(
+                    hidden_states,
+                    token_embedding,
+                    attn_mask=attn_mask,
+                    position_embeddings=position_embeddings,
+                    cache_seqlens=torch.full((hidden.size(0),), cache_index, device=hidden.device, dtype=torch.int32),
+                    **(
+                        {}
+                        if use_flash_cache
+                        else {"cache_slice": torch.arange(cache_index, cache_index + input_len, device=hidden.device)}
+                    ),
+                )
+                if profile_events is not None:
+                    record_end(profile_events.setdefault("mtp_head", []), head_start)
+                hidden_states = output[:, -1:, :]
+                vocab_start = record_start()
+                token = self.generator(hidden_states[:, 0, :]).argmax(dim=-1, keepdim=True)
+                if profile_events is not None:
+                    record_end(profile_events.setdefault("draft_vocab", []), vocab_start)
+                drafts.append(token)
+            return drafts
+
+        # DeepSeek-style checkpoints have distinct heads trained for each
+        # successive draft position, each conditioned on the main hidden.
+        draft_count = min(max_tokens if max_tokens is not None else len(self.mtp_heads), len(self.mtp_heads))
+        for index, head in enumerate(self.mtp_heads[:draft_count]):
+            position_embeddings = None
+            if rope is not None and rope.cos_sin is not None:
+                position_embeddings = rope.cos_sin[position : position + 1]
+            token_embedding = self.tgt_emb.embeddings(token)
+            head_start = record_start()
+            output = head(hidden, token_embedding, position_embeddings=position_embeddings)
+            if profile_events is not None:
+                record_end(profile_events.setdefault("mtp_head", []), head_start)
+            vocab_start = record_start()
+            token = self.generator(output[:, -1, :]).argmax(dim=-1, keepdim=True)
+            if profile_events is not None:
+                record_end(profile_events.setdefault("draft_vocab", []), vocab_start)
+            drafts.append(token)
+        return drafts
+
+
+class DecoderModel(MTPDraftingMixin, BaseModel):
     """DecoderModel Class
     Currently TransformerLMDecoder is the only LM decoder implemented
 
@@ -1249,12 +1472,11 @@ class DecoderModel(BaseModel):
     def build_blocks(cls, model_config, vocabs, running_config=None):
         tgt_emb = build_tgt_emb(model_config, vocabs, running_config=running_config)
         decoder = build_decoder(model_config, running_config=running_config)
-        # Build MTP heads when configured. MTP heads are only used during
-        # training (see forward()), so skip building them for inference to
-        # avoid needlessly allocating extra parameters (and potential OOM).
+        # MTP heads are used during training and can also be loaded for
+        # inference-time self-speculative decoding.
         num_mtp_heads = getattr(model_config.decoder, "num_mtp_heads", 0)
         mtp_heads = nn.ModuleList()
-        if num_mtp_heads > 0 and not isinstance(running_config, InferenceConfig):
+        if num_mtp_heads > 0:
             for _ in range(num_mtp_heads):
                 mtp_heads.append(MTPHead(model_config.decoder, running_config=running_config))
         return cls(
@@ -1856,7 +2078,7 @@ class EncoderScoringModel(BaseModel):
         return self.estimator(features).view(-1).detach().cpu()
 
 
-class VisionEncoderDecoderModel(BaseModel):
+class VisionEncoderDecoderModel(MTPDraftingMixin, BaseModel):
     """VisionEncoderDecoderModel Class
     See :class:`~eole.models.BaseModel` for options."""
 

@@ -394,6 +394,7 @@ class TransformerDecoder(DecoderBase):
         self.cache_seqlens = None
         self.hidden_size = decoder_config.hidden_size
         self.compiled_shapes = set()
+        self._speculative_forward = False
 
         # Chunked prefill configuration.
         # When sliding_window > 0 the window size is the natural chunk boundary;
@@ -831,7 +832,7 @@ class TransformerDecoder(DecoderBase):
         B, S, _ = emb.size()
         src_ids = kwargs.pop("src_ids", None)
 
-        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and S == 1:
+        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and (S == 1 or self._speculative_forward):
             return self._forward_compile(emb, **kwargs)
         # Determine the effective chunk size for chunked prefill.
         # Sliding window takes precedence (it is a correctness requirement);
