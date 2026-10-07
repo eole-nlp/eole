@@ -8,7 +8,8 @@ Eole is a PyTorch toolkit for training, fine-tuning, evaluating, and serving
 encoder, decoder, and encoder-decoder models. It originated from OpenNMT-py.
 
 Start with the [README and installation instructions](index.md#installation),
-the [quickstart](quickstart.md), or the [recipe index](recipes/README.md).
+the [quickstart](quickstart.md), the [Docker guide](../../docker.md), or the
+[recipe index](recipes/README.md).
 The reference sidebar is generated from the current Python configuration and API.
 
 Current workflows include supported Hugging Face model conversion and direct

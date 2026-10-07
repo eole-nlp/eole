@@ -208,19 +208,17 @@ authentication. See individual recipes for model-specific requirements.
 
 ### Docker
 
-[Published images](https://github.com/eole-nlp/eole/pkgs/container/eole) provide a
-versioned environment:
+Requires Docker, a compatible NVIDIA driver, and the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
-```bash
-docker run --rm -it --gpus all \
-  ghcr.io/eole-nlp/eole:0.6.0-torch2.11.0-ubuntu24.04-cuda13.0
-```
+Use a [published image](https://github.com/eole-nlp/eole/pkgs/container/eole) or
+build an image from your checkout. The [Docker guide](docs/docker.md) covers GPU
+prerequisites, local builds, CUDA kernels, model/data mounts, YAML inference and
+training, and serving an API endpoint.
 
-Requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
-This image is the **0.6.0 release**; newer source features such as MTP inference
-and REINFORCE require a checkout containing those changes. See [docker/](https://github.com/eole-nlp/eole/tree/main/docker)
-for building an image from your checkout. Mount model storage and forward port
-5000 when serving from a container.
+Release images contain that release's features; use a current checkout image for
+newer features such as MTP. Eole's CUDA extension must be built with GPU access,
+which a normal Docker image build does not provide.
 
 ## Documentation and contributing
 
