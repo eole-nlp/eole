@@ -77,51 +77,54 @@ def build_vocab(config, specials):
 
 
 def _read_vocab_file(vocab_path, min_count):
-    """Loads a vocabulary from the given path.
+    """Load tokens, optionally followed by integer frequency counts.
 
-    Args:
-        vocab_path (str): Path to utf-8 text file containing vocabulary.
-            Each token should be on a line, may followed with a count number
-            seperate by space if `with_count`. No extra whitespace is allowed.
-        min_count (int): retains only tokens with min_count frequency.
+    A tab separates token and count without modifying the token, including its
+    whitespace. Legacy whitespace-separated counts are also accepted. The first
+    line determines whether counts are present; token-only files preserve each
+    complete line. Counts must be nonnegative integers.
     """
-
     if not os.path.exists(vocab_path):
         raise RuntimeError("Vocabulary not found at {}".format(vocab_path))
-    else:
-        with codecs.open(vocab_path, "rb") as f:
-            lines = [line.decode("utf-8") for line in f.read().split(b"\n")]
-            lines = lines[:-1]
 
-            first_line = lines[0].split("\t", 1)
-            has_count = len(first_line) == 2
-            if has_count:
-                vocab = []
-                for i, line in enumerate(lines, start=1):
-                    parts = line.split("\t", 1)
-                    token = parts[0]
-                    if not token:
-                        raise ValueError(
-                            f"Invalid vocab format at line {i} in {vocab_path}: "
-                            f"expected 'token count' but token is empty, got '{line}'"
-                        )
-                    count_str = parts[1].strip()
-                    if not count_str:
-                        raise ValueError(
-                            f"Invalid vocab format at line {i} in {vocab_path}: "
-                            f"expected 'token count' but count is empty, got '{line}'"
-                        )
-                    try:
-                        count = int(count_str)
-                    except ValueError as e:
-                        raise ValueError(
-                            f"Invalid count value at line {i} in {vocab_path}: " f"expected integer, got {parts[1]!r}"
-                        ) from e
-                    if count >= min_count:
-                        vocab.append(token)
-            else:
-                vocab = lines
-            return vocab
+    with codecs.open(vocab_path, "rb") as f:
+        contents = f.read()
+    if not contents:
+        raise ValueError(f"Empty vocabulary file: {vocab_path}")
+    lines = [line.decode("utf-8").removesuffix("\r") for line in contents.split(b"\n")]
+    # Remove only the final line terminator, not an unterminated final token.
+    if contents.endswith(b"\n"):
+        lines.pop()
+
+    def split_count(line):
+        # Split from the right to also preserve literal tabs inside tokens.
+        return line.rsplit("\t", 1) if "\t" in line else line.split(None, 1)
+
+    first_line = split_count(lines[0])
+    has_count = "\t" in lines[0] or (len(first_line) == 2 and first_line[1].strip().isdigit())
+    if not has_count:
+        return lines
+
+    vocab = []
+    for line_number, line in enumerate(lines, start=1):
+        parts = split_count(line)
+        prefix = f"Invalid vocab format at line {line_number} in {vocab_path}"
+        if len(parts) != 2:
+            raise ValueError(f"{prefix}: expected token and count, got {line!r}")
+        token, count_str = parts
+        if not token:
+            raise ValueError(f"{prefix}: token is empty, got {line!r}")
+        if not count_str.strip():
+            raise ValueError(f"{prefix}: count is empty, got {line!r}")
+        try:
+            count = int(count_str)
+        except ValueError as error:
+            raise ValueError(f"{prefix}: expected integer count, got {count_str!r} in {line!r}") from error
+        if count < 0:
+            raise ValueError(f"{prefix}: count must be nonnegative, got {count_str!r} in {line!r}")
+        if count >= min_count:
+            vocab.append(token)
+    return vocab
 
 
 def vocabs_to_dict(vocabs):

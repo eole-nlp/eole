@@ -16,7 +16,7 @@ class TestVocabFileValidation(unittest.TestCase):
         """Test error handling for malformed vocab files."""
         content, expected_line, expected_msg = test_case
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".vocab", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", suffix=".vocab", delete=False) as f:
             f.write(content)
             vocab_path = f.name
 
@@ -34,7 +34,7 @@ class TestVocabFileValidation(unittest.TestCase):
         """Test correct vocab file reading with different formats."""
         content, min_count, expected_vocab = test_case
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".vocab", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", suffix=".vocab", delete=False) as f:
             f.write(content)
             vocab_path = f.name
 
@@ -43,6 +43,22 @@ class TestVocabFileValidation(unittest.TestCase):
             self.assertEqual(vocab, expected_vocab)
         finally:
             os.unlink(vocab_path)
+
+    def test_empty_vocab_reports_filename(self):
+        with tempfile.NamedTemporaryFile() as f:
+            with self.assertRaisesRegex(ValueError, "Empty vocabulary file") as context:
+                _read_vocab_file(f.name, min_count=1)
+            self.assertIn(f.name, str(context.exception))
+
+    def test_invalid_row_reports_filename_and_escaped_content(self):
+        with tempfile.NamedTemporaryFile() as f:
+            f.write("hello\t100\nworld\tbad\u200b\n".encode("utf-8"))
+            f.flush()
+            with self.assertRaises(ValueError) as context:
+                _read_vocab_file(f.name, min_count=1)
+            self.assertIn(f.name, str(context.exception))
+            self.assertIn("line 2", str(context.exception))
+            self.assertIn("\\u200b", str(context.exception))
 
 
 def _add_test(param_setting, methodname, idx):
@@ -66,12 +82,35 @@ test_wrong_vocab = [
     # (content, expected_line, expected_error_msg)
     ("\t100\n", 1, "token is empty"),
     ("test\t\n", 1, "count is empty"),
+    ("hello\t100\nworld\n", 2, "expected token and count"),
+    ("hello\t100\nworld\tbad\n", 2, "expected integer count"),
+    ("hello\t100\nworld\t\n", 2, "count is empty"),
+    ("hello\t100\n\t2\n", 2, "token is empty"),
+    ("hello\t100\n\n", 2, "expected token and count"),
+    ("hello 100\nworld\n", 2, "expected token and count"),
+    ("hello 100\nworld bad\n", 2, "expected integer count"),
+    ("hello\t100\nworld\t-1\n", 2, "count must be nonnegative"),
+    ("hello\t100\nworld\tbad\u200b\n", 2, "\\u200b"),
 ]
 
 
 test_correct_vocab = [
     # (content, min_count, expected_vocab)
     ("hello\t1\n", 1, ["hello"]),
+    ("hello 100\nworld 1\n", 10, ["hello"]),
+    ("hello   100\nworld 1\n", 10, ["hello"]),
+    ("hello\t100\nworld 1\n", 10, ["hello"]),
+    ("hello 100\nworld\t1\n", 10, ["hello"]),
+    ("hello\nworld\n", 999, ["hello", "world"]),
+    ("123\nworld\n", 999, ["123", "world"]),
+    ("hello world\nother phrase\n", 999, ["hello world", "other phrase"]),
+    ("hello\t100\nworld\t1", 1, ["hello", "world"]),
+    ("hello\nworld", 999, ["hello", "world"]),
+    ("hello\t100\r\nworld\t1\r\n", 1, ["hello", "world"]),
+    ("hello\r\nworld\r\n", 999, ["hello", "world"]),
+    ("a\u00a0b\t100\n", 1, ["a\u00a0b"]),
+    (" leading and trailing \t100\n", 1, [" leading and trailing "]),
+    ("a\tb\t100\n", 1, ["a\tb"]),
     ("hello\t999999\n", 1, ["hello"]),
     ("hello\t0\n", 1, []),
     ("hello\t1\n", 2, []),
