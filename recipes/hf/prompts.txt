@@ -1,0 +1,1 @@
+<|im_start|>user｟newline｠Explain machine translation in one sentence.<|im_end|>｟newline｠<|im_start|>assistant｟newline｠<think>｟newline｠｟newline｠</think>｟newline｠｟newline｠

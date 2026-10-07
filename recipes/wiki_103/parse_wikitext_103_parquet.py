@@ -19,4 +19,4 @@ for dataset in ["test", "train", "validation"]:
     with open(out_path, "w") as f:
         for line in df["text"]:
             if line.strip() != "":
-                f.write(line)
+                f.write(line.rstrip("\n") + "\n")

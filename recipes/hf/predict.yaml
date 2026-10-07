@@ -1,0 +1,15 @@
+# Direct inference from an HF model ID; no separate conversion command.
+model_path: Qwen/Qwen3.5-0.8B
+src: recipes/hf/prompts.txt
+output: /tmp/eole-hf-output.txt
+gpu_ranks: [0]
+compute_dtype: bf16
+self_attn_backend: pytorch
+beam_size: 1
+n_best: 1
+top_k: 1
+top_p: 0.0
+max_length: 128
+max_length_ratio: 0
+batch_size: 1
+report_time: true

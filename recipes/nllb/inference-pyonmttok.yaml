@@ -1,4 +1,4 @@
-model_path: "nllb-1.3b"
+model_path: "./nllb-1.3b-onmt"
 transforms: ["onmt_tokenize", "prefix"]
 transforms_configs:
   prefix:

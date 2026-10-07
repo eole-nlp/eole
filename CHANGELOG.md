@@ -2,6 +2,20 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## Unreleased
+
+* Native MTP training heads and Qwen3.8-27B speculative greedy inference (#407, #412).
+* REINFORCE fine-tuning with scorer rewards and optional reference-model KL penalty (#400).
+* RL training extension points and generation utilities (#389).
+* Opt-in periodic device cache clearing during training (#402).
+* Reference-optional XCOMET prediction scoring fix (#399).
+* Keep advertised server context limits stable across requests with different generation budgets.
+* Preserve declared numeric/boolean/container tool argument types for Qwen XML tool calls in Anthropic Messages responses.
+* Task-oriented README and recipe index; Qwen3.8/MTP and Claude Code recipes.
+
+These features require a source checkout after 0.6.0; they are not included in
+the published 0.6.0 Docker image. DPO, GRPO, and PPO are still planned.
+
 ## 0.6.0
 
 * missing files by @vince62s in https://github.com/eole-nlp/eole/pull/395

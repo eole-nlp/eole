@@ -13,18 +13,19 @@ export HF_TOKEN=<your_hf_token>
 eole convert HF --model_dir tencent/HunyuanOCR --output $EOLE_MODEL_DIR/HunyuanOCR --token $HF_TOKEN
 ```
 
-Manually add at the bottom of the config.json the optional eos (HF config file is not up to date)
+## Run the image examples
 
-```
-  "inference": {
-    "optional_eos": ["<｜hy_Assistant｜>"],
+Run from the repository root so bundled image paths resolve:
+
+```bash
+python recipes/hunyuanocr/test_inference.py
 ```
 
-## Run the test script
-
-```
-python3 test_inference.py
-```
+The script sets `optional_eos: ["<｜hy_Assistant｜>"]` directly; no manual
+`config.json` edit is needed. It uses GPU 0, BF16, FlashAttention, and four bundled
+image/prompt examples. Install `flash-attn --no-build-isolation`, or change the
+script's attention backend to `pytorch`. Printed outputs below are historical
+examples, not a fresh validation of the current checkout.
 
 This script shows the difference between an English and a Chinese prompt for the same task.
 Chinese gives better results.

@@ -2,15 +2,11 @@
 # https://github.com/deepseek-ai/DeepSeek-OCR/blob/main/DeepSeek-OCR-master/DeepSeek-OCR-vllm/run_dpsk_ocr_pdf.py
 # except part used to run the model with Eole
 import os
-import fitz
-import img2pdf
 import io
 import re
 import ast
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-from eole.inference_engine import InferenceEnginePY
-from eole.config.run import PredictConfig
 
 
 class Colors:
@@ -22,6 +18,8 @@ class Colors:
 
 
 def pdf_to_images_ocr_optimized(pdf_path, max_px=1024):
+    import fitz
+
     images = []
     doc = fitz.open(pdf_path)
 
@@ -45,6 +43,8 @@ def pil_to_pdf_img2pdf(pil_images, output_path):
     """
     if not pil_images:
         return
+    import img2pdf
+
     image_bytes_list = []
     for img in pil_images:
         if img.mode != "RGB":
@@ -153,35 +153,27 @@ def process_image_with_refs(image, ref_texts, jdx):
 
 if __name__ == "__main__":
 
-    OUTPUT_PATH = "/mnt/InternalCrucial4/LLM_work/DeepSeek-OCR/"
+    from argparse import ArgumentParser
+    import yaml
+
+    parser = ArgumentParser(description="Run DeepSeek-OCR on a PDF")
+    parser.add_argument("-c", "--config", required=True)
+    parser.add_argument("--input", required=True, help="Input PDF path")
+    parser.add_argument("--output-dir", required=True)
+    args = parser.parse_args()
+
+    from eole.inference_engine import InferenceEnginePY
+    from eole.config.run import PredictConfig
+
+    OUTPUT_PATH = args.output_dir
+    INPUT_PATH = args.input
     os.makedirs(OUTPUT_PATH, exist_ok=True)
-    os.makedirs(f"{OUTPUT_PATH}/images", exist_ok=True)
+    os.makedirs(os.path.join(OUTPUT_PATH, "images"), exist_ok=True)
 
     print(f"{Colors.RED}PDF loading .....{Colors.RESET}")
-
-    INPUT_PATH = "/mnt/InternalCrucial4/LLM_work/DeepSeek-OCR/deepseekocr.pdf"
     images = pdf_to_images_ocr_optimized(INPUT_PATH)
-
-    config = PredictConfig(
-        model_path="/mnt/InternalCrucial4/LLM_work/DeepSeek-OCR",
-        src="dummy",
-        max_length=8192,
-        gpu_ranks=[0],
-        compute_dtype="bf16",
-        self_attn_backend="flash",
-        top_p=0.0,
-        top_k=1,
-        temperature=0.0,
-        beam_size=1,
-        seed=12,
-        batch_size=48,
-        batch_type="sents",
-        report_time=True,
-        fuse_kvq=True,
-        fuse_gate=True,
-    )
-
-    config.data_type = "image"
+    with open(args.config) as config_file:
+        config = PredictConfig(**yaml.safe_load(os.path.expandvars(config_file.read())))
 
     engine = InferenceEnginePY(config)
 
@@ -194,7 +186,10 @@ if __name__ == "__main__":
             },
         )
 
-    pred = engine.infer_list(model_input)
+    try:
+        pred = engine.infer_list(model_input)
+    finally:
+        engine.terminate()
     outputs_list = []
     for i in range(len(model_input)):
         # pred tuple (score, estim, preds), preds batch of nbest hence 0

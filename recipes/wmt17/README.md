@@ -2,13 +2,16 @@
 
 ---
 **NOTE**
-To make your life easier, run these commands from the recipe directory (here `recipes/wmt17`).
+Run the commands below from the repository root; the preparation step changes
+into `recipes/wmt17`, and subsequent commands stay there. Install `subword-nmt`
+for BPE preparation; the SentencePiece route also needs `spm_train` and `spm_encode`
+executables.
 ---
 
 ### Tokenization methods
 
 The following configurations as provided as example:
-- `wmt17_ende_yaml`: "legacy" configuration, using already tokenized data;
+- `wmt17_ende.yaml`: "legacy" configuration, using already tokenized data;
 - `wmt17_ende_bpe.yaml`: on-the-fly bpe tokenization, using the "official" `subword-nmt` based `bpe` transform;
 - `wmt17_ende_bpe_onmt_tokenize.yaml`: on-the-fly bpe tokenization, using the `pyonmttok` based `onmt_tokenize` transform;
 - `wmt17_ende_spm.yaml`: on-the-fly sentencepiece tokenization, using the official `sentencepiece` based `sentencepiece` transform;
@@ -27,7 +30,7 @@ Options:
 - `--method`: `bpe`/`sentencepiece` (subwords method to use)
 - `--encode`: `true`/`false` (tokenize all datasets, not necessary if using on the fly transforms)
 
-If you want to use one of the aforementioned configurations with on-the-fly transforms, set `--encode false`, and either of `--method bpe`/`--method sentecepiece`.
+If you want to use one of the aforementioned configurations with on-the-fly transforms, set `--encode false`, and either of `--method bpe`/`--method sentencepiece`.
 
 ### Train
 
@@ -37,7 +40,8 @@ Choose the config you want to run:
 export CONFIG="wmt17_ende_bpe.yaml"
 ```
 
-Training the following big transformer for 50K steps takes less than 10 hours on a single RTX 4090
+A historical run of this big Transformer for 50K steps took less than 10 hours
+on one RTX 4090. That timing has not been rerun on the current checkout.
 
 ```bash
 eole build_vocab --config $CONFIG --n_sample -1 # --num_threads 4
@@ -53,12 +57,15 @@ Notes:
 - the "root" model links to the last saved step, but you can choose any step subfolder if needed (e.g. `--model_path wmt17_en_de/transformer_big_bpe/step_10000`)
 
 ```bash
-eole predict --src wmt17_en_de/test.src.bpe --model_path wmt17_en_de/transformer_big_bpe --beam_size 5 --batch_size 4096 --batch_type tokens --output wmt17_en_de/pred.trg.bpe --gpu 0
-sed -re 's/@@( |$)//g' < wmt17_en_de/pred.trg.bpe > wmt17_en_de/pred.trg.tok
+eole predict --src wmt17_en_de/test.src --model_path ./wmt17_en_de/transformer_big_bpe --beam_size 5 --batch_size 4096 --batch_type tokens --output wmt17_en_de/pred.trg.tok --gpu_ranks 0
 sacrebleu -tok none wmt17_en_de/test.trg < wmt17_en_de/pred.trg.tok
 ```
 
-BLEU scored at 40K, 45K, 50K steps on the test set (Newstest2016)
+The prediction command above matches `wmt17_ende_bpe.yaml`: saved transforms
+tokenize raw source text and remove BPE segmentation from output. Use the matching
+checkpoint path if you choose another YAML.
+
+Historical BLEU scored at 40K, 45K, 50K steps on the test set (Newstest2016)
 
 ```
 {

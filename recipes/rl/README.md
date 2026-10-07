@@ -1,8 +1,10 @@
 # RL fine-tuning recipes
 
-This folder contains example configurations for RL fine-tuning methods built on
-top of the "RL readiness" refactoring (`ModelOutput`, `BaseModel.compute_log_probs()`,
-`eole.utils.generate_utils`, the `Trainer._train_step()` extension point).
+Fine-tune an existing checkpoint with on-policy REINFORCE and a registered
+scorer reward. Run commands from the repository root on a source checkout after
+0.6.0. `reinforce.yaml` is a configuration template: provide a compatible base
+checkpoint, tokenizer/vocabulary, and aligned prompt/reference files before
+launching. It does not download a model or dataset.
 
 ## Status
 
@@ -40,15 +42,11 @@ Adapt `reinforce.yaml` to your paths and then launch with:
 eole train --config recipes/rl/reinforce.yaml
 ```
 
-You can override any field on the command line:
-
-```bash
-eole train --config recipes/rl/reinforce.yaml \
-    training.train_from my_model/checkpoint \
-    training.model_path my_rl_output/model \
-    training.rl_reward_metric BLEU \
-    training.rl_kl_coef 0.05
-```
+Edit the nested `training:` fields in a copy of the YAML to change model paths,
+reward metric, or KL coefficient. Point `train_from` and `rl_reference_model` at
+the same starting checkpoint when enabling the KL penalty. If GPU memory is
+limited, begin with short rollouts and small batches; the frozen reference and
+neural reward models consume additional memory.
 
 ### Reward metric (`rl_reward_metric`)
 
@@ -64,7 +62,7 @@ Available built-in scorers:
 | `COMET-KIWI`     | Yes | Quality-estimation COMET (no references needed) |
 | `EOLE-COMET`     | No | COMET model converted with `eole convert COMET` |
 | `EOLE-COMET-KIWI`| Yes | QE COMET model converted with `eole convert COMET` |
-| `EOLE-XCOMET`    | No | xCOMET model converted with `eole convert COMET` |
+| `EOLE-XCOMET`    | Optional reference | xCOMET scalar scoring supports source + hypothesis without a reference |
 | `EOLE-METRICX`   | No | MetricX model converted with `eole convert METRICX` |
 | `EOLE-METRICX-QE`| Yes | MetricX QE model (reference-free) |
 | `WER`            | No (needs `path_tgt`) | Word error rate |
@@ -73,9 +71,10 @@ Reference-free scorers (marked *Yes*) do not require `path_tgt`, but the field
 is still needed for batch normalization — point it at a dummy file with one
 placeholder token per line if you have no references.
 
-**For real RLHF workloads**, replace `BLEU` with a quality-estimation scorer
-such as `COMET-KIWI` or `EOLE-COMET-KIWI` so no reference translations are
-required.
+For translation reward experiments without references, choose a quality-estimation
+scorer such as `COMET-KIWI` or `EOLE-COMET-KIWI`. These translation metrics are
+not general-purpose coding or chat preference reward models. See the
+[scoring recipes](../scoring/README.md) for scorer configuration and checkpoints.
 
 ### Reference model (`rl_reference_model`) and KL penalty
 

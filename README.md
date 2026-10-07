@@ -1,215 +1,167 @@
 # EOLE
 
-## Latest: Comet and MetricX scoring with Eole-nlp (using converted legacy models)
-
-Eole-nlp enables to use the pretrained models for scoring as well as scoring during training.
-
-see recipes[here](https://github.com/eole-nlp/eole/blob/main/recipes/scoring/README.md)
-
-
-## Chatbot in streaming mode - 60-65 tok/sec with Qwen3.5-27B-int4 (on RTX 5090)
-
-[Screencast from 2026-03-15 14-04-56.webm](https://github.com/user-attachments/assets/206632fd-a0a0-4189-a899-ba32343181fb)
-
-
 [![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://eole-nlp.github.io/eole)
 
-Open language modeling toolkit based on [PyTorch](https://pytorch.org)  (initially spun-off of OpenNMT-py)
+Eole is an open language modeling toolkit built on PyTorch, originally spun off
+from OpenNMT-py. Train, fine-tune, evaluate, and serve encoder, decoder, and
+encoder-decoder models in a compact, modular codebase built for experimentation.
 
+Use it for language generation, machine translation, neural translation scoring,
+vision and OCR, and speech recognition. Bring supported Hugging Face checkpoints
+or train your own architecture.
 
-## Top inference speed with torch.compile and Cudagraphs - as fast as vLLM / faster than CT2 on GPU. see [results](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md)
+## Choose your workflow
 
-Just reproduce with your own hardware:
-```
-git clone https://github.com/eole-nlp/eole
-cd eole
-pip install -e .
-export EOLE_MODEL_DIR=<where_to_store_models>
-export HF_TOKEN=<your_hf_token>
-eole convert HF --model_dir "google/gemma-3-1b-it" --output $EOLE_MODEL_DIR/gemma-3-1b-it --token $HF_TOKEN
-cd benchmarks/genai
-EOLE_TORCH_COMPILE="1" EOLE_COMPILE_MODE="0" python generate-eole.py
-```
-- First run will take 60-80 seconds to compile
-- Run it a second time and see the blast.
-- To accomplish this we performed a full refactor of the code: Encoders, Decoders, Adapters, Model classes, Trainer, Distributed training / Inference.
+| I want to… | Start here |
+|---|---|
+| Run a supported HF model without a separate conversion step | [Direct HF inference](recipes/hf/README.md) |
+| Run a local LLM with a chat API | [Model server](recipes/server/README.md) |
+| Try Qwen3.8-27B with MTP speculative decoding | [Qwen3.8 and MTP](recipes/qwen38/README.md) |
+| Use Claude Code with a locally served Qwen model | [Claude Code endpoint](recipes/claude-code/README.md) |
+| Try Qwen3.5 text and image inputs | [Qwen3.5](recipes/qwen35/README.md) |
+| Translate through a web interface | [EuroLLM](recipes/eurollm/README.md) |
+| Train a translation model | [WMT17](recipes/wmt17/README.md) |
+| Translate with a pretrained multilingual model | [NLLB](recipes/nllb/README.md) |
+| Generate text with Mistral | [Mistral](recipes/mistral/README.md) |
+| Fine-tune an LLM | [Llama2 LoRA](recipes/llama2/README.md) |
+| Fine-tune with a scorer reward | [REINFORCE](recipes/rl/README.md) |
+| Score translations or use neural metrics during training | [COMET, KIWI, XCOMET, and MetricX](recipes/scoring/README.md) |
+| Extract text from images and documents | [HunyuanOCR](recipes/hunyuanocr/README.md) or [DeepSeek-OCR](recipes/deepseekocr/README.md) |
+| Transcribe audio | [Whisper](recipes/whisper/README.md) |
+| Train a language model from scratch | [WikiText-103](recipes/wiki_103/README.md) or [FineWeb](recipes/fineweb10B/README.md) |
+| Evaluate model quality or inference speed | [MMLU](recipes/mmlu/README.md), [model validator](recipes/model-validator/README.md), or [benchmarks](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md) |
 
-[readmore](https://github.com/eole-nlp/eole/blob/main/TORCHCOMPILE_README.md)
+Browse the [full recipe index](recipes/README.md) for more workflows.
 
-We aim to maintain the **research-friendly** approach of the original project while including latest architectures (LLMs) and various other techniques.
-Our goal is to provide a comprehensive yet compact and modular codebase for experimenting with various types of language models (encoder, decoder, seq2seq).
+## Quickstart: serve a small chat model
 
-## HF Models supported
+Run from the repository root in a Python environment with a compatible CUDA
+PyTorch installation and an NVIDIA GPU. See [installation](#installation) for
+requirements and optional kernels.
 
-- **Qwen3.5 family** Including vision - Including Autoround (GPTQ quant)
-- **Whisper** see full detail and example in [recipe](https://github.com/eole-nlp/eole/tree/main/recipes/whisper)
-- **tencent/HunyuanOCR** End-to-End OCR model by Tencent. Uses more image token vs Deepseek but smaller LM. Results are impressive. (see [recipe](https://github.com/eole-nlp/eole/tree/main/recipes/hunyuanocr))
-- **deepseek-ai/DeepSeek-OCR** For now takes any image and rescales to 1024x1024 before processing - Gundam mode not implemented yet) - pdf_ocr to mmd replicated - check recipes
-- **tencent/Hunyuan-MT-7B** SOTA NMT at WMT25, better than Towerplus-9B and EuroLLM-9B
-- **Qwen/Qwen2/3** Non VL family. Includes Qwen3-30B-A3B
-- **google/gemma-3-27b-it** All Gemma3 family - supports text and image input
-- **Mistral-3.1-24B-instruct** supports all Mistral AI models (text and image input) - includes Ministral 3, Mixtral, Mathstral
-- **meta-llama/Llama-3.X** models
-- **microsoft/Phi-2/3** models
-
-
-Of course you can train your own architecture (Decoder only, Encoder Only, or EncoderDecoder Model)
-
-## Latest developments
-
-- **LM_scoring** Updated perplexity tool to compare the perplexity of a model family (ex: Qwen3.5 27B, 9B, 4B, ... using the same tokenizer)
-- **gguf conversion** Included for educational purpose - show how to convert a gguf quantized (or not) to Eole safetensor model keeping (almost) the same Quant
-- **Autoround support** Uses GPTQModel to support int4 quantization
-- **Comet scorer** You can now use both BLEU and COMET during validation to measure the improvement of training
-- **torch.compile compliant** amazing inference speed (vLLM level)
-- **high inference speed** using Flash Attention (decoding with in-place KVCache), Cuda kernels for RMSNorm, Rope, Activations - Triton very fast MoE, fused MLP Gate, fused KVQ Linear.
-- **prefixLM + split prompt/answer in src/tgt** optional method to feed your data
-- **Pure-BF16 Training** thanks to [Kahan Summation](https://arxiv.org/pdf/2010.06192) implemented [here](https://optimi.benjaminwarner.dev/kahan_summation/)
-- **Web-based (Google translator-like) interface** featuring the latest Hunyuan-MT-7B or EuroLLM-8B-Instruct LLM
-- **Estimator layer** which enables to rescore multiple beams in the same model. Read article [here](https://medium.com/p/05b00b271a47) and [here](https://medium.com/p/7dccfe167814)
-- **Support Hugging Face Tokenizers** for better compatiblity
-- **Replicate CometKiwi(XL/XXL)** Encoder+Estimator models
-
----
-
-## Key Features
-
-- **Versatile Training and Inference**: Train from scratch, finetune, and infer models of various architectures including Transformer Encoder/Decoder/EncoderDecoder and RNN EncoderDecoder.
-- **Dynamic Data Transforms**: Apply on-the-fly transformations in the dataloading logic for both training and inference.
-- **Comprehensive LLM Support**: Includes converters for Llama, Mistral, Phi, Gemma ...
-- **Advanced Quantization**: Support for 8-bit and 4-bit quantization, along with LoRA adapters, with or without checkpointing, as well as mixed precision (FP16).
-- **Efficient Finetuning**: Finetune 7B and 13B models on a single RTX 24GB GPU using 4-bit quantization.
-- **Flexible Inference**: Perform inference in 4-bit or 8-bit using the same layer quantization methods as in finetuning.
-- **Tensor Parallelism**: Enable tensor parallelism for both training and inference when models exceed the memory capacity of a single GPU.
-
-## Work completed
-
-We have made significant progress in several areas:
-
-- **Configuration Management**: Streamlined through [pydantic](https://docs.pydantic.dev) models.
-- **Command Line Entry Points**: Improved using structured subparsers for better organization.
-- **Reproducible Recipes**: Provided for widely used models and tasks, ensuring consistency and reliability.
-- **Core API Simplification**: Refined around the new configuration objects for ease of use.
-- **Revamped Fast API based server**: see above example with EuroLLM-9B-Instruct
-
----
-
-### Future Directions
-
-There are still several exciting avenues to explore:
-
-- **Documentation**: Enhance and expand the documentation for better user guidance.
-- **Test Coverage**: Improve testing to ensure code reliability and performance.
-- **Logging Enhancements**: Implement more sophisticated logging mechanisms.
-- **Broader Model Support**: Extend support to include a wider range of open models, potentially multi-modal.
-
-## Setup
-
-### Using Docker
-
-To facilitate setup and reproducibility, we provide Docker images via the GitHub Container Registry: [EOLE Docker Images](https://github.com/eole-nlp/eole/pkgs/container/eole).
-
-You can customize the workflow and build your own images based on specific needs using `build.sh` and `Dockerfile` in the `docker` directory of the repository.
-
-
-To pull the Docker image:
-```bash
-docker pull ghcr.io/eole-nlp/eole:0.6.0-torch2.11.0-ubuntu24.04-cuda13.0
-```
-
-Example one-liner to run a container and open a bash shell within it:
-```bash
-docker run --rm -it --runtime=nvidia ghcr.io/eole-nlp/eole:0.6.0-torch2.11.0-ubuntu24.04-cuda13.0
-```
-
-> **Note**: Ensure you have the [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (formerly nvidia-docker) installed to take advantage of CUDA/GPU features.
-
-Depending on your needs, you can add various flags:
-- `-p 5000:5000`: Forward an exposed port from your container to your host.
-- `-v /some/local/directory:/some/container/directory`: Mount a local directory to a container directory.
-- `--entrypoint some_command`: Run a specific command as the container entry point (instead of the default bash shell).
-
-### Installing Locally
-
-#### Requirements
-
-- Python >= 3.11
-- PyTorch >= 2.10 < 2.13
-
-#### Installation from Source
-
-To install from source:
 ```bash
 git clone https://github.com/eole-nlp/eole
 cd eole
 pip install -e .
+export EOLE_MODEL_DIR="$PWD/models"
+mkdir -p "$EOLE_MODEL_DIR"
+eole convert HF --model_dir Qwen/Qwen3.5-0.8B \
+  --output "$EOLE_MODEL_DIR/qwen3.5-0.8B"
+eole serve -c recipes/server/serve.example.yaml --host 127.0.0.1
 ```
 
-#### Installation from PyPI
+In a second terminal:
 
-Installation from PyPI will be available soon.
+```bash
+curl --fail-with-body http://127.0.0.1:5000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3.5-0.8B","messages":[{"role":"user","content":"Explain machine translation in one sentence."}],"max_tokens":128,"temperature":0}'
+```
 
-#### Notes
+The response contains the generated text in `choices[0].message.content`.
+Interactive API documentation is available at `http://127.0.0.1:5000/docs`.
+The [server recipe](recipes/server/README.md) explains streaming and both API formats.
 
-If you encounter a `MemoryError` during installation, try using `pip` with the `--no-cache-dir` option.
+## Features
 
-(Optional) Some advanced features (e.g., pretrained models or specific transforms) require extra packages. Install them with:
+- **Training and fine-tuning:** Transformer encoder, decoder, and encoder-decoder
+  architectures, RNN encoder-decoder models, LoRA, quantized fine-tuning, dynamic
+  data transforms, tensor parallelism, and mixed or pure BF16 training.
+- **Efficient inference:** FlashAttention KV caching, CUDA and Triton kernels,
+  fused projections, quantized dense and MoE inference, chunked prefill, prefix
+  caching, and optional `torch.compile` / CUDA graphs. Availability depends on
+  model, hardware, installed kernels, and configuration.
+- **Multi-token prediction:** Auxiliary MTP heads for decoder-only training and
+  native speculative decoding for compatible checkpoints, including Qwen3.8-27B. Current inference
+  support is text-only, single-sequence, deterministic greedy decoding;
+  unsupported configurations fall back to ordinary decoding.
+- **Serving:** FastAPI server with native inference, OpenAI-style chat completions,
+  and Anthropic-style Messages endpoints, including tool-use handling.
+- **Evaluation:** BLEU, chrF, TER, perplexity, native COMET/KIWI/XCOMET and MetricX
+  scorers, custom scorer modules, and scorer-based early stopping.
+- **Reinforcement learning:** On-policy REINFORCE with registered scorer rewards,
+  batch-mean baselines, and an optional frozen reference-model KL penalty.
+  DPO, GRPO, and PPO are planned, not implemented.
+
+## Supported Hugging Face model families
+
+| Family / task | Examples and notes |
+|---|---|
+| Qwen | Qwen, Qwen2, Qwen3 (including MoE); Qwen3.5 text/vision; Qwen3.8-27B with MTP |
+| Gemma | Gemma3 text/image and Gemma4 support |
+| Mistral | Mistral, Mixtral, Mathstral, and supported multimodal / Ministral variants |
+| Llama and Phi | Llama3.x and Phi2/3 |
+| Translation | EuroLLM, Hunyuan-MT, NLLB, and Tower recipes |
+| OCR and vision | HunyuanOCR, DeepSeek-OCR, Pixtral, and supported vision-language checkpoints |
+| Speech | Whisper |
+| Translation scoring | COMET, COMET-KIWI, XCOMET, MetricX, and MetricX-QE |
+
+Support is architecture-specific; this table does not imply every checkpoint,
+quantization format, or modality in a family is supported. Consult the relevant
+recipe and converter for the exact configuration. Supported HF checkpoints can
+also be used [directly for inference](recipes/hf/README.md); conversion creates a reusable Eole artifact.
+
+## Performance and reproducibility
+
+See the [inference benchmarks](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md) for example scripts and historical results (with incomplete environment metadata), and the [compilation guide](https://github.com/eole-nlp/eole/blob/main/TORCHCOMPILE_README.md) for
+`torch.compile` configuration. Separate compilation/warmup from repeated warm
+runs. Throughput depends on model, precision, prompt length, generation length,
+and batch size; benchmark results are not a universal ranking of engines.
+
+The [MTP recipe](recipes/qwen38/README.md) includes a baseline comparison and
+acceptance diagnostics. GPU speedup and production BF16/quantized token parity
+must be measured on the chosen checkpoint.
+
+## Installation
+
+### From source
+
+- Python >= 3.11 (current CI uses Python 3.12).
+- PyTorch >= 2.10 and < 2.13, with a build compatible with your GPU and driver.
+
+```bash
+pip install -e .
+```
+
+Install optional task dependencies as needed:
+
 ```bash
 pip install -r requirements.opt.txt
 ```
 
-### Manual Installation of Some Dependencies
+FlashAttention is optional; the quickstart uses the PyTorch attention backend:
 
-#### Flash Attention
-
-To use [Flash Attention](https://github.com/Dao-AILab/flash-attention#installation-and-features), install it manually:
 ```bash
 pip install flash-attn --no-build-isolation
 ```
 
-#### AWQ
+Quantization and fast hybrid-attention kernels have additional dependencies;
+follow the corresponding recipe. Use `HF_TOKEN` with `--token "$HF_TOKEN"` for
+checkpoints requiring Hugging Face authentication. If installation runs out of
+memory, reduce build parallelism; `--no-cache-dir` can reduce pip cache usage.
 
-For inference or quantizing an AWQ model, AutoAWQ is required. Install it with:
+### Docker
+
+[Published images](https://github.com/eole-nlp/eole/pkgs/container/eole) provide a
+versioned environment:
+
 ```bash
-pip install autoawq
+docker run --rm -it --gpus all \
+  ghcr.io/eole-nlp/eole:0.6.0-torch2.11.0-ubuntu24.04-cuda13.0
 ```
 
-For more details, refer to [AutoAWQ](https://github.com/casper-hansen/AutoAWQ).
+Requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+This image is the **0.6.0 release**; newer source features such as MTP inference
+and REINFORCE require a checkout containing those changes. See [docker/](https://github.com/eole-nlp/eole/tree/main/docker)
+for building an image from your checkout. Mount model storage and forward port
+5000 when serving from a container.
 
+## Documentation and contributing
 
-## Notes on Mixed-precision or Low precision Training
+- [Full documentation](https://eole-nlp.github.io/eole)
+- [Recipes](recipes/README.md) and [release changelog](https://github.com/eole-nlp/eole/blob/main/CHANGELOG.md)
+- [Training precision](https://github.com/eole-nlp/eole/blob/main/docs/training-precision.md)
+- [Contributing](https://github.com/eole-nlp/eole/blob/main/CONTRIBUTING.md)
 
-Until Feb 25, we used torch optimizers with or without AMP (mixed precision) or "fusedadam" which was an old implementation of Apex/Nvidia using FP16 with dynamic loss scaling and without FP32 master weights.
-As of 0.2 "fusedadam" is deprecated and we implemented pure-BF16 training.
-
-As a result, config flags are now:
-
-For FP16-amp or BF16-amp training (using pytorch optimizers and amp implementation)
-```
-compute_dtype: fp16 or bf16
-use_amp: true
-optim: adam or adamw
-```
-Special note: even though it may not be logical, we still use the torch GradScaler in BF16-AMP. Even if the BF16 range is similar to FP32, scaling prevents from underflowing.
-We tested BF16-AMP without the GradScaler and it does not give good results.
-
-
-For pure-bf16 training (using torch-optimi and kahan summation)
-```
-compute_dtype: bf16
-use_amp: false
-optim: adam or adamw
-```
-Pure-BF16 training is faster than AMP and the memory footprint is reduced (master weights are kept in BF16 vs FP32). However Kahan Summation is not magical, results are good but not as good as AMP.
-Use this feature mainly when memory footprint is an issue with LLMs.
-
-
----
-
-## Contributing
-
-We love contributions! Please look at issues marked with the [contributions welcome](https://github.com/eole-nlp/eole/issues?q=is%3Aissue+is%3Aopen+label%3A%22contributions+welcome%22) tag.
-
-Before raising an issue, make sure you read the requirements and the [Full Documentation](https://eole-nlp.github.io/eole). You can also check if a [Recipe](https://github.com/eole-nlp/eole/tree/main/recipes) fits your use case.
-
-Unless there is a bug, please use the [Discussions](https://github.com/eole-nlp/eole/discussions) tab to ask questions or propose new topics/features.
+Use [Discussions](https://github.com/eole-nlp/eole/discussions) for questions and
+feature proposals, and [Issues](https://github.com/eole-nlp/eole/issues) for bugs.

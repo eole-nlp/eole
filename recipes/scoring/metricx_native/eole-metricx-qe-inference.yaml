@@ -9,7 +9,7 @@ compute_dtype: fp32
 report_time: true
 with_score: true
 score_level: segment
-src: null
+src: /path/to/src.txt
 tgt: null
 # Leave ref unset for QE/reference-free scoring.
 output: metricx-qe-scores.txt

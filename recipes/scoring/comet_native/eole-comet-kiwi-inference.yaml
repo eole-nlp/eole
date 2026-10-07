@@ -9,4 +9,4 @@ gpu_ranks: [0]
 # 2× faster, 2× less RAM, no accuracy change vs fp32.
 compute_dtype: fp16
 report_time: true
-src: null
+src: /path/to/src.txt

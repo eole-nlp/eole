@@ -584,6 +584,48 @@ def _parse_anthropic_response_content(text: str):
     return blocks, stop_reason
 
 
+def _coerce_tool_inputs_from_schema(content_blocks, tools):
+    """Recover JSON values from XML argument text using the declared tool schema.
+
+    XML parameters are initially strings. Preserve fields declared as strings
+    (for example a numeric-looking filename), and convert only when a parsed
+    JSON value matches the requested type. Malformed values remain unchanged.
+    """
+    schemas = {tool.name: tool.input_schema for tool in tools or []}
+
+    def coerce(value, schema):
+        if not isinstance(schema, dict):
+            return value
+        kind = schema.get("type")
+        if isinstance(value, str) and kind in ("integer", "number", "boolean", "array", "object", "null"):
+            try:
+                parsed = json.loads(value)
+            except (ValueError, TypeError):
+                return value
+            matches = {
+                "integer": isinstance(parsed, int) and not isinstance(parsed, bool),
+                "number": isinstance(parsed, (int, float)) and not isinstance(parsed, bool),
+                "boolean": isinstance(parsed, bool),
+                "array": isinstance(parsed, list),
+                "object": isinstance(parsed, dict),
+                "null": parsed is None,
+            }
+            if not matches[kind]:
+                return value
+            value = parsed
+        if isinstance(value, dict):
+            properties = schema.get("properties", {})
+            return {key: coerce(item, properties.get(key, {})) for key, item in value.items()}
+        if isinstance(value, list):
+            return [coerce(item, schema.get("items", {})) for item in value]
+        return value
+
+    for block in content_blocks:
+        if block.get("type") == "tool_use" and block.get("name") in schemas:
+            block["input"] = coerce(block.get("input", {}), schemas[block["name"]])
+    return content_blocks
+
+
 def _anthropic_messages_to_openai(messages: list, system=None) -> list:
     """
     Convert a list of Anthropic-format messages to OpenAI-style messages
@@ -1033,8 +1075,8 @@ class Model(object):
         if not self.loaded or self.engine is None:
             return 0, 0
         predictor = getattr(self.engine, "predictor", None)
-        max_tokens = int(getattr(predictor, "max_length", 0) or 0)
-        context_length = int(getattr(predictor, "context_length", 0) or 0)
+        max_tokens = int(getattr(self.config, "max_length", 0) or 0)
+        context_length = int(getattr(self.config, "context_length", 0) or 0)
         if context_length <= 0:
             # Fall back to original_max_position_embeddings from rope config
             rope = getattr(getattr(predictor, "model", None), "decoder", None)
@@ -1783,6 +1825,7 @@ def create_app(config_file):
                     # _log_json_payload("MODEL RESPONSE [anthropic stream]", full_text)
 
                     content_blocks, stop_reason = _parse_anthropic_response_content(full_text)
+                    _coerce_tool_inputs_from_schema(content_blocks, request.tools)
                     output_tokens = estimate_tokens(full_text)
 
                     # Log the parsed content blocks so the user can see exactly
@@ -1892,6 +1935,7 @@ def create_app(config_file):
             # _log_json_payload("MODEL RESPONSE [anthropic]", raw_text)
 
             content_blocks, stop_reason = _parse_anthropic_response_content(raw_text)
+            _coerce_tool_inputs_from_schema(content_blocks, request.tools)
 
             # Rough token estimation
             prompt_text = " ".join(

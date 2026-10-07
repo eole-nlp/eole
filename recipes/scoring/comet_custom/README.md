@@ -1,4 +1,11 @@
-# CometKiwi
+# Custom CometKiwi training
+
+This is a historical custom-estimator training example, distinct from native
+COMET/KIWI inference. The YAMLs contain commented choices for each training stage;
+they are not ready-to-run end-to-end fine-tuning configs. Select `training.train_from`,
+freezing, step count, and LoRA settings as described below, and supply the external
+dataset. Start with [native COMET](../comet_native/README.md) for pretrained scoring.
+Full custom training was not rerun during this documentation audit.
 
 ---
 **NOTE**
@@ -18,7 +25,7 @@ we use Gelu instead of Tanh in the Estimator
 Our scores for XL and XXL are in the same range when they are very different for Unbabel/wmt23-cometkiwi-XL or XXL
 
 
-To make your life easier, run these commands from the recipe directory (here `recipes/cometkiwi`).
+To make your life easier, run these commands from the recipe directory (here `recipes/scoring/comet_custom`).
 ---
 
 ## Retrieve and convert model
@@ -35,7 +42,7 @@ export EOLE_MODEL_DIR=<where_to_store_models>
 eole convert HF --model_dir facebook/xlm-roberta-xxl --output $EOLE_MODEL_DIR/xlm-roberta-xxl-eole
 ```
 **NOTE**
-The facebook original model is stored in FP32 but we convert it to FP16 at conversion.
+Pass `--dtype fp16` explicitly if you want FP16 converted weights.
 
 XXL is a 10.7G params model hence will save a 21.4GB file on disk (safetensors format)
 XL is a 3.5GB params model hence will save a 7.0GB file on disk
@@ -47,8 +54,9 @@ sentencepiece.bpe.model
 vocab.json
 vocab.txt
 
-The vocab.txt file contains 250000 entries (from sentencepiece) but the model was trained with extra tokens
-You need to concat the `added_vocab.txt` file to the `vocab.txt` file resulting in 250880 tokens
+The current HF converter accounts for tokenizer-added tokens. Do not blindly
+append `added_vocab.txt` to a newly converted vocabulary; compare its size with
+the saved embedding rows before changing artifacts.
 
 
 ## Training cometkiwi

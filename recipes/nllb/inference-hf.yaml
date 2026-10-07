@@ -1,4 +1,4 @@
-model_path: "nllb-1.3b"
+model_path: "./nllb-1.3b-hf"
 transforms: ["prefix", "huggingface_tokenize"]
 transforms_configs:
   prefix:

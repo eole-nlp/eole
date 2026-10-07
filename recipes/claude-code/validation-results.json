@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-07",
+  "client": "Claude Code 2.1.79",
+  "model": "Qwen3.8-27B INT4 AutoRound (converted local artifact)",
+  "gpu": "RTX 5090",
+  "server_config": "../qwen38/serve.yaml",
+  "client_output_budget": 2048,
+  "api_checks": [
+    "health",
+    "model discovery",
+    "token count",
+    "text response",
+    "integer tool argument round trip",
+    "text SSE",
+    "tool-use SSE"
+  ],
+  "client_checks": {
+    "Read": "returned sentinel not included in prompt",
+    "Write": "created palindrome.py and test_palindrome.py",
+    "Bash": "python -m unittest -v: three tests passed",
+    "independent_tests": "three tests and additional cases passed"
+  },
+  "test_setup": "Read/Write and shell checks used separate isolated sessions with explicit tool permissions. Writable CLAUDE_CONFIG_DIR required in the sandboxed command runner.",
+  "limitations": [
+    "Anthropic SSE is buffered",
+    "Non-Claude model routing is experimental and unsupported by Anthropic",
+    "MTP output differs from baseline on the benchmark fixture"
+  ]
+}

@@ -1,5 +1,5 @@
 # Model info
-model_path: "${EOLE_MODEL_DIR}/llama3-8b-instruct/model.pt"
+model_path: "${EOLE_MODEL_DIR}/llama3-8b-instruct"
 
 # Inference
 seed: 42

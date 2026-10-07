@@ -158,7 +158,7 @@ To measure WER on the standard LibriSpeech test-clean dataset (~2620 utterances,
 #### 1. Download dataset
 
 ```bash
-cd recipes/whisper/eval
+cd eval  # from recipes/whisper
 bash download_librispeech.sh
 ```
 

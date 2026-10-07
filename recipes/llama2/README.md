@@ -5,6 +5,14 @@
 To make your life easier, run these commands from the recipe directory (here `recipes/llama2`).
 ---
 
+This is a legacy Llama2 chat workflow using runtime bitsandbytes NF4 and LoRA.
+Install `bitsandbytes` in your CUDA-enabled Eole environment. The single-GPU
+configuration is the starting point for an RTX 5090; the tensor-parallel example
+requires two GPUs and uses sampling, so its output will differ. Model access
+requires a Hugging Face token with access to the selected Llama checkpoint.
+Training tokenization and architecture settings are inherited from the converted
+checkpoint. Fine-tuning below has not been rerun during the documentation audit.
+
 ## Retrieve and convert model
 
 ### Set environment variables
@@ -57,7 +65,7 @@ wget -P ./data https://opennmt-models.s3.amazonaws.com/llama/alpaca_clean.txt
 # Vicuna
 wget -P ./data https://opennmt-models.s3.amazonaws.com/llama/sharegpt.txt
 
-# Open Assisstant
+# Open Assistant
 wget -P ./data https://opennmt-models.s3.amazonaws.com/llama/osst1.flattened.txt
 ```
 
