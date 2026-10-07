@@ -15,10 +15,10 @@
     "typecheck": "tsc"
   },
   "dependencies": {
-    "@docusaurus/core": "3.9.2",
-    "@docusaurus/plugin-content-pages": "3.9.2",
-    "@docusaurus/preset-classic": "3.9.2",
-    "@docusaurus/theme-mermaid": "3.9.2",
+    "@docusaurus/core": "3.10.2",
+    "@docusaurus/plugin-content-pages": "3.10.2",
+    "@docusaurus/preset-classic": "3.10.2",
+    "@docusaurus/theme-mermaid": "3.10.2",
     "@mdx-js/react": "^3.0.0",
     "clsx": "^2.0.0",
     "docusaurus-lunr-search": "^3.4.2",
@@ -28,12 +28,18 @@
   },
   "resolutions": {
     "fast-uri": "^3.1.5",
-    "webpack": "5.105.4"
+    "@babel/core": "7.29.7",
+    "@babel/helpers": "7.29.10",
+    "@babel/runtime": "7.29.10",
+    "@babel/plugin-transform-modules-systemjs": "7.29.8",
+    "tinypool": "2.2.0",
+    "serialize-javascript": "7.1.2",
+    "@ungap/structured-clone": "1.4.0"
   },
   "devDependencies": {
-    "@docusaurus/module-type-aliases": "3.9.2",
-    "@docusaurus/tsconfig": "3.9.2",
-    "@docusaurus/types": "3.9.2",
+    "@docusaurus/module-type-aliases": "3.10.2",
+    "@docusaurus/tsconfig": "3.10.2",
+    "@docusaurus/types": "3.10.2",
     "@types/react": "^18.0.0",
     "typescript": "~5.6.0"
   },

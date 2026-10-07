@@ -33,3 +33,12 @@ The deployment workflow uses the Yarn lockfile. Keep Docusaurus packages aligned
 and update the lockfile when changing site dependencies. The generated site
 checks broken page links and anchors; this does not prove that external URLs, full training,
 or GPU model examples execute successfully.
+
+
+For dependency maintenance, run `corepack yarn npm audit --all --recursive` in
+`docs/docusaurus_tsx`. Audit findings include development/build dependencies and
+package deprecation notices, so assess the affected path before claiming runtime
+exposure. Docusaurus packages must stay on the same version. The `resolutions`
+entries select patched Babel 7, Tinypool, and serialization dependencies; review
+whether upstream releases allow these overrides to be removed. After dependency
+changes, use `corepack yarn install --immutable` and run the full build above.
