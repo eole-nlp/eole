@@ -262,7 +262,7 @@ def _inverse_v_head_reorder_cols(t: "torch.Tensor", num_k_heads: int, num_v_per_
     return t
 
 
-def _gguf_to_eole_name(gguf_name: str, linear_blocks: frozenset = frozenset()) -> Optional[str]:
+def _gguf_to_eole_name(gguf_name: str, linear_blocks: frozenset = frozenset(), decoder_layers=None) -> Optional[str]:
     """Map a GGUF tensor name to the EOLE tensor name.
 
     Args:
@@ -271,6 +271,7 @@ def _gguf_to_eole_name(gguf_name: str, linear_blocks: frozenset = frozenset()) -
             blocks, as detected by :func:`_detect_linear_attention_blocks`.  Only
             used to disambiguate ``attn_qkv.*`` which maps to ``linear_attn.in_proj_qkv``
             in linear-attention blocks and ``self_attn.qkv_proj`` otherwise.
+        decoder_layers: Decoder depth excluding trailing MTP blocks.
 
     Returns:
         ``None`` for tensors that should be skipped (e.g., RoPE cache).
@@ -284,6 +285,18 @@ def _gguf_to_eole_name(gguf_name: str, linear_blocks: frozenset = frozenset()) -
     if m:
         block_idx = int(m.group(1))
         suffix = m.group(2)
+        if decoder_layers is not None and block_idx >= decoder_layers:
+            head = block_idx - decoder_layers
+            special = {
+                "nextn.eh_proj.weight": "proj.weight",
+                "nextn.enorm.weight": "emb_norm.weight",
+                "nextn.hnorm.weight": "enorm.weight",
+                "nextn.shared_head_norm.weight": "norm.weight",
+            }
+            if suffix in special:
+                return f"mtp_heads.{head}.{special[suffix]}"
+            mapped = _BLOCK_MAP.get(suffix)
+            return f"mtp_heads.{head}.layer.{mapped}" if mapped else ""
 
         # attn_qkv.* maps differently depending on block type: in linear-attention
         # blocks the merged QKV projection feeds GatedDeltaNet (in_proj_qkv), while
@@ -405,7 +418,7 @@ def _infer_linear_attn_config(meta, linear_blocks: frozenset) -> dict:
                     cfg["linear_num_key_heads"] = key_dim // head_k_dim
 
     # ---------- layer_types list ----------------------------------------
-    n_layers = meta.block_count
+    n_layers = meta.decoder_block_count
     cfg["layer_types"] = ["linear_attention" if i in linear_blocks else "full_attention" for i in range(n_layers)]
 
     return cfg
@@ -484,6 +497,19 @@ class GGUFMetadata:
     @property
     def block_count(self) -> int:
         return int(self._scalar(self._a("{arch}.block_count"), 0))
+
+    @property
+    def nextn_predict_layers(self) -> int:
+        count = int(self._scalar(self._a("{arch}.nextn_predict_layers"), 0))
+        if count < 0 or (count != 0 and count >= self.block_count):
+            raise ValueError("Invalid GGUF nextn_predict_layers count")
+        if count and self.arch not in ("qwen35", "qwen35moe"):
+            raise ValueError("GGUF MTP conversion currently supports Qwen3.5-family layouts only")
+        return count
+
+    @property
+    def decoder_block_count(self) -> int:
+        return self.block_count - self.nextn_predict_layers
 
     @property
     def context_length(self) -> int:
@@ -694,17 +720,15 @@ _Q_GATING_ARCHS = frozenset("qwen35".split())
 # Architectures that use Gemma-style RMS norm (scaled by 1 + weight, not just
 # weight).  Must match HF_mappings.LN_TABLE.
 _GEMMA_RMS_ARCHS = frozenset("gemma2 gemma3 qwen35 qwen35moe".split())
-# Architectures that use MRoPE (multi-dimensional rotary positional encoding)
-# with interleaved rotation and therefore require rotary_interleave=True in
-# the EOLE rope_config.
-#
-# qwen35 / qwen35moe are vision-language models whose text decoder always uses
-# the interleaved MRoPE defined in Qwen3_5TextRotaryEmbedding.apply_interleaved_mrope
-# (see transformers/models/qwen3_5/modeling_qwen3_5.py).  Even in text-only
-# inference, position_ids are expanded to 3 dimensions and the interleaved
-# layout is applied — so rotary_interleave=True must be set for all qwen35 GGUF
-# files, regardless of whether rope.dimension_sections metadata is present.
-_MROPE_INTERLEAVE_ARCHS = frozenset("qwen35 qwen35moe qwen2vl qwen3vl qwen3vlmoe".split())
+
+# Qwen3.5 MRoPE frequency sections do not change split-half coordinate pairing.
+# Retain the existing handling for other GGUF architectures.
+_MROPE_INTERLEAVE_ARCHS = frozenset("qwen2vl qwen3vl qwen3vlmoe".split())
+
+
+def _packed_module_paths(written):
+    """Select packed decoder and MTP modules without replacing float neighbors."""
+    return sorted(name.removesuffix(".gguf_qtype") for name in written if name.endswith(".gguf_qtype"))
 
 
 def build_model_config(meta: GGUFMetadata, linear_blocks: frozenset = frozenset()) -> dict:
@@ -718,7 +742,7 @@ def build_model_config(meta: GGUFMetadata, linear_blocks: frozenset = frozenset(
     """
     arch = meta.arch.lower()
     hidden_size = meta.embedding_length
-    layers = meta.block_count
+    layers = meta.decoder_block_count
     heads = meta.head_count
     heads_kv = meta.head_count_kv
     head_dim = meta.head_dim
@@ -792,7 +816,6 @@ def build_model_config(meta: GGUFMetadata, linear_blocks: frozenset = frozenset(
     if rope_dim_sections is not None:
         model_config["rope_config"]["xdrope_section"] = rope_dim_sections
 
-    # Architectures that use interleaved MRoPE (mrope_interleaved=True in HF config).
     if arch in _MROPE_INTERLEAVE_ARCHS:
         model_config["rope_config"]["rotary_interleave"] = True
 
@@ -852,6 +875,9 @@ def build_model_config(meta: GGUFMetadata, linear_blocks: frozenset = frozenset(
     if linear_blocks:
         lin_cfg = _infer_linear_attn_config(meta, linear_blocks)
         model_config.setdefault("decoder", {}).update(lin_cfg)
+
+    if meta.nextn_predict_layers:
+        model_config.setdefault("decoder", {}).update(num_mtp_heads=meta.nextn_predict_layers, mtp_emb_norm=True)
 
     return model_config
 
@@ -1114,6 +1140,30 @@ def build_safetensors(
     n_float_tensor = 0  # already-float (norms, biases, …)
 
     quant_layers, dominant_qtype = _detect_quant_layers(meta.tensors)
+    if meta.nextn_predict_layers:
+        required = {
+            "nextn.eh_proj.weight",
+            "nextn.enorm.weight",
+            "nextn.hnorm.weight",
+            "nextn.shared_head_norm.weight",
+            "attn_norm.weight",
+            "post_attention_norm.weight",
+            "attn_q.weight",
+            "attn_k.weight",
+            "attn_v.weight",
+            "attn_output.weight",
+            "attn_q_norm.weight",
+            "attn_k_norm.weight",
+            "ffn_gate.weight",
+            "ffn_up.weight",
+            "ffn_down.weight",
+        }
+        names = {tensor.name for tensor in meta.tensors}
+        for head in range(meta.nextn_predict_layers):
+            prefix = f"blk.{meta.decoder_block_count + head}."
+            missing = sorted(prefix + suffix for suffix in required if prefix + suffix not in names)
+            if missing:
+                raise ValueError("Incomplete GGUF MTP head: " + ", ".join(missing))
 
     quant_bytes = 0
     dequant_overhead_bytes = 0
@@ -1121,7 +1171,7 @@ def build_safetensors(
 
     for tensor in meta.tensors:
         gguf_name = tensor.name
-        eole_name = _gguf_to_eole_name(gguf_name, linear_blocks)
+        eole_name = _gguf_to_eole_name(gguf_name, linear_blocks, meta.decoder_block_count)
 
         if eole_name is None:
             # Explicitly skipped (e.g. rope_freqs)
@@ -1776,7 +1826,8 @@ class GGUFConverter(BaseBin):
         print(f"Reading GGUF metadata from {args.gguf_path} …")
         meta = GGUFMetadata(args.gguf_path)
         print(f"  Architecture : {meta.arch}")
-        print(f"  Layers       : {meta.block_count}")
+        print(f"  Decoder layers: {meta.decoder_block_count}")
+        print(f"  MTP heads     : {meta.nextn_predict_layers}")
         print(f"  Hidden size  : {meta.embedding_length}")
         print(f"  Heads        : {meta.head_count}")
         if meta.head_count_kv:
@@ -1974,30 +2025,11 @@ class GGUFConverter(BaseBin):
             # mismatch when loading the adapter weights.
             model_config_dict["spatial_merge_size"] = clip_meta.vision_spatial_merge_size
 
-        quant_layers_all = [
-            "gate_up_proj",
-            "down_proj",
-            "up_proj",
-            "linear_values",
-            "linear_query",
-            "linear_keys",
-            "final_linear",
-        ]
-        if linear_blocks:
-            # GatedDeltaNet linear layers that may carry quantised weights.
-            quant_layers_all += ["in_proj_qkv", "in_proj_z", "in_proj_a", "in_proj_b", "out_proj"]
-        if clip_meta is None:
-            # Plain text model: replace_gguf_linear targets the whole model
-            # (quant_target = self), so self.generator is reachable and can be
-            # replaced with GGUFLinear.  Include it in quant_layers so the
-            # quantised generator.weight is loaded correctly without
-            # dequantising to float (which would inflate the file size by ~3x
-            # for models with large vocabularies quantised to Q4_K).
-            quant_layers_all += ["generator"]
+        quant_layers_all = sorted(name.removesuffix(".gguf_qtype") for name in written if name.endswith(".gguf_qtype"))
 
         training_config_dict: dict = {
-            "quant_type": "gguf" if quant_layers else "",
-            "quant_layers": quant_layers_all if quant_layers else [],
+            "quant_type": "gguf" if quant_layers_all else "",
+            "quant_layers": quant_layers_all,
             "w_bit": 0,
             "group_size": 0,
             "compute_dtype": args.dtype,
