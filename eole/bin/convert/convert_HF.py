@@ -467,7 +467,7 @@ def build_config_dict(hf):
         )
 
     # Handle rope_parameters (newer HF format, e.g. Qwen3.5 VL).
-    # Only apply mrope_section/mrope_interleaved when present; this naturally
+    # Only apply mrope_section when present; this naturally
     # skips Gemma4's per-layer-type format (which lacks these keys and is
     # handled by _build_gemma4_decoder_patch inside config_from_hf).
     if config.get("rope_parameters", None) is not None:
@@ -475,8 +475,9 @@ def build_config_dict(hf):
         mrope_section = rope_params.get("mrope_section", None)
         if mrope_section is not None:
             model_config["rope_config"]["xdrope_section"] = mrope_section
-        if rope_params.get("mrope_interleaved", False):
-            model_config["rope_config"]["rotary_interleave"] = True
+        # HF mrope_interleaved distributes temporal/spatial frequencies; it
+        # does not select adjacent-coordinate RoPE pairing. Qwen still pairs
+        # coordinates across the two halves (rotary_interleave=False).
 
     # Validate required fields
     required_fields = {
