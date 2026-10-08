@@ -100,6 +100,18 @@ def _add_test(param_setting, methodname):
     test_method.__name__ = name
 
 
+class TestTrainingInitializer(unittest.TestCase):
+    def test_resume_preserves_source_config_path(self):
+        config = copy.deepcopy(default_opts)
+        config.training.train_from = "checkpoint.pt"
+        config._config_file = "train.yaml"
+        checkpoint_config = copy.deepcopy(default_opts)
+
+        updated = TrainingInitializer(config)._update_config_with_metadata({"config": checkpoint_config})
+
+        self.assertEqual(updated._config_file, "train.yaml")
+
+
 test_databuild = [
     [],
     [("src_vocab_size", 1), ("tgt_vocab_size", 1)],
