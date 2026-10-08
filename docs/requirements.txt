@@ -1,4 +1,5 @@
-docutils==0.21.2
+# Sphinx, MyST Parser, and the RTD theme require docutils<0.23.
+docutils==0.22.4
 sphinx==9.0.4
 Jinja2==3.1.6
 sphinxcontrib.bibtex==2.7.0
