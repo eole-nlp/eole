@@ -1,6 +1,6 @@
 rapidfuzz
 scipy
-bitsandbytes>=0.41.2
+bitsandbytes>=0.50.2
 spacy
 gradio
 pyarrow
