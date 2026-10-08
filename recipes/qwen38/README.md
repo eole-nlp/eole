@@ -54,6 +54,37 @@ If you already have that converted checkpoint, skip conversion and set the two
 path variables above to its location. The GPU tests used an existing converted
 artifact; conversion itself was not rerun as part of those tests.
 
+### Compressed-tensors INT4 checkpoints
+
+The HF converter also accepts the symmetric grouped W4A16 `pack-quantized`
+format used by `RedHatAI/Qwen3.8-27B-INT4`:
+
+```bash
+python eole/bin/main.py convert HF \
+  --model_dir RedHatAI/Qwen3.8-27B-INT4 \
+  --output "$EOLE_MODEL_DIR/Qwen3.8-27B-RedHatAI-INT4" \
+  --dtype bf16 \
+  --check-tensors
+```
+
+The converter transposes packed INT4 words and scales into Eole's GPTQ layout;
+it does not dequantize and re-quantize the weights. Inference uses the existing
+AutoRound/GPTQ backend selection, including Marlin when available. Exact module
+paths from the checkpoint preserve unquantized projections, vision weights, and
+MTP heads. GDN kernels and normalization are unchanged.
+
+Supported exports have one `Linear` weight-only configuration group, symmetric
+4-bit integer weights, and group size 32, 64, or 128. Static activation ordering
+without saved group indices is accepted. Asymmetric weights, activation
+quantization, reordered groups, transformed/sparse exports, and packed weights
+requiring sliced or unmapped module transformations are rejected.
+
+FP8 KV-cache scales in the source are not used: conversion logs a warning and
+Eole retains its floating-point KV cache. `--check-tensors` may list those cache
+scale tensors as unused. This is weight-format support, not FP8-cache support.
+CPU tests verify packed-value equivalence, sharded conversion, and mixed-precision
+module selection. A full RedHatAI checkpoint GPU run has not yet been validated.
+
 For a BF16 deployment with sufficient memory, use `Qwen/Qwen3.8-27B` as the
 source and a separate output directory. Quantized checkpoints are not all
 equivalent: some omit MTP tensors. Conversion cannot recreate missing trained

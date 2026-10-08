@@ -335,12 +335,22 @@ class HFLoader:
 
             for i in shard_layer_ranges[0]:
                 _layer_cache: dict = {}
+                mtp_start = KEY_MAPS[hf.arch].get("mtp_layer_start")
+                if mtp_start is None:
+                    mtp_start = max(model_config["layers"], model_config.get("encoder", {}).get("layers", 0))
                 prefix_mapping = (
-                    ("encoder", hf.encoder_layer_prefix, "encoder.transformer_layers."),
-                    ("encoder.sam", hf.encoder_sam_layer_prefix, "encoder.sam.blocks."),
-                    ("decoder", hf.decoder_layer_prefix, "decoder.transformer_layers."),
+                    ("encoder", hf.encoder_layer_prefix, "encoder.transformer_layers.", 0, 0),
+                    ("encoder.sam", hf.encoder_sam_layer_prefix, "encoder.sam.blocks.", 0, 0),
+                    ("decoder", hf.decoder_layer_prefix, "decoder.transformer_layers.", 0, 0),
+                    (
+                        "mtp",
+                        hf.mtp_layer_prefix,
+                        "mtp_heads.",
+                        mtp_start,
+                        mtp_start if hf.mtp_layer_prefix == "mtp.layers." else 0,
+                    ),
                 )
-                for section, hf_prefix, eole_prefix in prefix_mapping:
+                for section, hf_prefix, eole_prefix, layer_offset, source_offset in prefix_mapping:
                     if hf_prefix is None:
                         continue
                     key_map = KEY_MAPS[hf.arch].get(section, {})
@@ -351,7 +361,7 @@ class HFLoader:
                             srckey, srcmap = source if isinstance(source, tuple) else (source, None)
                             if srckey.endswith("."):
                                 srckey = srckey + param
-                            full_srckey = hf_prefix + str(i) + srckey
+                            full_srckey = hf_prefix + str(i - source_offset) + srckey
                             if full_srckey not in _layer_cache:
                                 if full_srckey not in ckpt_keys:
                                     _layer_cache[full_srckey] = None
@@ -364,7 +374,7 @@ class HFLoader:
                             if srcmap is not None:
                                 hidden_size = (
                                     model_config["hidden_size"]
-                                    if section.startswith("decoder")
+                                    if section.startswith("decoder") or section == "mtp"
                                     else model_config["encoder"]["hidden_size"]
                                 )
                                 context = {
@@ -380,7 +390,7 @@ class HFLoader:
                             target1 = target
                             if target.endswith("."):
                                 target1 = target + param
-                            eole_key = eole_prefix + str(i) + target1
+                            eole_key = eole_prefix + str(i - layer_offset) + target1
                             if eole_key not in store:
                                 store[eole_key] = w
 
@@ -446,6 +456,9 @@ def load_hf_model(running_config, device_id: int = 0):
         "quant_type",
         "quant_layers",
         "quant_exclude_modules",
+        "quantized_modules",
+        "w_bit",
+        "group_size",
         "autoround_packing_format",
         "autoround_sym",
     ):

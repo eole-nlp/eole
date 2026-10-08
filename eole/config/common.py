@@ -57,6 +57,9 @@ class QuantizeConfig(Config):
     quant_layers: List[str] = Field(
         default=[], description="List of layers to be compressed in 4/8bit."
     )  # validate against list of layers names ?
+    quantized_modules: List[str] | None = Field(
+        default=None, description="Exact model module paths to quantize; None uses legacy quant_layers selection."
+    )
     quant_type: Literal["", "bnb_8bit", "bnb_FP4", "bnb_NF4", "awq_gemm", "awq_gemv", "autoround", "gguf"] = Field(
         default="", description="Type of compression."
     )

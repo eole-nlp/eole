@@ -12,12 +12,18 @@ def replace_autoround_linear(
     packing_format="auto_round:auto_gptq",
     sym=True,
     module_to_not_convert=[],
+    quantized_modules=None,
+    prefix="",
 ):
     """Replace nn.Linear layers with AutoRound QuantLinear for quantized inference.
 
     The packing_format determines how qzeros are stored:
     - 'gptq' in packing_format: qzeros stored as (zero_point - 1) per GPTQ convention.
     - Otherwise: qzeros stored directly (direct zero-point).
+
+    quantized_modules: optional exact paths from the model root. When supplied,
+    only listed layers are replaced, preserving mixed-precision checkpoints.
+    prefix: root path when replacing a subtree (e.g. "decoder").
 
     Backend preference order:
     1. Marlin CUDA kernels (requires CUDA + eole._ops, sym=True only) — fastest
@@ -35,6 +41,8 @@ def replace_autoround_linear(
         should be skipped.  Use this for parent modules that were kept in fp16 during
         quantization (e.g. ``shared_experts`` in MoE models).
     """
+    if quantized_modules is not None:
+        quantized_modules = frozenset(quantized_modules)
     use_gptq_zp = "gptq" in packing_format
     QuantLinear, use_marlin = _get_autoround_quant_linear_cls(use_gptq_zp, sym)
 
@@ -48,14 +56,24 @@ def replace_autoround_linear(
         return fallback_cls
 
     for name, module in model.named_children():
+        module_path = prefix + "." + name if prefix else name
         if name in module_to_not_convert:
             continue  # skip entire subtree — this parent was kept in fp16
         if len(list(module.children())) > 0:
             replace_autoround_linear(
-                module, module_to_convert, w_bit, group_size, packing_format, sym, module_to_not_convert
+                module,
+                module_to_convert,
+                w_bit,
+                group_size,
+                packing_format,
+                sym,
+                module_to_not_convert,
+                quantized_modules,
+                module_path,
             )
 
-        if isinstance(module, nn.Linear) and name in module_to_convert:
+        selected = name in module_to_convert and (quantized_modules is None or module_path in quantized_modules)
+        if isinstance(module, nn.Linear) and selected:
             if use_marlin:
                 try:
                     new_module = QuantLinear(

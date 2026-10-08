@@ -358,6 +358,11 @@ class BaseModel(nn.Module):
             update_dict["quant_type"] = metadata["config"].training.quant_type
         if "quant_layers" not in running_config.model_fields_set:
             update_dict["quant_layers"] = metadata["config"].training.quant_layers
+        for field in ("w_bit", "group_size"):
+            if field not in running_config.model_fields_set:
+                update_dict[field] = getattr(metadata["config"].training, field)
+        if "quantized_modules" not in running_config.model_fields_set:
+            update_dict["quantized_modules"] = metadata["config"].training.quantized_modules
         if "quant_exclude_modules" not in running_config.model_fields_set:
             update_dict["quant_exclude_modules"] = metadata["config"].training.quant_exclude_modules
         if "autoround_packing_format" not in running_config.model_fields_set:
@@ -456,6 +461,12 @@ class BaseModel(nn.Module):
                         packing_format=getattr(running_config, "autoround_packing_format", "auto_round:auto_gptq"),
                         sym=getattr(running_config, "autoround_sym", True),
                         module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
+                        quantized_modules=getattr(running_config, "quantized_modules", None),
+                        prefix=(
+                            next(name for name, module in self.named_modules() if module is quant_target)
+                            if is_vision_model
+                            else ""
+                        ),
                     )
             elif running_config.quant_type == "gguf":
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
@@ -1118,6 +1129,8 @@ class EncoderDecoderScoringModel(EncoderDecoderModel):
                     update_dict["quant_type"] = training_config.quant_type
                 if "quant_layers" not in running_config.model_fields_set:
                     update_dict["quant_layers"] = training_config.quant_layers
+                if "quantized_modules" not in running_config.model_fields_set:
+                    update_dict["quantized_modules"] = training_config.quantized_modules
                 if "quant_exclude_modules" not in running_config.model_fields_set:
                     update_dict["quant_exclude_modules"] = training_config.quant_exclude_modules
                 if "autoround_packing_format" not in running_config.model_fields_set:
