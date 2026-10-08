@@ -9,7 +9,7 @@ that every model and full training run was executed on the current checkout.
 |---|---|---|
 | Direct HF inference | Current small-Qwen example and explicit input/output paths | PredictConfig checked; generation not rerun |
 | Model server | Small-Qwen conversion and YAML paths agree | Server model config checked; small-model generation not rerun |
-| Qwen3.8 / MTP | Exact Frozenlock INT4 conversion documented; native-head check retained | Existing RTX 5090 baseline/MTP runs; conversion not rerun; greedy output parity unresolved |
+| Qwen3.8 / MTP | RedHat INT4 now recommended (2026-10-08); native-head check retained | Historical Frozenlock RTX 5090 baseline/MTP runs retained; RedHat compiled, MTP-disabled targeted LCB 2/4 versus AutoRound 0/4; RedHat MTP not measured |
 | Claude Code | Explicit model ID, output budget, and writable CLI config directory | Live text/tool/API streaming checks and separate Read/Write/Bash sessions passed previously |
 | Qwen3.5 | Conversion path matches the bundled text/image scripts; large INT4 server is a separate example | Image runner config and fixtures, server config checked; generation not rerun |
 | EuroLLM | Explicit GPU/BF16/context defaults and Gradio dependencies | Server model config checked; translator UI and generation not rerun |

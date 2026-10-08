@@ -8,6 +8,8 @@ end_date: '2025-04-30'
 # null evaluates the whole selected window; use 5 for an integration smoke run.
 limit: null
 base_url: http://127.0.0.1:5010/v1
+# Recommended server checkpoint: converted RedHatAI/Qwen3.8-27B-INT4.
+# Set QWEN38_MODEL as described in recipes/qwen38/README.md.
 model_id: qwen3.8-27B
 max_tokens: 8192
 request_timeout: 1800

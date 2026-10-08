@@ -31,28 +31,52 @@ Marlin CUDA extension. Build/install Eole while CUDA and the CUDA toolkit are
 available; inspect backend diagnostics before measuring. Installing a package
 does not prove its kernels are selected.
 
-The RTX 5090 tests used an Eole conversion of
-`Frozenlock/Qwen3.8-27B-int4-Autoround`. To prepare that checkpoint from Hugging
-Face, run from the repository root in your Eole environment:
+The recommended INT4 checkpoint for this recipe is
+[`RedHatAI/Qwen3.8-27B-INT4`](https://huggingface.co/RedHatAI/Qwen3.8-27B-INT4).
+Prepare it from the repository root in your Eole environment:
 
 ```bash
 export EOLE_MODEL_DIR=/path/to/models
-export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-int4-Autoround"
+export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-INT4"
 python eole/bin/main.py convert HF \
-  --model_dir Frozenlock/Qwen3.8-27B-int4-Autoround \
+  --model_dir RedHatAI/Qwen3.8-27B-INT4 \
   --output "$QWEN38_MODEL" \
-  --token "$HF_TOKEN"
+  --dtype bf16 \
+  --check-tensors
 ```
 
-Use a new output directory for conversion. `HF_TOKEN` is your Hugging Face access
-token; omit `--token "$HF_TOKEN"` when authentication is unnecessary. The
-converter accepts either a Hugging Face repository ID or a local HF model
-directory as `--model_dir`. It converts the existing INT4 checkpoint into Eole's
-format; this command does not quantize BF16 weights.
+Use a new output directory for conversion. Add `--token "$HF_TOKEN"` if
+Hugging Face authentication is needed. The converter accepts a repository ID
+or a local HF model directory; it converts existing INT4 weights rather than
+quantizing BF16 weights. Source weight downloads stay in the HF cache.
 
-If you already have that converted checkpoint, skip conversion and set the two
-path variables above to its location. The GPU tests used an existing converted
-artifact; conversion itself was not rerun as part of those tests.
+If you already have the converted RedHat checkpoint, set the two path variables
+above to its location. Prediction, serving, MTP, and validation YAMLs all use
+`QWEN38_MODEL`; they do not need separate model-path edits.
+
+### Compressed-tensors INT4 layout
+
+RedHat uses symmetric grouped W4A16 `pack-quantized` weights.
+
+The converter transposes packed INT4 words and scales into Eole's GPTQ layout;
+it does not dequantize and re-quantize the weights. Inference uses the existing
+AutoRound/GPTQ backend selection, including Marlin when available. Exact module
+paths from the checkpoint preserve unquantized projections, vision weights, and
+MTP heads. GDN kernels and normalization are unchanged.
+
+Supported exports have one `Linear` weight-only configuration group, symmetric
+4-bit integer weights, and group size 32, 64, or 128. Static activation ordering
+without saved group indices is accepted. Asymmetric weights, activation
+quantization, reordered groups, transformed/sparse exports, and packed weights
+requiring sliced or unmapped module transformations are rejected.
+
+FP8 KV-cache scales in the source are not used: conversion logs a warning and
+Eole retains its floating-point KV cache. `--check-tensors` may list those cache
+scale tensors as unused. This is weight-format support, not FP8-cache support.
+CPU tests verify packed-value equivalence, sharded conversion, and mixed-precision
+module selection. The converted RedHat checkpoint has been exercised with compiled, MTP-disabled
+GPU inference; the targeted comparison below records the results. RedHat MTP
+throughput and greedy parity have not been measured.
 
 For a BF16 deployment with sufficient memory, use `Qwen/Qwen3.8-27B` as the
 source and a separate output directory. Quantized checkpoints are not all
@@ -173,8 +197,29 @@ tool block before calling the integration validated. The sentinel exercise does
 not establish a complete file-editing workflow; use the Claude recipe's coding
 task for that additional check.
 
-## Measured RTX 5090 example (2026-10-07)
+## Targeted INT4 comparison (2026-10-08)
 
+The converted RedHat checkpoint passed two of four medium LiveCodeBench tasks
+that the corrected-RoPE Frozenlock AutoRound checkpoint failed. Both models
+were rerun on the same Eole code with identical prompts, BF16 compute, compiled
+inference, MTP disabled, greedy decoding, and an 8192-token output budget.
+Neither model reached that budget on these tasks.
+
+| Task | Frozenlock AutoRound | RedHat INT4 |
+|---|---|---|
+| `atcoder/abc392_d` | Fail | Fail |
+| `atcoder/abc396_d` | Fail | Pass |
+| `leetcode/3779` | Fail | Fail |
+| `leetcode/3722` | Fail | Pass |
+
+This motivates the RedHat default, but the tasks were deliberately selected
+from AutoRound failures; 2/4 is not an overall LiveCodeBench score. See the
+[comparison record](int4-comparison-results.json). Run this recipe's MTP validation
+on your own hardware before using the historical throughput figures as a guide.
+
+## Historical Frozenlock RTX 5090 example (2026-10-07)
+
+These measurements use the previous Frozenlock default, not RedHat.
 The recipe's prompt fixture was run at commit
 `ff2ab2eb3edfe5c09e449284b62c16f050973081` with the local converted
 `Frozenlock/Qwen3.8-27B-int4-Autoround` checkpoint, INT4 weights / BF16 compute,
@@ -225,3 +270,18 @@ including a generated three-test suite. Its configured output budget was
 2048 tokens. See the
 [implementation review](https://github.com/eole-nlp/eole/blob/main/docs/mtp-inference-review.md)
 for rounding and backend limitations.
+
+Quantization module selection uses the existing `quant_layers` and
+`quant_exclude_modules` settings. Bare include names such as `down_proj` select
+that leaf name anywhere in the model. Dotted entries select exact paths from the
+model root, and shell-style globs such as
+`decoder.transformer_layers.*.mlp.down_proj` select decoder projections only.
+`*` can span path components. Exclusions take precedence; excluding a parent
+skips its entire subtree. Bare exclusions retain their legacy behavior of
+matching parent names anywhere in the model.
+
+For compressed-tensors conversion, `quant_layers` is populated with exact Eole
+paths from the packed weight inventory, preserving floating-point decoder and
+MTP modules. Loading rejects selections that conflict with stored packed weights.
+All quantization backends share these matching rules. Bits and group size remain
+global settings; per-module quantization parameters are not supported.

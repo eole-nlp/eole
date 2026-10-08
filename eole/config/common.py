@@ -55,7 +55,8 @@ class LoRaConfig(Config):
 class QuantizeConfig(Config):
     # Quantization related options (previously in MiscConfig)
     quant_layers: List[str] = Field(
-        default=[], description="List of layers to be compressed in 4/8bit."
+        default=[],
+        description="Modules to quantize: bare leaf names, exact model-root paths, or shell-style glob patterns.",
     )  # validate against list of layers names ?
     quant_type: Literal["", "bnb_8bit", "bnb_FP4", "bnb_NF4", "awq_gemm", "awq_gemv", "autoround", "gguf"] = Field(
         default="", description="Type of compression."
@@ -75,7 +76,7 @@ class QuantizeConfig(Config):
     )
     quant_exclude_modules: List[str] = Field(
         default=[],
-        description="List of parent module names whose entire subtrees must not be quantized, "
+        description="Excluded module names, model-root paths, or glob patterns. Excluded parents skip their subtrees, "
         "even if child layers appear in quant_layers. Used for AutoRound models where some parent "
         "modules (e.g. shared_experts in MoE) were kept in fp16 during quantization.",
     )

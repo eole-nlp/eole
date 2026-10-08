@@ -25,6 +25,7 @@ from tokenizers import Tokenizer
 from tokenizers.processors import TemplateProcessing
 
 # Eole Imports
+from eole.bin.convert.compressed_tensors import PackedCheckpoint, validate_config
 from eole.bin import BaseBin, register_bin
 from eole.config import recursive_model_fields_set, recursive_update_dict
 from eole.constants import DefaultTokens, TORCH_DTYPES, PositionEncodingType
@@ -108,7 +109,8 @@ class HuggingfaceFiles:
                     repo_id=args.model_dir,
                     filename=file_name,
                     token=args.token,
-                    local_dir=args.output,
+                    # Keep source weights in the HF cache, not the converted output.
+                    local_dir=None if file_name.endswith((".safetensors", ".bin")) else args.output,
                 )
             except utils.EntryNotFoundError:
                 if required:
@@ -196,10 +198,12 @@ class HuggingfaceFiles:
 
     @property
     def mtp_layer_prefix(self):
-        # Recent Qwen3.5 checkpoints place the MTP transformer in the
-        # unindexed companion file as ``mtp.layers.0`` rather than appending it
-        # to the main decoder layer list.
-        for checkpoint_path in self.extra_model_paths:
+        # Recent Qwen3.5 checkpoints place MTP at ``mtp.layers.0``, either
+        # indexed or in a companion file, rather than appending decoder layers.
+        if self.wmap_path and any(key.startswith("mtp.layers.") for key in self.wmap["weight_map"]):
+            return "mtp.layers."
+        paths = self.extra_model_paths if self.wmap_path else self.model_paths
+        for checkpoint_path in paths:
             checkpoint = self.get_load_ckpt(*os.path.split(checkpoint_path))
             if isinstance(checkpoint, dict):
                 keys = checkpoint.keys()
@@ -219,7 +223,7 @@ class HuggingfaceFiles:
         """Return all unindexed checkpoint files, in lookup order."""
         return [path for path in [self.model_path, *self.extra_model_paths] if path is not None]
 
-    def get_load_ckpt(self, dir_path, file_path):
+    def _get_raw_ckpt(self, dir_path, file_path):
         if os.path.exists(os.path.join(dir_path, file_path)):
             ckpt_path = os.path.join(dir_path, file_path)
         else:
@@ -240,6 +244,30 @@ class HuggingfaceFiles:
 
         return checkpoint
 
+    def get_load_ckpt(self, dir_path, file_path):
+        checkpoint = self._get_raw_ckpt(dir_path, file_path)
+        quant = self.config.get(
+            "quantization_config", self.config.get("text_config", {}).get("quantization_config", {})
+        )
+        if quant.get("quant_method") != "compressed-tensors":
+            return checkpoint
+        group_size = validate_config(quant)
+        if isinstance(checkpoint, dict):
+            keys = set(checkpoint)
+        else:
+            with safetensors.safe_open(checkpoint, framework="pt", device="cpu") as f:
+                keys = set(f.keys())
+
+        def read_tensor(key):
+            # Compression metadata may live in a different source shard.
+            if self.wmap_path and key in self.wmap["weight_map"]:
+                source = self._get_raw_ckpt(self.base_dir, self.wmap["weight_map"][key])
+            else:
+                source = checkpoint
+            return get_weight(source, key)
+
+        return PackedCheckpoint(keys, read_tensor, group_size)
+
     def checkpoint(self, ckpt):
         if self.wmap_path:
             checkpoint = self.get_load_ckpt(self.base_dir, ckpt)
@@ -251,6 +279,8 @@ class HuggingfaceFiles:
         """Return the checkpoint containing *tensor_name*, including companions."""
         if self.wmap_path:
             checkpoint_name = self.wmap["weight_map"].get(tensor_name)
+            if checkpoint_name is None and tensor_name.rsplit(".", 1)[-1] in ("qweight", "qzeros", "scales", "g_idx"):
+                checkpoint_name = self.wmap["weight_map"].get(tensor_name.rsplit(".", 1)[0] + ".weight_packed")
             if checkpoint_name:
                 return self.get_load_ckpt(self.base_dir, checkpoint_name)
         for checkpoint_path in self.model_paths:
@@ -630,8 +660,26 @@ def build_config_dict(hf):
                 if excluded_modules:
                     training_config["quant_exclude_modules"] = excluded_modules
             params = ["qweight", "qzeros", "scales"] + ["weight", "bias"]
+        elif quant_config.get("quant_method") == "compressed-tensors":
+            group_size = validate_config(quant_config)
+            modules = _compressed_quantized_modules(hf, model_config)
+            training_config.update(
+                {
+                    "quant_type": "autoround",
+                    "w_bit": 4,
+                    "group_size": group_size,
+                    "autoround_packing_format": "auto_round:auto_gptq",
+                    "autoround_sym": True,
+                    "quant_layers": modules,
+                }
+            )
+            if quant_config.get("kv_cache_scheme"):
+                logging.warning(
+                    "compressed-tensors KV-cache scales are not applied; Eole uses its floating-point cache"
+                )
+            params = ["qweight", "qzeros", "scales", "g_idx", "weight", "bias"]
         else:
-            raise ValueError("Can convert only awq, autoround or gptq models for now")
+            raise ValueError("Can convert only awq, autoround, gptq or supported compressed-tensors models")
     else:
         training_config["quant_type"] = ""
         training_config["w_bit"] = 0
@@ -642,6 +690,67 @@ def build_config_dict(hf):
     model_config["share_decoder_embeddings"] = config.get("tie_word_embeddings", False)
 
     return model_config, training_config, params
+
+
+def _compressed_quantized_modules(hf, model_config):
+    keys = _collect_all_source_keys(hf)
+    packed = {key.removesuffix(".weight_packed") for key in keys if key.endswith(".weight_packed")}
+    if not packed:
+        raise ValueError("compressed-tensors checkpoint contains no packed Linear weights")
+    linear_names = {
+        "linear_query",
+        "linear_keys",
+        "linear_values",
+        "final_linear",
+        "gate_up_proj",
+        "up_proj",
+        "down_proj",
+        "in_proj_qkv",
+        "in_proj_z",
+        "in_proj_a",
+        "in_proj_b",
+        "out_proj",
+    }
+    if any(module + ".weight" in keys for module in packed):
+        raise ValueError("Packed and floating-point weights coexist for the same module")
+    modules = {}
+    for section, prefix, target_prefix in (
+        ("decoder", hf.decoder_layer_prefix, "decoder.transformer_layers."),
+        ("mtp", hf.mtp_layer_prefix, "mtp_heads."),
+    ):
+        if prefix is None:
+            continue
+        for source_module in packed:
+            if not source_module.startswith(prefix):
+                continue
+            remainder = source_module[len(prefix) :]
+            index, separator, suffix = remainder.partition(".")
+            if not separator or not index.isdigit():
+                continue
+            index = int(index)
+            offset = 0
+            if section == "mtp" and prefix == hf.decoder_layer_prefix:
+                offset = KEY_MAPS[hf.arch].get("mtp_layer_start")
+                if offset is None:
+                    offset = max(model_config["layers"], model_config.get("encoder", {}).get("layers", 0))
+            if section == "decoder" and index >= model_config["layers"]:
+                continue
+            if index < offset:
+                continue
+            for target, source in KEY_MAPS[hf.arch].get(section, {}).items():
+                if (
+                    isinstance(source, str)
+                    and source == "." + suffix + "."
+                    and target.endswith(".")
+                    and target.rstrip(".").rsplit(".", 1)[-1] in linear_names
+                ):
+                    modules[source_module] = target_prefix + str(index - offset) + target[:-1]
+    unmapped = packed - modules.keys()
+    if unmapped:
+        raise ValueError("Unsupported packed weight mappings: " + ", ".join(sorted(unmapped)))
+    if any(key.endswith((".weight_g_idx", ".weight_zero_point")) for key in keys):
+        raise ValueError("compressed-tensors activation-order indices and asymmetric zero points are unsupported")
+    return sorted(modules.values())
 
 
 def get_weight(checkpoint, tensor_name):
@@ -875,7 +984,7 @@ def _collect_all_source_keys(hf):
         for checkpoint_path in hf.extra_model_paths:
             ckpt = hf.get_load_ckpt(*os.path.split(checkpoint_path))
             if isinstance(ckpt, dict):
-                all_keys.update(ckpt.keys())
+                all_keys.update(ckpt.raw_keys if isinstance(ckpt, PackedCheckpoint) else ckpt.keys())
             else:
                 with safetensors.safe_open(ckpt, framework="pt", device="cpu") as f:
                     all_keys.update(f.keys())
@@ -885,7 +994,7 @@ def _collect_all_source_keys(hf):
         for checkpoint_path in hf.model_paths:
             ckpt = hf.get_load_ckpt(*os.path.split(checkpoint_path))
             if isinstance(ckpt, dict):
-                all_keys.update(ckpt.keys())
+                all_keys.update(ckpt.raw_keys if isinstance(ckpt, PackedCheckpoint) else ckpt.keys())
             else:
                 with safetensors.safe_open(ckpt, framework="pt", device="cpu") as f:
                     all_keys.update(f.keys())
@@ -952,14 +1061,7 @@ def check_conversion_equality(hf, conversion_details, target_dtype):
         special = detail["special"]
 
         # Reload the source tensor from the appropriate checkpoint file.
-        if hf.wmap_path is not None:
-            ckpt_name = hf.wmap["weight_map"].get(srckey)
-            if ckpt_name is None:
-                mismatches.append((eole_key, "source key '%s' not found in weight map" % srckey))
-                continue
-            ckpt = hf.get_load_ckpt(hf.base_dir, ckpt_name)
-        else:
-            ckpt = hf.checkpoint_for_tensor(srckey)
+        ckpt = hf.checkpoint_for_tensor(srckey)
 
         src = get_weight(ckpt, srckey) if ckpt is not None else None
         if src is None:
@@ -975,7 +1077,7 @@ def check_conversion_equality(hf, conversion_details, target_dtype):
             src = src.unsqueeze(0)
 
         # Cast to the same dtype that was applied during conversion.
-        if target_dtype is not None:
+        if target_dtype is not None and src.is_floating_point():
             src = src.to(target_dtype)
 
         # Load the corresponding tensor from the saved output shard.
@@ -1050,7 +1152,7 @@ def build_shards(model_config, hf, args, params):
                             "w" + srcmap,
                             {"w": w, **context},
                         ).contiguous()
-                    if target_dtype is not None:
+                    if target_dtype is not None and w.is_floating_point():
                         w = w.to(target_dtype)
                     special = None
                     if target == "encoder.class_embedding.weight":
@@ -1141,7 +1243,11 @@ def build_shards(model_config, hf, args, params):
                             w = _layer_tensor_cache[full_srckey]
 
                             if w is not None:
-                                consumed_src_keys.add(full_srckey)
+                                consumed_src_keys.update(
+                                    checkpoint.source_keys(full_srckey)
+                                    if isinstance(checkpoint, PackedCheckpoint)
+                                    else {full_srckey}
+                                )
                                 if srcmap is not None:
                                     hidden_size = (
                                         model_config["hidden_size"]
@@ -1162,7 +1268,7 @@ def build_shards(model_config, hf, args, params):
                                     ).contiguous()
                                 else:
                                     context = {}
-                                if target_dtype is not None:
+                                if target_dtype is not None and w.is_floating_point():
                                     w = w.to(target_dtype)
                                 target1 = target
                                 if target.endswith("."):

@@ -49,9 +49,12 @@ Start a converted model using an Eole server YAML, for example
 [Qwen3.8 serve.yaml](../qwen38/serve.yaml). Its configured context must fit the
 prompt plus output budget; the benchmark requests up to 8192 output tokens.
 Configure greedy decoding (`beam_size: 1`, `top_k: 1`, `n_best: 1`) in the server.
-For compiled inference:
+For Qwen3.8, use the recommended converted `RedHatAI/Qwen3.8-27B-INT4`
+checkpoint from the linked recipe. For compiled inference:
 
 ```bash
+export EOLE_MODEL_DIR=/path/to/models
+export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-INT4"
 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
   eole serve -c recipes/qwen38/serve.yaml --host 127.0.0.1 --port 5010
 ```

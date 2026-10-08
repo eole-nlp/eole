@@ -1,3 +1,4 @@
+# Recommended: converted RedHatAI/Qwen3.8-27B-INT4; see README.md for QWEN38_MODEL setup.
 # Requires a converted Qwen3.8 checkpoint with MTP tensors.
 # Run from the repository root; QWEN38_MODEL points to that directory.
 models_root: "${EOLE_MODEL_DIR}"

@@ -1,3 +1,5 @@
+from eole.modules.quantization_selection import is_selected, is_excluded
+
 # Code taken from bitsandbytes but modified with arg device to accept skipt_init
 # from torch.nn.utils => makes model building way faster.
 import os
@@ -23,12 +25,19 @@ def replace_bnb_linear(
     q_type="bnb_8bit",
     threshold=6.0,
     compute_dtype=torch.float16,  # we could also use bfloat16 when available
+    module_to_not_convert=(),
+    prefix="",
 ):
     for name, module in model.named_children():
+        module_path = prefix + "." + name if prefix else name
+        if is_excluded(module_path, module_to_not_convert):
+            continue
         if len(list(module.children())) > 0:
-            replace_bnb_linear(module, module_to_convert, q_type, threshold, compute_dtype)
+            replace_bnb_linear(
+                module, module_to_convert, q_type, threshold, compute_dtype, module_to_not_convert, module_path
+            )
 
-        if isinstance(module, nn.Linear) and name in module_to_convert:
+        if isinstance(module, nn.Linear) and is_selected(module_path, module_to_convert, module_to_not_convert):
             if q_type == "bnb_8bit":
                 model._modules[name] = nn.utils.skip_init(
                     Linear8bitLt,

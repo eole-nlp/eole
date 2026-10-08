@@ -230,6 +230,8 @@ class PredictConfig(
                     autoround_packing_format=training_config.autoround_packing_format,
                     autoround_sym=training_config.autoround_sym,
                     quant_exclude_modules=training_config.quant_exclude_modules,
+                    w_bit=training_config.w_bit,
+                    group_size=training_config.group_size,
                 )
 
             self.update(

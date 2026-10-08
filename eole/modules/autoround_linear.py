@@ -1,4 +1,5 @@
 import torch
+from eole.modules.quantization_selection import is_selected, is_excluded
 import torch.nn as nn
 from torch.cuda import is_available as cuda_is_available
 from eole.ops import _CPP_OPS_AVAILABLE
@@ -12,12 +13,16 @@ def replace_autoround_linear(
     packing_format="auto_round:auto_gptq",
     sym=True,
     module_to_not_convert=[],
+    prefix="",
 ):
     """Replace nn.Linear layers with AutoRound QuantLinear for quantized inference.
 
     The packing_format determines how qzeros are stored:
     - 'gptq' in packing_format: qzeros stored as (zero_point - 1) per GPTQ convention.
     - Otherwise: qzeros stored directly (direct zero-point).
+
+    Selection accepts bare names, model-root paths, and shell-style globs.
+    prefix identifies the model-root path when replacing a subtree.
 
     Backend preference order:
     1. Marlin CUDA kernels (requires CUDA + eole._ops, sym=True only) — fastest
@@ -48,14 +53,23 @@ def replace_autoround_linear(
         return fallback_cls
 
     for name, module in model.named_children():
-        if name in module_to_not_convert:
+        module_path = prefix + "." + name if prefix else name
+        if is_excluded(module_path, module_to_not_convert):
             continue  # skip entire subtree — this parent was kept in fp16
         if len(list(module.children())) > 0:
             replace_autoround_linear(
-                module, module_to_convert, w_bit, group_size, packing_format, sym, module_to_not_convert
+                module,
+                module_to_convert,
+                w_bit,
+                group_size,
+                packing_format,
+                sym,
+                module_to_not_convert,
+                module_path,
             )
 
-        if isinstance(module, nn.Linear) and name in module_to_convert:
+        selected = is_selected(module_path, module_to_convert, module_to_not_convert)
+        if isinstance(module, nn.Linear) and selected:
             if use_marlin:
                 try:
                     new_module = QuantLinear(

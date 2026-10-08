@@ -1,0 +1,167 @@
+{
+  "date": "2026-10-08",
+  "selection": {
+    "source": "/tmp/eole-livecodebench/splitrope-compiled-no-mtp",
+    "source_tasks_sha256": "af6a42be25bcfafc0951bb600920ae142389d999b04bc6f042a6a65a9c9b6a66",
+    "subset_tasks_sha256": "785a3f55f0e5e01968cdb94932dd2d4216d5a66d1f9149426737258665bd1ca8",
+    "tasks": [
+      {
+        "id": "atcoder/abc392_d",
+        "difficulty": "medium",
+        "historical_pass": false,
+        "historical_completion_tokens": 2995
+      },
+      {
+        "id": "atcoder/abc396_d",
+        "difficulty": "medium",
+        "historical_pass": false,
+        "historical_completion_tokens": 2541
+      },
+      {
+        "id": "leetcode/3779",
+        "difficulty": "medium",
+        "historical_pass": false,
+        "historical_completion_tokens": 2950
+      },
+      {
+        "id": "leetcode/3722",
+        "difficulty": "medium",
+        "historical_pass": false,
+        "historical_completion_tokens": 2484
+      }
+    ]
+  },
+  "settings": {
+    "compile": true,
+    "compile_mode": 0,
+    "mtp": false,
+    "compute_dtype": "bf16",
+    "decoding": "greedy",
+    "max_tokens": 8192,
+    "release_version": "release_v6",
+    "test_timeout": 6
+  },
+  "results": [
+    {
+      "id": "atcoder/abc392_d",
+      "historical-autoround": false,
+      "autoround": false,
+      "redhat": false
+    },
+    {
+      "id": "atcoder/abc396_d",
+      "historical-autoround": false,
+      "autoround": false,
+      "redhat": true
+    },
+    {
+      "id": "leetcode/3779",
+      "historical-autoround": false,
+      "autoround": false,
+      "redhat": false
+    },
+    {
+      "id": "leetcode/3722",
+      "historical-autoround": false,
+      "autoround": false,
+      "redhat": true
+    }
+  ],
+  "models": {
+    "autoround": {
+      "checkpoint": "Frozenlock/Qwen3.8-27B-int4-Autoround",
+      "passed": 0,
+      "tasks": 4,
+      "records": [
+        {
+          "id": "atcoder/abc392_d",
+          "wall_seconds": 54.429547570995055,
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 468,
+            "completion_tokens": 2995,
+            "total_tokens": 3463
+          }
+        },
+        {
+          "id": "atcoder/abc396_d",
+          "wall_seconds": 45.66856577100407,
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 627,
+            "completion_tokens": 2541,
+            "total_tokens": 3168
+          }
+        },
+        {
+          "id": "leetcode/3779",
+          "wall_seconds": 53.15448683699651,
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 441,
+            "completion_tokens": 2950,
+            "total_tokens": 3391
+          }
+        },
+        {
+          "id": "leetcode/3722",
+          "wall_seconds": 57.46528853201016,
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 304,
+            "completion_tokens": 2484,
+            "total_tokens": 2788
+          }
+        }
+      ]
+    },
+    "redhat": {
+      "checkpoint": "RedHatAI/Qwen3.8-27B-INT4",
+      "passed": 2,
+      "tasks": 4,
+      "records": [
+        {
+          "id": "atcoder/abc392_d",
+          "wall_seconds": 75.52154495599098,
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 468,
+            "completion_tokens": 3814,
+            "total_tokens": 4282
+          }
+        },
+        {
+          "id": "atcoder/abc396_d",
+          "wall_seconds": 33.98660557500261,
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 627,
+            "completion_tokens": 1512,
+            "total_tokens": 2139
+          }
+        },
+        {
+          "id": "leetcode/3779",
+          "wall_seconds": 125.89293101801013,
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 441,
+            "completion_tokens": 5968,
+            "total_tokens": 6409
+          }
+        },
+        {
+          "id": "leetcode/3722",
+          "wall_seconds": 56.72945331399387,
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 304,
+            "completion_tokens": 3135,
+            "total_tokens": 3439
+          }
+        }
+      ]
+    }
+  },
+  "limits": "Four medium tasks selected from corrected-RoPE AutoRound failures; not a full benchmark score. Does not measure RedHat MTP performance."
+}
