@@ -315,7 +315,9 @@ class InferenceEnginePY(InferenceEngine):
 
         return self.predictor._score(infer_iter)
 
-    def infer_list_stream(self, src: str, settings: Optional[Dict[str, Any]] = None):
+    def infer_list_stream(
+        self, src: str, settings: Optional[Dict[str, Any]] = None, generation_stats: Optional[Dict[str, Any]] = None
+    ):
         """Stream inference results for a single input string.
 
         Runs inference in a persistent thread-pool worker and yields decoded
@@ -330,6 +332,9 @@ class InferenceEnginePY(InferenceEngine):
             src (str): A single input string.
             settings (dict, optional): Override inference settings such as
                 ``temperature``, ``max_length``, ``top_k``, ``top_p``.
+            generation_stats (dict, optional): Filled on successful completion
+                with emitted-token count and whether EOS ended generation.
+                When supplied, terminal EOS tokens are omitted from text.
 
         Yields:
             str: Decoded text chunks produced by the model.
@@ -354,6 +359,7 @@ class InferenceEnginePY(InferenceEngine):
         streamer = GenerationStreamer(
             vocabs=self.vocabs,
             transform_pipe=self.transform_pipe,
+            eos_token_ids=self.predictor._tgt_eos_idx if generation_stats is not None else (),
         )
 
         exception_holder = []
@@ -375,6 +381,11 @@ class InferenceEnginePY(InferenceEngine):
 
         if exception_holder:
             raise exception_holder[0]
+        if generation_stats is not None:
+            generation_stats.update(
+                output_tokens=streamer.token_count,
+                stopped_on_eos=streamer.last_token_id in streamer.eos_token_ids,
+            )
 
     def _distribute_parallel_task(self, task_name: str, task_arg: Any, settings: Optional[Dict[str, Any]] = None):
         """Distribute a task to all parallel workers.

@@ -22,6 +22,8 @@ class GenerationStreamer:
             id-tokenization models), full-sequence incremental decoding
             is used to yield clean text. When ``None``, tokens are looked
             up directly in the vocabulary.
+        eos_token_ids (iterable): Optional terminal IDs to count but omit
+            from decoded chunks. The default preserves existing behavior.
         timeout (float): Maximum seconds to wait for the next token before
             the iterator stops. Default is 120.0.
 
@@ -50,8 +52,11 @@ class GenerationStreamer:
     # Sentinel value placed in the queue to signal end-of-generation
     _STOP = object()
 
-    def __init__(self, vocabs, transform_pipe=None, timeout: float = 120.0):
+    def __init__(self, vocabs, transform_pipe=None, timeout: float = 120.0, eos_token_ids=()):
         self.vocabs = vocabs
+        self.eos_token_ids = set(eos_token_ids)
+        self.token_count = 0
+        self.last_token_id = None
         self.transform_pipe = transform_pipe
         self.timeout = timeout
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
@@ -84,7 +89,10 @@ class GenerationStreamer:
             token_id = int(item.item()) if hasattr(item, "item") else int(item)
         else:
             token_id = int(token_ids)
-        self._queue.put(token_id)
+        self.token_count += 1
+        self.last_token_id = token_id
+        if token_id not in self.eos_token_ids:
+            self._queue.put(token_id)
 
     def end(self):
         """Signal that generation is complete.

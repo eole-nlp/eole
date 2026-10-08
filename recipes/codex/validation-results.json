@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-08",
+  "codex_cli_version": "0.162.0-alpha.2",
+  "backend": "deterministic fake engine (CPU, not Qwen)",
+  "regression_tests": {
+    "passed": 24,
+    "subtests_passed": 9,
+    "files": [
+      "test_responses_api.py",
+      "test_server_tool_inputs.py",
+      "test_streamer.py",
+      "test_inference_engines.py"
+    ]
+  },
+  "http_smoke_test": {
+    "json_text": "passed",
+    "sse_text": "passed",
+    "typed_add_tool_and_result_replay": "passed"
+  },
+  "linux_app_server": {
+    "initialize": "passed",
+    "model_list_local_qwen": "passed"
+  },
+  "codex_exec": {
+    "catalog_load": "passed",
+    "function_call_dispatch": "passed",
+    "function_result_replay": "passed",
+    "turn_completed": "passed",
+    "shell_command_execution": "blocked: bubblewrap app-server socket directory must be user-owned with mode 0700"
+  },
+  "not_validated": [
+    "Live Qwen GPU inference",
+    "Linux desktop UI model selection and coding task",
+    "Real shell/edit/test coding cycle with Qwen",
+    "MTP performance",
+    "Advanced desktop features and plugins"
+  ]
+}
