@@ -34,9 +34,7 @@ class TestQwenRopeConversion(unittest.TestCase):
                     )
                     config, _, _ = build_config_dict(hf)
                     self.assertIs(config["rope_config"]["rotary_interleave"], False)
-                    self.assertEqual(
-                        config["rope_config"]["xdrope_section"], [11, 11, 10]
-                    )
+                    self.assertEqual(config["rope_config"]["xdrope_section"], [11, 11, 10])
                     self.assertEqual(config["rope_config"]["rotary_theta"], 10000000)
                     self.assertEqual(config["rope_config"]["rotary_dim"], 64)
 
