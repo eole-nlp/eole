@@ -38,6 +38,8 @@ class RunBin(BaseBin):
             config_dict.pop(_key, None)
 
         config = cls.config_class(**config_dict)
+        if hasattr(config, "_config_file"):
+            config._config_file = args.config
         return config
 
     @classmethod

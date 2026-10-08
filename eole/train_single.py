@@ -114,7 +114,9 @@ class TrainingInitializer:
             new_config.tensorboard_log_dir_dated = metadata_non_defaults["tensorboard_log_dir_dated"]
 
         updated_config = recursive_update_dict(metadata_non_defaults, new_config, defaults)
-        return TrainConfig(**updated_config)
+        config = TrainConfig(**updated_config)
+        config._config_file = self.config._config_file
+        return config
 
     def _log_vocab_info(self, vocabs: Dict, config: TrainConfig):
         """Log vocabulary information."""
