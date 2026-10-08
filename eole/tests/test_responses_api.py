@@ -53,42 +53,26 @@ class TestResponsesAPI(unittest.TestCase):
             pass
 
         app = FastAPI()
-        register_responses(
-            app, SimpleNamespace(models={"qwen": self.model}, maybe_load_model=load)
-        )
+        register_responses(app, SimpleNamespace(models={"qwen": self.model}, maybe_load_model=load))
         self.client = TestClient(app)
 
     def post(self, **kwargs):
-        return self.client.post(
-            "/v1/responses", json={"model": "qwen", "input": "Hello", **kwargs}
-        )
+        return self.client.post("/v1/responses", json={"model": "qwen", "input": "Hello", **kwargs})
 
     def events(self, **kwargs):
         response = self.post(stream=True, **kwargs)
         self.assertEqual(response.status_code, 200)
-        return [
-            json.loads(line[6:])
-            for line in response.text.splitlines()
-            if line.startswith("data: ")
-        ]
+        return [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
 
     def test_text_stream_and_final_output_match(self):
         events = self.events()
-        self.assertEqual(
-            [e["sequence_number"] for e in events], list(range(len(events)))
-        )
+        self.assertEqual([e["sequence_number"] for e in events], list(range(len(events))))
         self.assertEqual(events[0]["type"], "response.created")
         self.assertEqual(events[-1]["type"], "response.completed")
-        deltas = [
-            e["delta"] for e in events if e["type"] == "response.output_text.delta"
-        ]
+        deltas = [e["delta"] for e in events if e["type"] == "response.output_text.delta"]
         self.assertEqual(deltas, ["Hello ", "world"])
-        self.assertEqual(
-            events[-1]["response"]["output"][0]["content"][0]["text"], "".join(deltas)
-        )
-        self.assertEqual(
-            self.post().json()["output"][0]["content"][0]["text"], "".join(deltas)
-        )
+        self.assertEqual(events[-1]["response"]["output"][0]["content"][0]["text"], "".join(deltas))
+        self.assertEqual(self.post().json()["output"][0]["content"][0]["text"], "".join(deltas))
 
     def test_function_tool_round_trip(self):
         self.model.chunks = list(
@@ -109,9 +93,7 @@ class TestResponsesAPI(unittest.TestCase):
         call = events[-1]["response"]["output"][0]
         self.assertEqual(call["type"], "function_call")
         self.assertEqual(json.loads(call["arguments"]), {"a": 19, "b": 23})
-        self.assertIn(
-            "response.function_call_arguments.delta", [e["type"] for e in events]
-        )
+        self.assertIn("response.function_call_arguments.delta", [e["type"] for e in events])
         self.model.chunks = ["42"]
         response = self.post(
             input=[
@@ -138,9 +120,7 @@ class TestResponsesAPI(unittest.TestCase):
     def test_custom_tool_round_trip(self):
         patch = "*** Begin Patch\n*** End Patch"
         self.model.chunks = [
-            "<tool_call>"
-            + json.dumps({"name": "apply_patch", "arguments": {"input": patch}})
-            + "</tool_call>"
+            "<tool_call>" + json.dumps({"name": "apply_patch", "arguments": {"input": patch}}) + "</tool_call>"
         ]
         tools = [
             {
@@ -174,9 +154,7 @@ class TestResponsesAPI(unittest.TestCase):
         )
 
     def test_namespace_tool_round_trip(self):
-        self.model.chunks = [
-            '<tool_call>{"name":"files.read","arguments":{"path":"a.txt"}}</tool_call>'
-        ]
+        self.model.chunks = ['<tool_call>{"name":"files.read","arguments":{"path":"a.txt"}}</tool_call>']
         tools = [
             {
                 "type": "namespace",
@@ -210,9 +188,7 @@ class TestResponsesAPI(unittest.TestCase):
             ).status_code,
             200,
         )
-        self.assertEqual(
-            self.model.messages[0]["tool_calls"][0]["function"]["name"], "files.read"
-        )
+        self.assertEqual(self.model.messages[0]["tool_calls"][0]["function"]["name"], "files.read")
 
     def test_generation_budget_is_incomplete(self):
         events = self.events(max_output_tokens=1)
@@ -235,9 +211,7 @@ class TestResponsesAPI(unittest.TestCase):
             "name": "add",
             "parameters": {"type": "object", "properties": {}},
         }
-        events = self.events(
-            tools=[tool], tool_choice={"type": "function", "name": "add"}
-        )
+        events = self.events(tools=[tool], tool_choice={"type": "function", "name": "add"})
         self.assertEqual(events[-1]["type"], "response.failed")
         self.model.chunks = ['<tool_call>{"name":"add","arguments":{}}</tool_call>' * 2]
         self.assertEqual(
@@ -304,9 +278,7 @@ class TestResponsesAPI(unittest.TestCase):
                 {"role": "user", "content": "third"},
             ],
         )
-        self.assertEqual(
-            [m["role"] for m in responses_messages(req)], ["system", "system", "user"]
-        )
+        self.assertEqual([m["role"] for m in responses_messages(req)], ["system", "system", "user"])
 
     def test_tag_boundaries_and_literal_angle_brackets(self):
         source = 'a < b\n<think>secret</think>ok<tool_call>{"name":"f","arguments":{}}</tool_call>after'

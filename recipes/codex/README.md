@@ -84,8 +84,59 @@ An existing chat can retain its previous model selection.
 First ask it to read `sentinel.txt` with a tool and report its exact contents.
 Then ask it to create a palindrome function and a unittest file, run the tests,
 and report their output. Review the tool calls through the normal permission
-flow and independently inspect the files and test results. To return to your
-normal configuration, quit the app and launch it without the `CODEX_HOME` override.
+flow and independently inspect the files and test results.
+
+## Return to the default OpenAI configuration
+
+The setup above keeps Qwen configuration in `/tmp/eole-codex-home` and leaves
+`~/.codex/config.toml` and your normal sign-in untouched. Switching back means
+starting Codex with your normal home directory and selecting an OpenAI model.
+You do not need to delete the Qwen files or log out of your OpenAI account.
+
+**CLI:** exit the Qwen session, then launch without the home override:
+
+```bash
+unset CODEX_HOME
+env -u CODEX_HOME codex
+```
+
+Use the bundled CLI path instead of `codex` if that is how you normally launch
+it. Do not pass `--oss`, `--local-provider`, a Qwen `--model`, or an Eole
+`--config` override. In the new session, use `/status` to verify that the active
+provider/model is OpenAI rather than Eole/Qwen. If needed, use `/model` to
+select your usual OpenAI model. Your normal ChatGPT/API authentication is read
+from the normal Codex home; sign in normally only if Codex asks.
+
+**Linux desktop app:** fully quit the app, including any process left running
+in the tray. Then launch it normally from the desktop menu, or run:
+
+```bash
+unset CODEX_HOME
+env -u CODEX_HOME chatgpt
+```
+
+Replace `chatgpt` with your installed app executable if different. A second
+launch while the Qwen app process is still running can reuse that process and
+its configuration. Start a **new local chat** and select your usual **OpenAI
+model** in the model picker; an existing Qwen chat can retain its model choice.
+You should see the normal OpenAI model catalog instead of the isolated Qwen
+catalog. If you previously used a different custom `CODEX_HOME` for your normal
+OpenAI setup, restore that original value instead of unsetting it.
+
+If you exported `CODEX_HOME=/tmp/eole-codex-home` in a shell startup file or
+added it to a desktop launcher, remove that override there too, then restart
+the terminal/app. The one-command environment assignments in this recipe do
+not persist after the command exits.
+
+**If you copied the Qwen settings into your normal config manually:** back up
+`~/.codex/config.toml`, then restore its previous settings. Remove the Qwen
+`model` value and the custom `model_catalog_json` path, and remove
+`model_provider = "eole"` or replace it with `model_provider = "openai"`.
+The unused `[model_providers.eole]` table can also be removed. Restore any
+`web_search` setting you changed for the recipe. Keep your other settings and
+authentication files. Quit/restart Codex and select an OpenAI model in a new
+chat. See the [official configuration guide](https://learn.chatgpt.com/docs/config-file/config-basic)
+for configuration locations and override precedence.
 
 ## Supported behavior and limits
 
