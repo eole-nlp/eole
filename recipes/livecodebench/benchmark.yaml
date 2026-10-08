@@ -1,0 +1,15 @@
+recipe_type: livecodebench
+upstream_dir: ${LCB_DIR}
+output_dir: /tmp/eole-livecodebench
+# Explicit release; date filters use upstream inclusive boundary semantics.
+release_version: release_v6
+start_date: '2025-02-01'
+end_date: '2025-04-30'
+# null evaluates the whole selected window; use 5 for an integration smoke run.
+limit: null
+base_url: http://127.0.0.1:5010/v1
+model_id: qwen3.8-27B
+max_tokens: 8192
+request_timeout: 1800
+num_process_evaluate: 2
+test_timeout: 6

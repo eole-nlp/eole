@@ -38,7 +38,7 @@ for the release details and current limitations.
 | Extract text from images and documents | [HunyuanOCR](recipes/hunyuanocr/README.md) or [DeepSeek-OCR](recipes/deepseekocr/README.md) |
 | Transcribe audio | [Whisper](recipes/whisper/README.md) |
 | Train a language model from scratch | [WikiText-103](recipes/wiki_103/README.md) or [FineWeb](recipes/fineweb10B/README.md) |
-| Evaluate model quality or inference speed | [MMLU](recipes/mmlu/README.md), [model validator](recipes/model-validator/README.md), or [benchmarks](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md) |
+| Evaluate model quality or inference speed | [LiveCodeBench coding](recipes/livecodebench/README.md), [MMLU](recipes/mmlu/README.md), [model validator](recipes/model-validator/README.md), or [benchmarks](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md) |
 
 Browse the [full recipe index](recipes/README.md) for more workflows.
 

@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 from eole.config.run import TrainConfig, PredictConfig
-from eole.config.recipes import Qwen38ValidationConfig
+from eole.config.recipes import Qwen38ValidationConfig, LiveCodeBenchConfig
 from glob import glob
 import os
 import yaml
@@ -19,6 +19,8 @@ for config_path in configs_to_check:
         config_dict = yaml.safe_load(f)
     if config_dict.get("recipe_type") == "qwen38_validation":
         Qwen38ValidationConfig(**config_dict)
+    elif config_dict.get("recipe_type") == "livecodebench":
+        LiveCodeBenchConfig(**config_dict)
     elif "training" in config_dict.keys() or "model" in config_dict.keys():
         # must be a TrainConfig
         try:

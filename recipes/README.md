@@ -45,6 +45,7 @@ fixed, and actually executed on the current checkout.
 |---|---|
 | Native COMET, KIWI, XCOMET, MetricX; training validation and custom scorers | [Scoring overview](scoring/README.md) |
 | Smoke-test conversion, generation, and MMLU | [Model validator](model-validator/README.md) |
+| Python code generation graded by executable tests | [LiveCodeBench](livecodebench/README.md) |
 | Knowledge benchmark | [MMLU](mmlu/README.md) |
 | Reproduce inference measurements | [Generation benchmarks](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md) |
 
