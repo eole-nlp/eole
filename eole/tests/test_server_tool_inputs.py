@@ -8,10 +8,13 @@ from eole.bin.run.serve import (
     Model,
     OpenAIFunctionCall,
     OpenAIMessage,
+    _OpenAIStreamParser,
     OpenAIToolCall,
     _coerce_tool_inputs_from_schema,
+    _normalize_developer_role,
     _openai_messages_for_template,
     _parse_anthropic_response_content,
+    _parse_openai_complete_response,
     _parse_openai_response_content,
     _prepare_openai_tool_request,
 )
@@ -135,10 +138,125 @@ class TestServerToolInputs(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(reason, "stop")
 
+    def test_developer_role_maps_to_system_for_qwen_template(self):
+        messages = [{"role": "developer", "content": "Follow these instructions."}]
+        normalized = _normalize_developer_role(messages, "{% if message.role == 'system' %}")
+        self.assertEqual(normalized, [{"role": "system", "content": "Follow these instructions."}])
+        self.assertEqual(messages[0]["role"], "developer")
+
+    def test_developer_role_is_preserved_for_gpt_oss_template(self):
+        messages = [{"role": "developer", "content": "Follow these instructions."}]
+        normalized = _normalize_developer_role(messages, "<|channel|>analysis<|message|>")
+        self.assertIs(normalized, messages)
+        self.assertEqual(normalized[0]["role"], "developer")
+
+    def test_openai_stream_parser_handles_every_tag_boundary(self):
+        source = "before<think>reasoning</think>after"
+        expected = [("text", "before"), ("reasoning", "reasoning"), ("text", "after")]
+        for size in range(1, len(source) + 1):
+            with self.subTest(size=size):
+                parser = _OpenAIStreamParser()
+                parts = []
+                for offset in range(0, len(source), size):
+                    parts.extend(parser.feed(source[offset : offset + size]))
+                parts.extend(parser.feed("", final=True))
+                combined = []
+                for kind, value in parts:
+                    if combined and combined[-1][0] == kind:
+                        combined[-1] = (kind, combined[-1][1] + value)
+                    else:
+                        combined.append((kind, value))
+                self.assertEqual(combined, expected)
+
+    def test_openai_stream_parser_handles_template_opened_thinking(self):
+        source = "reasoning</think>answer"
+        expected = [("reasoning", "reasoning"), ("text", "answer")]
+        for size in range(1, len(source) + 1):
+            with self.subTest(size=size):
+                parser = _OpenAIStreamParser(thinking=True)
+                parts = []
+                for offset in range(0, len(source), size):
+                    parts.extend(parser.feed(source[offset : offset + size]))
+                parts.extend(parser.feed("", final=True))
+                combined = []
+                for kind, value in parts:
+                    if combined and combined[-1][0] == kind:
+                        combined[-1] = (kind, combined[-1][1] + value)
+                    else:
+                        combined.append((kind, value))
+                self.assertEqual(combined, expected)
+
+    def test_openai_stream_parser_buffers_tool_across_every_boundary(self):
+        tool = '<tool_call>{"name":"bash","arguments":{"command":"ls"}}</tool_call>'
+        source = f"before{tool}after"
+        expected = [("text", "before"), ("tool", tool), ("text", "after")]
+        for size in range(1, len(source) + 1):
+            with self.subTest(size=size):
+                parser = _OpenAIStreamParser(parse_tools=True)
+                parts = []
+                for offset in range(0, len(source), size):
+                    parts.extend(parser.feed(source[offset : offset + size]))
+                parts.extend(parser.feed("", final=True))
+                combined = []
+                for kind, value in parts:
+                    if combined and combined[-1][0] == kind:
+                        combined[-1] = (kind, combined[-1][1] + value)
+                    else:
+                        combined.append((kind, value))
+                self.assertEqual(combined, expected)
+
+    def test_openai_stream_parser_normalizes_newlines_in_buffered_tool(self):
+        raw = (
+            "<tool_call>｟newline｠<function=bash>｟newline｠"
+            "<parameter=command>｟newline｠pwd; ls -la｟newline｠</parameter>｟newline｠"
+            "</function>｟newline｠</tool_call>"
+        )
+        parser = _OpenAIStreamParser(parse_tools=True)
+
+        parts = parser.feed(raw, final=True)
+
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(parts[0][0], "tool")
+        self.assertNotIn("｟newline｠", parts[0][1])
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "bash",
+                    "parameters": {"type": "object", "properties": {"command": {"type": "string"}}},
+                },
+            }
+        ]
+        content, calls, reason = _parse_openai_response_content(parts[0][1], tools)
+        self.assertIsNone(content)
+        self.assertEqual(reason, "tool_calls")
+        self.assertEqual(calls[0].function.arguments, '{"command":"pwd; ls -la"}')
+
+    def test_openai_stream_parser_preserves_literal_closing_tag(self):
+        parser = _OpenAIStreamParser()
+        self.assertEqual(parser.feed("literal </think> text", final=True), [("text", "literal </think> text")])
+
+    def test_openai_complete_response_preserves_tool_inside_reasoning(self):
+        raw = (
+            "<think>Use the tool."
+            "<tool_call><function=bash><parameter=command>ls</parameter></function></tool_call>"
+            "</think>"
+        )
+        tools = [{"type": "function", "function": {"name": "bash", "parameters": {}}}]
+
+        content, reasoning, calls, reason = _parse_openai_complete_response(raw, tools)
+
+        self.assertIsNone(content)
+        self.assertEqual(reasoning, "Use the tool.")
+        self.assertEqual(reason, "tool_calls")
+        self.assertEqual(calls[0].function.name, "bash")
+        self.assertEqual(calls[0].function.arguments, '{"command":"ls"}')
+
     def test_openai_tool_history_survives_template_conversion(self):
         messages = [
             OpenAIMessage(
                 role="assistant",
+                reasoning_content="I should inspect files.",
                 tool_calls=[
                     OpenAIToolCall(
                         id="call_123",
@@ -152,6 +270,7 @@ class TestServerToolInputs(unittest.TestCase):
         rendered = _openai_messages_for_template(messages)
 
         self.assertEqual(rendered[0]["tool_calls"][0]["function"]["arguments"], {"command": "ls"})
+        self.assertEqual(rendered[0]["reasoning_content"], "I should inspect files.")
         self.assertEqual(rendered[1]["tool_call_id"], "call_123")
         self.assertEqual(rendered[1]["name"], "bash")
 

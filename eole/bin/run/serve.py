@@ -191,13 +191,14 @@ class OpenAIToolCall(BaseModel):
 class OpenAIMessage(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    role: Literal["system", "user", "assistant", "tool"]
+    role: Literal["system", "developer", "user", "assistant", "tool"]
     # Per the OpenAI API spec, content can be a string, an array of content
     # parts (multimodal), or null (when the message only carries tool_calls).
     content: Optional[Union[str, List[Any]]] = None
     name: Optional[str] = None
     tool_call_id: Optional[str] = None
     tool_calls: Optional[List[OpenAIToolCall]] = None
+    reasoning_content: Optional[str] = None
 
 
 class OpenAIChatRequest(BaseModel):
@@ -233,6 +234,9 @@ class OpenAIChatRequest(BaseModel):
     user: Optional[str] = None
     tools: Optional[List[dict]] = None
     tool_choice: Optional[Union[str, dict]] = None
+    enable_thinking: Optional[bool] = None
+    reasoning_effort: Optional[str] = None
+    chat_template_kwargs: Optional[dict] = None
 
 
 class OpenAIUsage(BaseModel):
@@ -284,6 +288,7 @@ class OpenAIStreamDelta(BaseModel):
 
     role: Optional[Literal["assistant"]] = None
     content: Optional[str] = None
+    reasoning_content: Optional[str] = None
     tool_calls: Optional[List[dict]] = None
 
 
@@ -683,6 +688,122 @@ def _parse_openai_response_content(text: str, tools=None):
     return content, tool_calls, "tool_calls" if tool_calls else "stop"
 
 
+class _OpenAIStreamParser:
+    """Split model text, reasoning, and complete tool blocks incrementally."""
+
+    def __init__(self, parse_tools=False, thinking=False):
+        self.pending = ""
+        self.thinking = thinking
+        self.parse_tools = parse_tools
+        self.tool = ""
+        self.tool_end = None
+        self.tool_was_thinking = False
+
+    def feed(self, chunk: str, final=False):
+        self.pending += chunk
+        result = []
+
+        while self.pending:
+            if self.tool_end:
+                end = self.pending.find(self.tool_end)
+                if end < 0:
+                    if final:
+                        kind = "reasoning" if self.tool_was_thinking else "text"
+                        result.append((kind, (self.tool + self.pending).replace(DefaultTokens.SEP, "\n")))
+                        self.pending = ""
+                        self.tool = ""
+                        self.tool_end = None
+                        break
+                    keep = len(self.tool_end) - 1
+                    self.tool += self.pending[:-keep] if keep else self.pending
+                    self.pending = self.pending[-keep:] if keep else ""
+                    break
+                end += len(self.tool_end)
+                result.append(("tool", (self.tool + self.pending[:end]).replace(DefaultTokens.SEP, "\n")))
+                self.pending = self.pending[end:]
+                self.tool = ""
+                self.tool_end = None
+                continue
+
+            tags = ["</think>" if self.thinking else "<think>", DefaultTokens.SEP]
+            if self.parse_tools:
+                tags.extend(("<tool_call>", "<tool_use"))
+            found = [(self.pending.find(tag), tag) for tag in tags if tag in self.pending]
+            if found:
+                position, tag = min(found)
+                if position:
+                    result.append(("reasoning" if self.thinking else "text", self.pending[:position]))
+                self.pending = self.pending[position + len(tag) :]
+                if tag == "<think>":
+                    self.thinking = True
+                elif tag == "</think>":
+                    self.thinking = False
+                elif tag in ("<tool_call>", "<tool_use"):
+                    self.tool = tag
+                    self.tool_end = "</tool_call>" if tag == "<tool_call>" else "</tool_use>"
+                    self.tool_was_thinking = self.thinking
+                else:
+                    result.append(("reasoning" if self.thinking else "text", "\n"))
+                continue
+
+            keep = 0
+            if not final:
+                max_tag_length = max(map(len, tags))
+                for size in range(1, min(len(self.pending), max_tag_length) + 1):
+                    if any(tag.startswith(self.pending[-size:]) for tag in tags):
+                        keep = size
+            text = self.pending[:-keep] if keep else self.pending
+            self.pending = self.pending[-keep:] if keep else ""
+            if text:
+                result.append(("reasoning" if self.thinking else "text", text))
+            break
+        return result
+
+
+def _parse_openai_complete_response(text: str, tools=None, thinking=False):
+    """Split a complete response while preserving reasoning separately."""
+    parser = _OpenAIStreamParser(parse_tools=bool(tools), thinking=thinking)
+    content_parts = []
+    reasoning_parts = []
+    tool_calls = []
+    for kind, value in parser.feed(text, final=True):
+        if kind == "text":
+            content_parts.append(value)
+        elif kind == "reasoning":
+            reasoning_parts.append(value)
+        else:
+            tool_content, calls, _ = _parse_openai_response_content(value, tools)
+            if tool_content:
+                content_parts.append(tool_content)
+            tool_calls.extend(calls)
+    content = "".join(content_parts).strip() or None
+    reasoning = "".join(reasoning_parts).strip() or None
+    return content, reasoning, tool_calls, "tool_calls" if tool_calls else "stop"
+
+
+def _chat_prompt_opens_thinking(chat_input: str) -> bool:
+    """Return whether generation begins inside a template-provided think block."""
+    return chat_input.rstrip().endswith("<think>")
+
+
+def _openai_thinking_enabled(request: OpenAIChatRequest) -> bool:
+    """Resolve Pi and other OpenAI-compatible thinking controls."""
+    if request.enable_thinking is not None:
+        return request.enable_thinking
+    template_value = (request.chat_template_kwargs or {}).get("enable_thinking")
+    if isinstance(template_value, bool):
+        return template_value
+    return request.reasoning_effort not in (None, "none", "off")
+
+
+def _openai_reasoning_effort(request: OpenAIChatRequest) -> Optional[str]:
+    """Resolve the reasoning effort forwarded to the model chat template."""
+    if request.reasoning_effort is not None:
+        return request.reasoning_effort
+    template_value = (request.chat_template_kwargs or {}).get("reasoning_effort")
+    return template_value if isinstance(template_value, str) else None
+
+
 def _openai_messages_for_template(messages: List[OpenAIMessage]) -> list:
     """Preserve OpenAI tool history and decode function arguments for Jinja."""
     rendered = []
@@ -721,6 +842,18 @@ def _openai_messages_for_template(messages: List[OpenAIMessage]) -> list:
             )
         rendered.append(item)
     return rendered
+
+
+def _normalize_developer_role(messages: list, chat_template: str) -> list:
+    """Map developer instructions for templates without GPT-OSS role semantics."""
+    if "<|channel|>" in chat_template:
+        return messages
+    normalized = []
+    for message in messages:
+        if message.get("role") == "developer":
+            message = {**message, "role": "system"}
+        normalized.append(message)
+    return normalized
 
 
 def _prepare_openai_tool_request(messages: list, tools, tool_choice):
@@ -1264,7 +1397,7 @@ class Model(object):
                         break
         return estimate_tokens(text)
 
-    def apply_chat_template(self, inputs, tools=None, tool_choice=None):
+    def apply_chat_template(self, inputs, tools=None, tool_choice=None, enable_thinking=False, reasoning_effort=None):
         """
         Render the model input based on the model chat template
         and the request inputs.
@@ -1329,6 +1462,8 @@ class Model(object):
                 "Check the model's config.json or chat_template.jinja file."
             )
 
+        inputs = _normalize_developer_role(inputs, chat_template)
+
         # Strip HuggingFace {% generation %} markers — they are used by the
         # HF tokenizer library to mark the generation boundary but are not
         # valid Jinja2 tags and are not needed for inference rendering.
@@ -1347,12 +1482,11 @@ class Model(object):
             "bos_token": "",  # handled in numericalize
             "eos_token": "",  # handled by stop conditions; use literal tokens in template
             "add_generation_prompt": True,
-            # Many Qwen3 / "thinking" model templates gate on enable_thinking.
-            # Default to False so the model uses direct tool-call output rather
-            # than wrapping everything in <think>…</think> blocks (we strip
-            # those blocks anyway, but avoiding them keeps the output cleaner).
-            "enable_thinking": False,
+            # Many Qwen3 / "thinking" model templates gate on this value.
+            "enable_thinking": enable_thinking,
         }
+        if reasoning_effort is not None:
+            render_kwargs["reasoning_effort"] = reasoning_effort
         if tools is not None:
             render_kwargs["tools"] = tools
         if tool_choice is not None:
@@ -1530,6 +1664,8 @@ def create_app(config_file):
             # Forward tools/tool_choice to the chat template if provided.
             template_tools = request.tools or None
             template_tool_choice = request.tool_choice or None
+            enable_thinking = _openai_thinking_enabled(request)
+            reasoning_effort = _openai_reasoning_effort(request)
             try:
                 messages, template_tools = _prepare_openai_tool_request(messages, template_tools, template_tool_choice)
             except ValueError as exc:
@@ -1558,13 +1694,16 @@ def create_app(config_file):
                     messages,
                     tools=template_tools,
                     tool_choice=template_tool_choice,
+                    enable_thinking=enable_thinking,
+                    reasoning_effort=reasoning_effort,
                 )
+                prompt_opens_thinking = _chat_prompt_opens_thinking(chat_input)
                 completion_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
                 created_ts = int(time.time())
 
                 async def _stream_sse():
                     """Async generator that yields SSE-formatted data lines."""
-                    loop = asyncio.get_event_loop()
+                    loop = asyncio.get_running_loop()
                     chunk_queue: asyncio.Queue = asyncio.Queue()
 
                     def _produce():
@@ -1592,7 +1731,51 @@ def create_app(config_file):
                     )
                     yield f"data: {first_chunk.model_dump_json()}\n\n"
 
+                    parser = _OpenAIStreamParser(parse_tools=bool(template_tools), thinking=prompt_opens_thinking)
                     raw_chunks: list = []
+                    tool_index = 0
+                    emitted_tool_call = False
+
+                    def _stream_parts(parts):
+                        nonlocal tool_index, emitted_tool_call
+                        for kind, value in parts:
+                            if kind == "reasoning":
+                                delta = OpenAIStreamDelta(reasoning_content=value)
+                            elif kind == "text":
+                                delta = OpenAIStreamDelta(content=value)
+                            else:
+                                tool_content, tool_calls, _ = _parse_openai_response_content(value, template_tools)
+                                if tool_content:
+                                    content_chunk = OpenAIStreamChunk(
+                                        id=completion_id,
+                                        created=created_ts,
+                                        model=model_id,
+                                        choices=[
+                                            OpenAIStreamChoice(
+                                                index=0,
+                                                delta=OpenAIStreamDelta(content=tool_content),
+                                            )
+                                        ],
+                                    )
+                                    yield f"data: {content_chunk.model_dump_json()}\n\n"
+                                if not tool_calls:
+                                    continue
+                                delta = OpenAIStreamDelta(
+                                    tool_calls=[
+                                        {"index": tool_index + index, **tool_call.model_dump()}
+                                        for index, tool_call in enumerate(tool_calls)
+                                    ]
+                                )
+                                tool_index += len(tool_calls)
+                                emitted_tool_call = True
+                            chunk = OpenAIStreamChunk(
+                                id=completion_id,
+                                created=created_ts,
+                                model=model_id,
+                                choices=[OpenAIStreamChoice(index=0, delta=delta)],
+                            )
+                            yield f"data: {chunk.model_dump_json()}\n\n"
+
                     while True:
                         item = await chunk_queue.get()
                         if item is None:
@@ -1600,45 +1783,12 @@ def create_app(config_file):
                         if isinstance(item, Exception):
                             raise item
                         raw_chunks.append(item)
+                        for event in _stream_parts(parser.feed(item)):
+                            yield event
+                    for event in _stream_parts(parser.feed("", final=True)):
+                        yield event
 
-                    full_text = _post_process_model_output("".join(raw_chunks))
-                    _log_json_payload("MODEL RESPONSE [openai stream]", full_text)
-                    response_content, response_tool_calls, finish_reason = _parse_openai_response_content(
-                        full_text, template_tools
-                    )
-
-                    if response_content is not None:
-                        content_chunk = OpenAIStreamChunk(
-                            id=completion_id,
-                            created=created_ts,
-                            model=model_id,
-                            choices=[
-                                OpenAIStreamChoice(
-                                    index=0,
-                                    delta=OpenAIStreamDelta(content=response_content),
-                                )
-                            ],
-                        )
-                        yield f"data: {content_chunk.model_dump_json()}\n\n"
-
-                    if response_tool_calls:
-                        tool_chunk = OpenAIStreamChunk(
-                            id=completion_id,
-                            created=created_ts,
-                            model=model_id,
-                            choices=[
-                                OpenAIStreamChoice(
-                                    index=0,
-                                    delta=OpenAIStreamDelta(
-                                        tool_calls=[
-                                            {"index": index, **tool_call.model_dump()}
-                                            for index, tool_call in enumerate(response_tool_calls)
-                                        ]
-                                    ),
-                                )
-                            ],
-                        )
-                        yield f"data: {tool_chunk.model_dump_json()}\n\n"
+                    _log_json_payload("MODEL RESPONSE [openai stream]", "".join(raw_chunks))
 
                     # Final chunk with finish_reason
                     final_chunk = OpenAIStreamChunk(
@@ -1649,7 +1799,7 @@ def create_app(config_file):
                             OpenAIStreamChoice(
                                 index=0,
                                 delta=OpenAIStreamDelta(),
-                                finish_reason=finish_reason,
+                                finish_reason="tool_calls" if emitted_tool_call else "stop",
                             )
                         ],
                     )
@@ -1675,7 +1825,10 @@ def create_app(config_file):
                 messages,
                 tools=template_tools,
                 tool_choice=template_tool_choice,
+                enable_thinking=enable_thinking,
+                reasoning_effort=reasoning_effort,
             )
+            prompt_opens_thinking = _chat_prompt_opens_thinking(chat_input)
             scores, preds = await model_obj.infer_async(
                 inputs=chat_input,
                 settings=settings,
@@ -1695,10 +1848,9 @@ def create_app(config_file):
             prompt_text = " ".join([_content_as_str(msg.content) for msg in request.messages])
             prompt_tokens = estimate_tokens(prompt_text)
             completion_text = preds[0][0] if preds and preds[0] else ""
-            completion_text = _post_process_model_output(completion_text)
             completion_tokens = estimate_tokens(completion_text)
-            response_content, response_tool_calls, finish_reason = _parse_openai_response_content(
-                completion_text, template_tools
+            response_content, reasoning_content, response_tool_calls, finish_reason = _parse_openai_complete_response(
+                completion_text, template_tools, thinking=prompt_opens_thinking
             )
 
             _log_json_payload("MODEL RESPONSE [openai]", completion_text)
@@ -1713,7 +1865,10 @@ def create_app(config_file):
                     OpenAIChoice(
                         index=0,
                         message=OpenAIMessage(
-                            role="assistant", content=response_content, tool_calls=response_tool_calls or None
+                            role="assistant",
+                            content=response_content,
+                            reasoning_content=reasoning_content,
+                            tool_calls=response_tool_calls or None,
                         ),
                         finish_reason=finish_reason,
                     )
