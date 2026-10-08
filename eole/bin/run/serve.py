@@ -341,7 +341,7 @@ class AnthropicInputMessage(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    role: Literal["user", "assistant"]
+    role: Literal["system", "user", "assistant"]
     content: Union[str, List[Any]]
 
 
@@ -641,23 +641,38 @@ def _anthropic_messages_to_openai(messages: list, system=None) -> list:
                         models with an OpenAI-style tool-result slot receive
                         the data correctly.
 
-    A top-level *system* prompt (string or list of text blocks) is prepended
-    as a ``{"role": "system", …}`` message.
+    Top-level and message-level system prompts are combined into one leading
+    ``{"role": "system", …}`` message.  Claude Code can append system-role
+    cache markers mid-conversation, while many Hugging Face chat templates
+    require the system message to be first.
     """
     openai_messages: list = []
+    system_parts: list[str] = []
+
+    def content_text(content) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "\n".join(
+                item.get("text", "") if isinstance(item, dict) else str(getattr(item, "text", item)) for item in content
+            )
+        else:
+            return str(content)
 
     if system is not None:
-        if isinstance(system, str):
-            system_text = system
-        elif isinstance(system, list):
-            system_text = "\n".join((b.get("text", "") if isinstance(b, dict) else str(b)) for b in system)
-        else:
-            system_text = str(system)
-        openai_messages.append({"role": "system", "content": system_text})
+        system_text = content_text(system)
+        if system_text:
+            system_parts.append(system_text)
 
     for msg in messages:
         role = msg.role if hasattr(msg, "role") else msg.get("role", "user")
         content = msg.content if hasattr(msg, "content") else msg.get("content", "")
+
+        if role == "system":
+            system_text = content_text(content)
+            if system_text:
+                system_parts.append(system_text)
+            continue
 
         if isinstance(content, str):
             openai_messages.append({"role": role, "content": content})
@@ -726,6 +741,9 @@ def _anthropic_messages_to_openai(messages: list, system=None) -> list:
         # assistant message to add — just the pending tool results below.
 
         openai_messages.extend(pending_tool_results)
+
+    if system_parts:
+        openai_messages.insert(0, {"role": "system", "content": "\n".join(system_parts)})
 
     return openai_messages
 

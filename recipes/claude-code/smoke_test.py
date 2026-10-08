@@ -44,7 +44,19 @@ def main():
     call("/health")
     models = call("/v1/models")
     require(any(item["id"] == args.model for item in models["data"]), "Model absent from discovery")
-    messages = [{"role": "user", "content": "Say hello in one short sentence."}]
+    messages = [
+        {"role": "user", "content": "Say hello in one short sentence."},
+        {
+            "role": "system",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Keep the answer concise.",
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        },
+    ]
     payload = {"model": args.model, "max_tokens": 256, "messages": messages}
     count = call("/v1/messages/count_tokens", payload)
     require(count.get("input_tokens", 0) > 0, "No prompt token count")
