@@ -95,7 +95,7 @@ Inside the container, use the same YAML recipes as a native installation. For a
 converted Qwen3.8 checkpoint stored in the mounted model directory:
 
 ```bash
-export QWEN38_MODEL=/models/Qwen3.8-27B-int4-Autoround
+export QWEN38_MODEL=/models/Qwen3.8-27B-INT4
 python -m eole.bin.main predict -c recipes/qwen38/predict.yaml
 python -m eole.bin.main serve -c recipes/qwen38/serve.yaml \
   --host 0.0.0.0 --port 5000

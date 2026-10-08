@@ -14,7 +14,8 @@ or train your own architecture.
 
 This release adds Qwen3.8-27B MTP speculative inference, REINFORCE fine-tuning,
 server tool-use fixes, and refreshed installation, Docker, and recipe guides.
-Start with the [Qwen3.8/MTP recipe](recipes/qwen38/README.md), the
+Start with the [Qwen3.8/MTP recipe](recipes/qwen38/README.md) using the recommended
+RedHatAI INT4 checkpoint, the
 [Claude Code endpoint](recipes/claude-code/README.md), or the
 [REINFORCE recipe](recipes/rl/README.md). See the [changelog](CHANGELOG.md#061)
 for the release details and current limitations.

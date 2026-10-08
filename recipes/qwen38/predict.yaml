@@ -1,3 +1,4 @@
+# Recommended: converted RedHatAI/Qwen3.8-27B-INT4; see README.md for QWEN38_MODEL setup.
 # Ordinary greedy baseline. Run from the repository root.
 model_path: ${QWEN38_MODEL}
 src: recipes/qwen38/prompts.txt

@@ -15,7 +15,7 @@ with `top_k: 1`, single-sequence requests, and a conservative 32K context.
 
 ```bash
 export EOLE_MODEL_DIR=/path/to/models
-export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-int4-Autoround"
+export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-INT4"
 python recipes/qwen38/check_checkpoint.py "$QWEN38_MODEL"
 eole serve -c recipes/qwen38/serve.yaml --host 127.0.0.1 --port 5000
 ```
