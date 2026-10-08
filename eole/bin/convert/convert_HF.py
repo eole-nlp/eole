@@ -109,7 +109,8 @@ class HuggingfaceFiles:
                     repo_id=args.model_dir,
                     filename=file_name,
                     token=args.token,
-                    local_dir=args.output,
+                    # Keep source weights in the HF cache, not the converted output.
+                    local_dir=None if file_name.endswith((".safetensors", ".bin")) else args.output,
                 )
             except utils.EntryNotFoundError:
                 if required:

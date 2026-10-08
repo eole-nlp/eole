@@ -58,6 +58,17 @@ def packed_fixture(n=64, k=256):
 
 
 class TestCompressedTensors(unittest.TestCase):
+    def test_hub_weights_use_cache_instead_of_output_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(model_dir="test/model", output=directory, token=None)
+            with patch("eole.bin.convert.convert_HF.hf_hub_download", return_value="/cached/file") as download:
+                HuggingfaceFiles.fetch(args)
+            calls = {call.kwargs["filename"]: call.kwargs for call in download.call_args_list}
+            for filename in ("model.safetensors", "model_extra_tensors.safetensors"):
+                self.assertIsNone(calls[filename]["local_dir"])
+            self.assertEqual(calls["tokenizer.json"]["local_dir"], directory)
+            self.assertEqual(calls["config.json"]["local_dir"], directory)
+
     def test_repacking_preserves_dequantized_weights_and_linear_output(self):
         signed, packed, scales, shape = packed_fixture()
         converted = repack_int4(packed, scales, shape, 128)
@@ -157,7 +168,11 @@ class TestCompressedTensors(unittest.TestCase):
             patch("eole.models.model.VisionEncoder", Vision),
             patch("eole.modules.autoround_linear._get_autoround_quant_linear_cls", return_value=(QuantLinear, False)),
         ):
-            BaseModel.maybe_quantize(model, running)
+            with self.assertLogs("eole", level="INFO") as captured:
+                BaseModel.maybe_quantize(model, running)
+            summary = next(line for line in captured.output if "compression of layers" in line)
+            self.assertIn("in_proj_qkv", summary)
+            self.assertNotIn("decoder.in_proj_qkv", summary)
         self.assertIsInstance(model.decoder.in_proj_qkv, QuantLinear)
         self.assertIsInstance(model.mtp_heads[0].in_proj_qkv, nn.Linear)
 

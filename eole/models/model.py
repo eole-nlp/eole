@@ -417,11 +417,14 @@ class BaseModel(nn.Module):
             if is_vision_model and hasattr(self, "mtp_heads"):
                 quant_targets.extend(self.mtp_heads)
 
+            quant_names = sorted({layer.rsplit(".", 1)[-1] for layer in nonlora_to_quant})
+            logger.info("%s compression of layers %s", running_config.quant_type, quant_names)
+            logger.debug("Quantization selection: %s", nonlora_to_quant)
+
             def target_prefix(target):
                 return next(name for name, module in self.named_modules() if module is target)
 
             if running_config.quant_type in ["bnb_8bit", "bnb_FP4", "bnb_NF4"]:
-                logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
                     from eole.modules.bnb_linear import replace_bnb_linear
                 except ImportError:
@@ -436,7 +439,6 @@ class BaseModel(nn.Module):
                         prefix=target_prefix(quant_target),
                     )
             elif running_config.quant_type in ["awq_gemm", "awq_gemv"]:
-                logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
                     from eole.modules.awq_linear import replace_awq_linear
                 except ImportError:
@@ -453,7 +455,6 @@ class BaseModel(nn.Module):
                         prefix=target_prefix(quant_target),
                     )
             elif running_config.quant_type == "autoround":
-                logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
                     from eole.modules.autoround_linear import replace_autoround_linear
                 except ImportError:
@@ -470,7 +471,6 @@ class BaseModel(nn.Module):
                         prefix=target_prefix(quant_target),
                     )
             elif running_config.quant_type == "gguf":
-                logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
                     from eole.modules.gguf_linear import replace_gguf_linear
                 except ImportError:
