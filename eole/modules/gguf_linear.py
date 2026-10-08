@@ -1,3 +1,5 @@
+from eole.modules.quantization_selection import is_selected, is_excluded
+
 """GGUF quantized linear layer.
 
 Stores weights in their native GGUF quantized format (uint8 packed blocks) and
@@ -173,6 +175,8 @@ class GGUFLinear(nn.Module):
 def replace_gguf_linear(
     model: nn.Module,
     module_to_convert: list[str],
+    module_to_not_convert=(),
+    prefix="",
 ) -> nn.Module:
     """Replace :class:`~torch.nn.Linear` layers with :class:`GGUFLinear`.
 
@@ -189,10 +193,13 @@ def replace_gguf_linear(
         List of *local* module names (``module.name``) to replace.
     """
     for name, module in model.named_children():
+        module_path = prefix + "." + name if prefix else name
+        if is_excluded(module_path, module_to_not_convert):
+            continue
         if len(list(module.children())) > 0:
-            replace_gguf_linear(module, module_to_convert)
+            replace_gguf_linear(module, module_to_convert, module_to_not_convert, module_path)
 
-        if isinstance(module, nn.Linear) and name in module_to_convert:
+        if isinstance(module, nn.Linear) and is_selected(module_path, module_to_convert, module_to_not_convert):
             model._modules[name] = GGUFLinear(
                 in_features=module.in_features,
                 out_features=module.out_features,

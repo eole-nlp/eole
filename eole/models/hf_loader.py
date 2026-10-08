@@ -456,7 +456,6 @@ def load_hf_model(running_config, device_id: int = 0):
         "quant_type",
         "quant_layers",
         "quant_exclude_modules",
-        "quantized_modules",
         "w_bit",
         "group_size",
         "autoround_packing_format",
@@ -509,6 +508,7 @@ def load_hf_model(running_config, device_id: int = 0):
         tp_offset = 0
     buf_list = [name for name, _ in model.named_buffers()]
 
+    model._validate_packed_quantization_selection(keys_shard)
     keyfound = model._load_parameters_by_module(
         f, keys_shard, {}, buf_list, device, dtype, tp_offset, True, running_config
     )

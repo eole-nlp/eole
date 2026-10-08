@@ -361,8 +361,6 @@ class BaseModel(nn.Module):
         for field in ("w_bit", "group_size"):
             if field not in running_config.model_fields_set:
                 update_dict[field] = getattr(metadata["config"].training, field)
-        if "quantized_modules" not in running_config.model_fields_set:
-            update_dict["quantized_modules"] = metadata["config"].training.quantized_modules
         if "quant_exclude_modules" not in running_config.model_fields_set:
             update_dict["quant_exclude_modules"] = metadata["config"].training.quant_exclude_modules
         if "autoround_packing_format" not in running_config.model_fields_set:
@@ -418,6 +416,10 @@ class BaseModel(nn.Module):
             quant_targets = [self.decoder] if is_vision_model else [self]
             if is_vision_model and hasattr(self, "mtp_heads"):
                 quant_targets.extend(self.mtp_heads)
+
+            def target_prefix(target):
+                return next(name for name, module in self.named_modules() if module is target)
+
             if running_config.quant_type in ["bnb_8bit", "bnb_FP4", "bnb_NF4"]:
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
                 try:
@@ -430,6 +432,8 @@ class BaseModel(nn.Module):
                         quant_target,
                         module_to_convert=nonlora_to_quant,
                         q_type=running_config.quant_type,
+                        module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
+                        prefix=target_prefix(quant_target),
                     )
             elif running_config.quant_type in ["awq_gemm", "awq_gemv"]:
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
@@ -445,6 +449,8 @@ class BaseModel(nn.Module):
                         w_bit=running_config.w_bit,
                         group_size=running_config.group_size,
                         q_type=running_config.quant_type,
+                        module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
+                        prefix=target_prefix(quant_target),
                     )
             elif running_config.quant_type == "autoround":
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
@@ -461,12 +467,7 @@ class BaseModel(nn.Module):
                         packing_format=getattr(running_config, "autoround_packing_format", "auto_round:auto_gptq"),
                         sym=getattr(running_config, "autoround_sym", True),
                         module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
-                        quantized_modules=getattr(running_config, "quantized_modules", None),
-                        prefix=(
-                            next(name for name, module in self.named_modules() if module is quant_target)
-                            if is_vision_model
-                            else ""
-                        ),
+                        prefix=target_prefix(quant_target),
                     )
             elif running_config.quant_type == "gguf":
                 logger.info("%s compression of layer %s" % (running_config.quant_type, nonlora_to_quant))
@@ -478,6 +479,8 @@ class BaseModel(nn.Module):
                     replace_gguf_linear(
                         quant_target,
                         module_to_convert=nonlora_to_quant,
+                        module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
+                        prefix=target_prefix(quant_target),
                     )
             else:
                 logger.info("compression type %s not supported." % running_config.quant_type)
@@ -895,6 +898,22 @@ class BaseModel(nn.Module):
                 keys_shard[key] = i
         return f, keys_shard
 
+    def _validate_packed_quantization_selection(self, keys_shard):
+        """Reject replacements that disagree with packed checkpoint weights."""
+        for name, module in self.named_modules():
+            if not isinstance(module, nn.Linear) and not hasattr(module, "qweight"):
+                continue
+            packed_key = self._checkpoint_key_for_param(f"{name}.qweight")
+            weight_key = self._checkpoint_key_for_param(f"{name}.weight")
+            stored_packed = packed_key in keys_shard
+            replaced = hasattr(module, "qweight")
+            if stored_packed != replaced and (stored_packed or weight_key in keys_shard):
+                raise ValueError(
+                    f"Quantization selection for {name} conflicts with checkpoint weights: "
+                    f"checkpoint is {'packed' if stored_packed else 'floating-point'}. "
+                    "Check quant_layers and quant_exclude_modules."
+                )
+
     def load_safe_state_dict(
         self,
         model_path,
@@ -921,6 +940,7 @@ class BaseModel(nn.Module):
         # so we load the weights  module by module and transfer them to GPU for quantization
         dtype = getattr(running_config, "storage_dtype", torch.float32)
         f, keys_shard = self._load_safetensors_shards(model_path)
+        self._validate_packed_quantization_selection(keys_shard)
         self._last_loaded_checkpoint_keys = set(keys_shard)
         if device == torch.device("cpu"):
             tp_offset = 0
@@ -1129,8 +1149,6 @@ class EncoderDecoderScoringModel(EncoderDecoderModel):
                     update_dict["quant_type"] = training_config.quant_type
                 if "quant_layers" not in running_config.model_fields_set:
                     update_dict["quant_layers"] = training_config.quant_layers
-                if "quantized_modules" not in running_config.model_fields_set:
-                    update_dict["quantized_modules"] = training_config.quantized_modules
                 if "quant_exclude_modules" not in running_config.model_fields_set:
                     update_dict["quant_exclude_modules"] = training_config.quant_exclude_modules
                 if "autoround_packing_format" not in running_config.model_fields_set:

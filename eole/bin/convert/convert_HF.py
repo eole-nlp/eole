@@ -669,8 +669,7 @@ def build_config_dict(hf):
                     "group_size": group_size,
                     "autoround_packing_format": "auto_round:auto_gptq",
                     "autoround_sym": True,
-                    "quant_layers": sorted({module.rsplit(".", 1)[-1] for module in modules}),
-                    "quantized_modules": modules,
+                    "quant_layers": modules,
                 }
             )
             if quant_config.get("kv_cache_scheme"):

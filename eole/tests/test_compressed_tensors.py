@@ -126,9 +126,7 @@ class TestCompressedTensors(unittest.TestCase):
                 super().__init__()
 
         with patch("eole.modules.autoround_linear._get_autoround_quant_linear_cls", return_value=(QuantLinear, False)):
-            replace_autoround_linear(
-                model, ["in_proj_qkv", "in_proj_a"], quantized_modules=["decoder.layers.0.in_proj_qkv"]
-            )
+            replace_autoround_linear(model, ["decoder.layers.0.in_proj_qkv"])
         self.assertIsInstance(model.decoder.layers[0].in_proj_qkv, QuantLinear)
         self.assertIsInstance(model.decoder.layers[0].in_proj_a, nn.Linear)
         self.assertIsInstance(model.decoder.layers[1].in_proj_qkv, nn.Linear)
@@ -151,10 +149,9 @@ class TestCompressedTensors(unittest.TestCase):
 
         running = SimpleNamespace(
             quant_type="autoround",
-            quant_layers=["in_proj_qkv"],
+            quant_layers=["decoder.in_proj_qkv"],
             w_bit=4,
             group_size=128,
-            quantized_modules=["decoder.in_proj_qkv"],
         )
         with (
             patch("eole.models.model.VisionEncoder", Vision),
@@ -173,13 +170,12 @@ class TestCompressedTensors(unittest.TestCase):
                     "quant_type": "autoround",
                     "w_bit": 4,
                     "group_size": 64,
-                    "quant_layers": ["down_proj"],
-                    "quantized_modules": modules,
+                    "quant_layers": modules,
                 },
             }
             (Path(directory) / "config.json").write_text(json.dumps(config))
             predict = PredictConfig(model_path=directory, src="unused", self_attn_backend="pytorch")
-            self.assertEqual(predict.quantized_modules, modules)
+            self.assertEqual(predict.quant_layers, modules)
             self.assertEqual(predict.group_size, 64)
 
     def test_sharded_qwen_conversion_with_float_controls_and_mtp(self):
@@ -228,7 +224,7 @@ class TestCompressedTensors(unittest.TestCase):
                 model_path=str(root / "model.safetensors") if not indexed else None,
             )
             model_config, training, params = build_config_dict(hf)
-            self.assertEqual(training["quantized_modules"], ["decoder.transformer_layers.0.linear_attn.in_proj_qkv"])
+            self.assertEqual(training["quant_layers"], ["decoder.transformer_layers.0.linear_attn.in_proj_qkv"])
             self.assertEqual(hf.mtp_layer_prefix, "mtp.layers.")
             output = root / "out"
             output.mkdir()

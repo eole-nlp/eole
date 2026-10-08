@@ -256,3 +256,18 @@ including a generated three-test suite. Its configured output budget was
 2048 tokens. See the
 [implementation review](https://github.com/eole-nlp/eole/blob/main/docs/mtp-inference-review.md)
 for rounding and backend limitations.
+
+Quantization module selection uses the existing `quant_layers` and
+`quant_exclude_modules` settings. Bare include names such as `down_proj` select
+that leaf name anywhere in the model. Dotted entries select exact paths from the
+model root, and shell-style globs such as
+`decoder.transformer_layers.*.mlp.down_proj` select decoder projections only.
+`*` can span path components. Exclusions take precedence; excluding a parent
+skips its entire subtree. Bare exclusions retain their legacy behavior of
+matching parent names anywhere in the model.
+
+For compressed-tensors conversion, `quant_layers` is populated with exact Eole
+paths from the packed weight inventory, preserving floating-point decoder and
+MTP modules. Loading rejects selections that conflict with stored packed weights.
+All quantization backends share these matching rules. Bits and group size remain
+global settings; per-module quantization parameters are not supported.

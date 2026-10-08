@@ -1,4 +1,5 @@
 import torch
+from eole.modules.quantization_selection import is_selected, is_excluded
 import torch.nn as nn
 from torch.cuda import is_available as cuda_is_available
 from eole.ops import _CPP_OPS_AVAILABLE
@@ -12,7 +13,6 @@ def replace_autoround_linear(
     packing_format="auto_round:auto_gptq",
     sym=True,
     module_to_not_convert=[],
-    quantized_modules=None,
     prefix="",
 ):
     """Replace nn.Linear layers with AutoRound QuantLinear for quantized inference.
@@ -21,9 +21,8 @@ def replace_autoround_linear(
     - 'gptq' in packing_format: qzeros stored as (zero_point - 1) per GPTQ convention.
     - Otherwise: qzeros stored directly (direct zero-point).
 
-    quantized_modules: optional exact paths from the model root. When supplied,
-    only listed layers are replaced, preserving mixed-precision checkpoints.
-    prefix: root path when replacing a subtree (e.g. "decoder").
+    Selection accepts bare names, model-root paths, and shell-style globs.
+    prefix identifies the model-root path when replacing a subtree.
 
     Backend preference order:
     1. Marlin CUDA kernels (requires CUDA + eole._ops, sym=True only) — fastest
@@ -41,8 +40,6 @@ def replace_autoround_linear(
         should be skipped.  Use this for parent modules that were kept in fp16 during
         quantization (e.g. ``shared_experts`` in MoE models).
     """
-    if quantized_modules is not None:
-        quantized_modules = frozenset(quantized_modules)
     use_gptq_zp = "gptq" in packing_format
     QuantLinear, use_marlin = _get_autoround_quant_linear_cls(use_gptq_zp, sym)
 
@@ -57,7 +54,7 @@ def replace_autoround_linear(
 
     for name, module in model.named_children():
         module_path = prefix + "." + name if prefix else name
-        if name in module_to_not_convert:
+        if is_excluded(module_path, module_to_not_convert):
             continue  # skip entire subtree — this parent was kept in fp16
         if len(list(module.children())) > 0:
             replace_autoround_linear(
@@ -68,11 +65,10 @@ def replace_autoround_linear(
                 packing_format,
                 sym,
                 module_to_not_convert,
-                quantized_modules,
                 module_path,
             )
 
-        selected = name in module_to_convert and (quantized_modules is None or module_path in quantized_modules)
+        selected = is_selected(module_path, module_to_convert, module_to_not_convert)
         if isinstance(module, nn.Linear) and selected:
             if use_marlin:
                 try:
