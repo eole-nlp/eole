@@ -10,15 +10,15 @@ Use it for language generation, machine translation, neural translation scoring,
 vision and OCR, and speech recognition. Bring supported Hugging Face checkpoints
 or train your own architecture.
 
-## Latest: 0.6.1
+## Latest: 0.6.2
 
-This release adds Qwen3.8-27B MTP speculative inference, REINFORCE fine-tuning,
-server tool-use fixes, and refreshed installation, Docker, and recipe guides.
-Start with the [Qwen3.8/MTP recipe](recipes/qwen38/README.md) using the recommended
-RedHatAI INT4 checkpoint, the
-[Claude Code endpoint](recipes/claude-code/README.md), or the
-[REINFORCE recipe](recipes/rl/README.md). See the [changelog](CHANGELOG.md#061)
-for the release details and current limitations.
+This release fixes Qwen RoPE conversion and GGUF MTP/tokenizer handling, adds
+compressed-tensors INT4 support and the out-of-tree vLLM GGUF backend, and
+provides a LiveCodeBench evaluation recipe. Start with the
+[Qwen3.8/MTP recipe](recipes/qwen38/README.md) using the recommended RedHatAI INT4
+checkpoint, or the [LiveCodeBench recipe](recipes/livecodebench/README.md).
+See the [changelog](CHANGELOG.md#062) for details, conversion migration guidance,
+and current limitations.
 
 ## Choose your workflow
 
