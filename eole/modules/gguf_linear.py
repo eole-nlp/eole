@@ -58,14 +58,21 @@ except ImportError:
 # activation dtype in the output.
 # ---------------------------------------------------------------------------
 
-_vllm_fused_mul_mat_gguf = None
 
-try:
-    from vllm.model_executor.layers.quantization.gguf import (
-        fused_mul_mat_gguf as _vllm_fused_mul_mat_gguf,
-    )
-except Exception:
-    pass
+def _load_gguf_operation():
+    """Support the out-of-tree plugin and older vLLM's built-in GGUF backend."""
+    from importlib import import_module
+
+    errors = []
+    for path in ("vllm_gguf_plugin.quantization.linear", "vllm.model_executor.layers.quantization.gguf"):
+        try:
+            return getattr(import_module(path), "fused_mul_mat_gguf"), None
+        except Exception as exc:
+            errors.append(f"{path}: {type(exc).__name__}: {exc}")
+    return None, "\n".join(errors)
+
+
+_vllm_fused_mul_mat_gguf, _gguf_import_error = _load_gguf_operation()
 
 
 class GGUFLinear(nn.Module):
@@ -133,7 +140,13 @@ class GGUFLinear(nn.Module):
             Output of shape ``(*, out_features)``, same dtype as *x*.
         """
         if _vllm_fused_mul_mat_gguf is None:
-            raise ImportError("vLLM is required for GGUF quantized inference. " "Install it with: pip install vllm")
+            raise ImportError(
+                "GGUF operations could not be imported. Recent vLLM versions require the "
+                "separate vllm-gguf-plugin built against your installed PyTorch. "
+                "See https://github.com/vllm-project/vllm-gguf-plugin#installation. "
+                "Older vLLM versions provide a built-in GGUF backend. Import failures:\n"
+                + (_gguf_import_error or "unknown")
+            )
 
         try:
             from gguf import GGML_QUANT_SIZES, GGMLQuantizationType
