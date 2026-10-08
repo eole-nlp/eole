@@ -2,6 +2,27 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.6.2
+
+* Fix Qwen HF RoPE conversion to preserve split-half coordinate pairing ([#441](https://github.com/eole-nlp/eole/pull/441)).
+* Support symmetric grouped compressed-tensors INT4 checkpoints, including RedHatAI/Qwen3.8-27B-INT4. Preserve mixed floating-point/quantized decoder and MTP modules, unify module selection with exact paths and globs, keep source weight downloads in the HF cache, and summarize quantization logs ([#442](https://github.com/eole-nlp/eole/pull/442)).
+* Fix Qwen GGUF decoder/MTP separation, trailing-head tensor mapping, RoPE pairing, and chat tokenization. Reconstruct an HF tokenizer from supported GGUF metadata while preserving special-token IDs and Qwen BOS/EOS/padding settings ([#443](https://github.com/eole-nlp/eole/pull/443)).
+* Support the out-of-tree vLLM GGUF plugin alongside the legacy backend, and report actual backend import failures ([#444](https://github.com/eole-nlp/eole/pull/444)).
+* Add a YAML-driven LiveCodeBench generation and evaluation recipe; recommend the RedHat INT4 checkpoint in Qwen examples while retaining historical Frozenlock measurements ([#437](https://github.com/eole-nlp/eole/pull/437), [#442](https://github.com/eole-nlp/eole/pull/442)).
+* Allocate decoder KV caches with local tensor-parallel head counts ([#435](https://github.com/eole-nlp/eole/pull/435)).
+* Extend Trackio experiment tracking with monitoring and artifact support ([#409](https://github.com/eole-nlp/eole/pull/409)).
+* Refresh runtime and documentation dependencies, including a Docutils pin compatible with Sphinx ([#439](https://github.com/eole-nlp/eole/pull/439), [#440](https://github.com/eole-nlp/eole/pull/440)).
+
+Compressed-tensors support is limited to symmetric static grouped W4A16 exports
+with group sizes 32, 64, or 128. Source FP8 KV-cache scales are not applied.
+Recent vLLM versions require the separate GGUF plugin built against the installed
+PyTorch. Qwen MTP inference remains limited to single-sequence greedy text requests;
+exact greedy parity is not established. FP32 normalization is unchanged.
+Existing Qwen conversions affected by the RoPE or GGUF tokenizer bugs should be
+reconverted; updating Eole does not rewrite saved model artifacts.
+
+**Full Changelog**: https://github.com/eole-nlp/eole/compare/0.6.1...0.6.2
+
 ## 0.6.1
 
 * Add native MTP training heads and Qwen3.8-27B speculative greedy inference ([#407](https://github.com/eole-nlp/eole/pull/407), [#412](https://github.com/eole-nlp/eole/pull/412)).
