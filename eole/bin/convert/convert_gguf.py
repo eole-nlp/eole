@@ -643,7 +643,7 @@ class GGUFMetadata:
         field = self._get_field("tokenizer.ggml.token_type")
         if field is None:
             return []
-        return field.parts[field.data[-1]].tolist() if field.data else []
+        return [value for index in field.data for value in field.parts[index].tolist()]
 
     @property
     def merges(self) -> list[str]:
@@ -950,6 +950,50 @@ def _detect_quant_layers(tensors) -> tuple[list[str], str]:
 # ---------------------------------------------------------------------------
 
 _TOKEN_TYPE_CONTROL = 3  # ggml token type: control (BOS/EOS/…)
+
+
+def _qwen_hf_tokenizer_json(meta):
+    """Reconstruct Qwen's byte-level BPE with atomic added/control tokens."""
+    from tokenizers import Tokenizer, AddedToken, Regex, models, pre_tokenizers, decoders
+
+    if meta._str("tokenizer.ggml.pre", "") not in ("qwen2", "qwen35") or not meta.merges:
+        raise ValueError("Unsupported Qwen GGUF tokenizer metadata; provide --hf_tokenizer tokenizer.json")
+    tokens = meta.tokens
+    types = meta.token_types
+    if len(types) != len(tokens):
+        raise ValueError("Incomplete Qwen GGUF token types; provide --hf_tokenizer tokenizer.json")
+    merges = [tuple(merge.split(" ", 1)) for merge in meta.merges]
+    tokenizer = Tokenizer(models.BPE(vocab={token: idx for idx, token in enumerate(tokens)}, merges=merges))
+    pattern = (
+        r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}|"
+        r" ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"
+    )
+    tokenizer.pre_tokenizer = pre_tokenizers.Sequence(
+        [
+            pre_tokenizers.Split(Regex(pattern), behavior="isolated"),
+            pre_tokenizers.ByteLevel(add_prefix_space=False, use_regex=False),
+        ]
+    )
+    tokenizer.decoder = decoders.ByteLevel()
+    tokenizer.add_special_tokens(
+        [AddedToken(token, normalized=False, special=True) for token, kind in zip(tokens, types) if kind in (3, 4)]
+    )
+    for token in ("<|im_start|>", "<|im_end|>", "<think>", "</think>"):
+        idx = tokenizer.token_to_id(token)
+        if idx is None or tokenizer.encode(token, add_special_tokens=False).ids != [idx]:
+            raise ValueError("Missing Qwen chat control tokens; provide --hf_tokenizer tokenizer.json")
+    return tokenizer.to_str()
+
+
+def _set_qwen_tokenizer_specials(meta, vocabs):
+    """Qwen chat has no prepended BOS; endoftext is padding, im_end is EOS."""
+    if meta.arch not in ("qwen35", "qwen35moe"):
+        return
+    if "<|endoftext|>" not in meta.tokens or "<|im_end|>" not in meta.tokens:
+        raise ValueError("Qwen GGUF is missing expected padding/EOS tokens")
+    vocabs["specials"].pop("bos_token", None)
+    vocabs["specials"].update(pad_token="<|endoftext|>", eos_token="<|im_end|>")
+    vocabs["decoder_start_token"] = ""
 
 
 def _extract_vocab_from_gguf(meta: GGUFMetadata, vocabs: dict, output_dir: str) -> tuple:
@@ -1873,11 +1917,22 @@ class GGUFConverter(BaseBin):
             if os.path.exists(candidate):
                 hf_tok_path = candidate
 
+        embedded_tokenizer = meta.hf_tokenizer_json
+        if hf_tok_path is not None and not os.path.isfile(hf_tok_path):
+            raise ValueError("--hf_tokenizer must point to an existing tokenizer.json file or directory")
+        if hf_tok_path is None and embedded_tokenizer is None and meta.arch in ("qwen35", "qwen35moe"):
+            if args.tokenizer != "hf":
+                raise ValueError("Qwen GGUF chat requires --tokenizer hf to preserve control tokens")
+            embedded_tokenizer = _qwen_hf_tokenizer_json(meta)
+
         # Helper: build vocab from HF tokenizer.json dict
         def _vocab_from_hf_tok(tok_data: dict, vocabs: dict) -> tuple:
-            vlist = list(tok_data.get("model", {}).get("vocab", {}).keys())
-            if isinstance(vlist, dict):
-                vlist = list(vlist.keys())
+            vocabulary = tok_data.get("model", {}).get("vocab", {})
+            vlist = [f"{DefaultTokens.VOCAB_PAD}{idx}" for idx in range(meta.vocab_size)]
+            for token, idx in vocabulary.items():
+                if idx >= len(vlist):
+                    raise ValueError("HF tokenizer vocabulary exceeds GGUF embedding dimensions")
+                vlist[idx] = token
             declared = meta.vocab_size
             while len(vlist) < declared:
                 vlist.append(f"{DefaultTokens.VOCAB_PAD}{len(vlist)}")
@@ -1906,9 +1961,9 @@ class GGUFConverter(BaseBin):
             transforms = ["huggingface_tokenize"]
             transforms_configs["huggingface_tokenize"] = {"path": dest_tok}
 
-        elif meta.hf_tokenizer_json is not None:
+        elif embedded_tokenizer is not None:
             dest_tok = os.path.join(args.output, "tokenizer.json")
-            tok_data = json.loads(meta.hf_tokenizer_json)
+            tok_data = json.loads(embedded_tokenizer)
             with open(dest_tok, "w", encoding="utf-8") as fh:
                 json.dump(tok_data, fh, indent=2, ensure_ascii=False)
             print(f"  Extracted embedded tokenizer.json → {dest_tok}")
@@ -1972,6 +2027,10 @@ class GGUFConverter(BaseBin):
             vocabs["decoder_start_token"] = vocabs["specials"]["bos_token"]
         else:
             vocabs["decoder_start_token"] = ""
+
+        _set_qwen_tokenizer_specials(meta, vocabs)
+        if meta.arch in ("qwen35", "qwen35moe"):
+            optional_eos = []  # Other control tokens are not end-of-generation markers.
 
         # Write vocab files
         if src_vocab is not None:

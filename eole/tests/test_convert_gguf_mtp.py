@@ -146,3 +146,59 @@ class TestGGUFMTP(unittest.TestCase):
         replace_gguf_linear(model, paths)
         self.assertIsInstance(model.mtp_heads[0].proj, GGUFLinear)
         self.assertIsInstance(model.decoder.in_proj_a, nn.Linear)
+
+
+class TestQwenGGUFTokenizer(unittest.TestCase):
+    def test_token_type_array_reads_every_element(self):
+        meta = metadata()
+        field = SimpleNamespace(data=[0, 1, 2], parts=[np.array([1]), np.array([3]), np.array([4])])
+        meta._get_field = lambda key: field
+        self.assertEqual(meta.token_types, [1, 3, 4])
+
+    def test_reconstructed_tokenizer_keeps_chat_markers_atomic(self):
+        from tokenizers import Tokenizer, pre_tokenizers
+        from eole.bin.convert.convert_gguf import _qwen_hf_tokenizer_json
+
+        tokens = sorted(pre_tokenizers.ByteLevel.alphabet()) + [
+            "he",
+            "<|endoftext|>",
+            "<|im_start|>",
+            "<|im_end|>",
+            "<think>",
+            "</think>",
+        ]
+        meta = SimpleNamespace(
+            tokens=tokens, merges=["h e"], token_types=[1] * 257 + [3] * 5, _str=lambda key, default="": "qwen35"
+        )
+        tokenizer = Tokenizer.from_str(_qwen_hf_tokenizer_json(meta))
+        for token in tokens[-5:]:
+            self.assertEqual(tokenizer.encode(token, add_special_tokens=False).ids, [tokens.index(token)])
+        self.assertEqual(tokenizer.token_to_id("Ā"), tokens.index("Ā"))
+        prompt = "<|im_start|>user\nhe<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        encoded = tokenizer.encode(prompt, add_special_tokens=False)
+        self.assertEqual(encoded.ids[0], tokens.index("<|im_start|>"))
+        self.assertIn(tokens.index("he"), encoded.ids)
+        self.assertEqual(tokenizer.decode(encoded.ids, skip_special_tokens=False), prompt)
+
+    def test_incomplete_token_types_require_explicit_hf_tokenizer(self):
+        from eole.bin.convert.convert_gguf import _qwen_hf_tokenizer_json
+
+        meta = SimpleNamespace(
+            tokens=["h", "e", "he"], merges=["h e"], token_types=[1], _str=lambda key, default="": "qwen35"
+        )
+        with self.assertRaisesRegex(ValueError, "--hf_tokenizer"):
+            _qwen_hf_tokenizer_json(meta)
+
+    def test_qwen_specials_do_not_prepend_bos(self):
+        from eole.bin.convert.convert_gguf import _set_qwen_tokenizer_specials
+
+        meta = SimpleNamespace(arch="qwen35", tokens=["<|endoftext|>", "<|im_end|>"])
+        vocabs = {
+            "decoder_start_token": "<|endoftext|>",
+            "specials": {"bos_token": "<|endoftext|>", "pad_token": "<blank>"},
+        }
+        _set_qwen_tokenizer_specials(meta, vocabs)
+        self.assertEqual(vocabs["decoder_start_token"], "")
+        self.assertNotIn("bos_token", vocabs["specials"])
+        self.assertEqual(vocabs["specials"]["pad_token"], "<|endoftext|>")
+        self.assertEqual(vocabs["specials"]["eos_token"], "<|im_end|>")
