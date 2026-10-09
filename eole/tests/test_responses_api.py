@@ -329,7 +329,50 @@ class TestResponsesAPI(unittest.TestCase):
                 {"role": "user", "content": "third"},
             ],
         )
-        self.assertEqual([m["role"] for m in responses_messages(req)], ["system", "system", "user"])
+        self.assertEqual(
+            responses_messages(req),
+            [
+                {"role": "system", "content": "first\n\nsecond"},
+                {"role": "user", "content": "third"},
+            ],
+        )
+
+    def test_multiple_developer_messages_render_with_qwen_system_constraint(self):
+        from eole.bin.run.serve import Model
+
+        model = Model()
+        model.config = SimpleNamespace(
+            chat_template=(
+                "{% for m in messages %}"
+                "{% if m.role == 'system' and not loop.first %}"
+                "{{ raise_exception('System message must be at the beginning.') }}"
+                "{% endif %}{{ m.role }}:{{ m.content }};{% endfor %}"
+            )
+        )
+        self.model.apply_chat_template = model.apply_chat_template
+        items = [
+            {"role": "developer", "content": [{"type": "input_text", "text": "policy"}]},
+            {"role": "user", "content": "first question"},
+            {"role": "assistant", "content": "first answer"},
+            {"role": "developer", "content": "updated policy"},
+            {"role": "user", "content": "next question"},
+        ]
+        response = self.post(instructions="base", input=items)
+        self.assertEqual(response.status_code, 200)
+        messages = responses_messages(ResponsesRequest(model="qwen", instructions="base", input=items))
+        self.assertEqual(messages[0], {"role": "system", "content": "base\n\npolicy\n\nupdated policy"})
+        self.assertEqual([m["role"] for m in messages], ["system", "user", "assistant", "user"])
+
+    def test_template_failure_is_an_explained_400(self):
+        from jinja2.exceptions import TemplateError
+
+        def fail(*args, **kwargs):
+            raise TemplateError("invalid message history")
+
+        self.model.apply_chat_template = fail
+        response = self.post()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["message"], "invalid message history")
 
     def test_tag_boundaries_and_literal_angle_brackets(self):
         source = 'a < b\n<think>secret</think>ok<tool_call>{"name":"f","arguments":{}}</tool_call>after'

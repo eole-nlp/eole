@@ -142,7 +142,8 @@ for configuration locations and override precedence.
 
 - Text SSE deltas are emitted during generation. Each tool block is buffered
   until its complete arguments can be parsed, then emitted as a typed call.
-- Replayed user, developer, assistant, function-call and function-result items
+- System/developer instructions are combined into one leading system message
+  for Qwen. Replayed user, assistant, function-call and function-result items
   retain their order and call IDs. Use `store=false`; server-side history and
   `previous_response_id` are unsupported.
 - Function tools, namespaced tools, and custom raw-input tools are translated

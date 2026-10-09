@@ -13,6 +13,9 @@ import uuid
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
+from jinja2.exceptions import TemplateError
+
+from eole.utils.logging import logger
 
 from eole.constants import DefaultTokens
 
@@ -97,6 +100,12 @@ def responses_messages(request):
             # Visible reasoning summaries are not needed to replay the tool loop.
         else:
             raise ValueError(f"Unsupported input item: {kind}")
+    # Qwen accepts only one leading system message. Codex sends multiple
+    # developer messages, sometimes interspersed with replayed history.
+    system_parts = [m["content"] for m in messages if m["role"] == "system"]
+    messages = [m for m in messages if m["role"] != "system"]
+    if system_parts:
+        messages.insert(0, {"role": "system", "content": "\n\n".join(system_parts)})
     return messages
 
 
@@ -370,6 +379,7 @@ def register_responses(app, server):
             messages = responses_messages(request)
             tools, schemas, custom, choice = responses_tools(request)
         except (ValueError, KeyError, TypeError) as exc:
+            logger.warning("Responses request rejected: %s", exc)
             return JSONResponse(
                 status_code=400, content={"error": {"type": "invalid_request_error", "message": str(exc)}}
             )
@@ -377,7 +387,14 @@ def register_responses(app, server):
             raise HTTPException(status_code=404, detail=f"Model '{request.model}' not found")
         await server.maybe_load_model(request.model)
         model = server.models[request.model]
-        prompt = model.apply_chat_template(messages, tools=tools or None, tool_choice=choice)
+        try:
+            prompt = model.apply_chat_template(messages, tools=tools or None, tool_choice=choice)
+        except TemplateError as exc:
+            logger.warning("Responses chat-template error: %s", exc)
+            return JSONResponse(
+                status_code=400,
+                content={"error": {"type": "invalid_request_error", "message": str(exc)}},
+            )
         max_output, max_input = model.get_model_limits()
         budget = request.max_output_tokens or max_output
         if budget > max_output:
