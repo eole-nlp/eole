@@ -374,6 +374,38 @@ class TestResponsesAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"]["message"], "invalid message history")
 
+    def test_streaming_failure_clears_caches_before_next_request(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import Mock, patch
+        import torch
+        from eole.inference_engine import InferenceEnginePY
+
+        engine = InferenceEnginePY.__new__(InferenceEnginePY)
+        engine.config = SimpleNamespace(world_size=1)
+        engine.vocabs = {"tgt": SimpleNamespace(ids_to_tokens=["hello", "<eos>"])}
+        engine.transform_pipe = None
+        engine.logger = Mock()
+        engine.predictor = SimpleNamespace(model=Mock(), _tgt_eos_idx=[1])
+        engine._build_inference_iterator = lambda **kwargs: iter([])
+        attempts = []
+
+        def predict(_iterator, settings, streamer):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise torch.cuda.OutOfMemoryError("test allocation failed")
+            # A second request may begin only after failure cleanup.
+            engine.predictor.model.decoder._disable_cache.assert_called_once()
+            engine.predictor.model.clear_mtp_cache.assert_called_once()
+            streamer.put([0])
+            streamer.end()
+
+        engine._predict = predict
+        with ThreadPoolExecutor(max_workers=1) as pool, patch("torch.cuda.is_available", return_value=False):
+            engine._thread_pool = pool
+            with self.assertRaisesRegex(torch.cuda.OutOfMemoryError, "test allocation failed"):
+                list(engine.infer_list_stream("first"))
+            self.assertEqual(list(engine.infer_list_stream("second")), ["hello"])
+
     def test_tag_boundaries_and_literal_angle_brackets(self):
         source = 'a < b\n<think>secret</think>ok<tool_call>{"name":"f","arguments":{}}</tool_call>after'
         expected = None

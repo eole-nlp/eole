@@ -62,7 +62,7 @@ def responses_messages(request):
         raise ValueError("Automatic truncation is unsupported")
     fmt = (extra.get("text") or {}).get("format", {}).get("type", "text")
     if fmt != "text":
-        raise ValueError("Only text output format is supported")
+        raise ValueError(f"Unsupported output format {fmt!r}; only text output format is supported")
     messages = []
     if request.instructions:
         messages.append({"role": "system", "content": request.instructions})
@@ -408,6 +408,14 @@ def register_responses(app, server):
                 },
             )
         input_tokens = model.count_tokens(prompt)
+        logger.info(
+            "Responses request: model=%s input_tokens=%d max_output_tokens=%d tools=%d stream=%s",
+            request.model,
+            input_tokens,
+            budget,
+            len(tools),
+            request.stream,
+        )
         if max_input > 0 and input_tokens > max_input:
             return JSONResponse(
                 status_code=400,

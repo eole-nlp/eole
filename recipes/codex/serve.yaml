@@ -23,4 +23,5 @@ models:
     fuse_kvq: false
     fuse_gate: false
     prefill_cache_size: 0
-    prefill_chunk_size: 0
+    # Bound long desktop-prompt prefill workspace; prefix reuse stays disabled.
+    prefill_chunk_size: 512

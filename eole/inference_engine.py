@@ -370,6 +370,20 @@ class InferenceEnginePY(InferenceEngine):
                 self._predict(infer_iter, settings=settings, streamer=streamer)
             except Exception as exc:  # noqa: BLE001
                 self.logger.error(f"Streaming inference failed: {exc}")
+                # Failed prefill/decode skips GeneratorLM's normal cache teardown.
+                # Clear persistent states in this same inference worker before
+                # another request can reuse the model. Do not retain the failed
+                # forward's traceback: its locals can keep GPU tensors alive.
+                exc = exc.with_traceback(None)
+                try:
+                    model = self.predictor.model
+                    model.decoder._disable_cache()
+                    if hasattr(model, "clear_mtp_cache"):
+                        model.clear_mtp_cache()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception as cleanup_exc:
+                    self.logger.warning(f"Streaming failure cleanup failed: {cleanup_exc}")
                 exception_holder.append(exc)
                 streamer.end()
 
