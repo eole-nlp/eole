@@ -162,7 +162,10 @@ class OutputParser:
                     self.pending, self.tool = self.tool[-keep:], self.tool[:-keep]
                     break
                 end += len(self.tool_end)
-                result.append(("tool", self.tool + self.pending[:end]))
+                # Normalize after assembling the whole block so sentinels
+                # split across chunks are replaced before XML/schema parsing.
+                tool = (self.tool + self.pending[:end]).replace(DefaultTokens.SEP, "\n")
+                result.append(("tool", tool))
                 self.pending, self.tool, self.tool_end = self.pending[end:], "", None
                 continue
             found = [(self.pending.find(tag), tag) for tag in tags if tag in self.pending]

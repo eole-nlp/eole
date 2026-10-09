@@ -117,6 +117,57 @@ class TestResponsesAPI(unittest.TestCase):
             {"a": 19, "b": 23},
         )
 
+    def test_newline_wrapped_tool_arguments_are_typed_in_json_and_sse(self):
+        raw = (
+            "<tool_call>｟newline｠<function=add>｟newline｠"
+            "<parameter=a>｟newline｠19｟newline｠</parameter>｟newline｠"
+            "<parameter=b>｟newline｠23｟newline｠</parameter>｟newline｠"
+            "<parameter=label>123</parameter>"
+            "<parameter=script>first｟newline｠second</parameter>"
+            "</function>｟newline｠</tool_call>"
+        )
+        tools = [
+            {
+                "type": "function",
+                "name": "add",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "integer"},
+                        "b": {"type": "integer"},
+                        "label": {"type": "string"},
+                        "script": {"type": "string"},
+                    },
+                },
+            }
+        ]
+        self.model.chunks = list(raw)
+        expected = {"a": 19, "b": 23, "label": "123", "script": "first\nsecond"}
+        for stream in (False, True):
+            with self.subTest(stream=stream):
+                if stream:
+                    events = self.events(tools=tools)
+                    result = events[-1]["response"]
+                    delta = next(e["delta"] for e in events if e["type"] == "response.function_call_arguments.delta")
+                    self.assertEqual(json.loads(delta), expected)
+                else:
+                    response = self.post(tools=tools)
+                    self.assertEqual(response.status_code, 200)
+                    result = response.json()
+                self.assertEqual(json.loads(result["output"][0]["arguments"]), expected)
+
+    def test_buffered_tool_normalizes_sentinels_at_every_chunk_boundary(self):
+        raw = '<tool_call>｟newline｠{"name":"add","arguments":{"a":19,"b":23}}｟newline｠</tool_call>'
+        expected = raw.replace("｟newline｠", "\n")
+        for size in range(1, len(raw) + 1):
+            with self.subTest(size=size):
+                parser = OutputParser()
+                parts = []
+                for offset in range(0, len(raw), size):
+                    parts.extend(parser.feed(raw[offset : offset + size]))
+                parts.extend(parser.feed("", final=True))
+                self.assertEqual(parts, [("tool", expected)])
+
     def test_custom_tool_round_trip(self):
         patch = "*** Begin Patch\n*** End Patch"
         self.model.chunks = [
