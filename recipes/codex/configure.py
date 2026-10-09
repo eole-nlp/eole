@@ -11,10 +11,11 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--base-url", default="http://127.0.0.1:5000/v1")
     parser.add_argument("--model", default="qwen3.8-27B")
-    parser.add_argument("--context-window", type=int, default=32768)
+    parser.add_argument("--context-window", type=int, default=28672)
     args = parser.parse_args()
-    if args.context_window <= 2048:
-        parser.error("context-window must leave room for a 2048-token output")
+    if args.context_window <= 4096:
+        parser.error("context-window must leave room for a 4096-token output")
+    auto_compact_token_limit = args.context_window - 4096
     target = args.output_dir.expanduser().resolve()
     target.mkdir(parents=True, exist_ok=True)
     target.chmod(0o700)
@@ -54,6 +55,8 @@ def main():
         'model_provider = "eole"\n'
         f"model_catalog_json = {json.dumps(str(catalog_path))}\n"
         'web_search = "disabled"\n'
+        f"model_context_window = {args.context_window}\n"
+        f"model_auto_compact_token_limit = {auto_compact_token_limit}\n"
         "\n[model_providers.eole]\n"
         'name = "Local Eole"\n'
         f'base_url = {json.dumps(args.base_url.rstrip("/"))}\n'
