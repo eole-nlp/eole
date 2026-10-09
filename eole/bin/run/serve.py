@@ -2338,6 +2338,9 @@ def create_app(config_file):
                 },
             )
 
+    from eole.bin.run.responses import register_responses
+
+    register_responses(app, server)
     return app
 
 

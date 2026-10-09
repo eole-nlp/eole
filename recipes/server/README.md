@@ -60,6 +60,17 @@ For a coding client and a larger checkpoint, follow the
 [Claude Code recipe](../claude-code/README.md). For speculative decoding and
 performance comparisons, follow [Qwen3.8 / MTP](../qwen38/README.md).
 
+## Responses API for Codex
+
+`POST /v1/responses` supports text and client-executed function/custom tools,
+including SSE events and replayed tool results. It is stateless: use
+`store:false` and send the conversation history in `input`. Text streams during
+generation; individual tool blocks are parsed before being emitted. Hosted
+tools and server-side continuation/compaction are unsupported.
+
+Follow the [Codex recipe](../codex/README.md) for model metadata, CLI/Linux app
+configuration, and live protocol checks.
+
 ## Native inference
 
 `/infer` accepts already formatted model inputs rather than a chat history:
