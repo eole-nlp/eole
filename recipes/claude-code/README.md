@@ -51,6 +51,7 @@ export ANTHROPIC_DEFAULT_OPUS_MODEL=qwen3.8-27B
 export ANTHROPIC_DEFAULT_SONNET_MODEL=qwen3.8-27B
 export ANTHROPIC_DEFAULT_HAIKU_MODEL=qwen3.8-27B
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS=32768
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS=2048
 claude --model qwen3.8-27B
 ```
@@ -60,10 +61,11 @@ validate it or add authentication**. Keep the server bound to loopback.
 The default-model mappings keep client model aliases pointed at the same Eole
 model. Existing Claude settings or provider variables can override this setup;
 check `/status` for the actual URL and model before continuing.
-The explicit 2048-token output budget leaves room for the client system prompt
-and tool history within the server’s 32K context; the client’s default budget
-for a custom model may otherwise be 32K. Increase server context and client
-output budget together only after checking VRAM. See the
+The explicit context setting prevents Claude Code from assuming that the custom
+model has a 200K window. The 2048-token output budget leaves room for the client
+system prompt and tool history within the server’s 32K context; the client’s
+default budget for a custom model may otherwise be 32K. Increase server context
+and client output budget together only after checking VRAM. See the
 [environment variable reference](https://code.claude.com/docs/en/env-vars).
 See [gateway connection](https://code.claude.com/docs/en/llm-gateway-connect) and
 [model configuration](https://code.claude.com/docs/en/model-config).
@@ -110,6 +112,9 @@ results returning to the model, and an actual edit/test cycle.
   window; keep sessions short and verify the client's context configuration.
 - **Tool parsing fails:** Run the smoke test first; confirm the checkpoint's
   chat template has tool support. Model-generated arguments can be malformed.
+- **Prompt caching:** Current Claude Code clients can send system-role cache
+  markers within `messages`. Eole accepts their text as system instructions but
+  does not implement Anthropic prompt-cache storage or accounting.
 - **Unsupported features:** Extended thinking, prompt-cache accounting, beta
   request features, and structured output are not guaranteed. Unrecognized
   request fields may be ignored. Token usage is estimated.

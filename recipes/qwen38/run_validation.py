@@ -144,6 +144,7 @@ def main():
                     ANTHROPIC_DEFAULT_SONNET_MODEL=settings["model_id"],
                     ANTHROPIC_DEFAULT_HAIKU_MODEL=settings["model_id"],
                     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
+                    CLAUDE_CODE_MAX_CONTEXT_TOKENS="32768",
                     CLAUDE_CODE_MAX_OUTPUT_TOKENS="2048",
                     CLAUDE_CONFIG_DIR=str(output / "claude-config"),
                 )
