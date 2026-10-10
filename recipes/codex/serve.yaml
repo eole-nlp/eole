@@ -13,9 +13,9 @@ models:
     top_p: 0.0
     temperature: 1.0
     min_length: 0
-    max_length: 2048
+    max_length: 4096
     max_length_ratio: 0
-    context_length: 32768
+    context_length: 28672
     batch_size: 1
     self_speculative_decoding: false
     self_speculative_num_tokens: 3
@@ -23,4 +23,5 @@ models:
     fuse_kvq: false
     fuse_gate: false
     prefill_cache_size: 0
-    prefill_chunk_size: 0
+    # Bound long desktop-prompt prefill workspace; prefix reuse stays disabled.
+    prefill_chunk_size: 256

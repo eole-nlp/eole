@@ -117,6 +117,57 @@ class TestResponsesAPI(unittest.TestCase):
             {"a": 19, "b": 23},
         )
 
+    def test_newline_wrapped_tool_arguments_are_typed_in_json_and_sse(self):
+        raw = (
+            "<tool_call>｟newline｠<function=add>｟newline｠"
+            "<parameter=a>｟newline｠19｟newline｠</parameter>｟newline｠"
+            "<parameter=b>｟newline｠23｟newline｠</parameter>｟newline｠"
+            "<parameter=label>123</parameter>"
+            "<parameter=script>first｟newline｠second</parameter>"
+            "</function>｟newline｠</tool_call>"
+        )
+        tools = [
+            {
+                "type": "function",
+                "name": "add",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "integer"},
+                        "b": {"type": "integer"},
+                        "label": {"type": "string"},
+                        "script": {"type": "string"},
+                    },
+                },
+            }
+        ]
+        self.model.chunks = list(raw)
+        expected = {"a": 19, "b": 23, "label": "123", "script": "first\nsecond"}
+        for stream in (False, True):
+            with self.subTest(stream=stream):
+                if stream:
+                    events = self.events(tools=tools)
+                    result = events[-1]["response"]
+                    delta = next(e["delta"] for e in events if e["type"] == "response.function_call_arguments.delta")
+                    self.assertEqual(json.loads(delta), expected)
+                else:
+                    response = self.post(tools=tools)
+                    self.assertEqual(response.status_code, 200)
+                    result = response.json()
+                self.assertEqual(json.loads(result["output"][0]["arguments"]), expected)
+
+    def test_buffered_tool_normalizes_sentinels_at_every_chunk_boundary(self):
+        raw = '<tool_call>｟newline｠{"name":"add","arguments":{"a":19,"b":23}}｟newline｠</tool_call>'
+        expected = raw.replace("｟newline｠", "\n")
+        for size in range(1, len(raw) + 1):
+            with self.subTest(size=size):
+                parser = OutputParser()
+                parts = []
+                for offset in range(0, len(raw), size):
+                    parts.extend(parser.feed(raw[offset : offset + size]))
+                parts.extend(parser.feed("", final=True))
+                self.assertEqual(parts, [("tool", expected)])
+
     def test_custom_tool_round_trip(self):
         patch = "*** Begin Patch\n*** End Patch"
         self.model.chunks = [
@@ -278,7 +329,82 @@ class TestResponsesAPI(unittest.TestCase):
                 {"role": "user", "content": "third"},
             ],
         )
-        self.assertEqual([m["role"] for m in responses_messages(req)], ["system", "system", "user"])
+        self.assertEqual(
+            responses_messages(req),
+            [
+                {"role": "system", "content": "first\n\nsecond"},
+                {"role": "user", "content": "third"},
+            ],
+        )
+
+    def test_multiple_developer_messages_render_with_qwen_system_constraint(self):
+        from eole.bin.run.serve import Model
+
+        model = Model()
+        model.config = SimpleNamespace(
+            chat_template=(
+                "{% for m in messages %}"
+                "{% if m.role == 'system' and not loop.first %}"
+                "{{ raise_exception('System message must be at the beginning.') }}"
+                "{% endif %}{{ m.role }}:{{ m.content }};{% endfor %}"
+            )
+        )
+        self.model.apply_chat_template = model.apply_chat_template
+        items = [
+            {"role": "developer", "content": [{"type": "input_text", "text": "policy"}]},
+            {"role": "user", "content": "first question"},
+            {"role": "assistant", "content": "first answer"},
+            {"role": "developer", "content": "updated policy"},
+            {"role": "user", "content": "next question"},
+        ]
+        response = self.post(instructions="base", input=items)
+        self.assertEqual(response.status_code, 200)
+        messages = responses_messages(ResponsesRequest(model="qwen", instructions="base", input=items))
+        self.assertEqual(messages[0], {"role": "system", "content": "base\n\npolicy\n\nupdated policy"})
+        self.assertEqual([m["role"] for m in messages], ["system", "user", "assistant", "user"])
+
+    def test_template_failure_is_an_explained_400(self):
+        from jinja2.exceptions import TemplateError
+
+        def fail(*args, **kwargs):
+            raise TemplateError("invalid message history")
+
+        self.model.apply_chat_template = fail
+        response = self.post()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["message"], "invalid message history")
+
+    def test_streaming_failure_clears_caches_before_next_request(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import Mock, patch
+        import torch
+        from eole.inference_engine import InferenceEnginePY
+
+        engine = InferenceEnginePY.__new__(InferenceEnginePY)
+        engine.config = SimpleNamespace(world_size=1)
+        engine.vocabs = {"tgt": SimpleNamespace(ids_to_tokens=["hello", "<eos>"])}
+        engine.transform_pipe = None
+        engine.logger = Mock()
+        engine.predictor = SimpleNamespace(model=Mock(), _tgt_eos_idx=[1])
+        engine._build_inference_iterator = lambda **kwargs: iter([])
+        attempts = []
+
+        def predict(_iterator, settings, streamer):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise torch.cuda.OutOfMemoryError("test allocation failed")
+            # A second request may begin only after failure cleanup.
+            engine.predictor.model.decoder._disable_cache.assert_called_once()
+            engine.predictor.model.clear_mtp_cache.assert_called_once()
+            streamer.put([0])
+            streamer.end()
+
+        engine._predict = predict
+        with ThreadPoolExecutor(max_workers=1) as pool, patch("torch.cuda.is_available", return_value=False):
+            engine._thread_pool = pool
+            with self.assertRaisesRegex(torch.cuda.OutOfMemoryError, "test allocation failed"):
+                list(engine.infer_list_stream("first"))
+            self.assertEqual(list(engine.infer_list_stream("second")), ["hello"])
 
     def test_tag_boundaries_and_literal_angle_brackets(self):
         source = 'a < b\n<think>secret</think>ok<tool_call>{"name":"f","arguments":{}}</tool_call>after'

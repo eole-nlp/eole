@@ -13,6 +13,9 @@ import uuid
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
+from jinja2.exceptions import TemplateError
+
+from eole.utils.logging import logger
 
 from eole.constants import DefaultTokens
 
@@ -59,7 +62,7 @@ def responses_messages(request):
         raise ValueError("Automatic truncation is unsupported")
     fmt = (extra.get("text") or {}).get("format", {}).get("type", "text")
     if fmt != "text":
-        raise ValueError("Only text output format is supported")
+        raise ValueError(f"Unsupported output format {fmt!r}; only text output format is supported")
     messages = []
     if request.instructions:
         messages.append({"role": "system", "content": request.instructions})
@@ -97,6 +100,12 @@ def responses_messages(request):
             # Visible reasoning summaries are not needed to replay the tool loop.
         else:
             raise ValueError(f"Unsupported input item: {kind}")
+    # Qwen accepts only one leading system message. Codex sends multiple
+    # developer messages, sometimes interspersed with replayed history.
+    system_parts = [m["content"] for m in messages if m["role"] == "system"]
+    messages = [m for m in messages if m["role"] != "system"]
+    if system_parts:
+        messages.insert(0, {"role": "system", "content": "\n\n".join(system_parts)})
     return messages
 
 
@@ -162,7 +171,10 @@ class OutputParser:
                     self.pending, self.tool = self.tool[-keep:], self.tool[:-keep]
                     break
                 end += len(self.tool_end)
-                result.append(("tool", self.tool + self.pending[:end]))
+                # Normalize after assembling the whole block so sentinels
+                # split across chunks are replaced before XML/schema parsing.
+                tool = (self.tool + self.pending[:end]).replace(DefaultTokens.SEP, "\n")
+                result.append(("tool", tool))
                 self.pending, self.tool, self.tool_end = self.pending[end:], "", None
                 continue
             found = [(self.pending.find(tag), tag) for tag in tags if tag in self.pending]
@@ -367,6 +379,7 @@ def register_responses(app, server):
             messages = responses_messages(request)
             tools, schemas, custom, choice = responses_tools(request)
         except (ValueError, KeyError, TypeError) as exc:
+            logger.warning("Responses request rejected: %s", exc)
             return JSONResponse(
                 status_code=400, content={"error": {"type": "invalid_request_error", "message": str(exc)}}
             )
@@ -374,7 +387,14 @@ def register_responses(app, server):
             raise HTTPException(status_code=404, detail=f"Model '{request.model}' not found")
         await server.maybe_load_model(request.model)
         model = server.models[request.model]
-        prompt = model.apply_chat_template(messages, tools=tools or None, tool_choice=choice)
+        try:
+            prompt = model.apply_chat_template(messages, tools=tools or None, tool_choice=choice)
+        except TemplateError as exc:
+            logger.warning("Responses chat-template error: %s", exc)
+            return JSONResponse(
+                status_code=400,
+                content={"error": {"type": "invalid_request_error", "message": str(exc)}},
+            )
         max_output, max_input = model.get_model_limits()
         budget = request.max_output_tokens or max_output
         if budget > max_output:
@@ -388,6 +408,14 @@ def register_responses(app, server):
                 },
             )
         input_tokens = model.count_tokens(prompt)
+        logger.info(
+            "Responses request: model=%s input_tokens=%d max_output_tokens=%d tools=%d stream=%s",
+            request.model,
+            input_tokens,
+            budget,
+            len(tools),
+            request.stream,
+        )
         if max_input > 0 and input_tokens > max_input:
             return JSONResponse(
                 status_code=400,

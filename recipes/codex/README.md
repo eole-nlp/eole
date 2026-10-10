@@ -18,8 +18,11 @@ export EOLE_COMPILE_MODE=0
 eole serve -c recipes/codex/serve.yaml --host 127.0.0.1 --port 5000
 ```
 
-This YAML fixes single-sequence greedy generation, a 32K context, a 2048-token
-output budget, and disables MTP for the initial integration test. Establish
+This YAML fixes single-sequence greedy generation, a 28,672-token context, a 4096-token
+output budget, splits prefill into 256-token chunks, and disables MTP for the
+initial integration test. Chunking limits temporary prefill workspace for the
+large instruction/tool prompts sent by the desktop app; it does not reduce
+the configured context window. Establish
 correctness before comparing MTP throughput.
 
 In another terminal:
@@ -43,7 +46,24 @@ printf 'EOLE_SENTINEL_42\n' > /tmp/eole-codex-demo/sentinel.txt
 
 The helper creates `config.toml` and a matching Qwen model catalog. It refuses
 to overwrite existing configuration. Context metadata must match the server;
-pass `--context-window` if you change the YAML. The provider uses HTTP Responses
+pass `--context-window` if you change the YAML. The helper sets both catalog
+context fields and the top-level Codex context limit to the same value, with
+`effective_context_window_percent=90`. Its defaults also include:
+
+```toml
+model_context_window = 28672
+model_auto_compact_token_limit = 24576
+```
+
+The compaction threshold reserves 4096 tokens below the context limit; it is
+adjusted by the same amount when `--context-window` changes. Keep these values
+aligned with the server, and restart Codex in a new chat after changing them.
+For an existing isolated home, edit `config.toml` at the top level (before any
+`[section]`) and update both `context_window` and `max_context_window` in
+`models.json`; the helper deliberately refuses to overwrite existing files.
+These settings are described in the
+[official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+The provider uses HTTP Responses
 with `supports_websockets=false`, no OpenAI authentication, and disabled hosted
 web search. The model name must match the server YAML ID exactly.
 
@@ -142,7 +162,8 @@ for configuration locations and override precedence.
 
 - Text SSE deltas are emitted during generation. Each tool block is buffered
   until its complete arguments can be parsed, then emitted as a typed call.
-- Replayed user, developer, assistant, function-call and function-result items
+- System/developer instructions are combined into one leading system message
+  for Qwen. Replayed user, assistant, function-call and function-result items
   retain their order and call IDs. Use `store=false`; server-side history and
   `previous_response_id` are unsupported.
 - Function tools, namespaced tools, and custom raw-input tools are translated
@@ -164,6 +185,33 @@ for configuration locations and override precedence.
 - This endpoint adds no authentication. Keep the server bound to loopback.
   Advanced desktop features and third-party plugins have not been validated
   against this model. Use short, isolated coding tasks first.
+
+## First-prompt troubleshooting
+
+For `CUDA out of memory`, stop the desktop request/retries and restart the
+server with **`recipes/codex/serve.yaml`**, not `recipes/qwen38/serve.yaml`.
+The latter enables MTP and unchunked prefill. A short smoke-test prompt does
+not exercise the desktop app's much larger instructions and tool definitions.
+The server logs the rendered prompt token count and output budget for each
+accepted Responses request. Chunked prefill reduces temporary workspace, but
+KV caches and other persistent allocations still grow with the context;
+long sessions may require a smaller context or fewer client tools.
+
+The settings above were reported to fit the user's local Qwen INT4 desktop
+setup. Memory requirements still depend on the hardware and runtime. The
+client must reserve room for generation as history and tool results grow;
+server-side compaction remains unsupported, so check whether client history
+compaction succeeds and start a fresh chat if it fails. In the same test,
+disabling plugins did not reduce the reported 53 tools. Do not assume plugin
+disabling alone reduces the prompt: check the server's actual `tools` and
+`input_tokens` counts.
+
+A `Unsupported output format 'json_schema'` rejection is a separate protocol
+limit. The endpoint supports text output only and does not silently discard a
+schema constraint. If a later request gets `200 OK`, inspect its completion or
+failure separately. Streaming HTTP `200` means the stream opened; a terminal
+`response.failed` event still reports a failed inference. After any allocation
+failure, failed-request decoder/MTP state is cleared before the next request.
 
 ## Validation status
 
