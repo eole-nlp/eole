@@ -21,7 +21,7 @@ def main():
     import torch
     import yaml
     from eole.config.run import PredictConfig
-    from eole.bin.run.serve import Model
+    from eole.server.model import Model
     from eole.inference_engine import InferenceEnginePY
     from eole.utils.logging import logger
 

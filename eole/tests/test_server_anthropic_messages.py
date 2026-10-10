@@ -2,7 +2,7 @@
 
 import unittest
 
-from eole.bin.run.serve import AnthropicMessagesRequest, _anthropic_messages_to_openai
+from eole.server.anthropic import AnthropicMessagesRequest, _anthropic_messages_to_openai
 
 
 class TestServerAnthropicMessages(unittest.TestCase):

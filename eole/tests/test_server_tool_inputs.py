@@ -3,17 +3,16 @@
 import unittest
 from types import SimpleNamespace
 
-from eole.bin.run.serve import (
-    AnthropicTool,
-    Model,
+from eole.server.model import Model
+from eole.server.anthropic import AnthropicTool
+from eole.server.utils import _normalize_developer_role
+from eole.server.tool_parsing import _coerce_tool_inputs_from_schema, _parse_anthropic_response_content
+from eole.server.openai_chat import (
     OpenAIFunctionCall,
     OpenAIMessage,
     _OpenAIStreamParser,
     OpenAIToolCall,
-    _coerce_tool_inputs_from_schema,
-    _normalize_developer_role,
     _openai_messages_for_template,
-    _parse_anthropic_response_content,
     _parse_openai_complete_response,
     _parse_openai_response_content,
     _prepare_openai_tool_request,

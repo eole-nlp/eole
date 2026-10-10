@@ -6,7 +6,6 @@ Qwen tool blocks are buffered individually; ordinary text streams immediately.
 
 import asyncio
 import json
-import threading
 import time
 import uuid
 
@@ -18,6 +17,8 @@ from jinja2.exceptions import TemplateError
 from eole.utils.logging import logger
 
 from eole.constants import DefaultTokens
+from eole.server.streaming import inference_stream
+from eole.server.tool_parsing import _coerce_tool_inputs_from_schema, _parse_anthropic_response_content
 
 
 class ResponsesRequest(BaseModel):
@@ -256,8 +257,6 @@ class ResponseEvents:
         ]
 
     def accept(self, kind, value):
-        from eole.bin.run.serve import AnthropicTool, _coerce_tool_inputs_from_schema, _parse_anthropic_response_content
-
         events = []
         if kind == "text":
             if self.active is None:
@@ -300,7 +299,7 @@ class ResponseEvents:
         events.extend(self.close_text())
         blocks, _ = _parse_anthropic_response_content(value)
         _coerce_tool_inputs_from_schema(
-            blocks, [AnthropicTool(name=name, input_schema=schema) for name, schema in self.schemas.items()]
+            blocks, [{"name": name, "input_schema": schema} for name, schema in self.schemas.items()]
         )
         if len(blocks) != 1 or blocks[0].get("type") != "tool_use":
             raise ValueError("Invalid model tool call")
@@ -443,51 +442,26 @@ def register_responses(app, server):
             # Serialize this endpoint's requests; a disconnected client must not
             # release the engine while its worker is still generating.
             async with lock:
-                loop = asyncio.get_running_loop()
-                queue = asyncio.Queue()
-                cancelled = threading.Event()
                 generation_stats = {}
-
-                def produce():
+                async with inference_stream(
+                    model.engine, prompt, settings, generation_stats=generation_stats
+                ) as chunks:
+                    raw = []
                     try:
-                        for chunk in model.engine.infer_list_stream(
-                            prompt, settings=settings, generation_stats=generation_stats
-                        ):
-                            if not cancelled.is_set():
-                                loop.call_soon_threadsafe(queue.put_nowait, chunk)
-                    except Exception as exc:
-                        loop.call_soon_threadsafe(queue.put_nowait, exc)
-                    finally:
-                        loop.call_soon_threadsafe(queue.put_nowait, None)
-
-                worker = loop.run_in_executor(None, produce)
-                raw = []
-                try:
-                    while True:
-                        chunk = await queue.get()
-                        if chunk is None:
-                            break
-                        if isinstance(chunk, Exception):
-                            raise chunk
-                        raw.append(chunk)
-                        for kind, value in parser.feed(chunk):
+                        async for chunk in chunks:
+                            raw.append(chunk)
+                            for kind, value in parser.feed(chunk):
+                                for event in state.accept(kind, value):
+                                    yield event
+                        for kind, value in parser.feed("", final=True):
                             for event in state.accept(kind, value):
                                 yield event
-                    for kind, value in parser.feed("", final=True):
-                        for event in state.accept(kind, value):
+                        output_tokens = generation_stats.get("output_tokens", model.count_tokens("".join(raw)))
+                        incomplete = not generation_stats.get("stopped_on_eos", False) and output_tokens >= budget
+                        for event in state.finish(input_tokens, output_tokens, incomplete=incomplete):
                             yield event
-                    output_tokens = generation_stats.get("output_tokens", model.count_tokens("".join(raw)))
-                    incomplete = not generation_stats.get("stopped_on_eos", False) and output_tokens >= budget
-                    for event in state.finish(input_tokens, output_tokens, incomplete=incomplete):
-                        yield event
-                except asyncio.CancelledError:
-                    cancelled.set()
-                    raise
-                except Exception as exc:
-                    yield state.fail(exc)
-                finally:
-                    cancelled.set()
-                    await asyncio.shield(worker)
+                    except Exception as exc:
+                        yield state.fail(exc)
 
         if request.stream:
 

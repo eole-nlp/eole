@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from eole.bin.run.responses import (
+from eole.server.responses import (
     OutputParser,
     ResponsesRequest,
     register_responses,
@@ -338,7 +338,7 @@ class TestResponsesAPI(unittest.TestCase):
         )
 
     def test_multiple_developer_messages_render_with_qwen_system_constraint(self):
-        from eole.bin.run.serve import Model
+        from eole.server.model import Model
 
         model = Model()
         model.config = SimpleNamespace(
