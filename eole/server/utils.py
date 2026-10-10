@@ -5,7 +5,7 @@ import re
 
 from eole.constants import DefaultTokens
 from eole.utils.logging import logger
-from eole.bin.run.tool_parsing import _TOOL_CALL_SPLIT_RE, _TOOL_USE_SPLIT_RE
+from eole.server.tool_parsing import _TOOL_CALL_SPLIT_RE, _TOOL_USE_SPLIT_RE
 
 _LOG_SEP = "=" * 72
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)

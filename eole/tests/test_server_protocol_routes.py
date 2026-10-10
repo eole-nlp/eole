@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from eole.bin.run.serve import create_app
+from eole.server.app import create_app
 
 
 def make_client():
@@ -30,7 +30,7 @@ def make_client():
         pass
 
     server = SimpleNamespace(models={"qwen": FakeModel()}, start=lambda config: None, maybe_load_model=load)
-    with patch("eole.bin.run.serve.Server", return_value=server):
+    with patch("eole.server.app.Server", return_value=server):
         app = create_app("unused.yaml")
     return TestClient(app)
 

@@ -8,10 +8,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from eole.utils.logging import logger
-from eole.bin.run.streaming import inference_stream
-from eole.bin.run.tool_parsing import _coerce_tool_inputs_from_schema, _parse_anthropic_response_content
-from eole.bin.run.serving_utils import _log_json_payload, estimate_tokens
-from eole.bin.run.serving_utils import _post_process_model_output
+from eole.server.streaming import inference_stream
+from eole.server.tool_parsing import _coerce_tool_inputs_from_schema, _parse_anthropic_response_content
+from eole.server.utils import _log_json_payload, estimate_tokens
+from eole.server.utils import _post_process_model_output
 
 
 class AnthropicTextBlock(BaseModel):

@@ -5,7 +5,7 @@ import threading
 import unittest
 from types import SimpleNamespace
 
-from eole.bin.run.streaming import inference_stream
+from eole.server.streaming import inference_stream
 
 
 class TestInferenceStream(unittest.IsolatedAsyncioTestCase):

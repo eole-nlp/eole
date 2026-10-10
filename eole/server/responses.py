@@ -17,8 +17,8 @@ from jinja2.exceptions import TemplateError
 from eole.utils.logging import logger
 
 from eole.constants import DefaultTokens
-from eole.bin.run.streaming import inference_stream
-from eole.bin.run.tool_parsing import _coerce_tool_inputs_from_schema, _parse_anthropic_response_content
+from eole.server.streaming import inference_stream
+from eole.server.tool_parsing import _coerce_tool_inputs_from_schema, _parse_anthropic_response_content
 
 
 class ResponsesRequest(BaseModel):

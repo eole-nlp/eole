@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from eole.bin.run.serve import create_app
+from eole.server.app import create_app
 
 
 class _FakeModel:
@@ -61,7 +61,7 @@ def _request_payload(stream=False):
 def _client_for(response):
     model = _FakeModel(response)
     server = _FakeServer(model)
-    with patch("eole.bin.run.serve.Server", return_value=server):
+    with patch("eole.server.app.Server", return_value=server):
         app = create_app("unused.yaml")
     return TestClient(app), model
 
