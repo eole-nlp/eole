@@ -175,7 +175,14 @@ class MultiHeadedAttention(torch.nn.Module):
         self.dropout_p = dropout
 
     def _fuse_KVQ(self) -> None:
-        if hasattr(self.linear_keys, "weight"):
+        if self.fused_kvq:
+            return
+        from eole.modules.marlin_linear import MarlinQuantLinear
+
+        if isinstance(self.linear_keys, MarlinQuantLinear):
+            projections = [self.linear_keys, self.linear_values, self.linear_query]
+            self.linear_kvq = MarlinQuantLinear.fuse(projections)
+        elif hasattr(self.linear_keys, "weight"):
             self.linear_kvq = skip_init(
                 nn.Linear,
                 in_features=self.model_config.hidden_size,
