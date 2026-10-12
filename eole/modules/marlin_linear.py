@@ -168,6 +168,8 @@ class MarlinQuantLinear(nn.Module):
     @classmethod
     def fuse(cls, projections):
         """Join GPTQ output columns before Marlin repacking."""
+        if not projections or not isinstance(projections[0], cls):
+            raise ValueError("Marlin fusion requires compatible projections")
         first = projections[0]
         for projection in projections:
             if not isinstance(projection, cls) or (
@@ -182,15 +184,17 @@ class MarlinQuantLinear(nn.Module):
                 raise ValueError("Marlin projections must be fused before post_init")
         if first.desc_act and any(not torch.equal(first.g_idx, projection.g_idx) for projection in projections[1:]):
             raise ValueError("Marlin fusion requires identical activation ordering")
-        fused = cls(
-            first.bits,
-            first.group_size,
-            first.desc_act,
-            True,
-            first.in_features,
-            sum(p.out_features for p in projections),
-            bias=first.bias is not None,
-        ).to(device=first.qweight.device, dtype=first.scales.dtype)
+        # Allocate only metadata on meta; all parameters are replaced below.
+        with torch.device("meta"):
+            fused = cls(
+                first.bits,
+                first.group_size,
+                first.desc_act,
+                True,
+                first.in_features,
+                sum(p.out_features for p in projections),
+                bias=first.bias is not None,
+            )
         for name in ("qweight", "qzeros", "scales"):
             setattr(
                 fused,

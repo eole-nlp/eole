@@ -249,14 +249,18 @@ class BaseModel(nn.Module):
         if getattr(running_config, "quant_type", "") == "autoround":
             from eole.modules.autoround_linear import post_init_autoround_linear
 
-            if running_config.fuse_kvq:
+            if getattr(running_config, "fuse_kvq", False):
                 from eole.modules.marlin_linear import MarlinQuantLinear
+                from eole.modules.multi_headed_attn import SelfMHA
 
                 attentions = [
                     module
                     for module in self.modules()
-                    if hasattr(module, "_fuse_KVQ")
-                    and isinstance(getattr(module, "linear_keys", None), MarlinQuantLinear)
+                    if isinstance(module, SelfMHA)
+                    and any(
+                        isinstance(getattr(module, name, None), MarlinQuantLinear)
+                        for name in ("linear_keys", "linear_values", "linear_query")
+                    )
                 ]
                 for module in attentions:
                     module._fuse_KVQ()
