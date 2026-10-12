@@ -243,3 +243,28 @@ class TestMarlinFusionWiring(unittest.TestCase):
             Inference._prepare_inference_projections(predictor, config)
             if not incompatible:
                 torch.testing.assert_close(layer.self_attn.linear_kvq(inputs), actual, atol=0.01, rtol=0.01)
+
+    def test_hybrid_layers_skip_missing_self_attention(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from eole.predict.inference import Inference
+
+        model = torch.nn.Module()
+        attentions = []
+        for side in ("encoder", "decoder"):
+            stack = torch.nn.Module()
+            stack.transformer_layers = torch.nn.ModuleList()
+            for has_attention in (False, True, False):
+                layer = torch.nn.Module()
+                layer.self_attn = torch.nn.Module() if has_attention else None
+                if has_attention:
+                    layer.self_attn._fuse_KVQ = Mock()
+                    attentions.append(layer.self_attn)
+                stack.transformer_layers.append(layer)
+            setattr(model, side, stack)
+        config = SimpleNamespace(fuse_kvq=True, fuse_gate=False)
+        with patch("eole.modules.autoround_linear.finalize_deferred_autoround_linear") as finalize:
+            Inference._prepare_inference_projections(SimpleNamespace(model=model), config)
+            finalize.assert_called_once_with(model)
+        for attention in attentions:
+            attention._fuse_KVQ.assert_called_once()

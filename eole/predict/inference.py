@@ -34,15 +34,17 @@ class Inference(object):
         if hasattr(self.model, "decoder") and self.model.decoder is not None:
             if hasattr(self.model.decoder, "transformer_layers"):
                 for layer in self.model.decoder.transformer_layers:
-                    if getattr(config, "fuse_kvq", False):
-                        layer.self_attn._fuse_KVQ()
+                    self_attn = getattr(layer, "self_attn", None)
+                    if getattr(config, "fuse_kvq", False) and self_attn is not None:
+                        self_attn._fuse_KVQ()
                     if config.fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
                         layer.mlp._fuse_gate()
         if hasattr(self.model, "encoder") and self.model.encoder is not None:
             if hasattr(self.model.encoder, "transformer_layers"):
                 for layer in self.model.encoder.transformer_layers:
-                    if getattr(config, "fuse_kvq", False):
-                        layer.self_attn._fuse_KVQ()
+                    self_attn = getattr(layer, "self_attn", None)
+                    if getattr(config, "fuse_kvq", False) and self_attn is not None:
+                        self_attn._fuse_KVQ()
                     if config.fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
                         layer.mlp._fuse_gate()
 
