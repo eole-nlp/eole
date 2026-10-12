@@ -77,14 +77,23 @@ class TestMarlinFusionWiring(unittest.TestCase):
         from eole.models.model import BaseModel
         from eole.modules.multi_headed_attn import SelfMHA, ContextMHA
 
+        from eole.predict.inference import Inference
+
         model = torch.nn.Module()
-        model.self_attn = self.attention(SelfMHA)
-        model.context_attn = self.attention(ContextMHA)
-        with patch("eole.modules.autoround_linear.post_init_autoround_linear") as post_init:
-            BaseModel._prepare_for_inference(
-                model, SimpleNamespace(compute_dtype=torch.float16, quant_type="autoround", fuse_kvq=True)
-            )
-            post_init.assert_called_once_with(model)
+        model.decoder = torch.nn.Module()
+        layer = torch.nn.Module()
+        layer.self_attn = self.attention(SelfMHA)
+        layer.context_attn = self.attention(ContextMHA)
+        model.decoder.transformer_layers = torch.nn.ModuleList([layer])
+        config = SimpleNamespace(compute_dtype=torch.float16, quant_type="autoround", fuse_kvq=True, fuse_gate=False)
+        with patch.object(MarlinQuantLinear, "post_init", autospec=True) as post_init:
+            BaseModel._prepare_for_inference(model, config)
+            self.assertFalse(layer.self_attn.fused_kvq)
+            self.assertEqual(post_init.call_count, 3)  # Cross-attention is initialized immediately.
+            Inference._prepare_inference_projections(SimpleNamespace(model=model), config)
+            self.assertEqual(post_init.call_count, 4)  # One packed self-attention projection.
+        model.self_attn = layer.self_attn
+        model.context_attn = layer.context_attn
         self.assertTrue(model.self_attn.fused_kvq)
         self.assertFalse(model.context_attn.fused_kvq)
         # Exercise cache prefill as well as the selection predicate.
@@ -171,3 +180,66 @@ class TestMarlinFusionWiring(unittest.TestCase):
                 torch.testing.assert_close(result, ref, atol=0.01, rtol=0.01)
             if gated:
                 torch.testing.assert_close(attention._attn_gate, gate, atol=0.001, rtol=0.01)
+
+    def test_optional_marlin_import_not_needed_for_other_backends(self):
+        import builtins
+        from unittest.mock import patch
+        from eole.modules.autoround_linear import fuse_autoround_kvq
+
+        original_import = builtins.__import__
+
+        def without_marlin(name, *args, **kwargs):
+            if name == "eole.modules.marlin_linear":
+                raise ImportError("Marlin not installed")
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=without_marlin):
+            self.assertEqual(fuse_autoround_kvq([torch.nn.Linear(128, 64)] * 3), (False, None))
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required for Marlin kernels")
+    def test_inference_finalizes_deferred_weights(self):
+        from types import SimpleNamespace
+        from eole.models.model import BaseModel
+        from eole.predict.inference import Inference
+        from eole.modules.multi_headed_attn import SelfMHA
+
+        for incompatible in (False, True):
+            model = torch.nn.Module()
+            model.decoder = torch.nn.Module()
+            layer = torch.nn.Module()
+            layer.self_attn = self.attention(SelfMHA)
+            if incompatible:
+                layer.self_attn.linear_values = torch.nn.Linear(128, 64).half().cuda()
+            projections = [layer.self_attn.linear_keys, layer.self_attn.linear_values, layer.self_attn.linear_query]
+            for projection in projections:
+                if isinstance(projection, MarlinQuantLinear):
+                    projection.qweight.data.random_(0, 2**31 - 1)
+                    projection.scales.data.fill_(0.05)
+                    projection.qzeros.data.zero_()
+                    projection.g_idx.data.zero_()
+                    projection.cuda()
+            model.decoder.transformer_layers = torch.nn.ModuleList([layer])
+            config = SimpleNamespace(
+                compute_dtype=torch.float16, quant_type="autoround", fuse_kvq=True, fuse_gate=False
+            )
+            BaseModel._prepare_for_inference(model, config)
+            self.assertIsNone(projections[0].workspace)
+            predictor = SimpleNamespace(model=model)
+            Inference._prepare_inference_projections(predictor, config)
+            inputs = torch.randn(1, 2, 128, device="cuda", dtype=torch.float16)
+            if incompatible:
+                self.assertFalse(layer.self_attn.fused_kvq)
+                self.assertIsNotNone(projections[0].workspace)
+                expected = torch.cat([projection(inputs) for projection in projections], dim=-1)
+                actual = torch.cat([projection(inputs) for projection in projections], dim=-1)
+            else:
+                self.assertTrue(layer.self_attn.fused_kvq)
+                self.assertIsNotNone(layer.self_attn.linear_kvq.workspace)
+                for projection in projections:
+                    projection.post_init()
+                expected = torch.cat([projection(inputs) for projection in projections], dim=-1)
+                actual = layer.self_attn.linear_kvq(inputs)
+            torch.testing.assert_close(actual, expected, atol=0.01, rtol=0.01)
+            Inference._prepare_inference_projections(predictor, config)
+            if not incompatible:
+                torch.testing.assert_close(layer.self_attn.linear_kvq(inputs), actual, atol=0.01, rtol=0.01)

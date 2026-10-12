@@ -59,6 +59,8 @@ class MarlinQuantLinear(nn.Module):
     bias:       whether to include a bias term
     """
 
+    supports_kvq_fusion = True
+
     SUPPORTS_BITS = [4, 8]
     SUPPORTS_GROUP_SIZE = [-1, 32, 64, 128]
     SUPPORTS_DESC_ACT = [True, False]

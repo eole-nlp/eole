@@ -177,16 +177,12 @@ class MultiHeadedAttention(torch.nn.Module):
     def _fuse_KVQ(self) -> None:
         if self.fused_kvq or getattr(self, "_marlin_fusion_skipped", False):
             return
-        from eole.modules.marlin_linear import MarlinQuantLinear
+        from eole.modules.autoround_linear import fuse_autoround_kvq
 
         projections = [self.linear_keys, self.linear_values, self.linear_query]
-        if any(isinstance(projection, MarlinQuantLinear) for projection in projections):
-            from eole.utils.logging import logger
-
-            try:
-                fused = MarlinQuantLinear.fuse(projections)
-            except ValueError as error:
-                logger.warning("Skipping Marlin KVQ fusion: %s", error)
+        handled, fused = fuse_autoround_kvq(projections)
+        if handled:
+            if fused is None:
                 self._marlin_fusion_skipped = True
                 return
             self.linear_kvq = fused

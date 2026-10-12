@@ -30,6 +30,26 @@ class Inference(object):
         logger (logging.Logger or NoneType): Logger.
     """
 
+    def _prepare_inference_projections(self, config):
+        if hasattr(self.model, "decoder") and self.model.decoder is not None:
+            if hasattr(self.model.decoder, "transformer_layers"):
+                for layer in self.model.decoder.transformer_layers:
+                    if getattr(config, "fuse_kvq", False):
+                        layer.self_attn._fuse_KVQ()
+                    if config.fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
+                        layer.mlp._fuse_gate()
+        if hasattr(self.model, "encoder") and self.model.encoder is not None:
+            if hasattr(self.model.encoder, "transformer_layers"):
+                for layer in self.model.encoder.transformer_layers:
+                    if getattr(config, "fuse_kvq", False):
+                        layer.self_attn._fuse_KVQ()
+                    if config.fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
+                        layer.mlp._fuse_gate()
+
+        from eole.modules.autoround_linear import finalize_deferred_autoround_linear
+
+        finalize_deferred_autoround_linear(self.model)
+
     def __init__(
         self,
         model,
@@ -62,20 +82,7 @@ class Inference(object):
         )
 
         self.model = model
-        if hasattr(self.model, "decoder") and self.model.decoder is not None:
-            if hasattr(self.model.decoder, "transformer_layers"):
-                for layer in self.model.decoder.transformer_layers:
-                    if config.fuse_kvq:
-                        layer.self_attn._fuse_KVQ()
-                    if config.fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
-                        layer.mlp._fuse_gate()
-        if hasattr(self.model, "encoder") and self.model.encoder is not None:
-            if hasattr(self.model.encoder, "transformer_layers"):
-                for layer in self.model.encoder.transformer_layers:
-                    if config.fuse_kvq:
-                        layer.self_attn._fuse_KVQ()
-                    if config.fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
-                        layer.mlp._fuse_gate()
+        self._prepare_inference_projections(config)
 
         self.vocabs = vocabs
         self._tgt_vocab = vocabs["tgt"]
