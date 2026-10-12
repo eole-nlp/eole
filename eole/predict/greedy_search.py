@@ -217,6 +217,24 @@ class GreedySearch(DecodeStrategy):
                 device=self.select_indices.device,
             )
 
+    def enable_async_finish(self, streaming=False):
+        """Copy EOS flags to pinned memory while the next decode is submitted."""
+        device = self.alive_seq.device
+        if device.type != "cuda":
+            raise ValueError("Asynchronous EOS detection requires CUDA sequences")
+        self._finish_host = torch.empty((self.alive_seq.shape[0], 1), dtype=torch.bool, pin_memory=True)
+        self._stream_token_host = torch.empty((1, 1), dtype=torch.long, pin_memory=True) if streaming else None
+        self._finish_stream = torch.cuda.Stream(device=device)
+        self._finish_ready = torch.cuda.Event()
+        self._finish_pending = False
+
+    def resolve_async_finish(self):
+        if self._finish_pending:
+            self._finish_ready.synchronize()
+            self.is_finished_list = self._finish_host.tolist()
+            self._finish_pending = False
+            self.ensure_max_length()
+
     def advance(self, log_probs, attn):
         """Select next tokens randomly from the top k possible next tokens.
 
@@ -249,7 +267,22 @@ class GreedySearch(DecodeStrategy):
         if self._prefix_len > 0 and step == self._prefix_len:
             self.beams_scores.zero_()
 
-        self.is_finished_list = torch.isin(topk_ids, self.eos_t).tolist()
+        finished_gpu = torch.isin(topk_ids, self.eos_t)
+        if hasattr(self, "_finish_stream"):
+            if self._finish_host.shape != finished_gpu.shape:
+                self._finish_host = torch.empty(finished_gpu.shape, dtype=torch.bool, pin_memory=True)
+            self._finish_stream.wait_stream(torch.cuda.current_stream(topk_ids.device))
+            with torch.cuda.stream(self._finish_stream):
+                self._finish_host.copy_(finished_gpu, non_blocking=True)
+                if self._stream_token_host is not None:
+                    self._stream_token_host.copy_(topk_ids[:1], non_blocking=True)
+                self._finish_ready.record()
+            finished_gpu.record_stream(self._finish_stream)
+            if self._stream_token_host is not None:
+                topk_ids.record_stream(self._finish_stream)
+            self._finish_pending = True
+        else:
+            self.is_finished_list = finished_gpu.tolist()
 
         self.alive_seq = torch.cat([self.alive_seq, topk_ids], -1)
         if self.return_attention:

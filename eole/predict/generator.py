@@ -1,3 +1,4 @@
+import os
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from eole.predict.inference import Inference
@@ -132,6 +133,24 @@ class GeneratorLM(Inference):
             decoder._compile_decoder(emb=dummy_emb, tgt_pad_mask=dummy_pad_mask)
             decoder._disable_cache()
 
+    def _can_pipeline_eos(self, decode_strategy, src, use_spec_decoding, streamer):
+        """One-token lookahead is limited to deterministic CUDA greedy decoding.
+
+        MTP already advances verified chunks; beam search must reorder caches
+        before decoding the next token. Both retain their existing EOS paths.
+        """
+        return (
+            os.environ.get("EOLE_EOS_PIPELINE") == "1"
+            and isinstance(decode_strategy, GreedySearchLM)
+            and (decode_strategy.temperature == 0 or decode_strategy.top_k == 1)
+            and decode_strategy.parallel_paths == 1
+            and src.is_cuda
+            and not use_spec_decoding
+            and not decode_strategy.return_attention
+            and (streamer is None or decode_strategy.batch_size == 1)
+            and not self.add_estimator
+        )
+
     def _predict_batch_with_strategy(self, batch, decode_strategy, streamer=None):
         try:
             return self._predict_batch_with_strategy_impl(batch, decode_strategy, streamer=streamer)
@@ -147,6 +166,9 @@ class GeneratorLM(Inference):
                     module.discard_speculation()
             decoder._disable_cache()
             raise
+        finally:
+            if getattr(decode_strategy, "_finish_pending", False):
+                decode_strategy.resolve_async_finish()
 
     def _predict_batch_with_strategy_impl(self, batch, decode_strategy, streamer=None):
         """Predict a batch of sentences step by step using cache.
@@ -289,6 +311,10 @@ class GeneratorLM(Inference):
 
             step = 0
             pending_spec = None
+            pending_decoded = None
+            pipeline_eos = self._can_pipeline_eos(decode_strategy, src, use_spec_decoding, streamer)
+            if pipeline_eos:
+                decode_strategy.enable_async_finish(streaming=streamer is not None)
             self._speculative_drafted_tokens = 0
             self._speculative_accepted_tokens = 0
             self._speculative_drafted_by_position = [0] * self.self_speculative_num_tokens
@@ -328,15 +354,18 @@ class GeneratorLM(Inference):
 
                 decoder_input = src if step == 0 else decode_strategy.current_predictions.view(-1, 1)
                 cur_position = step if step == 0 else step + prefill_length - 1
-                decoded = self._decode_and_generate(
-                    decoder_input,
-                    None,
-                    src_len=decode_strategy.src_len,
-                    step=cur_position,
-                    images=batch.get("images", None) if step == 0 else None,
-                    return_hidden=use_spec_decoding,
-                    return_all_hidden=use_spec_decoding and step == 0,
-                )
+                if pending_decoded is None:
+                    decoded = self._decode_and_generate(
+                        decoder_input,
+                        None,
+                        src_len=decode_strategy.src_len,
+                        step=cur_position,
+                        images=batch.get("images", None) if step == 0 else None,
+                        return_hidden=use_spec_decoding,
+                        return_all_hidden=use_spec_decoding and step == 0,
+                    )
+                else:
+                    decoded, pending_decoded = pending_decoded, None
                 if use_spec_decoding:
                     if step == 0:
                         log_probs, attn, hidden, all_hidden = decoded
@@ -357,10 +386,25 @@ class GeneratorLM(Inference):
                     if torch.cuda.is_available():
                         torch.cuda.synchronize()
                     self.step0_time.append(time() - beg_time)
+                if pipeline_eos:
+                    if step < decode_strategy.max_length:
+                        self.model.decoder._extend_cache()
+                        pending_decoded = self._decode_and_generate(
+                            decode_strategy.current_predictions.view(-1, 1),
+                            None,
+                            src_len=decode_strategy.src_len,
+                            step=step + prefill_length - 1,
+                        )
+                    # The next GPU computation is queued before waiting for
+                    # the previous token's EOS flag. If EOS, discard lookahead.
+                    decode_strategy.resolve_async_finish()
                 any_finished = any([any(sublist) for sublist in decode_strategy.is_finished_list])
 
                 if streamer is not None:
-                    streamer.put(decode_strategy.current_predictions[:1])
+                    if pipeline_eos:
+                        streamer.put(decode_strategy._stream_token_host.tolist()[0])
+                    else:
+                        streamer.put(decode_strategy.current_predictions[:1])
 
                 if any_finished:
                     decode_strategy.update_finished()
@@ -380,8 +424,15 @@ class GeneratorLM(Inference):
 
                 if parallel_paths > 1 or (any_finished and not decode_strategy.static_batch_size):
                     self.model.decoder.map_state(lambda state: state[decode_strategy.select_indices])
+                    if pipeline_eos and pending_decoded is not None:
+                        next_logits, next_attn = pending_decoded
+                        indices = decode_strategy.select_indices
+                        pending_decoded = (
+                            next_logits[indices],
+                            next_attn[indices] if next_attn is not None else None,
+                        )
 
-                if not (use_spec_decoding and pending_spec is not None):
+                if not pipeline_eos and not (use_spec_decoding and pending_spec is not None):
                     # The speculative verifier has already reserved capacity
                     # for its entire chunk; no normal one-token growth check
                     # is needed before the next speculative step.
