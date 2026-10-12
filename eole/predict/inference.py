@@ -48,9 +48,10 @@ class Inference(object):
                     if config.fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
                         layer.mlp._fuse_gate()
 
-        from eole.modules.autoround_linear import finalize_deferred_autoround_linear
+        if isinstance(self.model, torch.nn.Module):
+            from eole.modules.autoround_linear import finalize_deferred_autoround_linear
 
-        finalize_deferred_autoround_linear(self.model)
+            finalize_deferred_autoround_linear(self.model)
 
     def __init__(
         self,

@@ -268,3 +268,14 @@ class TestMarlinFusionWiring(unittest.TestCase):
             finalize.assert_called_once_with(model)
         for attention in attentions:
             attention._fuse_KVQ.assert_called_once()
+
+    def test_non_module_scoring_model_skips_quantized_initialization(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from eole.predict.inference import Inference
+
+        predictor = SimpleNamespace(model=SimpleNamespace())
+        config = SimpleNamespace(fuse_kvq=False, fuse_gate=False)
+        with patch("eole.modules.autoround_linear.finalize_deferred_autoround_linear") as finalize:
+            Inference._prepare_inference_projections(predictor, config)
+            finalize.assert_not_called()
