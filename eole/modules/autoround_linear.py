@@ -114,14 +114,25 @@ def _get_module_device(module):
         return torch.device("cpu")
 
 
-def post_init_autoround_linear(model):
+def post_init_autoround_linear(model, defer_kvq=False):
     """Call post_init() on all AutoRound QuantLinear modules in the model.
 
     Required for Marlin layers: repacks GPTQ-format weights into Marlin's optimized
     memory layout and pre-allocates the workspace buffer.  No-op for other backends.
     Must be called after weights have been loaded and the model moved to CUDA.
+    With defer_kvq, only fusion-capable self-attention projections wait for
+    inference setup; finalize_deferred_autoround_linear initializes them there.
     """
+    deferred_names = set()
+    if defer_kvq:
+        from eole.modules.multi_headed_attn import SelfMHA
+
+        if isinstance(model, SelfMHA):
+            deferred_names = {"linear_keys", "linear_values", "linear_query"}
     for name, module in model.named_children():
+        if name in deferred_names and getattr(module, "supports_kvq_fusion", False):
+            module._kvq_post_init_deferred = True
+            continue
         module_cls = type(module)
         module_pkg = getattr(module_cls, "__module__", "") or ""
         if hasattr(module, "post_init") and len(list(module.children())) == 0:
@@ -144,7 +155,7 @@ def post_init_autoround_linear(model):
                     )
         else:
             # Recurse into containers that are not themselves QuantLinear modules.
-            post_init_autoround_linear(module)
+            post_init_autoround_linear(module, defer_kvq=defer_kvq)
 
         # MoE: eagerly stack quantized expert weights before CUDAGraphs capture
         if hasattr(module, "_maybe_init_quant_weights") and hasattr(module, "experts"):
@@ -198,3 +209,28 @@ def _get_autoround_quant_linear_cls(use_gptq_zp: bool, sym: bool = True, force_p
         return QuantLinear, False
     except ImportError:
         raise ImportError("Install auto-round to use autoround quantized models")
+
+
+def fuse_autoround_kvq(projections):
+    """Return (handled, fused) without importing Marlin for other backends."""
+    if not any(getattr(module, "supports_kvq_fusion", False) for module in projections):
+        return False, None
+    from eole.utils.logging import logger
+
+    try:
+        from eole.modules.marlin_linear import MarlinQuantLinear
+
+        fused = MarlinQuantLinear.fuse(projections)
+    except (ImportError, ValueError) as error:
+        logger.warning("Skipping Marlin KVQ fusion: %s", error)
+        return True, None
+    fused._kvq_post_init_deferred = any(getattr(module, "_kvq_post_init_deferred", False) for module in projections)
+    return True, fused
+
+
+def finalize_deferred_autoround_linear(model):
+    """Initialize only projections deferred for inference-time KVQ fusion."""
+    for module in model.modules():
+        if getattr(module, "_kvq_post_init_deferred", False):
+            module.post_init()
+            module._kvq_post_init_deferred = False

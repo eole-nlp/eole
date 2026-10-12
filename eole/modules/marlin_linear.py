@@ -59,6 +59,8 @@ class MarlinQuantLinear(nn.Module):
     bias:       whether to include a bias term
     """
 
+    supports_kvq_fusion = True
+
     SUPPORTS_BITS = [4, 8]
     SUPPORTS_GROUP_SIZE = [-1, 32, 64, 128]
     SUPPORTS_DESC_ACT = [True, False]
@@ -164,6 +166,47 @@ class MarlinQuantLinear(nn.Module):
     # ------------------------------------------------------------------
     # post_init: repack weights into Marlin tiled format
     # ------------------------------------------------------------------
+
+    @classmethod
+    def fuse(cls, projections):
+        """Join GPTQ output columns before Marlin repacking."""
+        if not projections or not isinstance(projections[0], cls):
+            raise ValueError("Marlin fusion requires compatible projections")
+        first = projections[0]
+        for projection in projections:
+            if not isinstance(projection, cls) or (
+                projection.bits,
+                projection.group_size,
+                projection.in_features,
+                projection.desc_act,
+                projection.bias is not None,
+            ) != (first.bits, first.group_size, first.in_features, first.desc_act, first.bias is not None):
+                raise ValueError("Marlin fusion requires compatible projections")
+            if projection.workspace is not None:
+                raise ValueError("Marlin projections must be fused before post_init")
+        if first.desc_act and any(not torch.equal(first.g_idx, projection.g_idx) for projection in projections[1:]):
+            raise ValueError("Marlin fusion requires identical activation ordering")
+        # Allocate only metadata on meta; all parameters are replaced below.
+        with torch.device("meta"):
+            fused = cls(
+                first.bits,
+                first.group_size,
+                first.desc_act,
+                True,
+                first.in_features,
+                sum(p.out_features for p in projections),
+                bias=first.bias is not None,
+            )
+        for name in ("qweight", "qzeros", "scales"):
+            setattr(
+                fused,
+                name,
+                nn.Parameter(torch.cat([getattr(p, name) for p in projections], dim=1), requires_grad=False),
+            )
+        fused.g_idx = nn.Parameter(first.g_idx.detach().clone(), requires_grad=False)
+        if first.bias is not None:
+            fused.bias = torch.cat([p.bias for p in projections])
+        return fused
 
     def post_init(self) -> None:
         """Repack GPTQ weights into Marlin tiled layout and allocate workspace.
