@@ -394,6 +394,10 @@ class TransformerDecoder(DecoderBase):
         self.cache_seqlens = None
         self.hidden_size = decoder_config.hidden_size
         self.compiled_shapes = set()
+        self._decode_graph = None
+        self._decode_graph_enabled = (
+            EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "0" and getattr(running_config, "parallel_gpu", 1) == 1
+        )
         self._speculative_forward = False
 
         # Chunked prefill configuration.
@@ -420,6 +424,10 @@ class TransformerDecoder(DecoderBase):
             )
 
     def _compile_decoder(self, emb=None, enc_out=None, src_pad_mask=None, tgt_pad_mask=None, fn_tile=None):
+        if getattr(self, "_decode_graph_enabled", False) and getattr(self, "_decode_graph_request_allowed", False):
+            # The graph runner warms with real decode tokens. Avoid creating
+            # an unrelated graph-tree manager in the caller/worker thread.
+            return
 
         if emb is not None and tgt_pad_mask is not None:
             B = self.cache_seqlens.size(0)
@@ -440,6 +448,7 @@ class TransformerDecoder(DecoderBase):
         pass
 
     def map_state(self, fn):
+        self._reset_decode_graph()
         if self.left_pad_attn_mask is not None:
             self.left_pad_attn_mask = fn(self.left_pad_attn_mask)
         if self.cache_seqlens is not None:
@@ -828,11 +837,67 @@ class TransformerDecoder(DecoderBase):
 
         return torch.cat(all_emb_chunks, dim=1), attns
 
+    def _reset_decode_graph(self):
+        runner = getattr(self, "_decode_graph", None)
+        if runner is not None:
+            runner.reset()
+
+    def _can_replay_decoder(self, emb, kwargs):
+        mask = kwargs.get("tgt_pad_mask")
+        return (
+            getattr(self, "_decode_graph_enabled", False)
+            and getattr(self, "_decode_graph_request_allowed", False)
+            and not self.training
+            and not torch.is_grad_enabled()
+            and emb.device.type == "cuda"
+            and emb.dtype in (torch.float16, torch.bfloat16)
+            and emb.size(1) == 1
+            and emb.is_contiguous()
+            and self.flash
+            and not self.dynamic_shapes
+            and not self.with_cross_attn
+            and not self._speculative_forward
+            and self.cache_seqlens is not None
+            and isinstance(mask, torch.Tensor)
+            and mask.shape == (emb.size(0), 1, 1)
+            and mask.device == emb.device
+            and mask.dtype == torch.bool
+            and mask.is_contiguous()
+            and not any(
+                kwargs.get(name) is not None for name in ("enc_out", "src_pad_mask", "pos_ids_2d", "image_locations")
+            )
+            and not any(kwargs.get(name, False) for name in ("return_attn", "with_align", "collect_cross_attns"))
+        )
+
+    def _forward_decode_graph(self, emb, *, tgt_pad_mask):
+        # A distinct entry point keeps this non-graph compiled program separate
+        # from the legacy graph-tree backend's Dynamo cache entries.
+        return self._forward_eager(emb, tgt_pad_mask=tgt_pad_mask)
+
+    def _replay_decoder(self, emb, kwargs):
+        if self._decode_graph is None:
+            from eole.utils.decoder_graph import DecoderGraph
+
+            function = torch.compile(
+                self._forward_decode_graph,
+                fullgraph=True,
+                dynamic=False,
+                options={
+                    "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
+                    "triton.cudagraphs": False,
+                },
+            )
+            self._decode_graph = DecoderGraph(function, function)
+        return self._decode_graph(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
+
     def forward(self, emb, **kwargs):
         B, S, _ = emb.size()
         src_ids = kwargs.pop("src_ids", None)
 
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and (S == 1 or self._speculative_forward):
+            if self._can_replay_decoder(emb, kwargs):
+                return self._replay_decoder(emb, kwargs)
+            self._reset_decode_graph()
             return self._forward_compile(emb, **kwargs)
         # Determine the effective chunk size for chunked prefill.
         # Sliding window takes precedence (it is a correctness requirement);
@@ -1091,6 +1156,7 @@ class TransformerDecoder(DecoderBase):
         return emb, attns
 
     def _init_cache(self, emb, pad_mask, enc_out=None):
+        self._reset_decode_graph()
         b, l, d = emb.size()
         device = emb.device
         dtype = emb.dtype
@@ -1169,6 +1235,7 @@ class TransformerDecoder(DecoderBase):
             self.left_pad_attn_mask = torch.cat([self.left_pad_attn_mask, extend], dim=1)
 
     def _disable_cache(self):
+        self._reset_decode_graph()
         self.left_pad_attn_mask = None
         self.cache_seqlens = None
         self.flash = False

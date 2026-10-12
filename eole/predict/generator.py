@@ -170,6 +170,9 @@ class GeneratorLM(Inference):
 
         # (0) Prep the components of the search.
         parallel_paths = decode_strategy.parallel_paths  # beam_size
+        # Keep beam/multiple hypotheses and MTP on their existing compile path,
+        # also when a preloaded model receives different request settings.
+        self.model.decoder._decode_graph_request_allowed = parallel_paths == 1 and not self.self_speculative_decoding
         batch_size = len(batch["srclen"])
 
         # (1) check if we use left padding or not
