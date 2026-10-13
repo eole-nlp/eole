@@ -440,8 +440,19 @@ class TransformerDecoder(DecoderBase):
                 },
             )
 
-    def _compile_decoder(self, emb=None, enc_out=None, src_pad_mask=None, tgt_pad_mask=None, fn_tile=None):
-        if getattr(self, "_decode_graph_enabled", False) and getattr(self, "_decode_graph_request_allowed", False):
+    def _compile_decoder(
+        self, emb=None, enc_out=None, src_pad_mask=None, tgt_pad_mask=None, fn_tile=None, return_attn=False
+    ):
+        if emb is not None and self._can_replay_decoder(
+            emb,
+            {
+                "enc_out": enc_out,
+                "src_pad_mask": src_pad_mask,
+                "tgt_pad_mask": tgt_pad_mask,
+                "return_attn": return_attn,
+            },
+            for_warmup=True,
+        ):
             # The graph runner warms with real decode tokens. Avoid creating
             # an unrelated graph-tree manager in the caller/worker thread.
             return
@@ -861,16 +872,19 @@ class TransformerDecoder(DecoderBase):
                 runner.reset()
         self._verify_buffer_signature = None
 
-    def _can_replay_decoder(self, emb, kwargs):
+    def _can_replay_decoder(self, emb, kwargs, *, for_warmup=False):
         mask = kwargs.get("tgt_pad_mask")
         return (
             getattr(self, "_decode_graph_enabled", False)
-            and getattr(self, "_decode_graph_request_allowed", False)
+            and (
+                getattr(self, "_decode_graph_request_allowed", False)
+                or (for_warmup and getattr(self, "_verify_graph_request_allowed", False))
+            )
             and not self.training
             and not torch.is_grad_enabled()
             and emb.device.type == "cuda"
             and emb.dtype in (torch.float16, torch.bfloat16)
-            and emb.size(1) == 1
+            and (for_warmup or emb.size(1) == 1)
             and emb.is_contiguous()
             and self.flash
             and not self.dynamic_shapes
@@ -878,7 +892,7 @@ class TransformerDecoder(DecoderBase):
             and not self._speculative_forward
             and self.cache_seqlens is not None
             and isinstance(mask, torch.Tensor)
-            and mask.shape == (emb.size(0), 1, 1)
+            and mask.shape == (emb.size(0), 1, emb.size(1) if for_warmup else 1)
             and mask.device == emb.device
             and mask.dtype == torch.bool
             and mask.is_contiguous()
@@ -888,7 +902,7 @@ class TransformerDecoder(DecoderBase):
             and not any(kwargs.get(name, False) for name in ("return_attn", "with_align", "collect_cross_attns"))
         )
 
-    def _can_replay_verifier(self, emb, kwargs):
+    def _can_replay_verifier(self, emb, kwargs, *, allow_tail=False):
         # Reuse the ordinary decoder's backend/input checks, with a distinct
         # speculative program and multi-token mask. Drafting stays outside.
         if not (
@@ -897,7 +911,7 @@ class TransformerDecoder(DecoderBase):
             and self._speculative_forward
             and emb.size(0) == 1
             and emb.size(1) > 1
-            and emb.size(1) == getattr(self, "_verify_graph_sequence_length", None)
+            and (allow_tail or emb.size(1) == getattr(self, "_verify_graph_sequence_length", None))
         ):
             return False
         mask = kwargs.get("tgt_pad_mask")
@@ -925,7 +939,7 @@ class TransformerDecoder(DecoderBase):
     def _forward_verify_graph(self, emb, *, tgt_pad_mask):
         return self._forward_eager(emb, tgt_pad_mask=tgt_pad_mask)
 
-    def _replay_verifier(self, emb, kwargs):
+    def _replay_verifier(self, emb, kwargs, *, capture=True):
         from eole.utils.decoder_graph import DecoderGraph
 
         # begin_speculation replaces these buffers when verification length
@@ -954,6 +968,8 @@ class TransformerDecoder(DecoderBase):
         ):
             self._verify_graph.reset()
             self._verify_buffer_signature = buffers
+        if not capture:
+            return self._verify_graph.function(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
         return self._verify_graph(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
 
     def _forward_mode2_graph(self, emb, *, tgt_pad_mask):
@@ -970,13 +986,14 @@ class TransformerDecoder(DecoderBase):
         # from the legacy graph-tree backend's Dynamo cache entries.
         return self._forward_eager(emb, tgt_pad_mask=tgt_pad_mask)
 
-    def _replay_decoder(self, emb, kwargs):
+    def _replay_decoder(self, emb, kwargs, *, capture=True):
         if self._decode_graph is None:
             from eole.utils.decoder_graph import DecoderGraph
 
             if EOLE_COMPILE_MODE == "2":
                 function = self._forward_mode2_graph
-                fallback = self._forward_eager
+                # Keep capture failures independent of graph-tree TLS too.
+                fallback = function
             else:
                 function = torch.compile(
                     self._forward_decode_graph,
@@ -989,6 +1006,8 @@ class TransformerDecoder(DecoderBase):
                 )
                 fallback = function
             self._decode_graph = DecoderGraph(function, fallback)
+        if not capture:
+            return self._decode_graph.function(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
         return self._decode_graph(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
 
     def forward(self, emb, **kwargs):
@@ -1000,11 +1019,25 @@ class TransformerDecoder(DecoderBase):
                 return self._replay_verifier(emb, kwargs)
             if self._can_replay_decoder(emb, kwargs):
                 return self._replay_decoder(emb, kwargs)
+            if (
+                S == 1
+                and getattr(self, "_verify_graph_request_allowed", False)
+                and self._can_replay_decoder(emb, kwargs, for_warmup=True)
+            ):
+                return self._replay_decoder(emb, kwargs, capture=False)
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and (S == 1 or self._speculative_forward):
             if self._can_replay_verifier(emb, kwargs):
                 return self._replay_verifier(emb, kwargs)
             if self._can_replay_decoder(emb, kwargs):
                 return self._replay_decoder(emb, kwargs)
+            if self._can_replay_verifier(emb, kwargs, allow_tail=True):
+                # No graph for shortened tails. Reuse the non-graph compiled
+                # verifier, including in workers without graph-tree TLS.
+                return self._replay_verifier(emb, kwargs, capture=False)
+            if getattr(self, "_verify_graph_request_allowed", False) and self._can_replay_decoder(
+                emb, kwargs, for_warmup=True
+            ):
+                return self._replay_decoder(emb, kwargs, capture=False)
             self._reset_decode_graph()
             return self._forward_compile(emb, **kwargs)
         # Determine the effective chunk size for chunked prefill.

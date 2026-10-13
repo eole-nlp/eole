@@ -133,6 +133,33 @@ class TestDecoderGraph(unittest.TestCase):
         self.assertIsNotNone(runner.graph)
 
     @torch.no_grad()
+    def test_capture_failure_after_recording_does_not_execute_state_update(self):
+        for error_type in (RuntimeError, torch.cuda.OutOfMemoryError):
+            with self.subTest(error_type=error_type):
+                state = torch.zeros((), device="cuda")
+                caller_stream = torch.cuda.current_stream()
+
+                def function(emb, *, tgt_pad_mask):
+                    state.add_(1)
+                    if torch.cuda.is_current_stream_capturing():
+                        raise error_type("injected capture failure after recording")
+                    return emb + state
+
+                runner = DecoderGraph(function, function)
+                emb = torch.zeros(1, 1, 8, device="cuda")
+                mask = torch.zeros(1, 1, 1, device="cuda", dtype=torch.bool)
+                for _ in range(3):
+                    output = runner(emb, tgt_pad_mask=mask)
+                torch.testing.assert_close(output, torch.full_like(output, 3))
+                self.assertEqual(state.item(), 3)
+                self.assertEqual(torch.cuda.current_stream(), caller_stream)
+                self.assertTrue(runner.failed)
+                runner.reset()
+                output = runner(emb, tgt_pad_mask=mask)
+                torch.testing.assert_close(output, torch.full_like(output, 4))
+                self.assertEqual(state.item(), 4)
+
+    @torch.no_grad()
     def test_failed_capture_falls_back_without_advancing_twice(self):
         emb = torch.zeros(1, 1, 8, device="cuda")
         mask = torch.zeros(1, 1, 1, device="cuda", dtype=torch.bool)

@@ -2,6 +2,8 @@
 
 import unittest
 from unittest.mock import Mock, patch
+
+import torch
 from types import SimpleNamespace
 
 from eole.decoders.transformer import TransformerDecoder
@@ -41,12 +43,29 @@ class TestMode2DecoderGraph(unittest.TestCase):
         factory.assert_called_once_with(decoder._forward_eager, decoder._forward_eager)
         runner.assert_called_once_with("emb", tgt_pad_mask="mask")
 
-    def test_mode2_outer_decode_capture_keeps_legacy_eager_fallback(self):
+    def test_mode2_outer_decode_capture_keeps_non_graph_layer_fallback(self):
         decoder = SimpleNamespace(_decode_graph=None, _forward_mode2_graph=Mock(), _forward_eager=Mock())
         runner = Mock()
         with patch("eole.decoders.transformer.EOLE_COMPILE_MODE", "2"), patch(
             "torch.compile", side_effect=AssertionError("mode 2 must not compile the whole decoder")
         ), patch("eole.utils.decoder_graph.DecoderGraph", return_value=runner) as factory:
             TransformerDecoder._replay_decoder(decoder, "emb", {"tgt_pad_mask": "mask"})
-        factory.assert_called_once_with(decoder._forward_mode2_graph, decoder._forward_eager)
+        factory.assert_called_once_with(decoder._forward_mode2_graph, decoder._forward_mode2_graph)
         runner.assert_called_once_with("emb", tgt_pad_mask="mask")
+
+    def test_single_token_mtp_tail_avoids_legacy_graph_trees(self):
+        decoder = SimpleNamespace(
+            _verify_graph_request_allowed=True,
+            _can_replay_verifier=Mock(return_value=False),
+            _can_replay_decoder=Mock(side_effect=lambda emb, kwargs, **opts: opts.get("for_warmup", False)),
+            _replay_decoder=Mock(return_value="uncaptured"),
+            _forward_eager=Mock(),
+        )
+        emb = torch.zeros(1, 1, 4)
+        mask = torch.zeros(1, 1, 1, dtype=torch.bool)
+        with patch("eole.decoders.transformer.EOLE_COMPILE_MODE", "2"), patch(
+            "eole.decoders.transformer.EOLE_TORCH_COMPILE", True
+        ):
+            self.assertEqual(TransformerDecoder.forward(decoder, emb, tgt_pad_mask=mask), "uncaptured")
+        decoder._replay_decoder.assert_called_once_with(emb, {"tgt_pad_mask": mask}, capture=False)
+        decoder._forward_eager.assert_not_called()

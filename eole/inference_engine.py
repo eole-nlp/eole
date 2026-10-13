@@ -262,29 +262,16 @@ class InferenceEnginePY(InferenceEngine):
         self._thread_pool = self._make_thread_pool()
 
     def _make_thread_pool(self):
-        """Create a ``ThreadPoolExecutor`` with per-thread CUDA graph warmup.
+        """Keep inference on one persistent worker; decoder caches are shared.
 
-        Using a persistent pool (rather than spawning a fresh thread per
-        request) means the CUDA-graph TLS and Triton kernel cache that the
-        initializer sets up survive across requests.  A pool size of 1
-        serialises inference, which is required because the KV cache belongs
-        to a single model instance.
+        Bound graphs warm on actual requests in that worker. Legacy compile
+        warmup remains request-scoped; there is no initializer warmup here.
         """
         import concurrent.futures
-
-        def _thread_init():
-            # Run warmup_compile inside this worker thread.  For mode "0"
-            # this captures a dummy CUDA graph, initialising PyTorch's C++
-            # CUDA-graph TLS for the thread.  For mode "1" it pre-warms
-            # Triton kernel compilation.
-            # if hasattr(self.predictor, "warmup_compile"):
-            #    self.predictor.warmup_compile()
-            pass
 
         return concurrent.futures.ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="eole-infer",
-            initializer=_thread_init,
         )
 
     @torch.inference_mode()
