@@ -94,6 +94,7 @@ class DecodeStrategy(object):
 
         self.batch_size = batch_size
         self.static_batch_size = False
+        self.parallel_gpu = 1
         self.parallel_paths = parallel_paths
         self.global_scorer = global_scorer
 

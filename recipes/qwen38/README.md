@@ -317,3 +317,26 @@ For greedy, batch-one MTP inference, set `self_speculative_decoding: true` in
 the two-GPU recipe. The MTP KV cache uses each rank's local KV-head count.
 Two-GPU RedHat INT4 text generation was checked with and without MTP;
 this is a compatibility check, not a throughput benchmark.
+
+### Bound CUDA graphs with tensor parallelism
+
+Compile modes 0 and 2 use bound CUDA graphs for eligible static-cache,
+FlashAttention FP16/BF16 decoding on both ranks. Full MTP verification chunks
+can replay a graph; drafting and partial final chunks stay outside it. No
+additional opt-in setting is needed.
+
+Tensor-parallel workers share token choices, beam parents/scores, and MTP
+verification decisions from rank 0 so numerical differences or sampling cannot
+make ranks follow different histories. Only the selected tensors are transferred,
+not the full vocabulary. A separate CPU Gloo group coordinates allocation and
+capture readiness; these checks do not run on graph replay steps.
+
+If allocation fails before recording, all ranks use the uncaptured fallback.
+If recording fails after NCCL operations may have been captured, the request
+aborts on all ranks; restart the inference workers before retrying. Single-GPU
+capture failures retain their uncaptured fallback.
+
+Beam search and other ineligible configurations retain their existing decoder
+path. The legacy compiled tensor-parallel beam path can still hang at worker
+shutdown; bound greedy/MTP decoding does not fix that separate path. Streaming
+inference remains limited to single-process mode.

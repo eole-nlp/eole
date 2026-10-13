@@ -242,8 +242,23 @@ class TransformerDecoderLayer(nn.Module):
             # prefill or training no compile
             return self._forward_eager(layer_in, **kwargs)
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
+            if getattr(self, "_use_bound_graph", False):
+                if not hasattr(self, "_forward_bound_compile"):
+                    self._forward_bound_compile = torch.compile(
+                        self._forward_bound_eager,
+                        fullgraph=True,
+                        dynamic=False,
+                        options={
+                            "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
+                            "triton.cudagraphs": False,
+                        },
+                    )
+                return self._forward_bound_compile(layer_in, **kwargs)
             return self._forward_compile(layer_in, **kwargs)
 
+        return self._forward_eager(layer_in, **kwargs)
+
+    def _forward_bound_eager(self, layer_in, **kwargs):
         return self._forward_eager(layer_in, **kwargs)
 
     def _forward_eager(self, layer_in, **kwargs):
@@ -394,6 +409,13 @@ class TransformerDecoder(DecoderBase):
         self.cache_seqlens = None
         self.hidden_size = decoder_config.hidden_size
         self.compiled_shapes = set()
+        self._decode_graph = None
+        self._verify_graph = None
+        self._verify_buffer_signature = None
+        self._graph_parallel_gpu = getattr(running_config, "parallel_gpu", 1)
+        self._graph_capture_timeout = getattr(running_config, "timeout", 60)
+        self._graph_capture_coordinator = None
+        self._decode_graph_enabled = EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ("0", "2")
         self._speculative_forward = False
 
         # Chunked prefill configuration.
@@ -419,7 +441,22 @@ class TransformerDecoder(DecoderBase):
                 },
             )
 
-    def _compile_decoder(self, emb=None, enc_out=None, src_pad_mask=None, tgt_pad_mask=None, fn_tile=None):
+    def _compile_decoder(
+        self, emb=None, enc_out=None, src_pad_mask=None, tgt_pad_mask=None, fn_tile=None, return_attn=False
+    ):
+        if emb is not None and self._can_replay_decoder(
+            emb,
+            {
+                "enc_out": enc_out,
+                "src_pad_mask": src_pad_mask,
+                "tgt_pad_mask": tgt_pad_mask,
+                "return_attn": return_attn,
+            },
+            for_warmup=True,
+        ):
+            # The graph runner warms with real decode tokens. Avoid creating
+            # an unrelated graph-tree manager in the caller/worker thread.
+            return
 
         if emb is not None and tgt_pad_mask is not None:
             B = self.cache_seqlens.size(0)
@@ -440,6 +477,7 @@ class TransformerDecoder(DecoderBase):
         pass
 
     def map_state(self, fn):
+        self._reset_decode_graph()
         if self.left_pad_attn_mask is not None:
             self.left_pad_attn_mask = fn(self.left_pad_attn_mask)
         if self.cache_seqlens is not None:
@@ -828,11 +866,186 @@ class TransformerDecoder(DecoderBase):
 
         return torch.cat(all_emb_chunks, dim=1), attns
 
+    def _reset_decode_graph(self):
+        for name in ("_decode_graph", "_verify_graph"):
+            runner = getattr(self, name, None)
+            if runner is not None:
+                runner.reset()
+        self._verify_buffer_signature = None
+
+    def _can_replay_decoder(self, emb, kwargs, *, for_warmup=False):
+        mask = kwargs.get("tgt_pad_mask")
+        return (
+            getattr(self, "_decode_graph_enabled", False)
+            and (
+                getattr(self, "_decode_graph_request_allowed", False)
+                or (for_warmup and getattr(self, "_verify_graph_request_allowed", False))
+            )
+            and not self.training
+            and not torch.is_grad_enabled()
+            and emb.device.type == "cuda"
+            and emb.dtype in (torch.float16, torch.bfloat16)
+            and (for_warmup or emb.size(1) == 1)
+            and emb.is_contiguous()
+            and self.flash
+            and not self.dynamic_shapes
+            and not self.with_cross_attn
+            and not self._speculative_forward
+            and self.cache_seqlens is not None
+            and isinstance(mask, torch.Tensor)
+            and mask.shape == (emb.size(0), 1, emb.size(1) if for_warmup else 1)
+            and mask.device == emb.device
+            and mask.dtype == torch.bool
+            and mask.is_contiguous()
+            and not any(
+                kwargs.get(name) is not None for name in ("enc_out", "src_pad_mask", "pos_ids_2d", "image_locations")
+            )
+            and not any(kwargs.get(name, False) for name in ("return_attn", "with_align", "collect_cross_attns"))
+        )
+
+    def _can_replay_verifier(self, emb, kwargs, *, allow_tail=False):
+        # Reuse the ordinary decoder's backend/input checks, with a distinct
+        # speculative program and multi-token mask. Drafting stays outside.
+        if not (
+            getattr(self, "_decode_graph_enabled", False)
+            and getattr(self, "_verify_graph_request_allowed", False)
+            and self._speculative_forward
+            and emb.size(0) == 1
+            and emb.size(1) > 1
+            and (allow_tail or emb.size(1) == getattr(self, "_verify_graph_sequence_length", None))
+        ):
+            return False
+        mask = kwargs.get("tgt_pad_mask")
+        if not isinstance(mask, torch.Tensor) or mask.shape != (1, 1, emb.size(1)):
+            return False
+        return (
+            not self.training
+            and not torch.is_grad_enabled()
+            and emb.device.type == "cuda"
+            and emb.dtype in (torch.float16, torch.bfloat16)
+            and emb.is_contiguous()
+            and self.flash
+            and not self.dynamic_shapes
+            and not self.with_cross_attn
+            and self.cache_seqlens is not None
+            and mask.device == emb.device
+            and mask.dtype == torch.bool
+            and mask.is_contiguous()
+            and not any(
+                kwargs.get(name) is not None for name in ("enc_out", "src_pad_mask", "pos_ids_2d", "image_locations")
+            )
+            and not any(kwargs.get(name, False) for name in ("return_attn", "with_align", "collect_cross_attns"))
+        )
+
+    def _forward_verify_graph(self, emb, *, tgt_pad_mask):
+        return self._forward_eager(emb, tgt_pad_mask=tgt_pad_mask)
+
+    def _make_decoder_graph(self, function, fallback):
+        from eole.utils.decoder_graph import CaptureCoordinator, DecoderGraph
+
+        if getattr(self, "_graph_parallel_gpu", 1) > 1:
+            if self._graph_capture_coordinator is None:
+                self._graph_capture_coordinator = CaptureCoordinator(timeout=self._graph_capture_timeout)
+            return DecoderGraph(function, fallback, coordinator=self._graph_capture_coordinator)
+        return DecoderGraph(function, fallback)
+
+    def _replay_verifier(self, emb, kwargs, *, capture=True):
+
+        # begin_speculation replaces these buffers when verification length
+        # changes. A graph must never retain bindings to the old allocation.
+        buffers = tuple(
+            layer.linear_attn._spec_buffers
+            for layer in self.transformer_layers
+            if getattr(layer, "linear_attn", None) is not None
+        )
+        if self._verify_graph is None:
+            if EOLE_COMPILE_MODE == "2":
+                function = self._forward_eager
+            else:
+                function = torch.compile(
+                    self._forward_verify_graph,
+                    fullgraph=True,
+                    dynamic=False,
+                    options={
+                        "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
+                        "triton.cudagraphs": False,
+                    },
+                )
+            self._verify_graph = self._make_decoder_graph(function, function)
+        if self._verify_buffer_signature is None or any(
+            current is not previous for current, previous in zip(buffers, self._verify_buffer_signature)
+        ):
+            self._verify_graph.reset()
+            self._verify_buffer_signature = buffers
+        if not capture:
+            return self._verify_graph.function(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
+        return self._verify_graph(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
+
+    def _forward_mode2_graph(self, emb, *, tgt_pad_mask):
+        for layer in self.transformer_layers:
+            layer._use_bound_graph = True
+        try:
+            return self._forward_eager(emb, tgt_pad_mask=tgt_pad_mask)
+        finally:
+            for layer in self.transformer_layers:
+                layer._use_bound_graph = False
+
+    def _forward_decode_graph(self, emb, *, tgt_pad_mask):
+        # A distinct entry point keeps this non-graph compiled program separate
+        # from the legacy graph-tree backend's Dynamo cache entries.
+        return self._forward_eager(emb, tgt_pad_mask=tgt_pad_mask)
+
+    def _replay_decoder(self, emb, kwargs, *, capture=True):
+        if self._decode_graph is None:
+            if EOLE_COMPILE_MODE == "2":
+                function = self._forward_mode2_graph
+                # Keep capture failures independent of graph-tree TLS too.
+                fallback = function
+            else:
+                function = torch.compile(
+                    self._forward_decode_graph,
+                    fullgraph=True,
+                    dynamic=False,
+                    options={
+                        "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
+                        "triton.cudagraphs": False,
+                    },
+                )
+                fallback = function
+            self._decode_graph = self._make_decoder_graph(function, fallback)
+        if not capture:
+            return self._decode_graph.function(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
+        return self._decode_graph(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
+
     def forward(self, emb, **kwargs):
         B, S, _ = emb.size()
         src_ids = kwargs.pop("src_ids", None)
 
+        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "2":
+            if self._can_replay_verifier(emb, kwargs):
+                return self._replay_verifier(emb, kwargs)
+            if self._can_replay_decoder(emb, kwargs):
+                return self._replay_decoder(emb, kwargs)
+            if (
+                S == 1
+                and getattr(self, "_verify_graph_request_allowed", False)
+                and self._can_replay_decoder(emb, kwargs, for_warmup=True)
+            ):
+                return self._replay_decoder(emb, kwargs, capture=False)
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and (S == 1 or self._speculative_forward):
+            if self._can_replay_verifier(emb, kwargs):
+                return self._replay_verifier(emb, kwargs)
+            if self._can_replay_decoder(emb, kwargs):
+                return self._replay_decoder(emb, kwargs)
+            if self._can_replay_verifier(emb, kwargs, allow_tail=True):
+                # No graph for shortened tails. Reuse the non-graph compiled
+                # verifier, including in workers without graph-tree TLS.
+                return self._replay_verifier(emb, kwargs, capture=False)
+            if getattr(self, "_verify_graph_request_allowed", False) and self._can_replay_decoder(
+                emb, kwargs, for_warmup=True
+            ):
+                return self._replay_decoder(emb, kwargs, capture=False)
+            self._reset_decode_graph()
             return self._forward_compile(emb, **kwargs)
         # Determine the effective chunk size for chunked prefill.
         # Sliding window takes precedence (it is a correctness requirement);
@@ -1091,6 +1304,7 @@ class TransformerDecoder(DecoderBase):
         return emb, attns
 
     def _init_cache(self, emb, pad_mask, enc_out=None):
+        self._reset_decode_graph()
         b, l, d = emb.size()
         device = emb.device
         dtype = emb.dtype
@@ -1169,6 +1383,7 @@ class TransformerDecoder(DecoderBase):
             self.left_pad_attn_mask = torch.cat([self.left_pad_attn_mask, extend], dim=1)
 
     def _disable_cache(self):
+        self._reset_decode_graph()
         self.left_pad_attn_mask = None
         self.cache_seqlens = None
         self.flash = False
