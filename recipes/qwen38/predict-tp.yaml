@@ -1,0 +1,30 @@
+# Recommended: converted RedHatAI/Qwen3.8-27B-INT4; see README.md for QWEN38_MODEL setup.
+# Two-GPU tensor-parallel greedy baseline. Run from the repository root.
+model_path: ${QWEN38_MODEL}
+src: recipes/qwen38/prompts.txt
+output: /tmp/qwen38-tp-baseline.txt
+gpu_ranks:
+- 0
+- 1
+world_size: 2
+parallel_mode: tensor_parallel
+compute_dtype: bf16
+self_attn_backend: flash
+beam_size: 1
+n_best: 1
+top_k: 1
+top_p: 0.0
+temperature: 1.0
+min_length: 0
+max_length: 256
+max_length_ratio: 0
+context_length: 2048
+batch_size: 1
+batch_type: sents
+self_speculative_decoding: false
+self_speculative_num_tokens: 3
+report_time: true
+fuse_kvq: true
+fuse_gate: false
+prefill_cache_size: 0
+prefill_chunk_size: 0

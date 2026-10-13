@@ -60,6 +60,7 @@ class MarlinQuantLinear(nn.Module):
     """
 
     supports_kvq_fusion = True
+    checkpoint_weight_layout = "gptq"
 
     SUPPORTS_BITS = [4, 8]
     SUPPORTS_GROUP_SIZE = [-1, 32, 64, 128]
