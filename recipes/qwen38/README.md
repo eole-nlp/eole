@@ -302,8 +302,16 @@ choose a larger value according to the memory available on both GPUs.
 Packed GPTQ weights are partitioned before Marlin repacking. Attention and MLP
 projections are sharded; GDN projections and recurrent state remain replicated.
 Tensor parallelism can reduce weight memory without guaranteeing faster decoding.
-Eole's CUDA extension must support every GPU architecture in the job. A binary
-built only for an RTX 5090 cannot execute its native kernels on an RTX 4090.
+`setup.py` targets all visible GPU architectures, including both `sm_120` and
+`sm_89` on a mixed RTX 5090/4090 system. `CUDA_VISIBLE_DEVICES` controls which
+GPUs are included. Rebuild Eole after adding a GPU with a different architecture:
+
+```bash
+MAX_JOBS=2 python -m pip install -e . --no-build-isolation
+```
+
+Restart inference processes after rebuilding. A binary built only for an RTX
+5090 cannot execute its native kernels on an RTX 4090.
 
 For greedy, batch-one MTP inference, set `self_speculative_decoding: true` in
 the two-GPU recipe. The MTP KV cache uses each rank's local KV-head count.
