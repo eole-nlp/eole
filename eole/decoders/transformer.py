@@ -242,8 +242,23 @@ class TransformerDecoderLayer(nn.Module):
             # prefill or training no compile
             return self._forward_eager(layer_in, **kwargs)
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["2", "3"]:
+            if getattr(self, "_use_bound_graph", False):
+                if not hasattr(self, "_forward_bound_compile"):
+                    self._forward_bound_compile = torch.compile(
+                        self._forward_bound_eager,
+                        fullgraph=True,
+                        dynamic=False,
+                        options={
+                            "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
+                            "triton.cudagraphs": False,
+                        },
+                    )
+                return self._forward_bound_compile(layer_in, **kwargs)
             return self._forward_compile(layer_in, **kwargs)
 
+        return self._forward_eager(layer_in, **kwargs)
+
+    def _forward_bound_eager(self, layer_in, **kwargs):
         return self._forward_eager(layer_in, **kwargs)
 
     def _forward_eager(self, layer_in, **kwargs):
@@ -398,7 +413,7 @@ class TransformerDecoder(DecoderBase):
         self._verify_graph = None
         self._verify_buffer_signature = None
         self._decode_graph_enabled = (
-            EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "0" and getattr(running_config, "parallel_gpu", 1) == 1
+            EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ("0", "2") and getattr(running_config, "parallel_gpu", 1) == 1
         )
         self._speculative_forward = False
 
@@ -921,15 +936,18 @@ class TransformerDecoder(DecoderBase):
             if getattr(layer, "linear_attn", None) is not None
         )
         if self._verify_graph is None:
-            function = torch.compile(
-                self._forward_verify_graph,
-                fullgraph=True,
-                dynamic=False,
-                options={
-                    "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
-                    "triton.cudagraphs": False,
-                },
-            )
+            if EOLE_COMPILE_MODE == "2":
+                function = self._forward_eager
+            else:
+                function = torch.compile(
+                    self._forward_verify_graph,
+                    fullgraph=True,
+                    dynamic=False,
+                    options={
+                        "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
+                        "triton.cudagraphs": False,
+                    },
+                )
             self._verify_graph = DecoderGraph(function, function)
         if self._verify_buffer_signature is None or any(
             current is not previous for current, previous in zip(buffers, self._verify_buffer_signature)
@@ -937,6 +955,15 @@ class TransformerDecoder(DecoderBase):
             self._verify_graph.reset()
             self._verify_buffer_signature = buffers
         return self._verify_graph(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
+
+    def _forward_mode2_graph(self, emb, *, tgt_pad_mask):
+        for layer in self.transformer_layers:
+            layer._use_bound_graph = True
+        try:
+            return self._forward_eager(emb, tgt_pad_mask=tgt_pad_mask)
+        finally:
+            for layer in self.transformer_layers:
+                layer._use_bound_graph = False
 
     def _forward_decode_graph(self, emb, *, tgt_pad_mask):
         # A distinct entry point keeps this non-graph compiled program separate
@@ -947,22 +974,32 @@ class TransformerDecoder(DecoderBase):
         if self._decode_graph is None:
             from eole.utils.decoder_graph import DecoderGraph
 
-            function = torch.compile(
-                self._forward_decode_graph,
-                fullgraph=True,
-                dynamic=False,
-                options={
-                    "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
-                    "triton.cudagraphs": False,
-                },
-            )
-            self._decode_graph = DecoderGraph(function, function)
+            if EOLE_COMPILE_MODE == "2":
+                function = self._forward_mode2_graph
+                fallback = self._forward_eager
+            else:
+                function = torch.compile(
+                    self._forward_decode_graph,
+                    fullgraph=True,
+                    dynamic=False,
+                    options={
+                        "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
+                        "triton.cudagraphs": False,
+                    },
+                )
+                fallback = function
+            self._decode_graph = DecoderGraph(function, fallback)
         return self._decode_graph(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
 
     def forward(self, emb, **kwargs):
         B, S, _ = emb.size()
         src_ids = kwargs.pop("src_ids", None)
 
+        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "2":
+            if self._can_replay_verifier(emb, kwargs):
+                return self._replay_verifier(emb, kwargs)
+            if self._can_replay_decoder(emb, kwargs):
+                return self._replay_decoder(emb, kwargs)
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and (S == 1 or self._speculative_forward):
             if self._can_replay_verifier(emb, kwargs):
                 return self._replay_verifier(emb, kwargs)

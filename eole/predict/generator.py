@@ -219,6 +219,12 @@ class GeneratorLM(Inference):
                 "and a model with loaded MTP heads; using normal decoding"
             )
 
+        if use_spec_decoding:
+            qwen_recurrent_mtp = getattr(self.model.mtp_heads[0], "emb_norm", None) is not None
+            draft_count = self.self_speculative_num_tokens if qwen_recurrent_mtp else len(self.model.mtp_heads)
+            verify_len = min(draft_count + 1, self.max_length)
+            self.model.decoder._verify_graph_sequence_length = verify_len
+
         # (4) warmup for Torch compile
         # use the current batch to generate the decode graph (B, 1)
         # we need proper set up to run the forward pass of the decoder or decoder layer
@@ -239,10 +245,6 @@ class GeneratorLM(Inference):
                     # shape-specific warmup, compile modes 0/1 compile only
                     # S=1 decode and leave every speculative verifier pass in
                     # eager mode.
-                    qwen_recurrent_mtp = getattr(self.model.mtp_heads[0], "emb_norm", None) is not None
-                    draft_count = self.self_speculative_num_tokens if qwen_recurrent_mtp else len(self.model.mtp_heads)
-                    verify_len = min(draft_count + 1, self.max_length)
-                    self.model.decoder._verify_graph_sequence_length = verify_len
                     dummy_verify = torch.zeros(
                         emb.size(0), verify_len, self.model.decoder.hidden_size, device=emb.device, dtype=emb.dtype
                     )
