@@ -161,6 +161,7 @@ class Translator(Inference):
         Returns:
             results (dict): The translation results.
         """
+        decode_strategy.parallel_gpu = getattr(self, "parallel_gpu", 1)
         if self.dynamic_shapes is not None:
             decode_strategy.static_batch_size = not self.dynamic_shapes
         else:

@@ -85,6 +85,7 @@ class Inference(object):
         )
 
         self.model = model
+        self.parallel_gpu = getattr(config, "parallel_gpu", 1)
         self._prepare_inference_projections(config)
 
         self.vocabs = vocabs

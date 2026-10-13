@@ -1,6 +1,7 @@
 import torch
 from eole.predict import penalties
 from eole.predict.decode_strategy import DecodeStrategy
+from eole.utils.tensor_parallel import broadcast_from_rank_zero
 import warnings
 
 
@@ -174,6 +175,8 @@ class BeamSearchBase(DecodeStrategy):
         # topk_ids // vocab_size => indice in beam
         # topk_ids % vocab_size => true vocab indice
 
+        broadcast_from_rank_zero(topk_ids, self.parallel_gpu)
+        broadcast_from_rank_zero(topk_scores, self.parallel_gpu)
         return topk_scores, topk_ids
 
     def beams_non_finished(self, i, topk_scores_list, predictions, attention, step):

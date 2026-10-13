@@ -7,6 +7,7 @@ from eole.predict.beam_search import BeamSearchLM
 from eole.utils.misc import tile
 from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
 from eole.modules.gated_delta_net import GatedDeltaNet
+from eole.utils.tensor_parallel import broadcast_from_rank_zero
 from time import time
 
 
@@ -170,6 +171,7 @@ class GeneratorLM(Inference):
         Returns:
             results (dict): The prediction results.
         """
+        decode_strategy.parallel_gpu = getattr(self, "parallel_gpu", 1)
         if self.dynamic_shapes is not None:
             decode_strategy.static_batch_size = not self.dynamic_shapes
         else:
@@ -592,6 +594,7 @@ class GeneratorLM(Inference):
                 layer.end_speculation()
 
         predicted = verify_log_probs.argmax(dim=-1)
+        broadcast_from_rank_zero(predicted, getattr(self, "parallel_gpu", 1))
         fast_greedy_advance = decode_strategy.target_prefix is None
         if fast_greedy_advance:
             # Determine the accepted draft prefix and any EOS truncation on

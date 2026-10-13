@@ -1,6 +1,7 @@
 import torch
 from torch.nn.functional import softmax
 from eole.predict.decode_strategy import DecodeStrategy
+from eole.utils.tensor_parallel import broadcast_from_rank_zero
 
 
 def sample_topp(logits, top_p):
@@ -206,6 +207,7 @@ class GreedySearch(DecodeStrategy):
 
         topk_ids, topk_scores = sample_with_temperature(log_probs, self.temperature, self.top_k, self.top_p)
 
+        broadcast_from_rank_zero(topk_ids, self.parallel_gpu)
         return topk_ids, topk_scores
 
     def align_select_indices(self):
@@ -238,6 +240,7 @@ class GreedySearch(DecodeStrategy):
         topk_ids, self.topk_scores = self._pick(log_probs)
         step = len(self)
         raw_log_prob = log_probs.gather(dim=1, index=topk_ids)
+        broadcast_from_rank_zero(raw_log_prob, self.parallel_gpu)
         if self.static_batch_size:
             self.beams_scores = torch.where(
                 self.sequence_finished.unsqueeze(1),
@@ -340,6 +343,7 @@ class GreedySearchLM(GreedySearch):
         """
         token_ids = token_ids[:, :count]
         selected_log_probs = log_probs[:, :count, :].gather(2, token_ids.unsqueeze(-1)).squeeze(-1)
+        broadcast_from_rank_zero(selected_log_probs, self.parallel_gpu)
         self.beams_scores += selected_log_probs.sum(dim=1, keepdim=True)
         self.alive_seq = torch.cat([self.alive_seq, token_ids], dim=1)
         self.topk_scores = selected_log_probs[:, -1:]

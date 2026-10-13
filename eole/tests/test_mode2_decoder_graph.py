@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import torch
-from types import SimpleNamespace
+from types import SimpleNamespace, MethodType
 
 from eole.decoders.transformer import TransformerDecoder
 
@@ -35,6 +35,7 @@ class TestMode2DecoderGraph(unittest.TestCase):
         decoder = SimpleNamespace(
             transformer_layers=[], _verify_graph=None, _verify_buffer_signature=None, _forward_eager=Mock()
         )
+        decoder._make_decoder_graph = MethodType(TransformerDecoder._make_decoder_graph, decoder)
         runner = Mock()
         with patch("eole.decoders.transformer.EOLE_COMPILE_MODE", "2"), patch(
             "torch.compile", side_effect=AssertionError("mode 2 must not compile the whole decoder")
@@ -45,6 +46,7 @@ class TestMode2DecoderGraph(unittest.TestCase):
 
     def test_mode2_outer_decode_capture_keeps_non_graph_layer_fallback(self):
         decoder = SimpleNamespace(_decode_graph=None, _forward_mode2_graph=Mock(), _forward_eager=Mock())
+        decoder._make_decoder_graph = MethodType(TransformerDecoder._make_decoder_graph, decoder)
         runner = Mock()
         with patch("eole.decoders.transformer.EOLE_COMPILE_MODE", "2"), patch(
             "torch.compile", side_effect=AssertionError("mode 2 must not compile the whole decoder")
@@ -69,3 +71,36 @@ class TestMode2DecoderGraph(unittest.TestCase):
             self.assertEqual(TransformerDecoder.forward(decoder, emb, tgt_pad_mask=mask), "uncaptured")
         decoder._replay_decoder.assert_called_once_with(emb, {"tgt_pad_mask": mask}, capture=False)
         decoder._forward_eager.assert_not_called()
+
+
+class TestMode2TensorParallelMTP(unittest.TestCase):
+    def test_head_uses_non_graph_compilation_and_restores_flags(self):
+        from eole.modules.mtp import MTPHead
+
+        for failure in (False, True):
+            with self.subTest(failure=failure):
+
+                class Layer(torch.nn.Module):
+                    def __init__(self):
+                        super().__init__()
+                        self.self_attn = SimpleNamespace(parallel_gpu=2)
+                        self._use_bound_graph = False
+
+                    def forward(self, inputs, **kwargs):
+                        self_test.assertTrue(self._use_bound_graph)
+                        if failure:
+                            raise RuntimeError("injected head failure")
+                        return inputs
+
+                self_test = self
+                layer = Layer()
+                head = SimpleNamespace(layer=layer, training=False)
+                with torch.no_grad(), patch("eole.modules.mtp.EOLE_TORCH_COMPILE", True), patch(
+                    "eole.modules.mtp.EOLE_COMPILE_MODE", "2"
+                ):
+                    if failure:
+                        with self.assertRaisesRegex(RuntimeError, "head failure"):
+                            MTPHead._run_layer(head, "inputs")
+                    else:
+                        self.assertEqual(MTPHead._run_layer(head, "inputs"), "inputs")
+                self.assertFalse(layer._use_bound_graph)

@@ -412,9 +412,10 @@ class TransformerDecoder(DecoderBase):
         self._decode_graph = None
         self._verify_graph = None
         self._verify_buffer_signature = None
-        self._decode_graph_enabled = (
-            EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ("0", "2") and getattr(running_config, "parallel_gpu", 1) == 1
-        )
+        self._graph_parallel_gpu = getattr(running_config, "parallel_gpu", 1)
+        self._graph_capture_timeout = getattr(running_config, "timeout", 60)
+        self._graph_capture_coordinator = None
+        self._decode_graph_enabled = EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ("0", "2")
         self._speculative_forward = False
 
         # Chunked prefill configuration.
@@ -939,8 +940,16 @@ class TransformerDecoder(DecoderBase):
     def _forward_verify_graph(self, emb, *, tgt_pad_mask):
         return self._forward_eager(emb, tgt_pad_mask=tgt_pad_mask)
 
+    def _make_decoder_graph(self, function, fallback):
+        from eole.utils.decoder_graph import CaptureCoordinator, DecoderGraph
+
+        if getattr(self, "_graph_parallel_gpu", 1) > 1:
+            if self._graph_capture_coordinator is None:
+                self._graph_capture_coordinator = CaptureCoordinator(timeout=self._graph_capture_timeout)
+            return DecoderGraph(function, fallback, coordinator=self._graph_capture_coordinator)
+        return DecoderGraph(function, fallback)
+
     def _replay_verifier(self, emb, kwargs, *, capture=True):
-        from eole.utils.decoder_graph import DecoderGraph
 
         # begin_speculation replaces these buffers when verification length
         # changes. A graph must never retain bindings to the old allocation.
@@ -962,7 +971,7 @@ class TransformerDecoder(DecoderBase):
                         "triton.cudagraphs": False,
                     },
                 )
-            self._verify_graph = DecoderGraph(function, function)
+            self._verify_graph = self._make_decoder_graph(function, function)
         if self._verify_buffer_signature is None or any(
             current is not previous for current, previous in zip(buffers, self._verify_buffer_signature)
         ):
@@ -988,8 +997,6 @@ class TransformerDecoder(DecoderBase):
 
     def _replay_decoder(self, emb, kwargs, *, capture=True):
         if self._decode_graph is None:
-            from eole.utils.decoder_graph import DecoderGraph
-
             if EOLE_COMPILE_MODE == "2":
                 function = self._forward_mode2_graph
                 # Keep capture failures independent of graph-tree TLS too.
@@ -1005,7 +1012,7 @@ class TransformerDecoder(DecoderBase):
                     },
                 )
                 fallback = function
-            self._decode_graph = DecoderGraph(function, fallback)
+            self._decode_graph = self._make_decoder_graph(function, fallback)
         if not capture:
             return self._decode_graph.function(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
         return self._decode_graph(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])

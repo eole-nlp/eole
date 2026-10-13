@@ -51,12 +51,13 @@ def multi_init(config, device_id: int) -> int:
     return gpu_rank
 
 
-def cleanup_distributed():
+def cleanup_distributed(*, barrier=True):
     """Cleanup distributed process group."""
     import torch.distributed as dist
 
     if dist.is_initialized():
-        dist.barrier()  # optional but recommended
+        if barrier:
+            dist.barrier()
         dist.destroy_process_group()
 
 
@@ -259,6 +260,7 @@ def spawned_infer(
         queue_result: Queue for sending results
         queue_settings: Optional queue for settings updates
     """
+    completed = False
     try:
         gpu_rank = multi_init(config, device_id)
         if gpu_rank != config.gpu_ranks[device_id]:
@@ -286,6 +288,7 @@ def spawned_infer(
             # Handle stop command
             if cmd == InferenceConstants.STOP:
                 _drain_result_queue(queue_result)
+                completed = True
                 break
 
             # Update settings if available
@@ -308,7 +311,9 @@ def spawned_infer(
 
         error_queue.put((config.gpu_ranks[device_id], traceback.format_exc()))
     finally:
-        cleanup_distributed()
+        # On failure peers may have recorded different collective sequences.
+        # Adding a cleanup barrier can deadlock before process-group teardown.
+        cleanup_distributed(barrier=completed)
 
 
 def _drain_result_queue(queue_result):

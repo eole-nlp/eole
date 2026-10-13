@@ -12,6 +12,7 @@ Reference: https://arxiv.org/abs/2412.19437
 import torch
 import torch.nn as nn
 
+from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
 from eole.constants import LayerNorm
 from eole.decoders.transformer import TransformerDecoderLayer
 
@@ -90,10 +91,30 @@ class MTPHead(nn.Module):
             combined = self.enorm(self.proj(hidden_states)) + tgt_emb_k
 
         # 3. Transformer layer (no cross-attention).
-        layer_out, _ = self.layer(combined, attn_mask=attn_mask, **kwargs)
+        layer_out, _ = self._run_layer(combined, attn_mask=attn_mask, **kwargs)
 
         # 4. Final norm.
         return self.norm(layer_out)
 
     def update_dropout(self, dropout, attention_dropout):
         self.layer.update_dropout(dropout, attention_dropout)
+
+    def _run_layer(self, inputs, **kwargs):
+        attention = getattr(self.layer, "self_attn", None)
+        if (
+            EOLE_TORCH_COMPILE
+            and EOLE_COMPILE_MODE == "2"
+            and not self.training
+            and not torch.is_grad_enabled()
+            and getattr(attention, "parallel_gpu", 1) > 1
+        ):
+            # Drafting remains outside the verifier graph. Use the same
+            # non-graph compilation as bound decoder layers so legacy graph
+            # trees do not retain captured NCCL communicators at shutdown.
+            previous = getattr(self.layer, "_use_bound_graph", False)
+            self.layer._use_bound_graph = True
+            try:
+                return self.layer(inputs, **kwargs)
+            finally:
+                self.layer._use_bound_graph = previous
+        return self.layer(inputs, **kwargs)
