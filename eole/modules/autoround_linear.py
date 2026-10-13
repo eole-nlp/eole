@@ -98,6 +98,7 @@ def replace_autoround_linear(
                     outfeatures=module.out_features,
                     bias=module.bias is not None,
                 )
+            new_module.checkpoint_weight_layout = "gptq"
             model._modules[name] = new_module
     return model
 

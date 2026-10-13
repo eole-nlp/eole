@@ -27,19 +27,23 @@ def get_ext_modules_and_cmdclass():
     from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
     # ── CUDA arch flags ───────────────────────────────────────────────────────
+    # Device indices respect CUDA_VISIBLE_DEVICES. Deduplicate architectures
+    # so identical GPUs do not produce redundant compilation targets.
+    capabilities = set()
+    for device in range(torch.cuda.device_count()):
+        try:
+            capabilities.add(torch.cuda.get_device_capability(device))
+        except Exception as error:
+            raise RuntimeError(f"Cannot determine CUDA architecture for visible GPU {device}") from error
     flags = []
-    try:
-        major, minor = torch.cuda.get_device_capability()
+    for major, minor in sorted(capabilities):
         arch = major * 10 + minor
-        flags += [
-            f"-gencode=arch=compute_{arch},code=sm_{arch}",
-            f"-gencode=arch=compute_{arch},code=compute_{arch}",
-        ]
-    except Exception:
-        flags += [
-            "-gencode=arch=compute_80,code=sm_80",
-            "-gencode=arch=compute_80,code=compute_80",
-        ]
+        flags.extend(
+            [
+                f"-gencode=arch=compute_{arch},code=sm_{arch}",
+                f"-gencode=arch=compute_{arch},code=compute_{arch}",
+            ]
+        )
 
     # ── Core sources (always compiled) ───────────────────────────────────────
     core_sources = [
@@ -55,11 +59,11 @@ def get_ext_modules_and_cmdclass():
 
     include_dirs = [EOLE_CSRC]
 
-    cxx_args = ["-O3", "-std=c++17"]
+    # BuildExtension selects the C++ standard required by the installed PyTorch.
+    cxx_args = ["-O3"]
     nvcc_args = [
         "-O3",
         "--use_fast_math",
-        "-std=c++17",
         "--expt-relaxed-constexpr",
         "--expt-extended-lambda",
         "-maxrregcount=64",

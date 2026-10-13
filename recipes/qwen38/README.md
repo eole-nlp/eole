@@ -12,8 +12,8 @@ does not mean its inference heads are missing.
 
 An RTX 5090 has 32 GB VRAM. Full BF16 27B weights exceed that capacity; use a
 compatible INT4 checkpoint with its **MTP weights retained**, or multiple GPUs
-for an appropriately configured BF16 deployment. This example is single-GPU;
-it does not establish MTP support for tensor-parallel inference.
+for an appropriately configured BF16 deployment. The default examples are
+single-GPU; see [INT4 tensor parallelism](#int4-tensor-parallelism) for two-GPU text inference.
 
 Install Eole in a CUDA-enabled environment with the CUDA toolkit and build tools
 from the [installation guide](../../README.md#installation). For this configuration
@@ -285,3 +285,35 @@ paths from the packed weight inventory, preserving floating-point decoder and
 MTP modules. Loading rejects selections that conflict with stored packed weights.
 All quantization backends share these matching rules. Bits and group size remain
 global settings; per-module quantization parameters are not supported.
+
+## INT4 tensor parallelism
+
+For a converted RedHat INT4 checkpoint, use the two-GPU greedy recipe:
+
+```bash
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+  python -m eole.bin.main predict -c recipes/qwen38/predict-tp.yaml
+```
+
+It sets `world_size: 2`, `gpu_ranks: [0, 1]`, and
+`parallel_mode: tensor_parallel`. Its context limit starts at 2048 tokens;
+choose a larger value according to the memory available on both GPUs.
+
+Packed GPTQ weights are partitioned before Marlin repacking. Attention and MLP
+projections are sharded; GDN projections and recurrent state remain replicated.
+Tensor parallelism can reduce weight memory without guaranteeing faster decoding.
+`setup.py` targets all visible GPU architectures, including both `sm_120` and
+`sm_89` on a mixed RTX 5090/4090 system. `CUDA_VISIBLE_DEVICES` controls which
+GPUs are included. Rebuild Eole after adding a GPU with a different architecture:
+
+```bash
+MAX_JOBS=2 python -m pip install -e . --no-build-isolation
+```
+
+Restart inference processes after rebuilding. A binary built only for an RTX
+5090 cannot execute its native kernels on an RTX 4090.
+
+For greedy, batch-one MTP inference, set `self_speculative_decoding: true` in
+the two-GPU recipe. The MTP KV cache uses each rank's local KV-head count.
+Two-GPU RedHat INT4 text generation was checked with and without MTP;
+this is a compatibility check, not a throughput benchmark.

@@ -732,6 +732,30 @@ class BaseModel(nn.Module):
                 module._sync_qtype_attr()
             return
 
+        if getattr(module, "checkpoint_weight_layout", None) == "gptq":
+            from eole.modules.quantization_loading import slice_gptq_checkpoint
+
+            sliced = slice_gptq_checkpoint(
+                module,
+                param_name,
+                param,
+                ckpt_t,
+                tp_offset,
+                column_parallel=base_name in TP_COL_PARALLEL_LAYERS,
+                row_parallel=base_name in TP_ROW_PARALLEL_LAYERS,
+            )
+            if sliced is not None:
+                if sliced.shape != param.shape:
+                    raise ValueError(
+                        f"Invalid packed tensor-parallel shard for {module_name}.{param_name}: "
+                        f"expected {tuple(param.shape)}, got {tuple(sliced.shape)}"
+                    )
+                if is_buffer:
+                    module.register_buffer(param_name, sliced.contiguous())
+                else:
+                    param.data = sliced.contiguous()
+                return
+
         # WQLinear_GEMM fix MUST happen before slicing
         if is_wq:
             param.data = param.data.transpose(0, 1)
@@ -1269,7 +1293,7 @@ class MTPDraftingMixin:
         attention.kcache = torch.zeros(
             batch_size,
             capacity,
-            attention.heads_kv,
+            attention.heads_kv // attention.parallel_gpu,
             attention.dim_per_head,
             device=target_hidden.device,
             dtype=target_hidden.dtype,
