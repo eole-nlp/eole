@@ -173,6 +173,7 @@ class GeneratorLM(Inference):
         # Keep beam/multiple hypotheses and MTP on their existing compile path,
         # also when a preloaded model receives different request settings.
         self.model.decoder._decode_graph_request_allowed = parallel_paths == 1 and not self.self_speculative_decoding
+        self.model.decoder._verify_graph_request_allowed = parallel_paths == 1 and self.self_speculative_decoding
         batch_size = len(batch["srclen"])
 
         # (1) check if we use left padding or not
@@ -241,6 +242,7 @@ class GeneratorLM(Inference):
                     qwen_recurrent_mtp = getattr(self.model.mtp_heads[0], "emb_norm", None) is not None
                     draft_count = self.self_speculative_num_tokens if qwen_recurrent_mtp else len(self.model.mtp_heads)
                     verify_len = min(draft_count + 1, self.max_length)
+                    self.model.decoder._verify_graph_sequence_length = verify_len
                     dummy_verify = torch.zeros(
                         emb.size(0), verify_len, self.model.decoder.hidden_size, device=emb.device, dtype=emb.dtype
                     )

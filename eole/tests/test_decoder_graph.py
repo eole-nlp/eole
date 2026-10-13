@@ -75,6 +75,64 @@ class TestDecoderGraph(unittest.TestCase):
         self.assertEqual(self.state.item(), 1)
 
     @torch.no_grad()
+    def test_verifier_only_replays_full_speculative_chunks(self):
+        from types import SimpleNamespace
+        from eole.decoders.transformer import TransformerDecoder
+
+        decoder = SimpleNamespace(
+            _decode_graph_enabled=True,
+            _verify_graph_request_allowed=True,
+            _verify_graph_sequence_length=4,
+            _speculative_forward=True,
+            training=False,
+            flash=True,
+            dynamic_shapes=False,
+            with_cross_attn=False,
+            cache_seqlens=torch.zeros(1, device="cuda", dtype=torch.int32),
+        )
+        for length, expected in ((4, True), (3, False), (2, False), (1, False)):
+            emb = torch.zeros(1, length, 8, device="cuda", dtype=torch.bfloat16)
+            kwargs = {"tgt_pad_mask": torch.zeros(1, 1, length, device="cuda", dtype=torch.bool)}
+            self.assertEqual(TransformerDecoder._can_replay_verifier(decoder, emb, kwargs), expected)
+        emb = torch.zeros(1, 4, 8, device="cuda", dtype=torch.bfloat16)
+        kwargs = {"tgt_pad_mask": torch.zeros(1, 1, 4, device="cuda", dtype=torch.bool)}
+        decoder._speculative_forward = False
+        self.assertFalse(TransformerDecoder._can_replay_verifier(decoder, emb, kwargs))
+        decoder._speculative_forward = True
+        decoder._verify_graph_request_allowed = False
+        self.assertFalse(TransformerDecoder._can_replay_verifier(decoder, emb, kwargs))
+
+    @torch.no_grad()
+    def test_verification_replay_leaves_acceptance_commit_outside(self):
+        state = torch.zeros(1, 1, 1, device="cuda")
+        transaction = torch.empty(1, 4, 1, device="cuda")
+        position = torch.zeros((), device="cuda", dtype=torch.long)
+
+        def verify(emb, *, tgt_pad_mask):
+            transaction.copy_(state + emb.masked_fill(tgt_pad_mask.transpose(1, 2), 0).cumsum(1))
+            position.add_(emb.size(1))
+            return transaction, {"std": None}
+
+        runner = DecoderGraph(verify, verify)
+        expected_state, expected_position = 0, 0
+        mask = torch.zeros(1, 1, 4, device="cuda", dtype=torch.bool)
+        for index, kept in enumerate((1, 4, 2, 3, 1, 4)):
+            emb = torch.full((1, 4, 1), float(index + 1), device="cuda")
+            output, _ = runner(emb, tgt_pad_mask=mask)
+            expected = expected_state + (index + 1) * torch.arange(1, 5, device="cuda").view(1, 4, 1)
+            torch.testing.assert_close(output, expected.to(output.dtype))
+            self.assertEqual(state.item(), expected_state)
+            self.assertEqual(position.item(), expected_position + 4)
+            # Acceptance/rollback happens after verification, outside replay.
+            state.copy_(transaction[:, kept - 1 : kept])
+            position.sub_(4 - kept)
+            expected_state += (index + 1) * kept
+            expected_position += kept
+        self.assertEqual(state.item(), expected_state)
+        self.assertEqual(position.item(), expected_position)
+        self.assertIsNotNone(runner.graph)
+
+    @torch.no_grad()
     def test_failed_capture_falls_back_without_advancing_twice(self):
         emb = torch.zeros(1, 1, 8, device="cuda")
         mask = torch.zeros(1, 1, 1, device="cuda", dtype=torch.bool)
@@ -100,6 +158,9 @@ class TestDecoderGraphInvalidation(unittest.TestCase):
 
         runner = Mock()
         decoder._decode_graph = runner
+        verifier = Mock()
+        decoder._verify_graph = verifier
+        decoder._verify_buffer_signature = ({},)
         emb = torch.zeros(2, 3, 64)
         decoder._init_cache(emb, torch.zeros(2, 1, 3, dtype=torch.bool))
         self.assertEqual(runner.reset.call_count, 1)
@@ -108,4 +169,32 @@ class TestDecoderGraphInvalidation(unittest.TestCase):
         self.assertEqual(decoder.cache_seqlens.size(0), 1)
         decoder._disable_cache()
         self.assertEqual(runner.reset.call_count, 3)
+        self.assertEqual(verifier.reset.call_count, 3)
+        self.assertIsNone(decoder._verify_buffer_signature)
         self.assertIsNone(decoder.cache_seqlens)
+
+    def test_verifier_rebinds_replaced_speculative_buffers(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from eole.decoders.transformer import TransformerDecoder
+
+        runner = Mock()
+        buffers = {"query": torch.zeros(1, 4, 1)}
+        linear = SimpleNamespace(_spec_buffers=buffers)
+        decoder = SimpleNamespace(
+            transformer_layers=[SimpleNamespace(linear_attn=linear), SimpleNamespace()],
+            _verify_graph=runner,
+            _verify_buffer_signature=None,
+        )
+        emb = torch.zeros(1, 4, 8)
+        kwargs = {"tgt_pad_mask": torch.zeros(1, 1, 4, dtype=torch.bool)}
+        TransformerDecoder._replay_verifier(decoder, emb, kwargs)
+        self.assertEqual(runner.reset.call_count, 1)
+        # In-place writes preserve the binding; replacing the buffers does not.
+        buffers["query"].fill_(2)
+        TransformerDecoder._replay_verifier(decoder, emb, kwargs)
+        self.assertEqual(runner.reset.call_count, 1)
+        linear._spec_buffers = {"query": torch.zeros(1, 4, 1)}
+        TransformerDecoder._replay_verifier(decoder, emb, kwargs)
+        self.assertEqual(runner.reset.call_count, 2)
+        self.assertIs(decoder._verify_buffer_signature[0], linear._spec_buffers)

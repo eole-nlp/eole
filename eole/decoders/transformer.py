@@ -395,6 +395,8 @@ class TransformerDecoder(DecoderBase):
         self.hidden_size = decoder_config.hidden_size
         self.compiled_shapes = set()
         self._decode_graph = None
+        self._verify_graph = None
+        self._verify_buffer_signature = None
         self._decode_graph_enabled = (
             EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "0" and getattr(running_config, "parallel_gpu", 1) == 1
         )
@@ -838,9 +840,11 @@ class TransformerDecoder(DecoderBase):
         return torch.cat(all_emb_chunks, dim=1), attns
 
     def _reset_decode_graph(self):
-        runner = getattr(self, "_decode_graph", None)
-        if runner is not None:
-            runner.reset()
+        for name in ("_decode_graph", "_verify_graph"):
+            runner = getattr(self, name, None)
+            if runner is not None:
+                runner.reset()
+        self._verify_buffer_signature = None
 
     def _can_replay_decoder(self, emb, kwargs):
         mask = kwargs.get("tgt_pad_mask")
@@ -869,6 +873,71 @@ class TransformerDecoder(DecoderBase):
             and not any(kwargs.get(name, False) for name in ("return_attn", "with_align", "collect_cross_attns"))
         )
 
+    def _can_replay_verifier(self, emb, kwargs):
+        # Reuse the ordinary decoder's backend/input checks, with a distinct
+        # speculative program and multi-token mask. Drafting stays outside.
+        if not (
+            getattr(self, "_decode_graph_enabled", False)
+            and getattr(self, "_verify_graph_request_allowed", False)
+            and self._speculative_forward
+            and emb.size(0) == 1
+            and emb.size(1) > 1
+            and emb.size(1) == getattr(self, "_verify_graph_sequence_length", None)
+        ):
+            return False
+        mask = kwargs.get("tgt_pad_mask")
+        if not isinstance(mask, torch.Tensor) or mask.shape != (1, 1, emb.size(1)):
+            return False
+        return (
+            not self.training
+            and not torch.is_grad_enabled()
+            and emb.device.type == "cuda"
+            and emb.dtype in (torch.float16, torch.bfloat16)
+            and emb.is_contiguous()
+            and self.flash
+            and not self.dynamic_shapes
+            and not self.with_cross_attn
+            and self.cache_seqlens is not None
+            and mask.device == emb.device
+            and mask.dtype == torch.bool
+            and mask.is_contiguous()
+            and not any(
+                kwargs.get(name) is not None for name in ("enc_out", "src_pad_mask", "pos_ids_2d", "image_locations")
+            )
+            and not any(kwargs.get(name, False) for name in ("return_attn", "with_align", "collect_cross_attns"))
+        )
+
+    def _forward_verify_graph(self, emb, *, tgt_pad_mask):
+        return self._forward_eager(emb, tgt_pad_mask=tgt_pad_mask)
+
+    def _replay_verifier(self, emb, kwargs):
+        from eole.utils.decoder_graph import DecoderGraph
+
+        # begin_speculation replaces these buffers when verification length
+        # changes. A graph must never retain bindings to the old allocation.
+        buffers = tuple(
+            layer.linear_attn._spec_buffers
+            for layer in self.transformer_layers
+            if getattr(layer, "linear_attn", None) is not None
+        )
+        if self._verify_graph is None:
+            function = torch.compile(
+                self._forward_verify_graph,
+                fullgraph=True,
+                dynamic=False,
+                options={
+                    "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
+                    "triton.cudagraphs": False,
+                },
+            )
+            self._verify_graph = DecoderGraph(function, function)
+        if self._verify_buffer_signature is None or any(
+            current is not previous for current, previous in zip(buffers, self._verify_buffer_signature)
+        ):
+            self._verify_graph.reset()
+            self._verify_buffer_signature = buffers
+        return self._verify_graph(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
+
     def _forward_decode_graph(self, emb, *, tgt_pad_mask):
         # A distinct entry point keeps this non-graph compiled program separate
         # from the legacy graph-tree backend's Dynamo cache entries.
@@ -895,6 +964,8 @@ class TransformerDecoder(DecoderBase):
         src_ids = kwargs.pop("src_ids", None)
 
         if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and (S == 1 or self._speculative_forward):
+            if self._can_replay_verifier(emb, kwargs):
+                return self._replay_verifier(emb, kwargs)
             if self._can_replay_decoder(emb, kwargs):
                 return self._replay_decoder(emb, kwargs)
             self._reset_decode_graph()
