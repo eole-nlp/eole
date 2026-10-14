@@ -9,6 +9,7 @@ import torch
 
 from eole.decoders.transformer import TransformerDecoder
 from eole.predict.generator import GeneratorLM
+from eole.predict.inference import Inference
 from eole.predict.greedy_search import GreedySearchLM
 from eole.utils.decoder_graph import DecoderGraph
 
@@ -109,16 +110,151 @@ class TestWarmupEligibility(unittest.TestCase):
                 )
                 decoder._forward_compile.assert_called_once()
 
-    def test_warmup_delegates_to_actual_replay_eligibility(self):
-        decoder = SimpleNamespace(_can_replay_decoder=Mock(return_value=True), _forward_compile=Mock())
-        emb = torch.zeros(1, 8, 4)
-        mask = torch.zeros(1, 1, 8, dtype=torch.bool)
-        TransformerDecoder._compile_decoder(decoder, emb=emb, tgt_pad_mask=mask)
-        self.assertTrue(decoder._can_replay_decoder.call_args.kwargs["for_warmup"])
+    def test_bound_decode_compiles_without_capture_for_effective_batch(self):
+        for batch_size in (1, 4):
+            with self.subTest(batch_size=batch_size):
+                decoder = SimpleNamespace(
+                    _can_replay_decoder=Mock(return_value=True),
+                    _decode_graph_request_allowed=True,
+                    cache_seqlens=torch.zeros(batch_size, dtype=torch.int32),
+                    hidden_size=4,
+                    _replay_decoder=Mock(),
+                    _forward_compile=Mock(),
+                )
+                emb = torch.zeros(1, 8, 4, dtype=torch.bfloat16)
+                mask = torch.zeros(1, 1, 8, dtype=torch.bool)
+                TransformerDecoder._compile_decoder(decoder, emb=emb, tgt_pad_mask=mask)
+                self.assertTrue(decoder._can_replay_decoder.call_args.kwargs["for_warmup"])
+                dummy, kwargs = decoder._replay_decoder.call_args.args
+                self.assertEqual(dummy.shape, (batch_size, 1, 4))
+                self.assertEqual(dummy.dtype, emb.dtype)
+                self.assertEqual(dummy.device, emb.device)
+                self.assertEqual(kwargs["tgt_pad_mask"].shape, (batch_size, 1, 1))
+                self.assertFalse(kwargs["tgt_pad_mask"].any())
+                self.assertFalse(decoder._replay_decoder.call_args.kwargs["capture"])
+                decoder._forward_compile.assert_not_called()
+
+    def test_mtp_keeps_separate_verifier_warmup(self):
+        decoder = SimpleNamespace(
+            _can_replay_decoder=Mock(return_value=True),
+            _decode_graph_request_allowed=False,
+            _replay_decoder=Mock(),
+            _forward_compile=Mock(),
+        )
+        TransformerDecoder._compile_decoder(
+            decoder,
+            emb=torch.zeros(1, 8, 4),
+            tgt_pad_mask=torch.zeros(1, 1, 8, dtype=torch.bool),
+        )
+        decoder._replay_decoder.assert_not_called()
         decoder._forward_compile.assert_not_called()
 
 
 class TestEffectiveSpeculationPolicy(unittest.TestCase):
+    def test_mtp_verifier_is_warmed_before_generation_in_all_supported_modes(self):
+        class StopBeforeInference(Exception):
+            pass
+
+        class Strategy(GreedySearchLM):
+            parallel_paths = 1
+            return_attention = False
+            target_prefix = None
+
+            def __init__(self):
+                pass
+
+            def initialize(self, src, src_len, target_prefix):
+                return None, src
+
+        for mode in ("0", "1", "2"):
+            for fails in (False, True):
+                with self.subTest(mode=mode, fails=fails):
+                    decoder = Mock()
+                    decoder.hidden_size = 4
+                    decoder.modules.return_value = []
+                    decoder._can_replay_decoder.return_value = True
+
+                    def verify(emb, **kwargs):
+                        self.assertTrue(decoder._speculative_forward)
+                        length = (4, 3, 2)[decoder.call_count - 1]
+                        self.assertEqual(emb.shape, (1, length, 4))
+                        self.assertEqual(kwargs["tgt_pad_mask"].shape, (1, 1, length))
+                        if fails:
+                            raise RuntimeError("verifier warmup failed")
+
+                    decoder.side_effect = verify
+                    predictor = SimpleNamespace(
+                        dynamic_shapes=False,
+                        self_speculative_decoding=True,
+                        beam_size=1,
+                        n_best=1,
+                        top_k=1,
+                        temperature=1.0,
+                        min_length=0,
+                        ban_unk_token=False,
+                        block_ngram_repeat=0,
+                        model=SimpleNamespace(
+                            decoder=decoder,
+                            mtp_heads=[SimpleNamespace(emb_norm=True)],
+                            tgt_emb=Mock(return_value=torch.zeros(1, 8, 4)),
+                        ),
+                        self_speculative_num_tokens=3,
+                        max_length=128,
+                        _tgt_pad_idx=0,
+                        warmup_time=[],
+                        _gold_score=Mock(return_value=(0, None)),
+                        _log=Mock(),
+                        _log_inference_backends=Mock(side_effect=StopBeforeInference),
+                    )
+                    predictor._warmup_speculative_decoder = lambda emb, length: GeneratorLM._warmup_speculative_decoder(
+                        predictor, emb, length
+                    )
+                    batch = {
+                        "src": torch.ones(1, 8, dtype=torch.long),
+                        "srclen": torch.tensor([8]),
+                        "left_pad": True,
+                    }
+                    with (
+                        patch("eole.predict.generator.EOLE_TORCH_COMPILE", True),
+                        patch("eole.predict.generator.EOLE_COMPILE_MODE", mode),
+                        self.assertRaises(RuntimeError if fails else StopBeforeInference),
+                    ):
+                        GeneratorLM._predict_batch_with_strategy_impl(predictor, batch, Strategy())
+                    self.assertEqual(decoder.call_count, 1 if fails else 3)
+                    if fails:
+                        decoder._replay_decoder.assert_not_called()
+                    else:
+                        decoder._replay_decoder.assert_called_once()
+                        self.assertFalse(decoder._replay_decoder.call_args.kwargs["capture"])
+                    self.assertFalse(decoder._speculative_forward)
+                    self.assertFalse(decoder._decode_graph_request_allowed)
+                    self.assertTrue(decoder._verify_graph_request_allowed)
+                    self.assertEqual(len(predictor.warmup_time), 0 if fails else 1)
+
+    def test_decode_count_excludes_first_token_for_eos_and_length_stops(self):
+        predictor = SimpleNamespace(decode_timings=[])
+        # One EOS-ended output and one length-ended output; second-best
+        # hypotheses are not delivered in the first-best throughput count.
+        predictions = [[torch.tensor([10, 11, 12, 99]), torch.arange(20)], [torch.arange(32)]]
+        Inference._record_decode_timing(predictor, predictions, 0.5)
+        self.assertEqual(predictor.decode_timings, [(34, 0.5)])
+        Inference._record_decode_timing(predictor, [[torch.tensor([99])]], 0.0)
+        self.assertEqual(predictor.decode_timings[-1], (0, 0.0))
+
+    def test_reduced_verifier_lengths_still_warm_single_token_fallback(self):
+        for length in (1, 2, 3, 4):
+            with self.subTest(length=length):
+                decoder = Mock(hidden_size=4, _speculative_forward=False)
+                decoder.modules.return_value = []
+                decoder._can_replay_decoder.return_value = True
+                predictor = SimpleNamespace(model=SimpleNamespace(decoder=decoder))
+                GeneratorLM._warmup_speculative_decoder(predictor, torch.zeros(1, 8, 4), length)
+                self.assertEqual([call.args[0].size(1) for call in decoder.call_args_list], list(range(length, 1, -1)))
+                self.assertFalse(decoder._speculative_forward)
+                decoder._replay_decoder.assert_called_once()
+                self.assertEqual(decoder._replay_decoder.call_args.args[0].shape, (1, 1, 4))
+                self.assertFalse(decoder._replay_decoder.call_args.kwargs["capture"])
+
     def test_effective_strategy_selects_request_graph_policy(self):
         class StopBeforeInference(Exception):
             pass
@@ -141,7 +277,17 @@ class TestEffectiveSpeculationPolicy(unittest.TestCase):
             ("beam", 1, 2, 1, False, False, False, False, False),
             ("mtp", 1, 1, 1, False, False, False, False, True),
         )
-        for name, size, paths, top_k, attention, images, no_heads, normal, verify in cases:
+        for (
+            name,
+            size,
+            paths,
+            top_k,
+            attention,
+            images,
+            no_heads,
+            normal,
+            verify,
+        ) in cases:
             with self.subTest(name=name):
                 decoder = SimpleNamespace(init_state=Mock())
                 predictor = SimpleNamespace(
@@ -155,7 +301,8 @@ class TestEffectiveSpeculationPolicy(unittest.TestCase):
                     ban_unk_token=False,
                     block_ngram_repeat=0,
                     model=SimpleNamespace(
-                        decoder=decoder, mtp_heads=[] if no_heads else [SimpleNamespace(emb_norm=True)]
+                        decoder=decoder,
+                        mtp_heads=[] if no_heads else [SimpleNamespace(emb_norm=True)],
                     ),
                     self_speculative_num_tokens=3,
                     max_length=128,

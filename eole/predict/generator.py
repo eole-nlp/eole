@@ -8,7 +8,7 @@ from eole.utils.misc import tile
 from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
 from eole.modules.gated_delta_net import GatedDeltaNet
 from eole.utils.tensor_parallel import broadcast_from_rank_zero
-from time import time
+from time import time, perf_counter
 
 
 class GeneratorLM(Inference):
@@ -106,8 +106,9 @@ class GeneratorLM(Inference):
     def warmup_compile(self):
         """Optional warmup of the configured compile path, with temporary caches.
 
-        Bound graphs warm their real programs on actual decode calls instead.
-        This method is not used by the streaming worker initializer.
+        Bound programs compile here without capturing graphs. Capture uses
+        actual decode calls. This method is not used by the streaming worker
+        initializer.
         """
         if not EOLE_TORCH_COMPILE:
             return
@@ -130,6 +131,10 @@ class GeneratorLM(Inference):
             try:
                 if EOLE_COMPILE_MODE in ("0", "1"):
                     decoder._compile_decoder(emb=dummy_emb, tgt_pad_mask=dummy_pad_mask)
+                elif EOLE_COMPILE_MODE == "2" and decoder._can_replay_decoder(
+                    dummy_emb, {"tgt_pad_mask": dummy_pad_mask}, for_warmup=True
+                ):
+                    decoder._compile_decoder(emb=dummy_emb, tgt_pad_mask=dummy_pad_mask)
                 elif EOLE_COMPILE_MODE in ("2", "3") and not decoder._can_replay_decoder(
                     dummy_emb, {"tgt_pad_mask": dummy_pad_mask}, for_warmup=True
                 ):
@@ -139,6 +144,38 @@ class GeneratorLM(Inference):
                     )
             finally:
                 decoder._disable_cache()
+
+    def _warmup_speculative_decoder(self, emb, verify_len):
+        """Compile every verifier tail and final one-token fallback before timing.
+
+        A shorter output budget can use any length below the full chunk. Those
+        shapes need their own compiled programs even though they are not captured.
+        Prefill reinitializes all temporary state after this warmup.
+        """
+        decoder = self.model.decoder
+        linear_layers = [
+            module
+            for module in decoder.modules()
+            if isinstance(module, GatedDeltaNet)
+            and module.conv_state is not None
+            and module.recurrent_state is not None
+        ]
+        for length in range(verify_len, 1, -1):
+            dummy = torch.zeros(emb.size(0), length, decoder.hidden_size, device=emb.device, dtype=emb.dtype)
+            mask = torch.zeros(emb.size(0), 1, length, device=emb.device, dtype=torch.bool)
+            try:
+                for layer in linear_layers:
+                    layer.begin_speculation(length)
+                decoder._speculative_forward = True
+                decoder(dummy, enc_out=None, step=1, return_attn=False, tgt_pad_mask=mask)
+            finally:
+                decoder._speculative_forward = False
+                for layer in linear_layers:
+                    layer.end_speculation()
+        dummy = torch.zeros(emb.size(0), 1, decoder.hidden_size, device=emb.device, dtype=emb.dtype)
+        mask = torch.zeros(emb.size(0), 1, 1, device=emb.device, dtype=torch.bool)
+        if decoder._can_replay_decoder(dummy, {"tgt_pad_mask": mask}, for_warmup=True):
+            decoder._replay_decoder(dummy, {"tgt_pad_mask": mask}, capture=False)
 
     def _predict_batch_with_strategy(self, batch, decode_strategy, streamer=None):
         try:
@@ -258,37 +295,12 @@ class GeneratorLM(Inference):
                 self.model.decoder._compile_decoder(
                     emb=emb, tgt_pad_mask=tgt_pad_mask, return_attn=decode_strategy.return_attention
                 )
-                if use_spec_decoding and self.max_length > 1:
-                    # Compile the short verifier chunk too. Without this
-                    # shape-specific warmup, compile modes 0/1 compile only
-                    # S=1 decode and leave every speculative verifier pass in
-                    # eager mode.
-                    dummy_verify = torch.zeros(
-                        emb.size(0), verify_len, self.model.decoder.hidden_size, device=emb.device, dtype=emb.dtype
-                    )
-                    dummy_verify_mask = torch.zeros(emb.size(0), 1, verify_len, dtype=torch.bool, device=emb.device)
-                    linear_layers = [
-                        module
-                        for module in self.model.decoder.modules()
-                        if isinstance(module, GatedDeltaNet)
-                        and module.conv_state is not None
-                        and module.recurrent_state is not None
-                    ]
-                    try:
-                        for layer in linear_layers:
-                            layer.begin_speculation(verify_len)
-                        self.model.decoder._speculative_forward = True
-                        self.model.decoder(
-                            dummy_verify,
-                            enc_out=None,
-                            step=1,
-                            return_attn=False,
-                            tgt_pad_mask=dummy_verify_mask,
-                        )
-                    finally:
-                        self.model.decoder._speculative_forward = False
-                        for layer in linear_layers:
-                            layer.end_speculation()
+            elif EOLE_COMPILE_MODE == "2" and self.model.decoder._can_replay_decoder(
+                emb, {"tgt_pad_mask": tgt_pad_mask, "return_attn": decode_strategy.return_attention}, for_warmup=True
+            ):
+                self.model.decoder._compile_decoder(
+                    emb=emb, tgt_pad_mask=tgt_pad_mask, return_attn=decode_strategy.return_attention
+                )
             elif EOLE_COMPILE_MODE in ["2", "3"] and not self.model.decoder._can_replay_decoder(
                 emb, {"tgt_pad_mask": tgt_pad_mask, "return_attn": decode_strategy.return_attention}, for_warmup=True
             ):
@@ -301,6 +313,10 @@ class GeneratorLM(Inference):
                 self.model.decoder.transformer_layers[0]._compile_decoder(
                     emb, position_embeddings=position_embeddings, cache_seqlens=self.model.decoder.cache_seqlens
                 )
+            if use_spec_decoding and self.max_length > 1 and EOLE_COMPILE_MODE in ("0", "1", "2"):
+                self._warmup_speculative_decoder(emb, verify_len)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
             self.warmup_time.append(time() - start_wu)
             self._log(f"Warmup lasted: {time() - start_wu:.1f} sec")
 
@@ -313,6 +329,7 @@ class GeneratorLM(Inference):
                 if torch.cuda.is_available():
                     torch.cuda.synchronize()
                 beg_time = time()
+                decode_start = None
 
             step = 0
             pending_spec = None
@@ -384,6 +401,7 @@ class GeneratorLM(Inference):
                     if torch.cuda.is_available():
                         torch.cuda.synchronize()
                     self.step0_time.append(time() - beg_time)
+                    decode_start = perf_counter()
                 any_finished = any([any(sublist) for sublist in decode_strategy.is_finished_list])
 
                 if streamer is not None:
@@ -413,6 +431,11 @@ class GeneratorLM(Inference):
                     # for its entire chunk; no normal one-token growth check
                     # is needed before the next speculative step.
                     self.model.decoder._extend_cache()
+
+            if self.report_time and decode_start is not None:
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                self._record_decode_timing(decode_strategy.predictions, perf_counter() - decode_start)
 
             if use_spec_decoding and self._speculative_drafted_tokens:
                 accepted_rate = self._speculative_accepted_tokens / self._speculative_drafted_tokens

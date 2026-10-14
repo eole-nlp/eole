@@ -198,13 +198,15 @@ class TestSpeculativeDecoding(unittest.TestCase):
         gen = _generator(model, vocab, speculative=True)
         gen.report_time = True
         gen.step0_time = []
+        gen.decode_timings = []
         prompt = torch.tensor([[4, 5, 6, 7]])
         batch = {"srclen": torch.tensor([4]), "src": prompt, "left_pad": True}
 
-        with torch.no_grad():
+        with torch.no_grad(), patch("eole.predict.generator.perf_counter", side_effect=[100.0, 100.5]):
             gen.predict_batch(batch, attn_debug=False)
 
         self.assertEqual(len(gen.step0_time), 1)
+        self.assertEqual(gen.decode_timings, [(gen.max_length - 1, 0.5)])
 
     def test_compile_dispatches_multi_token_verifier_shape(self):
         model, _ = _build_model(321)
