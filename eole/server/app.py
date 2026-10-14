@@ -2,13 +2,13 @@
 
 from typing import List, Union
 
-from fastapi import FastAPI, Request, Body
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Body
 from pydantic import BaseModel, Field, model_validator
 
 import eole
 from eole.config.inference import DecodingConfig
 from eole.constants import DefaultTokens
+from eole.server.ui import register_ui
 from eole.server.model import Server
 from eole.server.openai_chat import register_openai_chat
 from eole.server.anthropic import register_anthropic
@@ -108,24 +108,7 @@ def create_app(config_file):
     server = Server()
     server.start(config_file)
 
-    @app.get("/")
-    def root(request: Request):
-        """
-        Root endpoint returning HTML content to help users find the docs.
-        """
-        html_content = f"""
-        <html>
-            <head>
-                <title>Eole Server</title>
-            </head>
-            <body>
-                <h1>Eole Server</h1>
-                <p>Probably not what you're looking for.</p>
-                <p>API docs --> <a href="{request.url}docs">{request.url}docs</a>.</p>
-            </body>
-        </html>
-        """
-        return HTMLResponse(content=html_content, status_code=200)
+    register_ui(app, server)
 
     @app.get("/models")
     def models():

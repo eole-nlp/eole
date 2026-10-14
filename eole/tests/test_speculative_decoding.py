@@ -193,6 +193,19 @@ class TestSpeculativeDecoding(unittest.TestCase):
         self.assertTrue(ended)
         self.assertTrue(torch.equal(torch.cat(tokens), result["predictions"][0][0]))
 
+    def test_cancelled_stream_clears_recurrent_and_mtp_state(self):
+        from eole.predict.streamer import GenerationCancelled
+
+        model, vocab = _build_model(456, gated_delta=True, qwen_mtp=True)
+        gen = _generator(model, vocab, speculative=True)
+        batch = {"srclen": torch.tensor([4]), "src": torch.tensor([[4, 5, 6, 7]]), "left_pad": True}
+        streamer = SimpleNamespace(cancelled=True)
+        with torch.no_grad(), self.assertRaises(GenerationCancelled):
+            gen.predict_batch(batch, attn_debug=False, streamer=streamer)
+        self.assertIsNone(model.decoder.cache_seqlens)
+        self.assertFalse(model.decoder._speculative_forward)
+        self.assertIsNone(model._mtp_refresh)
+
     def test_step0_timing_is_recorded_before_speculative_verification(self):
         model, vocab = _build_model(456)
         gen = _generator(model, vocab, speculative=True)

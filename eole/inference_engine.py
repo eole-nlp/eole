@@ -303,7 +303,11 @@ class InferenceEnginePY(InferenceEngine):
         return self.predictor._score(infer_iter)
 
     def infer_list_stream(
-        self, src: str, settings: Optional[Dict[str, Any]] = None, generation_stats: Optional[Dict[str, Any]] = None
+        self,
+        src: str,
+        settings: Optional[Dict[str, Any]] = None,
+        generation_stats: Optional[Dict[str, Any]] = None,
+        cancel_event=None,
     ):
         """Stream inference results for a single input string.
 
@@ -319,9 +323,11 @@ class InferenceEnginePY(InferenceEngine):
             src (str): A single input string.
             settings (dict, optional): Override inference settings such as
                 ``temperature``, ``max_length``, ``top_k``, ``top_p``.
-            generation_stats (dict, optional): Filled on successful completion
-                with emitted-token count and whether EOS ended generation.
+            generation_stats (dict, optional): Filled by the inference worker
+                with exact emitted-token count, stop reason and request timings.
                 When supplied, terminal EOS tokens are omitted from text.
+            cancel_event (threading.Event, optional): Cooperative stop signal;
+                cancellation waits for the current forward/warmup to finish.
 
         Yields:
             str: Decoded text chunks produced by the model.
@@ -336,7 +342,8 @@ class InferenceEnginePY(InferenceEngine):
                 print(chunk, end="", flush=True)
             print()
         """
-        from eole.predict.streamer import GenerationStreamer
+        from eole.predict.streamer import GenerationStreamer, GenerationCancelled
+        from time import perf_counter
 
         if self.config.world_size > 1:
             raise NotImplementedError("infer_list_stream is not supported in parallel (world_size > 1) mode.")
@@ -347,14 +354,30 @@ class InferenceEnginePY(InferenceEngine):
             vocabs=self.vocabs,
             transform_pipe=self.transform_pipe,
             eos_token_ids=self.predictor._tgt_eos_idx if generation_stats is not None else (),
+            cancel_event=cancel_event,
+            timeout=600.0,
         )
 
         exception_holder = []
+        submitted = perf_counter()
 
         def _run_inference():
+            started = perf_counter()
+            previous_settings = (
+                {key: getattr(self.predictor, key) for key in (settings or {}) if hasattr(self.predictor, key)}
+                if cancel_event is not None
+                else {}
+            )
+            self.predictor.decode_timings = []
+            self.predictor.warmup_time = []
+            self.predictor._speculative_drafted_tokens = 0
             try:
+                if streamer.cancelled:
+                    raise GenerationCancelled()
                 infer_iter = self._build_inference_iterator(src=[src])
                 self._predict(infer_iter, settings=settings, streamer=streamer)
+            except GenerationCancelled:
+                streamer.end()
             except Exception as exc:  # noqa: BLE001
                 self.logger.error(f"Streaming inference failed: {exc}")
                 # Failed prefill/decode skips GeneratorLM's normal cache teardown.
@@ -373,6 +396,32 @@ class InferenceEnginePY(InferenceEngine):
                     self.logger.warning(f"Streaming failure cleanup failed: {cleanup_exc}")
                 exception_holder.append(exc)
                 streamer.end()
+            finally:
+                if generation_stats is not None:
+                    timings = getattr(self.predictor, "decode_timings", [])
+                    seconds = sum(seconds for _, seconds in timings)
+                    tokens = sum(tokens for tokens, _ in timings)
+                    drafted = getattr(self.predictor, "_speculative_drafted_tokens", 0)
+                    generation_stats.update(
+                        queue_seconds=started - submitted,
+                        output_tokens=streamer.token_count,
+                        stopped_on_eos=streamer.last_token_id in streamer.eos_token_ids,
+                        cancelled=streamer.cancelled,
+                        decode_seconds=seconds if timings else None,
+                        decode_tokens=tokens if timings else None,
+                        decode_tokens_per_second=tokens / seconds if seconds > 0 else None,
+                        first_token_seconds=(
+                            (streamer.first_token_time - started) if streamer.first_token_time else None
+                        ),
+                        warmup_seconds=sum(getattr(self.predictor, "warmup_time", [])),
+                        mtp_active=drafted > 0,
+                        mtp_acceptance=(
+                            getattr(self.predictor, "_speculative_accepted_tokens", 0) / drafted if drafted else None
+                        ),
+                    )
+
+                for key, value in previous_settings.items():
+                    setattr(self.predictor, key, value)
 
         future = self._thread_pool.submit(_run_inference)
 
@@ -382,11 +431,6 @@ class InferenceEnginePY(InferenceEngine):
 
         if exception_holder:
             raise exception_holder[0]
-        if generation_stats is not None:
-            generation_stats.update(
-                output_tokens=streamer.token_count,
-                stopped_on_eos=streamer.last_token_id in streamer.eos_token_ids,
-            )
 
     def _distribute_parallel_task(self, task_name: str, task_arg: Any, settings: Optional[Dict[str, Any]] = None):
         """Distribute a task to all parallel workers.

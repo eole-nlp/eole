@@ -2,7 +2,12 @@
 
 import queue
 import threading
+from time import perf_counter
 from typing import Optional
+
+
+class GenerationCancelled(Exception):
+    """Cooperative cancellation at a generation-step boundary."""
 
 
 class GenerationStreamer:
@@ -52,11 +57,14 @@ class GenerationStreamer:
     # Sentinel value placed in the queue to signal end-of-generation
     _STOP = object()
 
-    def __init__(self, vocabs, transform_pipe=None, timeout: float = 120.0, eos_token_ids=()):
+    def __init__(self, vocabs, transform_pipe=None, timeout: float = 120.0, eos_token_ids=(), cancel_event=None):
         self.vocabs = vocabs
         self.eos_token_ids = set(eos_token_ids)
         self.token_count = 0
         self.last_token_id = None
+        self.cancel_event = cancel_event or threading.Event()
+        self.first_token_time = None
+        self.last_token_time = None
         self.transform_pipe = transform_pipe
         self.timeout = timeout
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
@@ -81,6 +89,8 @@ class GenerationStreamer:
                 containing the token IDs produced at the current step.
                 Only the **first** element is used for streaming.
         """
+        if self.cancelled:
+            return
         if hasattr(token_ids, "item"):
             # scalar tensor
             token_id = int(token_ids.item())
@@ -90,9 +100,16 @@ class GenerationStreamer:
         else:
             token_id = int(token_ids)
         self.token_count += 1
+        self.last_token_time = perf_counter()
+        if self.first_token_time is None:
+            self.first_token_time = self.last_token_time
         self.last_token_id = token_id
         if token_id not in self.eos_token_ids:
             self._queue.put(token_id)
+
+    @property
+    def cancelled(self):
+        return self.cancel_event.is_set()
 
     def end(self):
         """Signal that generation is complete.
