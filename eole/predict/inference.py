@@ -135,6 +135,7 @@ class Inference(object):
         self.verbose = config.verbose
         self.report_time = config.report_time
         self.step0_time = 0.0
+        self.decode_timings = []
 
         self.global_scorer = global_scorer
         if self.global_scorer.has_cov_pen and not self.model.decoder.attentional:
@@ -265,6 +266,7 @@ class Inference(object):
         start_time = time()
         self.step0_time = []
         self.warmup_time = []
+        self.decode_timings = []
 
         def _maybe_retranslate(translations, batch):
             """Here we handle the cases of mismatch in number of segments
@@ -488,7 +490,20 @@ class Inference(object):
             if len(all_predictions) > 0:
                 self._log("Subsequent prediction time including all (s): %.2f" % decoding_time)
                 self._log("Average prediction time (ms): %.1f" % (decoding_time / len(all_predictions) * 1000))
-                self._log("Tokens per second: %.1f" % (pred_words_total / decoding_time))
+                if self.decode_timings:
+                    decode_tokens = sum(tokens for tokens, _ in self.decode_timings)
+                    decode_seconds = sum(seconds for _, seconds in self.decode_timings)
+                    self._log("Decode time (first to last token, s): %.6f" % decode_seconds)
+                    self._log("Decode tokens (excluding first, including EOS): %d" % decode_tokens)
+                    self._log(
+                        "Tokens per second: %.1f" % (decode_tokens / decode_seconds if decode_seconds > 0 else 0.0)
+                    )
+                    self._log(
+                        "Prediction tokens per second (legacy, including overhead): %.1f"
+                        % (pred_words_total / decoding_time if decoding_time > 0 else 0.0)
+                    )
+                else:
+                    self._log("Tokens per second: %.1f" % (pred_words_total / decoding_time))
                 self._log("pred_words_total: %.1f" % (pred_words_total))
 
         if self.dump_beam:
@@ -500,6 +515,12 @@ class Inference(object):
             )
 
         return all_scores, all_estim, all_predictions
+
+    def _record_decode_timing(self, predictions, seconds):
+        # Count delivered first-best model token IDs, including terminal EOS.
+        # Prefill produced the first token of each sequence outside this interval.
+        tokens = sum(max(hypotheses[0].numel() - 1, 0) for hypotheses in predictions if hypotheses)
+        self.decode_timings.append((tokens, seconds))
 
     def _score(self, infer_iter):
         self.with_scores = True
