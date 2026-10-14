@@ -263,37 +263,6 @@ class GeneratorLM(Inference):
                 self.model.decoder._compile_decoder(
                     emb=emb, tgt_pad_mask=tgt_pad_mask, return_attn=decode_strategy.return_attention
                 )
-                if use_spec_decoding and self.max_length > 1:
-                    # Compile the short verifier chunk too. Without this
-                    # shape-specific warmup, compile modes 0/1 compile only
-                    # S=1 decode and leave every speculative verifier pass in
-                    # eager mode.
-                    dummy_verify = torch.zeros(
-                        emb.size(0), verify_len, self.model.decoder.hidden_size, device=emb.device, dtype=emb.dtype
-                    )
-                    dummy_verify_mask = torch.zeros(emb.size(0), 1, verify_len, dtype=torch.bool, device=emb.device)
-                    linear_layers = [
-                        module
-                        for module in self.model.decoder.modules()
-                        if isinstance(module, GatedDeltaNet)
-                        and module.conv_state is not None
-                        and module.recurrent_state is not None
-                    ]
-                    try:
-                        for layer in linear_layers:
-                            layer.begin_speculation(verify_len)
-                        self.model.decoder._speculative_forward = True
-                        self.model.decoder(
-                            dummy_verify,
-                            enc_out=None,
-                            step=1,
-                            return_attn=False,
-                            tgt_pad_mask=dummy_verify_mask,
-                        )
-                    finally:
-                        self.model.decoder._speculative_forward = False
-                        for layer in linear_layers:
-                            layer.end_speculation()
             elif EOLE_COMPILE_MODE == "2" and self.model.decoder._can_replay_decoder(
                 emb, {"tgt_pad_mask": tgt_pad_mask, "return_attn": decode_strategy.return_attention}, for_warmup=True
             ):
@@ -312,6 +281,37 @@ class GeneratorLM(Inference):
                 self.model.decoder.transformer_layers[0]._compile_decoder(
                     emb, position_embeddings=position_embeddings, cache_seqlens=self.model.decoder.cache_seqlens
                 )
+            if use_spec_decoding and self.max_length > 1 and EOLE_COMPILE_MODE in ("0", "1", "2"):
+                # Warm the actual verifier shape in decoder and layer compile
+                # modes. Ordinary decode warmup is skipped for MTP requests;
+                # leaving this inside the modes 0/1 branch makes mode 2
+                # compile its verifier during timed generation instead.
+                dummy_verify = torch.zeros(
+                    emb.size(0), verify_len, self.model.decoder.hidden_size, device=emb.device, dtype=emb.dtype
+                )
+                dummy_verify_mask = torch.zeros(emb.size(0), 1, verify_len, dtype=torch.bool, device=emb.device)
+                linear_layers = [
+                    module
+                    for module in self.model.decoder.modules()
+                    if isinstance(module, GatedDeltaNet)
+                    and module.conv_state is not None
+                    and module.recurrent_state is not None
+                ]
+                try:
+                    for layer in linear_layers:
+                        layer.begin_speculation(verify_len)
+                    self.model.decoder._speculative_forward = True
+                    self.model.decoder(
+                        dummy_verify,
+                        enc_out=None,
+                        step=1,
+                        return_attn=False,
+                        tgt_pad_mask=dummy_verify_mask,
+                    )
+                finally:
+                    self.model.decoder._speculative_forward = False
+                    for layer in linear_layers:
+                        layer.end_speculation()
             self.warmup_time.append(time() - start_wu)
             self._log(f"Warmup lasted: {time() - start_wu:.1f} sec")
 
