@@ -109,12 +109,41 @@ class TestWarmupEligibility(unittest.TestCase):
                 )
                 decoder._forward_compile.assert_called_once()
 
-    def test_warmup_delegates_to_actual_replay_eligibility(self):
-        decoder = SimpleNamespace(_can_replay_decoder=Mock(return_value=True), _forward_compile=Mock())
-        emb = torch.zeros(1, 8, 4)
-        mask = torch.zeros(1, 1, 8, dtype=torch.bool)
-        TransformerDecoder._compile_decoder(decoder, emb=emb, tgt_pad_mask=mask)
-        self.assertTrue(decoder._can_replay_decoder.call_args.kwargs["for_warmup"])
+    def test_bound_decode_compiles_without_capture_for_effective_batch(self):
+        for batch_size in (1, 4):
+            with self.subTest(batch_size=batch_size):
+                decoder = SimpleNamespace(
+                    _can_replay_decoder=Mock(return_value=True),
+                    _decode_graph_request_allowed=True,
+                    cache_seqlens=torch.zeros(batch_size, dtype=torch.int32),
+                    hidden_size=4,
+                    _replay_decoder=Mock(),
+                    _forward_compile=Mock(),
+                )
+                emb = torch.zeros(1, 8, 4, dtype=torch.bfloat16)
+                mask = torch.zeros(1, 1, 8, dtype=torch.bool)
+                TransformerDecoder._compile_decoder(decoder, emb=emb, tgt_pad_mask=mask)
+                self.assertTrue(decoder._can_replay_decoder.call_args.kwargs["for_warmup"])
+                dummy, kwargs = decoder._replay_decoder.call_args.args
+                self.assertEqual(dummy.shape, (batch_size, 1, 4))
+                self.assertEqual(dummy.dtype, emb.dtype)
+                self.assertEqual(dummy.device, emb.device)
+                self.assertEqual(kwargs["tgt_pad_mask"].shape, (batch_size, 1, 1))
+                self.assertFalse(kwargs["tgt_pad_mask"].any())
+                self.assertFalse(decoder._replay_decoder.call_args.kwargs["capture"])
+                decoder._forward_compile.assert_not_called()
+
+    def test_mtp_keeps_separate_verifier_warmup(self):
+        decoder = SimpleNamespace(
+            _can_replay_decoder=Mock(return_value=True),
+            _decode_graph_request_allowed=False,
+            _replay_decoder=Mock(),
+            _forward_compile=Mock(),
+        )
+        TransformerDecoder._compile_decoder(
+            decoder, emb=torch.zeros(1, 8, 4), tgt_pad_mask=torch.zeros(1, 1, 8, dtype=torch.bool)
+        )
+        decoder._replay_decoder.assert_not_called()
         decoder._forward_compile.assert_not_called()
 
 

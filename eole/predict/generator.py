@@ -106,8 +106,9 @@ class GeneratorLM(Inference):
     def warmup_compile(self):
         """Optional warmup of the configured compile path, with temporary caches.
 
-        Bound graphs warm their real programs on actual decode calls instead.
-        This method is not used by the streaming worker initializer.
+        Bound programs compile here without capturing graphs. Capture uses
+        actual decode calls. This method is not used by the streaming worker
+        initializer.
         """
         if not EOLE_TORCH_COMPILE:
             return
@@ -129,6 +130,10 @@ class GeneratorLM(Inference):
             decoder._init_cache(dummy_emb, dummy_pad_mask)
             try:
                 if EOLE_COMPILE_MODE in ("0", "1"):
+                    decoder._compile_decoder(emb=dummy_emb, tgt_pad_mask=dummy_pad_mask)
+                elif EOLE_COMPILE_MODE == "2" and decoder._can_replay_decoder(
+                    dummy_emb, {"tgt_pad_mask": dummy_pad_mask}, for_warmup=True
+                ):
                     decoder._compile_decoder(emb=dummy_emb, tgt_pad_mask=dummy_pad_mask)
                 elif EOLE_COMPILE_MODE in ("2", "3") and not decoder._can_replay_decoder(
                     dummy_emb, {"tgt_pad_mask": dummy_pad_mask}, for_warmup=True
@@ -289,6 +294,12 @@ class GeneratorLM(Inference):
                         self.model.decoder._speculative_forward = False
                         for layer in linear_layers:
                             layer.end_speculation()
+            elif EOLE_COMPILE_MODE == "2" and self.model.decoder._can_replay_decoder(
+                emb, {"tgt_pad_mask": tgt_pad_mask, "return_attn": decode_strategy.return_attention}, for_warmup=True
+            ):
+                self.model.decoder._compile_decoder(
+                    emb=emb, tgt_pad_mask=tgt_pad_mask, return_attn=decode_strategy.return_attention
+                )
             elif EOLE_COMPILE_MODE in ["2", "3"] and not self.model.decoder._can_replay_decoder(
                 emb, {"tgt_pad_mask": tgt_pad_mask, "return_attn": decode_strategy.return_attention}, for_warmup=True
             ):

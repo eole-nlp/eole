@@ -454,8 +454,17 @@ class TransformerDecoder(DecoderBase):
             },
             for_warmup=True,
         ):
-            # The graph runner warms with real decode tokens. Avoid creating
-            # an unrelated graph-tree manager in the caller/worker thread.
+            # Compile the bound decode program during reported warmup, without
+            # capturing a graph or creating a legacy graph-tree manager. The
+            # first real prefill reinitializes these temporary caches. Capture
+            # still uses real tokens, so recurrent state advances only once.
+            # MTP warms its verifier separately and does not need this program.
+            if getattr(self, "_decode_graph_request_allowed", False):
+                dummy_emb = torch.zeros(
+                    self.cache_seqlens.size(0), 1, self.hidden_size, device=emb.device, dtype=emb.dtype
+                )
+                dummy_pad_mask = torch.zeros(dummy_emb.size(0), 1, 1, device=emb.device, dtype=torch.bool)
+                self._replay_decoder(dummy_emb, {"tgt_pad_mask": dummy_pad_mask}, capture=False)
             return
 
         if emb is not None and tgt_pad_mask is not None:
