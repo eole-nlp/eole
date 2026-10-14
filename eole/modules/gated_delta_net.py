@@ -442,6 +442,7 @@ class GatedDeltaNet(nn.Module):
         # left untouched until the accepted input prefix is known.
         self._speculating = False
         self._spec_buffers = None
+        self._control_gemv_enabled = False
 
     def begin_speculation(self, seq_len):
         if self.conv_state is None or self.recurrent_state is None:
@@ -478,6 +479,21 @@ class GatedDeltaNet(nn.Module):
                 ),
                 "final_recurrent_state": torch.empty_like(self.recurrent_state),
             }
+        # The four-row BF16 GEMM is unusually slow for Qwen's tiny control
+        # projections on SM120. Resolve hardware eligibility outside compilation
+        # and graph capture; keep unmeasured devices/shapes on the normal path.
+        self._control_gemv_enabled = (
+            seq_len == 4
+            and batch_size == 1
+            and device.type == "cuda"
+            and torch.cuda.get_device_capability(device) == (12, 0)
+            and self.hidden_size == 5120
+            and self.num_v_heads == 48
+            and isinstance(self.in_proj_a, nn.Linear)
+            and isinstance(self.in_proj_b, nn.Linear)
+            and self.in_proj_a.weight.shape == (48, 5120)
+            and self.in_proj_b.weight.shape == (48, 5120)
+        )
         self._speculating = True
 
     def end_speculation(self):
@@ -654,6 +670,26 @@ class GatedDeltaNet(nn.Module):
     # Forward
     # ------------------------------------------------------------------
 
+    def _should_split_control_rows(self, hidden_states):
+        return (
+            self._speculating
+            and self._control_gemv_enabled
+            and not self.training
+            and hidden_states.shape[0] == 1
+            and hidden_states.shape[1] == 4
+            and hidden_states.is_cuda
+            and hidden_states.dtype == torch.bfloat16
+            and isinstance(self.in_proj_b, nn.Linear)
+            and isinstance(self.in_proj_a, nn.Linear)
+        )
+
+    def _project_control(self, projection, hidden_states, split_rows=False):
+        if split_rows:
+            # Use four GEMVs instead of one skinny GEMM. Inductor incorporates
+            # the stack into subsequent pointwise work in the verifier graph.
+            return torch.stack([projection(hidden_states[:, i, :]) for i in range(4)], dim=1)
+        return projection(hidden_states)
+
     def forward(self, hidden_states, attn_mask=None, **kwargs):
         batch_size, seq_len, _ = hidden_states.shape
 
@@ -667,8 +703,9 @@ class GatedDeltaNet(nn.Module):
         mixed_qkv = self.in_proj_qkv(hidden_states).transpose(1, 2)  # (B, conv_dim, S)
         z = self.in_proj_z(hidden_states)  # (B, S, value_dim)
         z = z.reshape(batch_size, seq_len, self.num_v_heads, self.head_v_dim)
-        b = self.in_proj_b(hidden_states)  # (B, S, num_v_heads)
-        a = self.in_proj_a(hidden_states)  # (B, S, num_v_heads)
+        split_control_rows = self._should_split_control_rows(hidden_states)
+        b = self._project_control(self.in_proj_b, hidden_states, split_control_rows)
+        a = self._project_control(self.in_proj_a, hidden_states, split_control_rows)
 
         if use_precomputed:
             mixed_qkv = self._causal_conv1d_update(
