@@ -118,7 +118,7 @@ checked with Prettier; backend routing, cancellation and metrics are covered by
 
 ![DeepSeek-OCR PDF workspace](images/ocr-workspace.jpg)
 
-The **Documents** workspace uses DeepSeek-OCR to turn scanned pages into Markdown.
+The **Documents** workspace uses DeepSeek-OCR or HunyuanOCR to turn scanned pages into Markdown.
 Install PDF rendering support and point the recipe at your converted Eole model:
 
 ```bash
@@ -147,11 +147,38 @@ Imports are limited to 20 MB per file and 50 pages per workspace. Pages are rend
 at up to 1024 pixels on the longest edge. Encrypted PDFs must be unlocked first.
 Uploaded files are not written to server storage, and page images/results remain
 only in browser-tab memory: reload discards them. Download results before closing.
-The Markdown preview uses the workspace's safe basic renderer; it does not recreate
-PDF typography or embed extracted figures. Raw OCR remains available for inspection.
+The preview renders Markdown tables, supported HTML tables (including merged cells),
+and LaTeX formulas. HTML tables are reconstructed from text cells and numeric spans;
+model-supplied scripts, styles, links and image URLs are never executed. Formula
+rendering uses bundled KaTeX 0.19.0 with native MathML output, trust disabled and
+bounded expansion/size: there are no CDN or external font requests. Source and raw
+OCR preserve the generated document for export. The preview does not recreate PDF
+typography or embed extracted figures.
 
 To expose all three workflows, combine model entries from the UI, translation and
 OCR recipes in one server YAML. Model loading consumes GPU memory; do not preload
 more models than fit. This OCR workflow currently supports single-process
-DeepSeek-OCR with `data_type: image`; other vision models need their own prompt
-and output adapters.
+DeepSeek-OCR and HunyuanOCR with `data_type: image`; model-specific prompts and
+output adapters live in `eole/server/ui_ocr_models.py`. Other vision models need
+an adapter before appearing in the model selector.
+
+### HunyuanOCR
+
+Use an existing Eole-converted HunyuanOCR checkpoint with the dedicated recipe:
+
+```bash
+export EOLE_MODEL_DIR=/path/to/models
+export HUNYUAN_OCR_MODEL="$EOLE_MODEL_DIR/HunyuanOCR"
+eole serve -c recipes/ui/serve-ocr-hunyuan.yaml --host 127.0.0.1 --port 5000
+```
+
+HunyuanOCR uses its own document-parsing prompt and special-token cleanup, rather
+than DeepSeek's grounding prompt. This workflow requests Markdown, HTML tables
+and LaTeX in reading order, ignoring headers and footers, following its
+[document parsing instructions](https://huggingface.co/tencent/HunyuanOCR/blob/main/v1.0/README.md).
+It is tested with the converted 1B HunyuanOCR checkpoint. Document parsing does not
+guarantee usable layout coordinates, so the layout control is disabled for this
+adapter; DeepSeek-OCR retains its grounding overlays. All import, navigation,
+cancellation, retry, performance metrics and export controls are shared.
+
+![HunyuanOCR table and formula preview](images/hunyuan-ocr-workspace.jpg)

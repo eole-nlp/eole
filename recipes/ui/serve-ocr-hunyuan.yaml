@@ -1,0 +1,25 @@
+# Existing Eole-converted HunyuanOCR checkpoint (the 1B document OCR model).
+models_root: "${EOLE_MODEL_DIR}"
+models:
+  - id: hunyuan-ocr
+    path: "${HUNYUAN_OCR_MODEL}"
+    preload: true
+    config:
+      data_type: image
+      compute_dtype: bf16
+      self_attn_backend: flash
+      beam_size: 1
+      n_best: 1
+      batch_size: 1
+      top_k: 1
+      top_p: 0.0
+      temperature: 1.0
+      min_length: 0
+      max_length: 8192
+      max_length_ratio: 0
+      context_length: 32768
+      optional_eos: ["<｜hy_Assistant｜>"]
+      self_speculative_decoding: false
+      fuse_kvq: true
+      fuse_gate: false
+      report_time: true

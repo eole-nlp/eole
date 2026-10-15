@@ -10,7 +10,9 @@
     stopping = false,
     requestId = null,
     importing = false,
-    initialized = false;
+    initialized = false,
+    models = [],
+    layoutPreference = true;
   const status = (text) => {
     $("status").textContent = text;
   };
@@ -33,55 +35,14 @@
     $("download").disabled = !pages[selected]?.raw;
     $("download-all").disabled = !pages.some((p) => p.raw);
   }
-  function renderMarkdown(text) {
-    // Escape all model output, including table cells; never load model-supplied URLs.
-    const lines = text.replace(/<\/?center>/gi, "").split("\n"),
-      blocks = [];
-    let paragraph = [],
-      fenced = false;
-    const flush = () => {
-      if (paragraph.length) blocks.push(markdown(paragraph.join("\n")));
-      paragraph = [];
-    };
-    const cells = (line) =>
-      line
-        .trim()
-        .replace(/^\||\|$/g, "")
-        .split("|")
-        .map((cell) => cell.trim());
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].trim().startsWith("```")) fenced = !fenced;
-      if (
-        !fenced &&
-        lines[i].includes("|") &&
-        i + 1 < lines.length &&
-        /^\s*\|?\s*:?-{3,}/.test(lines[i + 1]) &&
-        cells(lines[i + 1]).every((c) => /^:?-{3,}:?$/.test(c))
-      ) {
-        flush();
-        const header = cells(lines[i]);
-        i += 2;
-        const rows = [];
-        while (i < lines.length && lines[i].includes("|")) {
-          rows.push(cells(lines[i]));
-          i++;
-        }
-        i--;
-        blocks.push(
-          `<div class="ocr-table"><table><thead><tr>${header.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`,
-        );
-      } else paragraph.push(lines[i]);
-    }
-    flush();
-    return blocks.join("");
-  }
+
   function output() {
     const p = pages[selected];
     if (!p) return;
     const text = content(p);
     $("output").innerHTML = text
       ? mode === "rendered"
-        ? renderMarkdown(text)
+        ? EoleOCR.render(text, p.tables || [])
         : `<pre>${esc(text)}</pre>`
       : `<div class="ocr-empty"><h2>${p.status === "processing" ? "Reading this page…" : "Ready when you are"}</h2><p>${esc(p.error || "Process this page or the complete document to extract its contents.")}</p></div>`;
     if (!p.stats)
@@ -93,8 +54,22 @@
         `Page ${selected + 1} · ${s.output_tokens ?? "—"} output tokens · ${Number(s.request_seconds || 0).toFixed(1)} s total · ${s.decode_tokens_per_second ? Number(s.decode_tokens_per_second).toFixed(1) + " tok/s decode" : "decode speed unavailable"} · ${p.status}`;
     }
   }
+  function layoutControl() {
+    const page = pages[selected],
+      model = models.find((m) => m.id === $("model").value);
+    const supported = page?.layout_supported ?? model?.ocr_layout ?? false;
+    $("overlay").disabled = !supported;
+    $("overlay").checked = supported && layoutPreference;
+    if ($("layout-label"))
+      $("layout-label").textContent = supported ? "Layout" : "No layout data";
+    $("overlay").parentElement.title = supported
+      ? "Show model grounding coordinates"
+      : "This model's document parsing does not provide layout boxes";
+  }
+  $("model").onchange = layoutControl;
   function show() {
     controls();
+    layoutControl();
     const p = pages[selected];
     if (!p) return;
     $("name").textContent = p.name;
@@ -137,7 +112,10 @@
       show();
     }
   };
-  $("overlay").onchange = show;
+  $("overlay").onchange = () => {
+    layoutPreference = $("overlay").checked;
+    show();
+  };
   $("zoom").onchange = show;
   for (const id of ["rendered", "source", "raw"])
     $(id).onclick = () => {
@@ -151,8 +129,8 @@
       initialized = true;
       if (detail.models.every((m) => m.ocr)) switchView("ocr");
     }
-    const models = detail.models.filter((m) => m.ocr),
-      old = $("model").value;
+    models = detail.models.filter((m) => m.ocr);
+    const old = $("model").value;
     const options =
       models
         .map((m) => `<option value="${esc(m.id)}">${esc(m.id)}</option>`)
@@ -162,6 +140,7 @@
       if (models.some((m) => m.id === old)) $("model").value = old;
     }
     controls();
+    layoutControl();
   });
   document.querySelector(".ocr-upload").onkeydown = (event) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -242,6 +221,9 @@
         p.boxes = [];
         p.error = null;
         p.stats = null;
+        p.layout_supported =
+          models.find((m) => m.id === model)?.ocr_layout ?? false;
+        p.tables = [];
         show();
         status(`Reading page ${i + 1} of ${pages.length}…`);
         let terminal = false;
@@ -264,6 +246,8 @@
               p.raw = item.raw || p.raw;
               p.markdown = item.markdown || "";
               p.boxes = item.boxes || [];
+              p.tables = item.tables || [];
+              p.layout_supported = item.layout_supported ?? false;
               p.stats = item.stats;
               p.status = item.cancelled
                 ? "cancelled"

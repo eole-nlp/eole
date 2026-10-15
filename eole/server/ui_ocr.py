@@ -5,7 +5,6 @@ import base64
 import binascii
 from io import BytesIO
 from pathlib import Path
-import re
 from time import perf_counter
 
 from fastapi import HTTPException
@@ -15,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from eole.server.streaming import inference_stream
 from eole.server.ui_runtime import event
+from eole.server.ui_ocr_models import DEEPSEEK, ocr_adapter, extract_tables
 
 
 class OCRImport(BaseModel):
@@ -75,25 +75,9 @@ def import_pages(request):
     return [encode_page(open_image(raw))]
 
 
-def ocr_capabilities(model):
-    """This workflow uses the DeepSeek-OCR prompt and grounding format."""
-    name = str(getattr(model, "model_path", "")) + " " + str(getattr(model, "model_id", ""))
-    return bool(re.search(r"deepseek[-_]?ocr", name, re.I))
-
-
-def parse_ocr(text):
-    boxes = []
-    pattern = r"<\|ref\|>(.*?)<\|/ref\|>\s*<\|det\|>(.*?)<\|/det\|>"
-    for label, coordinates in re.findall(pattern, text, re.S):
-        for values in re.findall(r"\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]", coordinates):
-            x1, y1, x2, y2 = map(int, values)
-            if 0 <= x1 < x2 <= 1000 and 0 <= y1 < y2 <= 1000:
-                boxes.append(dict(label=label, x=x1 / 10, y=y1 / 10, width=(x2 - x1) / 10, height=(y2 - y1) / 10))
-    markdown = re.sub(pattern, "", text, flags=re.S)
-    # Cancellation can end inside a grounding marker. Keep it only in raw output.
-    markdown = re.sub(r"<\|ref\|>.*\Z", "", markdown, flags=re.S)
-    markdown = re.sub(r"<\|(?:endoftext|eos)\|>", "", markdown)
-    return dict(markdown=markdown.strip(), boxes=boxes)
+def parse_ocr(text, adapter=None):
+    result = (adapter or DEEPSEEK).parse(text)
+    return dict(**result, tables=extract_tables(result["markdown"]))
 
 
 def register_ocr(app, server, workspace):
@@ -110,8 +94,9 @@ def register_ocr(app, server, workspace):
         model = server.models.get(request.model)
         if model is None:
             raise HTTPException(404, "Unknown model")
-        if not ocr_capabilities(model):
-            raise HTTPException(422, "Select a DeepSeek-OCR model for this workflow")
+        adapter = ocr_adapter(model)
+        if adapter is None:
+            raise HTTPException(422, "Select a DeepSeek-OCR or HunyuanOCR model for this workflow")
         try:
             image = await asyncio.to_thread(open_image, decode_data(request.data, 3000000))
             image.thumbnail((1024, 1024))
@@ -138,7 +123,7 @@ def register_ocr(app, server, workspace):
                         if request.max_tokens > limit:
                             raise ValueError(f"Model output limit is {limit} tokens")
                         prompt = {
-                            "text": "{image}\n<|grounding|>Convert the document to markdown.",
+                            "text": adapter.prompt,
                             "images": {"image": image},
                         }
                         settings = dict(
@@ -178,7 +163,8 @@ def register_ocr(app, server, workspace):
                         yield event(
                             "done",
                             raw=raw,
-                            **parse_ocr(raw),
+                            **parse_ocr(raw, adapter),
+                            layout_supported=adapter.layout,
                             stats=stats,
                             cancelled=cancel.is_set(),
                             incomplete=incomplete,

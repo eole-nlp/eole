@@ -177,3 +177,74 @@ class OCRStreamerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "HuggingFace tokenizer"):
             GenerationStreamer({}, preserve_special_tokens=True)
+
+
+class OCRAdapterTests(unittest.TestCase):
+    def test_model_prompts_and_capabilities(self):
+        from eole.server.ui_ocr_models import ocr_adapter
+
+        deepseek = ocr_adapter(SimpleNamespace(model_path="/models/DeepSeek-OCR"))
+        hunyuan = ocr_adapter(SimpleNamespace(model_path="/models/HunyuanOCR"))
+        self.assertTrue(deepseek.layout)
+        self.assertFalse(hunyuan.layout)
+        self.assertIn("<|grounding|>", deepseek.prompt)
+        self.assertIn("{image}", hunyuan.prompt)
+        self.assertIn("<｜hy_User｜>", hunyuan.prompt)
+        self.assertNotIn("<|grounding|>", hunyuan.prompt)
+        self.assertIsNone(ocr_adapter(SimpleNamespace(model_path="Hy-MT2-7B")))
+
+    def test_hunyuan_control_tokens_and_tables(self):
+        from eole.server.ui_ocr_models import HUNYUAN
+
+        raw = (
+            "<｜hy_place▁holder▁no▁112｜>A title<｜hy_place▁holder▁no▁113｜>"
+            "<｜hy_place▁holder▁no▁110｜>0,0,100,100<｜hy_place▁holder▁no▁111｜>\n"
+            '<table onclick="bad()"><tr><th colspan="2">Header</th></tr>'
+            '<tr><td rowspan="-2">&lt;img src=x&gt;<script>bad()</script></td>'
+            '<td>\\(x^2\\)<img src="https://example.invalid/x" onerror="bad()"></td></tr></table>'
+            "<｜hy_Assistant｜>"
+        )
+        result = parse_ocr(raw, HUNYUAN)
+        self.assertEqual(result["boxes"], [])
+        self.assertIn("A title", result["markdown"])
+        self.assertNotIn("hy_", result["markdown"])
+        self.assertNotIn("0,0,100,100", result["markdown"])
+        rows = result["tables"][0]["rows"]
+        self.assertEqual(rows[0][0]["colspan"], 2)
+        self.assertEqual(rows[1][0]["rowspan"], 1)
+        self.assertEqual(rows[1][0]["text"], "<img src=x>")
+        self.assertEqual(rows[1][1]["text"], "\\(x^2\\)")
+        self.assertNotIn("onclick", str(rows))
+        self.assertNotIn("https:", str(rows))
+
+    def test_malformed_table_attributes_and_partial_control_token(self):
+        from eole.server.ui_ocr_models import HUNYUAN
+
+        result = parse_ocr('<table><tr><td colspan rowspan="999999">Cell</td></tr></table><｜hy_place', HUNYUAN)
+        self.assertEqual(result["tables"][0]["rows"][0][0]["colspan"], 1)
+        self.assertEqual(result["tables"][0]["rows"][0][0]["rowspan"], 1)
+        self.assertNotIn("hy_place", result["markdown"])
+
+    def test_hunyuan_page_uses_own_prompt_and_disables_overlay(self):
+        # Keep the request path exercised through the actual async bridge.
+        client, workspace, engine = OCRTests().client()
+        from eole.server.ui_ocr_models import HUNYUAN
+        from unittest.mock import patch
+
+        with patch("eole.server.ui_ocr.ocr_adapter", return_value=HUNYUAN):
+            response = client.post("/ui/ocr/page", json=dict(model="ocr", data=image_data()))
+        frames = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+        self.assertEqual(frames[-1]["type"], "done")
+        self.assertFalse(frames[-1]["layout_supported"])
+        self.assertEqual(engine.prompt["text"], HUNYUAN.prompt)
+        self.assertEqual(workspace.recent[0]["status"], "complete")
+
+    def test_preview_renderer(self):
+        import shutil
+        import subprocess
+        from pathlib import Path
+
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node is only needed for this browser renderer regression check")
+        subprocess.run([node, str(Path(__file__).with_name("web") / "test_ocr_render.cjs")], check=True, timeout=20)

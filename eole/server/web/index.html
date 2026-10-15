@@ -9,6 +9,8 @@
     <script src="/ui/assets/workspace.js" defer></script>
     <script src="/ui/assets/app.js" defer></script>
     <script src="/ui/assets/translator.js" defer></script>
+    <script src="/ui/assets/katex.min.js" defer></script>
+    <script src="/ui/assets/ocr_render.js" defer></script>
     <script src="/ui/assets/ocr.js" defer></script>
     <link rel="stylesheet" href="/ui/assets/ocr.css" />
     <link rel="stylesheet" href="/ui/assets/translator.css" />
@@ -132,7 +134,7 @@
                 <strong id="ocr-name">Original document</strong
                 ><label
                   ><input id="ocr-overlay" type="checkbox" checked />
-                  Layout</label
+                  <span id="ocr-layout-label">Layout</span></label
                 ><label
                   >Zoom
                   <select id="ocr-zoom">

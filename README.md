@@ -55,7 +55,7 @@ and current limitations.
 | Fine-tune an LLM | [Llama2 LoRA](recipes/llama2/README.md) |
 | Fine-tune with a scorer reward | [REINFORCE](recipes/rl/README.md) |
 | Score translations or use neural metrics during training | [COMET, KIWI, XCOMET, and MetricX](recipes/scoring/README.md) |
-| Extract scanned PDFs through a web interface | [DeepSeek-OCR Documents workspace](recipes/ui/README.md#documents-pdf-and-image-ocr) |
+| Extract scanned PDFs through a web interface | [DeepSeek-OCR / HunyuanOCR Documents workspace](recipes/ui/README.md#documents-pdf-and-image-ocr) |
 | Extract text from images and documents | [HunyuanOCR](recipes/hunyuanocr/README.md) or [DeepSeek-OCR](recipes/deepseekocr/README.md) |
 | Transcribe audio | [Whisper](recipes/whisper/README.md) |
 | Train a language model from scratch | [WikiText-103](recipes/wiki_103/README.md) or [FineWeb](recipes/fineweb10B/README.md) |

@@ -302,3 +302,14 @@
     height: 600px;
   }
 }
+.ocr-output math {
+  font-size: 1.05em;
+}
+.ocr-output math[display="block"] {
+  overflow-x: auto;
+  padding: 12px 0;
+}
+.ocr-table td,
+.ocr-table th {
+  white-space: pre-wrap;
+}

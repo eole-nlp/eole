@@ -12,7 +12,8 @@ from pydantic import BaseModel, Field
 
 import eole
 from eole.server.ui_runtime import Workspace, event
-from eole.server.ui_ocr import register_ocr, ocr_capabilities
+from eole.server.ui_ocr import register_ocr
+from eole.server.ui_ocr_models import ocr_adapter
 from eole.server.ui_documents import register_document_import
 from eole.server.ui_translation import register_translation, translation_capabilities
 from eole.predict.generator import GeneratorLM
@@ -113,12 +114,14 @@ def register_ui(app, server):
         for model_id, model in server.models.items():
             config = getattr(model.engine, "config", None) if model.loaded else None
             settings = model.pre_config
+            ocr = ocr_adapter(model)
             models.append(
                 {
                     "id": model_id,
                     "loaded": model.loaded,
                     "translation": translation_capabilities(model),
-                    "ocr": ocr_capabilities(model),
+                    "ocr": ocr is not None,
+                    "ocr_layout": bool(ocr and ocr.layout),
                     "dtype": str(getattr(config, "compute_dtype", settings.get("compute_dtype", "auto"))),
                     "quant_type": getattr(config, "quant_type", ""),
                     "weight_bits": (
