@@ -1,0 +1,358 @@
+.ocr-view {
+  padding: 42px 36px;
+  max-width: 1700px;
+  margin: auto;
+}
+.ocr-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 20px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.ocr-toolbar label {
+  display: grid;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.ocr-toolbar input[type="number"] {
+  width: 130px;
+}
+
+.ocr-status {
+  padding: 18px 2px;
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 50px;
+}
+.ocr-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+.ocr-panel {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper);
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ocr-panel-heading {
+  min-height: 65px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.ocr-panel-heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 50%;
+  font-weight: 500;
+}
+.ocr-panel-heading label {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ocr-panel-heading select {
+  padding: 5px;
+  font-size: 11px;
+}
+.ocr-preview {
+  height: 580px;
+  overflow: auto;
+  background: var(--bg);
+  padding: 24px;
+}
+.ocr-sheet {
+  position: relative;
+  margin: 0 auto;
+  box-shadow: 0 5px 28px #0002;
+  line-height: 0;
+  flex-shrink: 0;
+}
+.ocr-sheet > img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.ocr-box {
+  position: absolute;
+  border: 1px solid #e16d46;
+  background: #e16d460c;
+  pointer-events: auto;
+}
+.ocr-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 10px;
+  font-size: 12px;
+  border-top: 1px solid var(--line);
+}
+.ocr-thumbnails {
+  display: flex;
+  gap: 10px;
+  padding: 12px 18px;
+  overflow-x: auto;
+  border-top: 1px solid var(--line);
+  min-height: 100px;
+}
+.ocr-thumb {
+  flex: 0 0 80px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 9px;
+}
+.ocr-thumb img {
+  height: 62px;
+  max-width: 68px;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto 5px;
+}
+.ocr-thumb.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  color: var(--accent);
+}
+.ocr-output {
+  height: 690px;
+  overflow: auto;
+  padding: 28px;
+  flex: 1;
+  min-height: 400px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.ocr-output pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    12px/1.7 ui-monospace,
+    monospace;
+  background: transparent;
+  color: inherit;
+}
+.ocr-tabs {
+  display: flex;
+  gap: 3px;
+}
+.ocr-tabs [aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ocr-export {
+  display: flex;
+  gap: 8px;
+  padding: 16px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.ocr-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 250px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 30px;
+  padding: 24px;
+}
+.ocr-empty h2 {
+  font-size: 20px;
+  color: var(--ink);
+  font-weight: 450;
+  letter-spacing: -0.5px;
+  margin: 16px 0 8px;
+}
+.ocr-empty p {
+  font-size: 13px;
+  line-height: 1.7;
+  max-width: 300px;
+  margin: 0;
+}
+.ocr-metrics {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 18px 2px;
+}
+@media (max-width: 1100px) {
+  .ocr-view {
+    padding: 28px 20px;
+  }
+  .ocr-grid {
+    grid-template-columns: 1fr;
+  }
+  .ocr-preview {
+    height: 500px;
+  }
+  .ocr-output {
+    height: 500px;
+  }
+}
+@media (max-width: 600px) {
+  .ocr-view {
+    padding: 20px 12px;
+  }
+  .ocr-toolbar {
+    gap: 10px;
+    padding: 12px;
+  }
+  .ocr-preview {
+    padding: 12px;
+    height: 400px;
+  }
+  .ocr-panel-heading {
+    padding: 10px;
+  }
+  .ocr-panel-heading strong {
+    max-width: 100%;
+  }
+  .ocr-output {
+    padding: 18px;
+  }
+}
+
+.ocr-table {
+  overflow-x: auto;
+  margin: 16px 0;
+}
+.ocr-table table {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+.ocr-table th,
+.ocr-table td {
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.ocr-table th {
+  background: var(--accent-soft);
+  font-weight: 500;
+}
+/* Keep both panes bounded, so long OCR text scrolls beside the page carousel. */
+.ocr-panel {
+  height: 820px;
+}
+.ocr-preview {
+  height: auto;
+  min-height: 0;
+  flex: 1;
+}
+.ocr-output {
+  height: auto;
+  min-height: 0;
+  flex: 1;
+}
+.ocr-panel-heading,
+.ocr-navigation,
+.ocr-thumbnails,
+.ocr-export {
+  flex-shrink: 0;
+}
+.ocr-toolbar select,
+.ocr-toolbar input[type="number"] {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 12px;
+  min-height: 38px;
+}
+.ocr-toolbar select {
+  min-width: 180px;
+}
+@media (max-width: 1100px) {
+  .ocr-panel {
+    height: 720px;
+  }
+}
+@media (max-width: 600px) {
+  .ocr-panel {
+    height: 600px;
+  }
+}
+.ocr-output math {
+  font-size: 1.05em;
+}
+.ocr-output math[display="block"] {
+  overflow-x: auto;
+  padding: 12px 0;
+}
+.ocr-table td,
+.ocr-table th {
+  white-space: pre-wrap;
+}
+
+.ocr-dropzone {
+  flex-shrink: 0;
+  margin: 14px 18px;
+  padding: 18px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: center;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.ocr-dropzone strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.ocr-dropzone > span:last-of-type {
+  font-size: 11px;
+}
+.ocr-drop-icon {
+  color: var(--accent);
+  font-size: 22px;
+  line-height: 1;
+}
+.ocr-dropzone:hover,
+.ocr-drag-active .ocr-dropzone {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.ocr-drag-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.ocr-dropzone[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: wait;
+}
+.ocr-dropzone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}

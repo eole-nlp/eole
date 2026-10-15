@@ -308,6 +308,7 @@ class InferenceEnginePY(InferenceEngine):
         settings: Optional[Dict[str, Any]] = None,
         generation_stats: Optional[Dict[str, Any]] = None,
         cancel_event=None,
+        preserve_special_tokens=False,
     ):
         """Stream inference results for a single input string.
 
@@ -326,6 +327,7 @@ class InferenceEnginePY(InferenceEngine):
             generation_stats (dict, optional): Filled by the inference worker
                 with exact emitted-token count, stop reason and request timings.
                 When supplied, terminal EOS tokens are omitted from text.
+            preserve_special_tokens (bool): Retain HF tokenizer structured output markers.
             cancel_event (threading.Event, optional): Cooperative stop signal;
                 cancellation waits for the current forward/warmup to finish.
 
@@ -355,6 +357,7 @@ class InferenceEnginePY(InferenceEngine):
             transform_pipe=self.transform_pipe,
             eos_token_ids=self.predictor._tgt_eos_idx if generation_stats is not None else (),
             cancel_event=cancel_event,
+            preserve_special_tokens=preserve_special_tokens,
             timeout=600.0,
         )
 

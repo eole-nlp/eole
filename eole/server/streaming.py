@@ -6,7 +6,9 @@ from contextlib import asynccontextmanager
 
 
 @asynccontextmanager
-async def inference_stream(engine, prompt, settings, generation_stats=None, cancel_event=None):
+async def inference_stream(
+    engine, prompt, settings, generation_stats=None, cancel_event=None, preserve_special_tokens=False
+):
     """Yield an async chunk iterator and drain its worker when the consumer exits.
 
     Without an explicit cancel_event, disconnects stop delivery only. With
@@ -26,6 +28,8 @@ async def inference_stream(engine, prompt, settings, generation_stats=None, canc
                 kwargs["generation_stats"] = generation_stats
             if cancel_event is not None:
                 kwargs["cancel_event"] = cancel_event
+            if preserve_special_tokens:
+                kwargs["preserve_special_tokens"] = True
             for chunk in engine.infer_list_stream(prompt, **kwargs):
                 if not cancelled.is_set():
                     loop.call_soon_threadsafe(queue.put_nowait, chunk)

@@ -1,0 +1,4 @@
+KaTeX 0.19.0, https://katex.org/ (MIT license; see katex.LICENSE).
+Vendored from the official npm katex@0.19.0 package, dist/katex.min.js.
+OCR previews use MathML output, trust:false and bounded expansion/size. No CDN,
+remote fonts, Node runtime or build step is required by the Eole server.

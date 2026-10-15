@@ -29,6 +29,9 @@ class GenerationStreamer:
             up directly in the vocabulary.
         eos_token_ids (iterable): Optional terminal IDs to count but omit
             from decoded chunks. The default preserves existing behavior.
+        preserve_special_tokens (bool): Decode directly with the HF tokenizer,
+            retaining structured output markers (for example OCR grounding).
+            Terminal EOS IDs are still omitted. Defaults to False.
         timeout (float): Maximum seconds to wait for the next token before
             the iterator stops. Default is 120.0.
 
@@ -57,7 +60,25 @@ class GenerationStreamer:
     # Sentinel value placed in the queue to signal end-of-generation
     _STOP = object()
 
-    def __init__(self, vocabs, transform_pipe=None, timeout: float = 120.0, eos_token_ids=(), cancel_event=None):
+    def __init__(
+        self,
+        vocabs,
+        transform_pipe=None,
+        timeout: float = 120.0,
+        eos_token_ids=(),
+        cancel_event=None,
+        preserve_special_tokens=False,
+    ):
+        self.raw_tokenizer = None
+        if preserve_special_tokens:
+            from eole.transforms.tokenize_id import HuggingfaceTokenizer
+
+            self.raw_tokenizer = next(
+                (t.tokenizer for t in getattr(transform_pipe, "transforms", []) if isinstance(t, HuggingfaceTokenizer)),
+                None,
+            )
+            if self.raw_tokenizer is None:
+                raise ValueError("Preserving special tokens requires a HuggingFace tokenizer transform")
         self.vocabs = vocabs
         self.eos_token_ids = set(eos_token_ids)
         self.token_count = 0
@@ -171,7 +192,11 @@ class GenerationStreamer:
         if self.transform_pipe is not None:
             # Incremental decode: decode everything and yield the new suffix
             self._token_ids.append(token_id)
-            new_text: str = self.transform_pipe.apply_reverse(list(self._token_ids))
+            new_text: str = (
+                self.raw_tokenizer.decode(self._token_ids, skip_special_tokens=False)
+                if self.raw_tokenizer is not None
+                else self.transform_pipe.apply_reverse(list(self._token_ids))
+            )
             new_chunk: str = new_text[len(self._decoded_so_far) :]
             if new_chunk:
                 self._decoded_so_far = new_text
