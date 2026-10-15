@@ -1,6 +1,5 @@
 """Translation-specific prompts and structure-preserving text jobs for the UI."""
 
-import asyncio
 from collections import Counter
 from dataclasses import dataclass
 import json
@@ -231,9 +230,9 @@ def register_translation(app, server, workspace):
                 yield event("start", request_id=row["id"], segments=len(document.segments))
                 try:
                     async with workspace.lock:
-                        if not model.loaded and not cancel.is_set():
+                        if not cancel.is_set():
                             row["status"] = "preparing"
-                            await asyncio.to_thread(model.load)
+                            await workspace.prepare(request.model, model, row)
                         caps = translation_capabilities(model)
                         if request.target not in caps["languages"] or (
                             request.source != "auto" and request.source not in caps["languages"]

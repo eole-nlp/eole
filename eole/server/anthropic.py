@@ -258,6 +258,12 @@ def register_anthropic(app, server):
     def _anthropic_model_info(model_id: str, model_obj) -> dict:
         """Return a single Anthropic-format model descriptor."""
         max_tokens, max_input_tokens = model_obj.get_model_limits()
+        if not model_obj.loaded:
+            settings = getattr(model_obj, "pre_config", {})
+            max_tokens = int(settings.get("max_length", max_tokens) or 0)
+            context = int(settings.get("context_length", 0) or 0)
+            if context:
+                max_input_tokens = max(0, context - max_tokens)
         return {
             "id": model_id,
             "type": "model",
@@ -279,7 +285,7 @@ def register_anthropic(app, server):
         """
         data = []
         for model_id, model_obj in server.models.items():
-            if model_obj.loaded:
+            if model_obj.loaded or getattr(server, "model_policy", None) in ("single", "keep_loaded"):
                 data.append(_anthropic_model_info(model_id, model_obj))
         return {"data": data}
 
@@ -314,7 +320,7 @@ def register_anthropic(app, server):
                 },
             )
         model_obj = server.models[resolved_id]
-        if not model_obj.loaded:
+        if not model_obj.loaded and getattr(server, "model_policy", None) is None:
             await server.maybe_load_model(resolved_id)
         return _anthropic_model_info(resolved_id, model_obj)
 

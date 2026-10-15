@@ -1,0 +1,80 @@
+# One GPU: load the selected workspace model on first use, unloading the previous model.
+models_root: ${EOLE_MODEL_DIR}
+model_policy: single
+workspace:
+  default_view: chat
+  models:
+    chat: qwen3.8-27B
+    translate: hy-mt2-7b
+    ocr: deepseek-ocr
+models:
+- id: qwen3.8-27B
+  path: ${QWEN38_MODEL}
+  preload: false
+  config:
+    compute_dtype: bf16
+    self_attn_backend: flash
+    beam_size: 1
+    n_best: 1
+    top_k: 1
+    top_p: 0.0
+    temperature: 1.0
+    min_length: 0
+    max_length: 4096
+    max_length_ratio: 0
+    context_length: 28672
+    batch_size: 1
+    self_speculative_decoding: true
+    self_speculative_num_tokens: 3
+    report_time: true
+    fuse_kvq: true
+    fuse_gate: false
+    prefill_cache_size: 0
+    prefill_chunk_size: 256
+- id: hy-mt2-7b
+  path: ${HY_MT2_MODEL}
+  preload: false
+  translation:
+    prompt_style: instruction
+    source_language: auto
+    target_language: French
+  config:
+    compute_dtype: bf16
+    self_attn_backend: flash
+    beam_size: 1
+    n_best: 1
+    top_k: 1
+    top_p: 0.0
+    temperature: 1.0
+    min_length: 0
+    max_length: 4096
+    max_length_ratio: 0
+    context_length: 16384
+    batch_size: 1
+    self_speculative_decoding: false
+    report_time: true
+    fuse_kvq: true
+    fuse_gate: true
+    prefill_cache_size: 0
+    prefill_chunk_size: 256
+- id: deepseek-ocr
+  path: ${DEEPSEEK_OCR_MODEL}
+  preload: false
+  config:
+    data_type: image
+    compute_dtype: bf16
+    self_attn_backend: flash
+    beam_size: 1
+    n_best: 1
+    batch_size: 1
+    top_k: 1
+    top_p: 0.0
+    temperature: 1.0
+    min_length: 0
+    max_length: 8192
+    max_length_ratio: 0
+    context_length: 8192
+    self_speculative_decoding: false
+    fuse_kvq: true
+    fuse_gate: false
+    report_time: true

@@ -119,19 +119,27 @@
       $("tr-model").innerHTML = models
         .map((m) => `<option value="${esc(m.id)}">${esc(m.id)}</option>`)
         .join("");
-      $("tr-model").value = models.some((m) => m.id === old)
-        ? old
-        : models.find((m) => m.translation.preferred)?.id ||
-          models[0]?.id ||
-          "";
+      $("tr-model").value = EoleUI.chooseModel(
+        e.detail,
+        "translate",
+        models,
+        old,
+      );
       updateLanguages();
     } else models = next;
     if (!initialized && models.length) {
       initialized = true;
-      if (models.some((m) => m.translation.preferred)) switchView("translate");
+      if (
+        !e.detail.workspace?.default_view &&
+        models.some((m) => m.translation.preferred)
+      )
+        switchView("translate");
     }
   });
-  $("tr-model").onchange = updateLanguages;
+  $("tr-model").onchange = () => {
+    EoleUI.rememberModel("translate", $("tr-model").value);
+    updateLanguages();
+  };
   function count() {
     const text = $("tr-input").value;
     $("tr-count").textContent =

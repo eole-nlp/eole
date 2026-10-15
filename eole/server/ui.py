@@ -98,7 +98,7 @@ def register_ui(app, server):
     assets = Path(__file__).with_name("web")
     app.mount("/ui/assets", StaticFiles(directory=assets), name="ui-assets")
     hardware = Hardware()
-    workspace = Workspace()
+    workspace = Workspace(server)
     recent, active, lock = workspace.recent, workspace.active, workspace.lock
     register_translation(app, server, workspace)
     register_document_import(app)
@@ -115,11 +115,15 @@ def register_ui(app, server):
             config = getattr(model.engine, "config", None) if model.loaded else None
             settings = model.pre_config
             ocr = ocr_adapter(model)
+            translation = translation_capabilities(model)
             models.append(
                 {
                     "id": model_id,
                     "loaded": model.loaded,
-                    "translation": translation_capabilities(model),
+                    "translation": {**translation, "available": translation["available"] and ocr is None},
+                    "chat_available": ocr is None
+                    and not translation["preferred"]
+                    and translation["prompt_style"] != "raw",
                     "ocr": ocr is not None,
                     "ocr_layout": bool(ocr and ocr.layout),
                     "dtype": str(getattr(config, "compute_dtype", settings.get("compute_dtype", "auto"))),
@@ -139,6 +143,9 @@ def register_ui(app, server):
                 }
             )
         return {
+            "workspace": getattr(server, "workspace", {}),
+            "model_policy": getattr(server, "model_policy", "keep_loaded"),
+            "model_activity": getattr(server, "model_activity", None),
             "version": eole.__version__,
             "compile_enabled": eole.EOLE_TORCH_COMPILE,
             "compile_mode": eole.EOLE_COMPILE_MODE,
@@ -175,8 +182,7 @@ def register_ui(app, server):
                             yield event("done", stats={"cancelled": True, "output_tokens": 0})
                             return
                         row["status"] = "preparing"
-                        if not model.loaded:
-                            await asyncio.to_thread(model.load)
+                        await workspace.prepare(request.model, model, row)
                         if not isinstance(model.engine.predictor, GeneratorLM):
                             raise ValueError("Chat requires a decoder-only model; use Translate for translation models")
                         prompt = model.apply_chat_template(

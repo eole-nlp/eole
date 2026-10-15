@@ -18,10 +18,17 @@ def event(event_type, **data):
 
 
 class Workspace:
-    def __init__(self):
+    def __init__(self, server=None):
         self.recent = deque(maxlen=50)
         self.active = {}
-        self.lock = asyncio.Lock()
+        self.server = server
+        self.lock = server.model_lock if getattr(server, "model_policy", None) == "single" else asyncio.Lock()
+
+    async def prepare(self, model_id, model, row):
+        if self.server is not None and hasattr(self.server, "prepare_model"):
+            await self.server.prepare_model(model_id, row)
+        elif not model.loaded:
+            await asyncio.to_thread(model.load)
 
     @asynccontextmanager
     async def track(self, model_id, task):
