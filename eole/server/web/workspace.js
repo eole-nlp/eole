@@ -1,5 +1,28 @@
 "use strict";
 window.EoleUI = {
+  chooseModel(state, view, candidates, current) {
+    const ids = candidates.map((m) => m.id);
+    if (ids.includes(current)) return current;
+    let saved;
+    try {
+      saved = localStorage.getItem(`eole.workspace.model.${view}`);
+    } catch {}
+    return (
+      [
+        saved,
+        state.workspace?.models?.[view],
+        view === "translate"
+          ? candidates.find((m) => m.translation?.preferred)?.id
+          : null,
+        ids[0],
+      ].find((id) => ids.includes(id)) || ""
+    );
+  },
+  rememberModel(view, id) {
+    try {
+      localStorage.setItem(`eole.workspace.model.${view}`, id);
+    } catch {}
+  },
   escape(value) {
     return String(value ?? "").replace(
       /[&<>"']/g,

@@ -114,8 +114,7 @@ def register_ocr(app, server, workspace):
                             yield event("done", cancelled=True)
                             return
                         row["status"] = "preparing"
-                        if not model.loaded:
-                            await asyncio.to_thread(model.load)
+                        await workspace.prepare(request.model, model, row)
                         config = model.engine.config
                         if config.world_size != 1 or config.data_type != "image":
                             raise ValueError("OCR requires a single-process model configured with data_type: image")

@@ -183,3 +183,49 @@ adapter; DeepSeek-OCR retains its grounding overlays. All import, navigation,
 cancellation, retry, performance metrics and export controls are shared.
 
 ![HunyuanOCR table and formula preview](images/hunyuan-ocr-workspace.jpg)
+
+## Combined showcase: Chat, Translate and Documents (OCR)
+
+The combined recipe selects Qwen3.8-27B-INT4 for Chat, Hy-MT2-7B for Translate,
+and DeepSeek-OCR for Documents (OCR). Start it with your converted checkpoints:
+
+```bash
+export EOLE_MODEL_DIR=/path/to/models
+export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-INT4"
+export HY_MT2_MODEL="$EOLE_MODEL_DIR/Hy-MT2-7B"
+export DEEPSEEK_OCR_MODEL="$EOLE_MODEL_DIR/DeepSeek-OCR"
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+  eole serve -c recipes/ui/serve-showcase.yaml --host 127.0.0.1 --port 5000
+```
+
+Each workspace has its own model selector, remembers your choice in browser storage,
+and keeps its conversation, text or document results when you switch views.
+Changing views does not load a model. The first processing request loads the chosen
+model, and the connection indicator reports loading/unloading progress. Cold model
+loads and compilation can take several minutes on the first request. Compiled
+programs can be reused on later reloads; the UI reports request and decode timing
+separately.
+
+The recipe sets `model_policy: single`: active inference finishes before another
+model can replace it. API requests and UI jobs share this model lease, held through
+streaming completion; state polling and cancellation remain responsive. Engine
+worker pools are shut down and GPU allocations released before loading the next
+checkpoint. Requests reuse an already-loaded model when possible.
+
+Use `model_policy: keep_loaded` to retain several models when GPU memory permits.
+With `single`, at most one model may have `preload: true`; the showcase preloads none.
+Omitting `model_policy` preserves legacy behavior (API requests unload other models,
+while workspace jobs retain them). The explicit policy is recommended for mixed
+API/workspace deployments. Workspace defaults are configured independently:
+
+```yaml
+workspace:
+  default_view: chat
+  models:
+    chat: qwen3.8-27B
+    translate: hy-mt2-7b
+    ocr: deepseek-ocr
+```
+
+To showcase HunyuanOCR instead, replace the OCR model entry with the one from
+`serve-ocr-hunyuan.yaml` and set `workspace.models.ocr: hunyuan-ocr`.

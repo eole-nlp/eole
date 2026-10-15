@@ -67,7 +67,10 @@
       ? "Show model grounding coordinates"
       : "This model's document parsing does not provide layout boxes";
   }
-  $("model").onchange = layoutControl;
+  $("model").onchange = () => {
+    EoleUI.rememberModel("ocr", $("model").value);
+    layoutControl();
+  };
   function show() {
     controls();
     layoutControl();
@@ -128,7 +131,8 @@
   window.addEventListener("eole:state", ({ detail }) => {
     if (!initialized && detail.models.length) {
       initialized = true;
-      if (detail.models.every((m) => m.ocr)) switchView("ocr");
+      if (!detail.workspace?.default_view && detail.models.every((m) => m.ocr))
+        switchView("ocr");
     }
     models = detail.models.filter((m) => m.ocr);
     const old = $("model").value;
@@ -138,7 +142,7 @@
         .join("") || '<option value="">No OCR model configured</option>';
     if ($("model").innerHTML !== options) {
       $("model").innerHTML = options;
-      if (models.some((m) => m.id === old)) $("model").value = old;
+      $("model").value = EoleUI.chooseModel(detail, "ocr", models, old);
     }
     controls();
     layoutControl();

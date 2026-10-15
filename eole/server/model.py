@@ -28,6 +28,10 @@ class Server(object):
         self.start_time = time.time()
         self.models = {}
         self.models_root = None
+        self.model_policy = None
+        self.workspace = {}
+        self.model_lock = asyncio.Lock()
+        self.model_activity = None
 
     def start(self, server_config_path):
         """
@@ -36,6 +40,18 @@ class Server(object):
         with open(server_config_path) as f:
             server_config = yaml.safe_load(f)
         self.models_root = server_config["models_root"]
+        self.model_policy = server_config.get("model_policy")
+        if self.model_policy not in (None, "single", "keep_loaded"):
+            raise ValueError("model_policy must be single or keep_loaded")
+        self.workspace = server_config.get("workspace", {})
+        defaults = self.workspace.get("models", {})
+        ids = {model["id"] for model in server_config["models"]}
+        if set(defaults) - {"chat", "translate", "ocr"} or set(defaults.values()) - ids:
+            raise ValueError("workspace.models must map chat, translate or ocr to configured model IDs")
+        if self.workspace.get("default_view", "chat") not in ("chat", "translate", "ocr"):
+            raise ValueError("workspace.default_view must be chat, translate or ocr")
+        if self.model_policy == "single" and sum(bool(m.get("preload")) for m in server_config["models"]) > 1:
+            raise ValueError("single model policy permits at most one preloaded model")
         for model in server_config["models"]:
             # instantiate models
             model_id = model["id"]
@@ -60,13 +76,53 @@ class Server(object):
             models.append({"id": model_id})
         return models
 
+    async def unload_model(self, model_id):
+        model = self.models[model_id]
+        if not model.loaded:
+            return
+        task = model.processing_task
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            model.processing_task = None
+        task = asyncio.create_task(asyncio.to_thread(model.unload))
+        try:
+            await asyncio.shield(task)
+        finally:
+            if not task.done():
+                await asyncio.shield(task)
+
     async def maybe_load_model(self, model_id_to_load):
-        """
-        Very naive method to ensure a single model is loaded for now.
-        """
-        for model_id, model in self.models.items():
-            if model_id != model_id_to_load:
-                model.unload()
+        """Release other models under the caller's model lease, if configured."""
+        if self.model_policy == "keep_loaded":
+            return
+        try:
+            for model_id, model in self.models.items():
+                if model_id != model_id_to_load and model.loaded:
+                    self.model_activity = dict(model=model_id, message=f"Unloading {model_id}…")
+                    await self.unload_model(model_id)
+        finally:
+            self.model_activity = None
+
+    async def prepare_model(self, model_id, row):
+        """Workspace loading; caller owns model_lock for single-model deployments."""
+        if self.model_policy == "single":
+            await self.maybe_load_model(model_id)
+        model = self.models[model_id]
+        if not model.loaded:
+            row["status"] = "loading"
+            self.model_activity = dict(model=model_id, message=f"Loading {model_id}…")
+            # Drain loading on disconnect before releasing the model lease.
+            task = asyncio.create_task(asyncio.to_thread(model.load))
+            try:
+                await asyncio.shield(task)
+            finally:
+                try:
+                    if not task.done():
+                        await asyncio.shield(task)
+                finally:
+                    self.model_activity = None
+        row["status"] = "preparing"
 
 
 @dataclass
@@ -269,11 +325,12 @@ class Model(object):
                     req.future.set_exception(Exception("Model unloaded"))
             except Exception:
                 break
-        del self.engine
+        if self.engine is not None:
+            self.engine.terminate()
+        self.loaded = False
+        self.engine = None
         gc.collect()
         torch.cuda.empty_cache()
-        self.engine = None
-        self.loaded = False
         logger.info(f"Unloaded model {self.model_id}")
 
     def get_model_limits(self):

@@ -411,19 +411,31 @@ async function refreshState() {
     if (!response.ok) throw new Error();
     state = await response.json();
     const old = $("model").value;
-    const signature = JSON.stringify(state.models.map((m) => m.id));
+    const chatModels = state.models.filter((m) => m.chat_available !== false);
+    const signature = JSON.stringify(chatModels.map((m) => m.id));
     if (refreshState.modelSignature !== signature) {
       refreshState.modelSignature = signature;
-      $("model").innerHTML = state.models
+      $("model").innerHTML = chatModels
         .map(
           (m) =>
             `<option value="${escapeHTML(m.id)}">${escapeHTML(m.id)}</option>`,
         )
         .join("");
     }
-    if (state.models.some((m) => m.id === old)) $("model").value = old;
+    $("model").value = EoleUI.chooseModel(state, "chat", chatModels, old);
+    if (!refreshState.initialView && state.workspace?.default_view) {
+      refreshState.initialView = true;
+      switchView(state.workspace.default_view);
+    }
     $("connection-dot").classList.remove("offline");
-    $("connection-text").textContent = "Connected to local server";
+    const preparing = state.active.find((row) =>
+      ["preparing", "loading"].includes(row.status),
+    );
+    $("connection-text").textContent =
+      state.model_activity?.message ||
+      (preparing
+        ? `Preparing ${preparing.model}…`
+        : "Connected to local server");
     $("version").textContent = "EOLE " + state.version;
     updateContext();
     renderMonitor();
@@ -613,7 +625,10 @@ $("theme").onclick = () => {
     );
   } catch {}
 };
-$("model").onchange = updateContext;
+$("model").onchange = () => {
+  EoleUI.rememberModel("chat", $("model").value);
+  updateContext();
+};
 $("preset").onchange = () => {
   $("temperature").disabled = $("preset").value === "fast";
 };

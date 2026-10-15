@@ -10,6 +10,7 @@ from eole.config.inference import DecodingConfig
 from eole.constants import DefaultTokens
 from eole.server.ui import register_ui
 from eole.server.model import Server
+from eole.server.lifecycle import ModelLifecycleMiddleware
 from eole.server.openai_chat import register_openai_chat
 from eole.server.anthropic import register_anthropic
 from eole.server.responses import register_responses
@@ -107,6 +108,7 @@ def create_app(config_file):
 
     server = Server()
     server.start(config_file)
+    app.add_middleware(ModelLifecycleMiddleware, server=server)
 
     register_ui(app, server)
 
@@ -120,11 +122,11 @@ def create_app(config_file):
         return out
 
     @app.post("/unload_model")
-    def unload_model(model_id):
+    async def unload_model(model_id):
         """
         Unload a specific model.
         """
-        server.models[model_id].unload()
+        await server.unload_model(model_id)
 
     @app.get("/health")
     def health():
