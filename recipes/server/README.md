@@ -22,6 +22,10 @@ Change both `id` and `path` in the YAML to serve another checkpoint.
 
 ## Browser workspace
 
+For text, terminology, subtitles and document translation, use the dedicated
+[Hy-MT2 translation workspace recipe](../translation/README.md). It shares this
+server and browser interface with Chat.
+
 Open `http://127.0.0.1:5000` for the bundled Eole UI: streaming chat,
 conversation history, hardware monitoring, request timings, and a warmed
 benchmark. No Gradio or frontend runtime is required. See the

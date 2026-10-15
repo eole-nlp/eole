@@ -6,6 +6,9 @@ history or system persona in the translation prompt.
 
 ![Hy-MT2 local translation workspace](images/translation.jpg)
 
+The [workspace video tour](../ui/images/showcase.mp4) includes Hy-MT2 translation
+and its terminology controls, alongside a separate Qwen chat/benchmark demo.
+
 ## Showcase: Hy-MT2-7B
 
 Use a converted [tencent/Hy-MT2-7B](https://huggingface.co/tencent/Hy-MT2-7B)
@@ -65,6 +68,8 @@ MTP is off. FP32 normalization is unchanged.
   bilingual CSV, or a JSON project containing the source, result, settings, segment
   pairs and measurements. Edits are included in the full result; original generated
   segment pairs and timing measurements remain available in the project.
+
+![Tone, context and terminology controls](images/settings.jpg)
 
 ## Structure, long texts and incomplete jobs
 

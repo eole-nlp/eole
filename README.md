@@ -12,19 +12,21 @@ or train your own architecture.
 
 ## A local workspace, included
 
-Chat with your models, watch generation speed and GPU usage, and run a warmed
-benchmark from the bundled browser UI. Streaming, conversation history, thinking,
-and generation controls are included, with no frontend build step.
+Chat with your models, translate text and documents, watch GPU usage, and run a
+warmed benchmark from the bundled browser UI. Streaming, conversation history,
+glossaries, and generation controls are included, with no frontend build step.
 
-![Eole local workspace: real Qwen streaming, hardware monitoring, and benchmark](recipes/ui/images/showcase.gif)
+![Eole workspace: Qwen chat and benchmark, plus Hy-MT2 translation](recipes/ui/images/showcase.gif)
 
 [Watch the short MP4 tour](recipes/ui/images/showcase.mp4) ·
-[Start the workspace](recipes/ui/README.md)
+[Chat workspace](recipes/ui/README.md) ·
+[Hy-MT2 translation workspace](recipes/translation/README.md)
 
-Recorded with RedHat Qwen3.8-27B INT4 on one RTX 5090, MTP enabled, compile
-mode 0, and a 28,672-token context. The benchmark shows a 105.6 tok/s median
-over three warmed 128-token requests. This is post-first-token decode speed;
-results depend on the prompt, settings, and hardware.
+The tour shows two separately loaded models on one RTX 5090: RedHat
+Qwen3.8-27B INT4 for chat and benchmarking (MTP on, 28,672-token context), and
+Hy-MT2-7B BF16 for translation (MTP off, 16,384-token context). Both use compile
+mode 0. The benchmark measures post-first-token decode speed; results depend on
+the prompt, settings, and hardware.
 
 ## Latest: 0.6.2
 
@@ -42,12 +44,11 @@ and current limitations.
 |---|---|
 | Run a supported HF model without a separate conversion step | [Direct HF inference](recipes/hf/README.md) |
 | Chat with a local LLM in your browser | [Local workspace UI](recipes/ui/README.md) |
-| Translate text, terminology, subtitles, and documents locally | [Translation workspace with Hy-MT2](recipes/translation/README.md) |
+| Translate through a web interface: text, terminology, subtitles, and documents | [Hy-MT2 translation workspace](recipes/translation/README.md) |
 | Try Qwen3.8-27B with MTP speculative decoding | [Qwen3.8 and MTP](recipes/qwen38/README.md) |
 | Use Codex with a locally served Qwen model | [Codex Responses API](recipes/codex/README.md) |
 | Use Claude Code with a locally served Qwen model | [Claude Code endpoint](recipes/claude-code/README.md) |
 | Try Qwen3.5 text and image inputs | [Qwen3.5](recipes/qwen35/README.md) |
-| Translate through a web interface | [EuroLLM](recipes/eurollm/README.md) |
 | Train a translation model | [WMT17](recipes/wmt17/README.md) |
 | Translate with a pretrained multilingual model | [NLLB](recipes/nllb/README.md) |
 | Generate text with Mistral | [Mistral](recipes/mistral/README.md) |
@@ -119,7 +120,7 @@ The [server recipe](recipes/server/README.md) explains streaming and the support
 | Gemma | Gemma3 text/image and Gemma4 support |
 | Mistral | Mistral, Mixtral, Mathstral, and supported multimodal / Ministral variants |
 | Llama and Phi | Llama3.x and Phi2/3 |
-| Translation | EuroLLM, Hunyuan-MT, NLLB, and Tower recipes |
+| Translation | Hy-MT2 workspace; EuroLLM, NLLB, and Tower model recipes |
 | OCR and vision | HunyuanOCR, DeepSeek-OCR, Pixtral, and supported vision-language checkpoints |
 | Speech | Whisper |
 | Translation scoring | COMET, COMET-KIWI, XCOMET, MetricX, and MetricX-QE |

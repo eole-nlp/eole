@@ -23,7 +23,8 @@ fixed, and actually executed on the current checkout.
 
 | Workflow | Recipe |
 |---|---|
-| EuroLLM translator web interface | [EuroLLM](eurollm/README.md) |
+| Translation workspace: text, documents, subtitles and glossaries | [Hy-MT2 workspace](translation/README.md) |
+| EuroLLM model and legacy Gradio example | [EuroLLM](eurollm/README.md) |
 | Train an encoder-decoder translation model | [WMT17 English–German](wmt17/README.md) |
 | NLLB conversion and translation | [NLLB](nllb/README.md) |
 | Translation with Tower and Llama | [Tower / Mistral](wmt22_with_TowerInstruct-Mistral/README.md), [Tower / Llama2](wmt22_with_TowerInstruct-llama2/README.md), [Llama3.1](wmt22_with_llama3.1/README.md) |
@@ -56,8 +57,3 @@ Specify the working directory, exact checkpoint, dependencies, expected output,
 and limitations. Keep scripts configurable, avoid machine-specific paths, and
 state what was actually tested. Link the recipe here and from the main README
 when it is a useful starting point. Respect model and dataset licenses.
-
-## Local translation workspace
-
-[Hy-MT2-7B translation workspace](translation/README.md): text, files, subtitles,
-glossaries, style controls and a local phrasebook in the bundled server UI.

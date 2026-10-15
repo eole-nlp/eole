@@ -7,8 +7,10 @@ remain available. The original `apps/chatbot.py` stays a small Gradio example.
 ![Eole workspace](images/workspace.jpg)
 
 [Watch the short UI tour](images/showcase.mp4). The recording shows real local
-Qwen inference, hardware telemetry, and a completed benchmark, with navigation
-pauses shortened. The animated preview is on the repository front page.
+Qwen chat, hardware telemetry and a completed benchmark, followed by Hy-MT2
+translation and terminology controls. The two models are loaded separately on one
+RTX 5090. Navigation pauses are shortened; generation measurements come from the
+inference worker. The animated preview is on the repository front page.
 
 ## Start with Qwen3.8 INT4
 
@@ -65,6 +67,8 @@ the same interface, monitoring and local server.
 - **API & setup:** endpoint addresses, a curl example, and runtime information.
 
 ![Measured benchmark](images/benchmark.jpg)
+
+![Workspace monitor with the current navigation](images/monitor.jpg)
 
 ## What the numbers mean
 
