@@ -17,6 +17,7 @@ async def inference_stream(engine, prompt, settings, generation_stats=None, canc
     loop = asyncio.get_running_loop()
     queue = asyncio.Queue()
     cancelled = threading.Event()
+    completed = False
 
     def produce():
         try:
@@ -34,9 +35,11 @@ async def inference_stream(engine, prompt, settings, generation_stats=None, canc
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
     async def chunks():
+        nonlocal completed
         while True:
             item = await queue.get()
             if item is None:
+                completed = True
                 return
             if isinstance(item, Exception):
                 raise item
@@ -47,6 +50,6 @@ async def inference_stream(engine, prompt, settings, generation_stats=None, canc
         yield chunks()
     finally:
         cancelled.set()
-        if cancel_event is not None:
+        if cancel_event is not None and not completed:
             cancel_event.set()
         await asyncio.shield(worker)

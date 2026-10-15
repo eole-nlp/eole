@@ -9,6 +9,20 @@ from eole.server.streaming import inference_stream
 
 
 class TestInferenceStream(unittest.IsolatedAsyncioTestCase):
+    async def test_completed_segment_does_not_cancel_a_multi_segment_job(self):
+        signal = threading.Event()
+
+        def generate(prompt, settings, cancel_event):
+            self.assertFalse(cancel_event.is_set())
+            yield prompt
+
+        for prompt in ("first", "second"):
+            async with inference_stream(
+                SimpleNamespace(infer_list_stream=generate), prompt, {}, cancel_event=signal
+            ) as chunks:
+                self.assertEqual([chunk async for chunk in chunks], [prompt])
+            self.assertFalse(signal.is_set())
+
     async def test_explicit_cancel_signal_stops_generation_on_early_exit(self):
         signal, finished = threading.Event(), threading.Event()
 

@@ -6,7 +6,10 @@
     <title>Eole · Local workspace</title>
     <link rel="icon" href="/ui/assets/favicon.svg" />
     <link rel="stylesheet" href="/ui/assets/app.css" />
+    <script src="/ui/assets/workspace.js" defer></script>
     <script src="/ui/assets/app.js" defer></script>
+    <script src="/ui/assets/translator.js" defer></script>
+    <link rel="stylesheet" href="/ui/assets/translator.css" />
   </head>
   <body>
     <aside class="sidebar">
@@ -30,6 +33,8 @@
       <nav aria-label="Workspace">
         <button class="nav-item selected" data-view="chat">
           <span>◌</span> Chat</button
+        ><button class="nav-item" data-view="translate">
+          <span>⇄</span> Translate</button
         ><button class="nav-item" data-view="monitor">
           <span>▥</span> Monitor</button
         ><button class="nav-item" data-view="benchmark">
@@ -182,6 +187,249 @@
             </div>
           </div>
         </section>
+        <section id="view-translate" class="view translation-view" hidden>
+          <div class="translation-heading">
+            <div>
+              <span class="eyebrow">A WORLD OF WORDS</span>
+              <h1>Make yourself understood.</h1>
+              <p>Thoughtful translation. Entirely on your machine.</p>
+            </div>
+            <span class="translation-badge">⇄ &nbsp; LOCAL TRANSLATION</span>
+          </div>
+          <div class="translation-topline">
+            <div
+              class="translation-tabs"
+              role="group"
+              aria-label="Translation workflow"
+            >
+              <button class="active" data-tr-mode="text">Text</button
+              ><button data-tr-mode="files">Files</button
+              ><button data-tr-mode="saved">History & saved</button>
+            </div>
+            <select id="tr-model" aria-label="Translation model">
+              <option>Loading models…</option>
+            </select>
+          </div>
+          <div id="tr-workbench">
+            <div id="tr-files" class="panel translation-files" hidden>
+              <div>
+                <h2>Bring your words with you.</h2>
+                <p>
+                  Import text, subtitles, JSON, DOCX or PDF. Document imports
+                  extract text locally; downloads are plain text, without the
+                  original document layout.
+                </p>
+                <small
+                  >TXT · MD · SRT · VTT · JSON · DOCX · PDF &nbsp; / &nbsp; up
+                  to 8 files, 80,000 characters each</small
+                >
+              </div>
+              <button id="tr-upload" class="primary primary-button">
+                ＋ Choose files</button
+              ><input
+                id="tr-file-input"
+                type="file"
+                accept=".txt,.md,.markdown,.srt,.vtt,.json,.docx,.pdf"
+                multiple
+                hidden
+              />
+              <div id="tr-file-list"></div>
+            </div>
+            <div class="translation-languages">
+              <label
+                >FROM<select
+                  id="tr-source"
+                  aria-label="Source language"
+                ></select></label
+              ><button
+                id="tr-swap"
+                class="quiet-button"
+                aria-label="Swap languages"
+              >
+                ⇄</button
+              ><label
+                >TO<select id="tr-target" aria-label="Target language"></select
+              ></label>
+            </div>
+            <div class="translation-editors">
+              <div class="translation-editor">
+                <div class="translation-editor-head">
+                  <span>Original</span>
+                  <div>
+                    <button id="tr-example" class="quiet-button">
+                      Try an example</button
+                    ><button
+                      id="tr-clear"
+                      class="quiet-button"
+                      aria-label="Clear source"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  id="tr-input"
+                  aria-label="Source text"
+                  dir="auto"
+                  placeholder="Type or paste the text you want to translate…"
+                  maxlength="80000"
+                ></textarea>
+                <div class="translation-editor-foot">
+                  <span id="tr-count">0 characters</span
+                  ><select id="tr-format" aria-label="Input format">
+                    <option value="text">Plain text</option>
+                    <option value="markdown">Markdown</option>
+                    <option value="srt">SubRip (.srt)</option>
+                    <option value="vtt">WebVTT (.vtt)</option>
+                    <option value="json">JSON values</option>
+                  </select>
+                </div>
+              </div>
+              <div class="translation-editor output">
+                <div class="translation-editor-head">
+                  <span
+                    >Translation
+                    <small id="tr-result-label"
+                      >Ready for your words</small
+                    ></span
+                  ><button id="tr-copy" class="quiet-button" disabled>
+                    Copy
+                  </button>
+                </div>
+                <textarea
+                  id="tr-output"
+                  aria-label="Translated text"
+                  dir="auto"
+                  placeholder="Your translation will appear here. You can refine it before copying or downloading."
+                ></textarea>
+                <div class="translation-editor-foot">
+                  <span id="tr-output-count">Editable result</span>
+                  <div>
+                    <button id="tr-save" class="quiet-button" disabled>
+                      ☆ Save</button
+                    ><button id="tr-download" class="quiet-button" disabled>
+                      ↓ Download
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="translation-actionbar">
+              <div>
+                <span id="tr-status" role="status"
+                  >Choose a language. Keep your meaning.</span
+                ><small id="tr-model-note"
+                  >Paragraphs stay in order. Auto infers the source language.
+                  Your settings guide tone and terminology.</small
+                >
+              </div>
+              <button id="tr-stop" class="quiet-button" hidden>
+                ■ Stop translation</button
+              ><button id="tr-alternative" class="quiet-button" disabled>
+                Another version</button
+              ><button id="tr-run" class="primary primary-button">
+                Translate <span>↗</span>
+              </button>
+            </div>
+            <div id="tr-metrics" class="translation-metrics" hidden></div>
+            <details class="translation-options panel">
+              <summary>
+                <span>Make it yours</span
+                ><small>Tone, context & terminology</small><span>＋</span>
+              </summary>
+              <div class="translation-options-grid">
+                <div>
+                  <div class="translation-options-row">
+                    <label
+                      >Tone<select id="tr-tone">
+                        <option value="default">Match the original</option>
+                        <option value="formal">Formal</option>
+                        <option value="informal">Informal</option>
+                      </select></label
+                    ><label
+                      >Output limit / segment<input
+                        id="tr-limit"
+                        type="number"
+                        value="4096"
+                        min="1"
+                        max="32768"
+                    /></label>
+                  </div>
+                  <label
+                    >Context & instructions<textarea
+                      id="tr-context"
+                      maxlength="4000"
+                      placeholder="For a customer support email. Keep product names in English…"
+                    ></textarea>
+                  </label>
+                  <p>
+                    Style and terminology guide the model; review the result for
+                    critical work.
+                  </p>
+                </div>
+                <div>
+                  <label
+                    >Glossary
+                    <span class="muted"
+                      >one source = translation pair per line</span
+                    ><textarea
+                      id="tr-glossary"
+                      placeholder="workspace = espace de travail&#10;deployment = déploiement"
+                    ></textarea>
+                  </label>
+                  <div class="glossary-actions">
+                    <button id="tr-glossary-import" class="quiet-button">
+                      ↑ Import TSV</button
+                    ><button id="tr-glossary-export" class="quiet-button">
+                      ↓ Export TSV</button
+                    ><input
+                      id="tr-glossary-file"
+                      type="file"
+                      accept=".tsv,.txt"
+                      hidden
+                    /><span id="tr-terms" class="muted">0 terms</span>
+                  </div>
+                  <p>
+                    Glossaries and context are saved locally in this browser.
+                  </p>
+                </div>
+              </div>
+            </details>
+            <div class="translation-bottom">
+              <span>↵ &nbsp; Ctrl / ⌘ + Enter to translate</span
+              ><button id="tr-bilingual" class="quiet-button" disabled>
+                ↓ Bilingual CSV</button
+              ><button id="tr-project" class="quiet-button" disabled>
+                ↓ Translation project
+              </button>
+            </div>
+          </div>
+          <div id="tr-saved" class="panel" hidden>
+            <div class="translation-saved-head">
+              <div>
+                <h2>Words worth keeping.</h2>
+                <p>
+                  Recent work and your phrasebook, stored only in this browser.
+                </p>
+              </div>
+              <button id="tr-export-history" class="quiet-button">
+                ↓ Export history
+              </button>
+            </div>
+            <div class="translation-history-tools">
+              <input
+                id="tr-search"
+                type="search"
+                aria-label="Search translations"
+                placeholder="Find a word, phrase, or language…"
+              /><label
+                ><input id="tr-only-saved" type="checkbox" /> Saved only</label
+              >
+            </div>
+            <div id="tr-history"></div>
+          </div>
+        </section>
+
         <section id="view-monitor" class="view page-view" hidden>
           <div class="page-heading">
             <span class="eyebrow">THE ENGINE ROOM</span>

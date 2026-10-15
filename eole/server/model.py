@@ -46,6 +46,7 @@ class Server(object):
                 models_root=self.models_root,
                 model_type=model.get("model_type", "default"),
                 pre_config=model.get("config", {}),
+                translation_config=model.get("translation", {}),
             )
             if model.get("preload", False):
                 self.models[model_id].load()
@@ -90,6 +91,7 @@ class Model(object):
         models_root=None,
         model_type=False,
         pre_config={},
+        translation_config=None,
     ):
         self.loaded = False
         self.engine = None
@@ -100,6 +102,7 @@ class Model(object):
         self.local_path = None
         self.model_type = model_type
         self.pre_config = pre_config
+        self.translation_config = translation_config or {}
         self.request_queue = asyncio.Queue()
         self.batch_size = pre_config.get("batch_size", 8)
         self.batch_timeout = pre_config.get("batch_timeout", 0.1)

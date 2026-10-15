@@ -1,12 +1,9 @@
 """Bundled local workspace and request-scoped inference telemetry."""
 
 import asyncio
-from collections import deque
-import json
 from pathlib import Path
 import threading
-from time import perf_counter, time
-import uuid
+from time import perf_counter
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
@@ -14,8 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import eole
-from eole.server.openai_chat import _OpenAIStreamParser, _chat_prompt_opens_thinking
-from eole.server.streaming import inference_stream
+from eole.server.ui_runtime import Workspace, event
+from eole.server.ui_documents import register_document_import
+from eole.server.ui_translation import register_translation, translation_capabilities
 from eole.predict.generator import GeneratorLM
 
 
@@ -98,9 +96,10 @@ def register_ui(app, server):
     assets = Path(__file__).with_name("web")
     app.mount("/ui/assets", StaticFiles(directory=assets), name="ui-assets")
     hardware = Hardware()
-    recent = deque(maxlen=50)
-    active = {}
-    lock = asyncio.Lock()
+    workspace = Workspace()
+    recent, active, lock = workspace.recent, workspace.active, workspace.lock
+    register_translation(app, server, workspace)
+    register_document_import(app)
 
     @app.get("/", include_in_schema=False)
     def home():
@@ -116,6 +115,7 @@ def register_ui(app, server):
                 {
                     "id": model_id,
                     "loaded": model.loaded,
+                    "translation": translation_capabilities(model),
                     "dtype": str(getattr(config, "compute_dtype", settings.get("compute_dtype", "auto"))),
                     "quant_type": getattr(config, "quant_type", ""),
                     "weight_bits": (
@@ -158,94 +158,53 @@ def register_ui(app, server):
         model = server.models[request.model]
 
         async def events():
-            request_id = uuid.uuid4().hex
-            cancel_event = threading.Event()
             started = perf_counter()
-            row = {
-                "id": request_id,
-                "model": request.model,
-                "status": "queued",
-                "timestamp": time(),
-                "cancel": cancel_event,
-            }
-            active[request_id] = row
-
-            def event(event_type, **data):
-                return "data: " + json.dumps({"type": event_type, **data}, ensure_ascii=False) + "\n\n"
-
-            yield event("start", request_id=request_id)
-            try:
-                async with lock:
-                    if cancel_event.is_set():
-                        row["status"] = "cancelled"
-                        yield event("done", stats={"cancelled": True, "output_tokens": 0})
-                        return
-                    row["status"] = "preparing"
-                    if not model.loaded:
-                        await asyncio.to_thread(model.load)
-                    if model.engine.config.world_size > 1 or not isinstance(model.engine.predictor, GeneratorLM):
-                        raise ValueError(
-                            "Interactive streaming requires a single-process decoder-only model; "
-                            "use /infer for other models"
+            async with workspace.track(request.model, "chat") as row:
+                cancel_event = row["cancel"]
+                yield event("start", request_id=row["id"])
+                try:
+                    async with lock:
+                        if cancel_event.is_set():
+                            row["status"] = "cancelled"
+                            yield event("done", stats={"cancelled": True, "output_tokens": 0})
+                            return
+                        row["status"] = "preparing"
+                        if not model.loaded:
+                            await asyncio.to_thread(model.load)
+                        if not isinstance(model.engine.predictor, GeneratorLM):
+                            raise ValueError("Chat requires a decoder-only model; use Translate for translation models")
+                        prompt = model.apply_chat_template(
+                            [message.model_dump(exclude_none=True) for message in request.messages],
+                            enable_thinking=request.thinking,
                         )
-                    limit, input_limit = model.get_model_limits()
-                    if request.max_tokens > limit:
-                        raise ValueError(f"This model allows at most {limit} output tokens")
-                    prompt = model.apply_chat_template(
-                        [message.model_dump(exclude_none=True) for message in request.messages],
-                        enable_thinking=request.thinking,
-                    )
-                    prompt_tokens = model.count_tokens(prompt)
-                    if input_limit and prompt_tokens + request.max_tokens > input_limit + limit:
-                        raise ValueError("Chat exceeds the context budget. Start a new chat or reduce output tokens.")
-                    settings = {
-                        "max_length": request.max_tokens,
-                        "beam_size": 1,
-                        "n_best": 1,
-                        "batch_size": 1,
-                        "min_length": 0,
-                        "report_time": True,
-                        "top_k": 1 if request.preset == "fast" else 40,
-                        "temperature": 1.0 if request.preset == "fast" else request.temperature,
-                        "top_p": 0.0 if request.preset == "fast" else 0.95,
-                        "self_speculative_decoding": request.preset == "fast"
-                        and model.engine.config.self_speculative_decoding,
-                    }
-                    stats = {}
-                    submission = perf_counter()
-                    parser = _OpenAIStreamParser(parse_tools=False, thinking=_chat_prompt_opens_thinking(prompt))
-                    async with inference_stream(
-                        model.engine, prompt, settings, generation_stats=stats, cancel_event=cancel_event
-                    ) as chunks:
-                        async for chunk in chunks:
-                            row["status"] = "stopping" if cancel_event.is_set() else "generating"
-                            for kind, value in parser.feed(chunk):
-                                yield event("delta", kind=kind, text=value.replace("｟newline｠", "\n"))
-                        for kind, value in parser.feed("", final=True):
-                            yield event("delta", kind=kind, text=value.replace("｟newline｠", "\n"))
-                    if stats.get("first_token_seconds") is not None:
-                        stats["first_token_seconds"] += stats.get("queue_seconds", 0) + submission - started
-                    stats.update(prompt_tokens=prompt_tokens, request_seconds=perf_counter() - started)
-                    stats["finish_reason"] = (
-                        "cancelled"
-                        if stats.get("cancelled")
-                        else (
-                            "stop"
-                            if stats.get("stopped_on_eos")
-                            else "length" if stats.get("output_tokens", 0) >= request.max_tokens else "unknown"
-                        )
-                    )
-                    row.update(stats)
-                    row["status"] = "cancelled" if stats.get("cancelled") else "complete"
-                    yield event("done", stats=stats)
-            except Exception as exc:
-                row["status"] = "error"
-                yield event("error", message=str(exc))
-            finally:
-                cancel_event.set()
-                row.pop("cancel", None)
-                active.pop(request_id, None)
-                recent.appendleft(row)
+                        settings = {
+                            "max_length": request.max_tokens,
+                            "beam_size": 1,
+                            "n_best": 1,
+                            "batch_size": 1,
+                            "min_length": 0,
+                            "report_time": True,
+                            "top_k": 1 if request.preset == "fast" else 40,
+                            "temperature": 1.0 if request.preset == "fast" else request.temperature,
+                            "top_p": 0.0 if request.preset == "fast" else 0.95,
+                            "self_speculative_decoding": request.preset == "fast"
+                            and model.engine.config.self_speculative_decoding,
+                        }
+                        submission = perf_counter()
+                        async for item in workspace.generate(model, prompt, settings, cancel_event, row):
+                            if item["type"] == "stats":
+                                stats = item["stats"]
+                            else:
+                                yield event("delta", kind=item["kind"], text=item["text"])
+                        if stats.get("first_token_seconds") is not None:
+                            stats["first_token_seconds"] += submission - started
+                        stats["request_seconds"] = perf_counter() - started
+                        row.update(stats)
+                        row["status"] = "cancelled" if stats.get("cancelled") else "complete"
+                        yield event("done", stats=stats)
+                except Exception as exc:
+                    row["status"] = "error"
+                    yield event("error", message=str(exc))
 
         return StreamingResponse(
             events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}

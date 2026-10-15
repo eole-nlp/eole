@@ -56,3 +56,8 @@ Specify the working directory, exact checkpoint, dependencies, expected output,
 and limitations. Keep scripts configurable, avoid machine-specific paths, and
 state what was actually tested. Link the recipe here and from the main README
 when it is a useful starting point. Respect model and dataset licenses.
+
+## Local translation workspace
+
+[Hy-MT2-7B translation workspace](translation/README.md): text, files, subtitles,
+glossaries, style controls and a local phrasebook in the bundled server UI.

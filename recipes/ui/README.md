@@ -44,6 +44,10 @@ pip install nvidia-ml-py psutil
 Alternatively install Eole with the `ui` extra. Missing drivers or optional
 packages display unavailable readings; they do not prevent chat.
 
+For a dedicated translation workflow, including Hy-MT2-7B, see the
+[translation workspace recipe](../translation/README.md). Chat and Translate share
+the same interface, monitoring and local server.
+
 ## Workspace features
 
 - **Chat:** streaming responses, browser-local conversation history, edit/resend,
@@ -84,7 +88,8 @@ policies, and timing definitions. Results vary with prompt and MTP acceptance.
 ## Scope and storage
 
 Interactive streaming currently supports **single-process decoder-only models**.
-Use `/infer` for encoder-decoder models and the inference recipes for tensor-parallel workloads.
+Use Translate with a configured language pair for native encoder-decoder models,
+or `/infer` for general inference. Use the inference recipes for tensor-parallel workloads.
 Text attachments are inserted into the prompt, not indexed as a RAG collection.
 The UI does not execute generated code or tools, and has no image-input flow.
 
