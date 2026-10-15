@@ -128,7 +128,8 @@ export DEEPSEEK_OCR_MODEL="$EOLE_MODEL_DIR/DeepSeek-OCR"
 eole serve -c recipes/ui/serve-ocr.yaml --host 127.0.0.1 --port 5000
 ```
 
-Open the workspace and choose **Documents**. Import a PDF or PNG/JPEG/WebP images,
+Open the workspace and choose **Documents (OCR)**. Drop a PDF or PNG/JPEG/WebP images onto the document
+area (or click the drop zone to browse),
 then browse the thumbnail strip or previous/next controls. Process the selected
 page, or all unfinished pages. Results appear page by page; Markdown, source and
 raw grounding output are available separately. Toggle layout boxes and zoom the

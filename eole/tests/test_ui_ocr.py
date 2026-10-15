@@ -247,4 +247,5 @@ class OCRAdapterTests(unittest.TestCase):
         node = shutil.which("node")
         if node is None:
             self.skipTest("Node is only needed for this browser renderer regression check")
-        subprocess.run([node, str(Path(__file__).with_name("web") / "test_ocr_render.cjs")], check=True, timeout=20)
+        for script in ("test_ocr_render.cjs", "test_ocr_drop.cjs"):
+            subprocess.run([node, str(Path(__file__).with_name("web") / script)], check=True, timeout=20)

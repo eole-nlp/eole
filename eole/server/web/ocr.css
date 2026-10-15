@@ -13,7 +13,7 @@
   border: 1px solid var(--line);
   border-radius: 14px;
 }
-.ocr-toolbar label:not(.ocr-upload) {
+.ocr-toolbar label {
   display: grid;
   gap: 7px;
   font-size: 11px;
@@ -22,12 +22,7 @@
 .ocr-toolbar input[type="number"] {
   width: 130px;
 }
-.ocr-upload {
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  min-height: 38px;
-}
+
 .ocr-status {
   padding: 18px 2px;
   font-size: 12px;
@@ -312,4 +307,52 @@
 .ocr-table td,
 .ocr-table th {
   white-space: pre-wrap;
+}
+
+.ocr-dropzone {
+  flex-shrink: 0;
+  margin: 14px 18px;
+  padding: 18px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: center;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.ocr-dropzone strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.ocr-dropzone > span:last-of-type {
+  font-size: 11px;
+}
+.ocr-drop-icon {
+  color: var(--accent);
+  font-size: 22px;
+  line-height: 1;
+}
+.ocr-dropzone:hover,
+.ocr-drag-active .ocr-dropzone {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.ocr-drag-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.ocr-dropzone[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: wait;
+}
+.ocr-dropzone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }

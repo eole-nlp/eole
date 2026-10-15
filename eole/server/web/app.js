@@ -64,7 +64,7 @@ function switchView(view) {
   $("view-title").textContent = {
     chat: "Chat",
     translate: "Translate",
-    ocr: "Documents",
+    ocr: "Documents (OCR)",
     monitor: "Monitor",
     benchmark: "Benchmark",
     connect: "API & setup",

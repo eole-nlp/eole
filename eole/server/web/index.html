@@ -40,7 +40,7 @@
         ><button class="nav-item" data-view="translate">
           <span>⇄</span> Translate</button
         ><button class="nav-item" data-view="ocr">
-          <span>▤</span> Documents</button
+          <span>▤</span> Documents (OCR)</button
         ><button class="nav-item" data-view="monitor">
           <span>▥</span> Monitor</button
         ><button class="nav-item" data-view="benchmark">
@@ -100,13 +100,6 @@
                 id="ocr-model"
                 aria-label="OCR model"
               ></select></label
-            ><label class="quiet-button ocr-upload" role="button" tabindex="0"
-              >＋ Import PDF or images<input
-                id="ocr-file"
-                type="file"
-                accept=".pdf,image/png,image/jpeg,image/webp"
-                multiple
-                hidden /></label
             ><label
               >Output tokens / page<input
                 id="ocr-limit"
@@ -125,11 +118,11 @@
             role="status"
             aria-live="polite"
           >
-            Import a document to begin · PDF, PNG, JPEG or WebP · up to 50 pages
-            / 20 MB per file
+            Drop a document to begin · PDF, PNG, JPEG or WebP · up to 50 pages /
+            20 MB per file
           </div>
           <div class="ocr-grid">
-            <div class="ocr-panel">
+            <div class="ocr-panel" id="ocr-document-area">
               <div class="ocr-panel-heading">
                 <strong id="ocr-name">Original document</strong
                 ><label
@@ -144,12 +137,30 @@
                   </select></label
                 >
               </div>
+              <div
+                id="ocr-dropzone"
+                class="ocr-dropzone"
+                role="button"
+                tabindex="0"
+                aria-label="Drop PDF or images here, or click to browse"
+              >
+                <span class="ocr-drop-icon" aria-hidden="true">↥</span>
+                <strong>Drop PDF or images here</strong
+                ><span>or click to browse · PDF, PNG, JPEG, WebP</span>
+                <input
+                  id="ocr-file"
+                  type="file"
+                  accept=".pdf,image/png,image/jpeg,image/webp"
+                  multiple
+                  hidden
+                />
+              </div>
               <div class="ocr-preview" id="ocr-preview">
                 <div class="ocr-empty">
                   ▤
                   <h2>Your document, page by page</h2>
                   <p>
-                    Import a PDF or images to preview and extract their
+                    Drop a PDF or images above to preview and extract their
                     contents.
                   </p>
                 </div>

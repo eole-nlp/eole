@@ -24,6 +24,7 @@
       $(id).disabled =
         running || importing || !pages.length || !$("model").value;
     $("file").disabled = running || importing;
+    $("dropzone").setAttribute("aria-disabled", String(running || importing));
     $("clear").disabled = running || importing || !pages.length;
     $("model").disabled = running;
     $("limit").disabled = running;
@@ -142,14 +143,63 @@
     controls();
     layoutControl();
   });
-  document.querySelector(".ocr-upload").onkeydown = (event) => {
+  const area = $("document-area");
+  let dragDepth = 0;
+  const hasFiles = (event) =>
+    Array.from(event.dataTransfer?.types || []).includes("Files");
+  $("dropzone").onclick = (event) => {
+    if (event.target !== $("file") && !running && !importing) $("file").click();
+  };
+  $("dropzone").onkeydown = (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      $("file").click();
+      $("dropzone").click();
     }
   };
-  $("file").onchange = async () => {
-    const files = Array.from($("file").files);
+  area.addEventListener("dragenter", (event) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragDepth++;
+    if (!running && !importing) area.classList.add("ocr-drag-active");
+  });
+  area.addEventListener("dragover", (event) => {
+    if (hasFiles(event)) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = running || importing ? "none" : "copy";
+    }
+  });
+  area.addEventListener("dragleave", (event) => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) area.classList.remove("ocr-drag-active");
+  });
+  area.addEventListener("drop", (event) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepth = 0;
+    area.classList.remove("ocr-drag-active");
+    importFiles(Array.from(event.dataTransfer.files));
+  });
+  // A missed drop must not navigate away and discard the current document.
+  for (const name of ["dragover", "drop"])
+    document.addEventListener(name, (event) => {
+      if (hasFiles(event)) event.preventDefault();
+    });
+  $("file").onchange = () => importFiles(Array.from($("file").files));
+  async function importFiles(files) {
+    if (running || importing) {
+      status("Wait for processing to finish before adding files.");
+      return;
+    }
+    if (!files.length) return;
+    if (
+      files.length > 50 ||
+      files.some((f) => !/\.(pdf|png|jpe?g|webp)$/i.test(f.name))
+    ) {
+      status("Choose up to 50 PDF, PNG, JPEG or WebP files.");
+      $("file").value = "";
+      return;
+    }
     importing = true;
     controls();
     try {
@@ -189,7 +239,7 @@
         show();
       }
       status(
-        `${pages.length} pages ready. Select a page or process the complete document.`,
+        `${pages.length} ${pages.length === 1 ? "page" : "pages"} ready. Select a page or process the complete document.`,
       );
     } catch (e) {
       status(e.message);
@@ -198,7 +248,7 @@
       $("file").value = "";
       controls();
     }
-  };
+  }
   async function process(indices) {
     const max_tokens = Number($("limit").value);
     if (!Number.isInteger(max_tokens) || max_tokens < 1 || max_tokens > 16384) {
@@ -332,7 +382,7 @@
     pages = [];
     selected = 0;
     $("preview").innerHTML =
-      '<div class="ocr-empty"><h2>Ready for your next document</h2><p>Import a PDF or images to begin.</p></div>';
+      '<div class="ocr-empty"><h2>Ready for your next document</h2><p>Drop a PDF or images above to begin.</p></div>';
     $("output").textContent = "";
     $("thumbnails").textContent = "";
     $("name").textContent = "Original document";
