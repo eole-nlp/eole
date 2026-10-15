@@ -127,6 +127,7 @@ setup(
     extras_require={
         "ui": ["nvidia-ml-py>=12.0.0", "psutil>=5.9.0"],
         "translation": ["pypdf>=5.0.0"],
+        "ocr": ["PyMuPDF>=1.24.0"],
         "wer": ["jiwer>=3.0", "whisper-normalizer>=0.1"],
         "trackio": [
             "trackio>=0.38.1,<0.41.0",

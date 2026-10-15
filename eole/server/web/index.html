@@ -9,6 +9,8 @@
     <script src="/ui/assets/workspace.js" defer></script>
     <script src="/ui/assets/app.js" defer></script>
     <script src="/ui/assets/translator.js" defer></script>
+    <script src="/ui/assets/ocr.js" defer></script>
+    <link rel="stylesheet" href="/ui/assets/ocr.css" />
     <link rel="stylesheet" href="/ui/assets/translator.css" />
   </head>
   <body>
@@ -35,6 +37,8 @@
           <span>◌</span> Chat</button
         ><button class="nav-item" data-view="translate">
           <span>⇄</span> Translate</button
+        ><button class="nav-item" data-view="ocr">
+          <span>▤</span> Documents</button
         ><button class="nav-item" data-view="monitor">
           <span>▥</span> Monitor</button
         ><button class="nav-item" data-view="benchmark">
@@ -76,6 +80,148 @@
         </div>
       </header>
       <main>
+        <section id="view-ocr" class="view ocr-view" hidden>
+          <div class="translation-heading">
+            <div>
+              <span class="eyebrow">DOCUMENT INTELLIGENCE</span>
+              <h1>From pages to possibilities.</h1>
+              <p>
+                Extract readable Markdown from PDFs and images. Entirely on your
+                machine.
+              </p>
+            </div>
+            <span class="translation-badge">LOCAL OCR</span>
+          </div>
+          <div class="ocr-toolbar">
+            <label
+              >OCR model<select
+                id="ocr-model"
+                aria-label="OCR model"
+              ></select></label
+            ><label class="quiet-button ocr-upload" role="button" tabindex="0"
+              >＋ Import PDF or images<input
+                id="ocr-file"
+                type="file"
+                accept=".pdf,image/png,image/jpeg,image/webp"
+                multiple
+                hidden /></label
+            ><label
+              >Output tokens / page<input
+                id="ocr-limit"
+                type="number"
+                min="1"
+                max="16384"
+                value="4096" /></label
+            ><button id="ocr-current" class="quiet-button">Process page</button
+            ><button id="ocr-all" class="primary-button">
+              Process all pages</button
+            ><button id="ocr-stop" class="quiet-button" hidden>Stop</button>
+          </div>
+          <div
+            id="ocr-status"
+            class="ocr-status"
+            role="status"
+            aria-live="polite"
+          >
+            Import a document to begin · PDF, PNG, JPEG or WebP · up to 50 pages
+            / 20 MB per file
+          </div>
+          <div class="ocr-grid">
+            <div class="ocr-panel">
+              <div class="ocr-panel-heading">
+                <strong id="ocr-name">Original document</strong
+                ><label
+                  ><input id="ocr-overlay" type="checkbox" checked />
+                  Layout</label
+                ><label
+                  >Zoom
+                  <select id="ocr-zoom">
+                    <option value="100">Fit</option>
+                    <option value="150">150%</option>
+                    <option value="200">200%</option>
+                  </select></label
+                >
+              </div>
+              <div class="ocr-preview" id="ocr-preview">
+                <div class="ocr-empty">
+                  ▤
+                  <h2>Your document, page by page</h2>
+                  <p>
+                    Import a PDF or images to preview and extract their
+                    contents.
+                  </p>
+                </div>
+              </div>
+              <div class="ocr-navigation">
+                <button
+                  id="ocr-prev"
+                  class="quiet-button"
+                  aria-label="Previous page"
+                >
+                  ←</button
+                ><span id="ocr-page-count">No pages</span
+                ><button
+                  id="ocr-next"
+                  class="quiet-button"
+                  aria-label="Next page"
+                >
+                  →
+                </button>
+              </div>
+              <div
+                id="ocr-thumbnails"
+                class="ocr-thumbnails"
+                aria-label="Document pages"
+              ></div>
+            </div>
+            <div class="ocr-panel">
+              <div class="ocr-panel-heading">
+                <div class="ocr-tabs">
+                  <button
+                    id="ocr-rendered"
+                    class="quiet-button"
+                    aria-pressed="true"
+                  >
+                    Markdown</button
+                  ><button
+                    id="ocr-source"
+                    class="quiet-button"
+                    aria-pressed="false"
+                  >
+                    Source</button
+                  ><button
+                    id="ocr-raw"
+                    class="quiet-button"
+                    aria-pressed="false"
+                  >
+                    Raw OCR
+                  </button>
+                </div>
+                <button id="ocr-copy" class="quiet-button">Copy</button>
+              </div>
+              <div id="ocr-output" class="message-body ocr-output">
+                <div class="ocr-empty">
+                  <h2>A clean reading space</h2>
+                  <p>
+                    Extracted headings, paragraphs and tables will appear here.
+                  </p>
+                </div>
+              </div>
+              <div class="ocr-export">
+                <button id="ocr-download" class="quiet-button">
+                  ↓ Page Markdown</button
+                ><button id="ocr-download-all" class="quiet-button">
+                  ↓ Complete document</button
+                ><button id="ocr-clear" class="quiet-button">Clear</button>
+              </div>
+            </div>
+          </div>
+          <div id="ocr-metrics" class="ocr-metrics">
+            Page-by-page processing · results stay in this browser tab · no
+            document files saved on the server
+          </div>
+        </section>
+
         <section id="view-chat" class="view chat-view">
           <div class="chat-toolbar">
             <div>

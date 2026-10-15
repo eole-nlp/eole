@@ -112,3 +112,46 @@ Assets live in `eole/server/web/` and are included as package data in wheels.
 Edit them and reload the browser. No build step is needed. Formatting can be
 checked with Prettier; backend routing, cancellation and metrics are covered by
 `test_server_ui.py`, `test_server_streaming.py` and the speculative-decoding tests.
+
+
+## Documents: PDF and image OCR
+
+![DeepSeek-OCR PDF workspace](images/ocr-workspace.jpg)
+
+The **Documents** workspace uses DeepSeek-OCR to turn scanned pages into Markdown.
+Install PDF rendering support and point the recipe at your converted Eole model:
+
+```bash
+pip install 'eole[ocr]'
+export EOLE_MODEL_DIR=/path/to/models
+export DEEPSEEK_OCR_MODEL="$EOLE_MODEL_DIR/DeepSeek-OCR"
+eole serve -c recipes/ui/serve-ocr.yaml --host 127.0.0.1 --port 5000
+```
+
+Open the workspace and choose **Documents**. Import a PDF or PNG/JPEG/WebP images,
+then browse the thumbnail strip or previous/next controls. Process the selected
+page, or all unfinished pages. Results appear page by page; Markdown, source and
+raw grounding output are available separately. Toggle layout boxes and zoom the
+original page. Copy or download one page, or export the complete document with
+page boundaries and explicit markers for unfinished pages.
+
+The default output limit is 4096 tokens per page; increase it and retry pages
+marked incomplete. Stop cooperatively cancels the active generation and keeps
+finished pages. Failed and cancelled pages can be retried individually. Processing
+uses the same inference lock and Monitor request history as Chat and Translate.
+Decode throughput is the engine's measured token rate; total page time also
+includes queueing, model loading and image preparation. The first page can take
+longer because of model loading and warmup.
+
+Imports are limited to 20 MB per file and 50 pages per workspace. Pages are rendered
+at up to 1024 pixels on the longest edge. Encrypted PDFs must be unlocked first.
+Uploaded files are not written to server storage, and page images/results remain
+only in browser-tab memory: reload discards them. Download results before closing.
+The Markdown preview uses the workspace's safe basic renderer; it does not recreate
+PDF typography or embed extracted figures. Raw OCR remains available for inspection.
+
+To expose all three workflows, combine model entries from the UI, translation and
+OCR recipes in one server YAML. Model loading consumes GPU memory; do not preload
+more models than fit. This OCR workflow currently supports single-process
+DeepSeek-OCR with `data_type: image`; other vision models need their own prompt
+and output adapters.
