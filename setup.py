@@ -89,6 +89,7 @@ setup(
     long_description_content_type="text/markdown",
     version="0.6.2",
     packages=find_packages(),
+    package_data={"eole.server": ["web/*"]},
     ext_modules=ext_modules,
     cmdclass=cmdclass,
     project_urls={"Source": "https://github.com/eole-nlp/eole/"},
@@ -124,6 +125,7 @@ setup(
         "pydantic",
     ],
     extras_require={
+        "ui": ["nvidia-ml-py>=12.0.0", "psutil>=5.9.0"],
         "wer": ["jiwer>=3.0", "whisper-normalizer>=0.1"],
         "trackio": [
             "trackio>=0.38.1,<0.41.0",

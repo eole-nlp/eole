@@ -28,6 +28,8 @@ assembly keeps recipe links to other documentation within the site and links
 code/config assets to GitHub. Each generated page has an edit link to its real
 source. Bibliography and Mermaid nodes are handled by the Sphinx Markdown
 translator in `source/conf.py`.
+Tracked recipe images are staged beside their Markdown so local screenshots
+and animated previews resolve in both GitHub and the documentation website.
 
 The deployment workflow uses the Yarn lockfile. Keep Docusaurus packages aligned
 and update the lockfile when changing site dependencies. The generated site

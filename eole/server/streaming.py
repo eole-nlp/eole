@@ -6,11 +6,12 @@ from contextlib import asynccontextmanager
 
 
 @asynccontextmanager
-async def inference_stream(engine, prompt, settings, generation_stats=None):
+async def inference_stream(engine, prompt, settings, generation_stats=None, cancel_event=None):
     """Yield an async chunk iterator and drain its worker when the consumer exits.
 
-    Disconnects stop delivery, not inference. Keep the worker alive until it
-    finishes so request-local state is not released while generation continues.
+    Without an explicit cancel_event, disconnects stop delivery only. With
+    one, signal cooperative cancellation and still drain the worker before
+    releasing request-local state.
     The engine's persistent single-worker pool still owns inference scheduling.
     """
     loop = asyncio.get_running_loop()
@@ -22,6 +23,8 @@ async def inference_stream(engine, prompt, settings, generation_stats=None):
             kwargs = {"settings": settings}
             if generation_stats is not None:
                 kwargs["generation_stats"] = generation_stats
+            if cancel_event is not None:
+                kwargs["cancel_event"] = cancel_event
             for chunk in engine.infer_list_stream(prompt, **kwargs):
                 if not cancelled.is_set():
                     loop.call_soon_threadsafe(queue.put_nowait, chunk)
@@ -44,4 +47,6 @@ async def inference_stream(engine, prompt, settings, generation_stats=None):
         yield chunks()
     finally:
         cancelled.set()
+        if cancel_event is not None:
+            cancel_event.set()
         await asyncio.shield(worker)

@@ -355,6 +355,10 @@ class GeneratorLM(Inference):
                 # is temporarily longer than a normal decode step.
                 decode_strategy.static_batch_size = True
             while step < decode_strategy.max_length:
+                if streamer is not None and getattr(streamer, "cancelled", False):
+                    from eole.predict.streamer import GenerationCancelled
+
+                    raise GenerationCancelled()
                 if use_spec_decoding and pending_spec is not None:
                     hidden, hidden_position = pending_spec
                     step, next_hidden, next_position = self._speculative_draft_verify(

@@ -10,6 +10,22 @@ Use it for language generation, machine translation, neural translation scoring,
 vision and OCR, and speech recognition. Bring supported Hugging Face checkpoints
 or train your own architecture.
 
+## A local workspace, included
+
+Chat with your models, watch generation speed and GPU usage, and run a warmed
+benchmark from the bundled browser UI. Streaming, conversation history, thinking,
+and generation controls are included, with no frontend build step.
+
+![Eole local workspace: real Qwen streaming, hardware monitoring, and benchmark](recipes/ui/images/showcase.gif)
+
+[Watch the short MP4 tour](recipes/ui/images/showcase.mp4) ·
+[Start the workspace](recipes/ui/README.md)
+
+Recorded with RedHat Qwen3.8-27B INT4 on one RTX 5090, MTP enabled, compile
+mode 0, and a 28,672-token context. The benchmark shows a 105.6 tok/s median
+over three warmed 128-token requests. This is post-first-token decode speed;
+results depend on the prompt, settings, and hardware.
+
 ## Latest: 0.6.2
 
 This release fixes Qwen RoPE conversion and GGUF MTP/tokenizer handling, adds
@@ -25,7 +41,7 @@ and current limitations.
 | I want to… | Start here |
 |---|---|
 | Run a supported HF model without a separate conversion step | [Direct HF inference](recipes/hf/README.md) |
-| Run a local LLM with a chat API | [Model server](recipes/server/README.md) |
+| Chat with a local LLM in your browser | [Local workspace UI](recipes/ui/README.md) |
 | Try Qwen3.8-27B with MTP speculative decoding | [Qwen3.8 and MTP](recipes/qwen38/README.md) |
 | Use Codex with a locally served Qwen model | [Codex Responses API](recipes/codex/README.md) |
 | Use Claude Code with a locally served Qwen model | [Claude Code endpoint](recipes/claude-code/README.md) |

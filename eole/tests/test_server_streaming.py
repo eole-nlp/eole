@@ -9,6 +9,21 @@ from eole.server.streaming import inference_stream
 
 
 class TestInferenceStream(unittest.IsolatedAsyncioTestCase):
+    async def test_explicit_cancel_signal_stops_generation_on_early_exit(self):
+        signal, finished = threading.Event(), threading.Event()
+
+        def generate(prompt, settings, cancel_event):
+            self.assertIs(cancel_event, signal)
+            yield "first"
+            self.assertTrue(cancel_event.wait(2))
+            finished.set()
+
+        async with inference_stream(SimpleNamespace(infer_list_stream=generate), "", {}, cancel_event=signal) as chunks:
+            async for _ in chunks:
+                break
+        self.assertTrue(signal.is_set())
+        self.assertTrue(finished.is_set())
+
     async def test_chunks_and_generation_stats(self):
         stats = {}
 
