@@ -6,6 +6,10 @@ remain available. The original `apps/chatbot.py` stays a small Gradio example.
 
 ![Eole workspace](images/workspace.jpg)
 
+[Watch the short UI tour](images/showcase.mp4). The recording shows real local
+Qwen inference, hardware telemetry, and a completed benchmark, with navigation
+pauses shortened. The animated preview is on the repository front page.
+
 ## Start with Qwen3.8 INT4
 
 Use the converted **RedHatAI/Qwen3.8-27B-INT4** checkpoint, including MTP weights.
@@ -23,6 +27,7 @@ Open **http://127.0.0.1:5000**. The supplied config uses BF16 compute,
 Marlin projection packing, three MTP drafts, a 28,672-token context, and
 chunked prefill. Context and output limits should be adjusted for your GPU;
 this recipe is intended for an RTX 5090 with the converted INT4 model.
+The chat output limit defaults to 4,096 tokens, capped by the selected model's limit.
 It does not alter FP32 normalization.
 
 The first compiled request can spend several minutes warming all full and

@@ -40,6 +40,12 @@ def main():
         source = ROOT / name
         if source.suffix == ".md":
             add(source, name)
+        elif source.suffix.lower() in {".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".avif"}:
+            # Keep recipe images beside their staged Markdown, including images
+            # referenced from the repository README. Only copy tracked assets.
+            target = DEST / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
     for source in DOCS.glob("*.md"):
         add(source, Path("guides") / source.name)
     reference = DOCS / "sphinx_markdown" / "markdown"

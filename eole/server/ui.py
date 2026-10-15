@@ -28,7 +28,7 @@ class UIMessage(BaseModel):
 class UIChat(BaseModel):
     model: str
     messages: list[UIMessage] = Field(min_length=1, max_length=200)
-    max_tokens: int = Field(default=512, ge=1, le=32768)
+    max_tokens: int = Field(default=4096, ge=1, le=32768)
     preset: str = Field(default="fast", pattern="^(fast|creative)$")
     thinking: bool = False
     temperature: float = Field(default=0.7, ge=0, le=2)
@@ -124,7 +124,7 @@ def register_ui(app, server):
                         else None
                     ),
                     "context_length": getattr(config, "context_length", settings.get("context_length")),
-                    "max_tokens": getattr(config, "max_length", settings.get("max_length", 512)),
+                    "max_tokens": getattr(config, "max_length", settings.get("max_length", 4096)),
                     "mtp_configured": bool(
                         getattr(config, "self_speculative_decoding", settings.get("self_speculative_decoding", False))
                     ),

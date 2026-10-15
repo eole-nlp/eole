@@ -305,7 +305,7 @@ function updateContext() {
   if (!model) return;
   $("model-caption").textContent =
     `${model.weight_bits ? "INT" + model.weight_bits + " · " : ""}${model.dtype.replace("torch.", "")} compute · ${model.context_length ? Number(model.context_length).toLocaleString() + " context" : "context automatic"} · ${state.compile_enabled ? "compiled mode " + state.compile_mode : "eager"}`;
-  const max = Number(model.max_tokens) || 512;
+  const max = Number(model.max_tokens) || 4096;
   $("max-tokens").max = max;
   if (Number($("max-tokens").value) > max) $("max-tokens").value = max;
   const last = current()
