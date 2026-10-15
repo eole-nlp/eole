@@ -41,7 +41,7 @@ and current limitations.
 | I want to… | Start here |
 |---|---|
 | Run a supported HF model without a separate conversion step | [Direct HF inference](recipes/hf/README.md) |
-| Run a local LLM with a chat API | [Model server](recipes/server/README.md) |
+| Chat with a local LLM in your browser | [Local workspace UI](recipes/ui/README.md) |
 | Try Qwen3.8-27B with MTP speculative decoding | [Qwen3.8 and MTP](recipes/qwen38/README.md) |
 | Use Codex with a locally served Qwen model | [Codex Responses API](recipes/codex/README.md) |
 | Use Claude Code with a locally served Qwen model | [Claude Code endpoint](recipes/claude-code/README.md) |
