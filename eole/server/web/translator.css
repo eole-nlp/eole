@@ -1,0 +1,561 @@
+.translation-view {
+  padding: 46px 42px 36px;
+  max-width: 1560px;
+  margin: 0 auto;
+}
+.translation-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+.translation-heading h1 {
+  font-size: clamp(30px, 3vw, 44px);
+  font-weight: 450;
+  letter-spacing: -1.7px;
+  margin: 12px 0;
+  line-height: 1.15;
+}
+.translation-heading p,
+.translation-files p {
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.6;
+}
+.translation-badge {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  padding: 10px 16px;
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  white-space: nowrap;
+}
+.translation-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+.translation-topline select {
+  max-width: 260px;
+}
+.translation-tabs {
+  display: flex;
+  gap: 5px;
+  background: var(--accent-soft);
+  padding: 5px;
+  border-radius: 10px;
+}
+.translation-tabs button {
+  border: 0;
+  background: transparent;
+  padding: 9px 15px;
+  color: var(--muted);
+  border-radius: 7px;
+  font-size: 12px;
+}
+.translation-tabs button.active {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 1px 5px #00000009;
+}
+.translation-languages {
+  display: grid;
+  grid-template-columns: 1fr 48px 1fr;
+  gap: 12px;
+  align-items: center;
+  margin: 0 4px 12px;
+}
+.translation-languages label {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+}
+.translation-languages select {
+  flex: 1;
+  font-size: 14px;
+  border: 0;
+  background: transparent;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 10px;
+}
+.translation-languages button {
+  font-size: 22px;
+}
+.translation-editors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.translation-editor {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  box-shadow: 0 5px 24px #22352c03;
+}
+.translation-editor.output {
+  background: color-mix(in srgb, var(--paper) 82%, var(--accent-soft));
+}
+.translation-editor-head {
+  height: 54px;
+  padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.translation-editor-head > span {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.translation-editor-head small {
+  font-size: 10px;
+  color: var(--accent);
+}
+.translation-editor textarea {
+  flex: 1;
+  resize: vertical;
+  width: 100%;
+  min-height: 320px;
+  border: 0;
+  background: transparent;
+  padding: 12px 22px 25px;
+  font-family: inherit;
+  font-size: 17px;
+  line-height: 1.8;
+  color: var(--ink);
+  outline-offset: -2px;
+  border-radius: 0;
+}
+.translation-editor textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.65;
+}
+.translation-editor-foot {
+  min-height: 52px;
+  padding: 8px 18px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.translation-editor-foot select {
+  background: transparent;
+  max-width: 145px;
+  font-size: 11px;
+  padding: 6px;
+}
+.translation-view .quiet-button {
+  padding: 7px 10px;
+  font-size: 11px;
+}
+.translation-actionbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 22px 0;
+}
+.translation-actionbar > div {
+  flex: 1;
+}
+.translation-actionbar > div > span {
+  display: block;
+  font-size: 13px;
+  color: var(--ink);
+}
+.translation-actionbar small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 7px;
+  line-height: 1.6;
+  max-width: 600px;
+}
+.translation-actionbar .primary {
+  min-width: 154px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 25px;
+}
+.translation-error {
+  color: #ac4d3a !important;
+}
+.translation-options {
+  padding: 0 22px;
+  margin-top: 6px;
+}
+.translation-options summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+}
+.translation-options summary > small {
+  color: var(--muted);
+  flex: 1;
+  font-size: 11px;
+}
+.translation-options summary > span:last-child {
+  color: var(--accent);
+}
+.translation-options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  padding-bottom: 20px;
+}
+.translation-options label {
+  display: block;
+  font-size: 11px;
+  color: var(--ink);
+}
+.translation-options textarea {
+  width: 100%;
+  min-height: 104px;
+  display: block;
+  resize: vertical;
+  margin-top: 8px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.translation-options select,
+.translation-options input {
+  width: 100%;
+  margin-top: 7px;
+}
+.translation-options-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  margin-bottom: 16px;
+}
+.translation-options p {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.7;
+  margin: 12px 0 0;
+}
+.translation-options label > span {
+  font-size: 10px;
+  margin-left: 6px;
+}
+.glossary-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 9px;
+  font-size: 10px;
+}
+.glossary-actions > span {
+  margin-left: auto;
+}
+.translation-bottom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 10px;
+  color: var(--muted);
+  padding-top: 14px;
+}
+.translation-bottom > span {
+  flex: 1;
+}
+.translation-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  padding: 18px 22px;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.translation-metrics div {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+.translation-metrics small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.translation-metrics strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.translation-files {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0 0 25px;
+}
+.translation-files h2 {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+.translation-files p {
+  font-size: 12px;
+}
+.translation-files small {
+  color: var(--muted);
+  font-size: 10px;
+}
+#tr-file-list {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+#tr-file-list:empty {
+  display: none;
+}
+.translation-file {
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 10px 14px;
+  color: var(--ink);
+}
+.translation-file span,
+.translation-file small {
+  display: block;
+}
+.translation-file span {
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.translation-file.active {
+  border-color: var(--accent);
+}
+.translation-saved-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.translation-saved-head h2 {
+  margin: 0 0 7px;
+  font-size: 23px;
+  font-weight: 450;
+}
+.translation-saved-head p {
+  font-size: 12px;
+  color: var(--muted);
+}
+.translation-history-tools {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin: 22px 0;
+}
+.translation-history-tools > input {
+  flex: 1;
+}
+.translation-history-tools label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.translation-history-entry {
+  border-top: 1px solid var(--line);
+  padding: 20px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+.translation-history-entry > div:first-child {
+  flex: 1;
+}
+.translation-history-entry > div:last-child {
+  display: flex;
+}
+.translation-history-entry small {
+  color: var(--accent);
+  font-size: 10px;
+}
+.translation-history-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.translation-history-pair p {
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.translation-history-pair p:first-child {
+  color: var(--muted);
+}
+.translation-empty {
+  padding: 50px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 14px;
+}
+@media (min-width: 1600px) {
+  .translation-editor textarea {
+    min-height: 390px;
+  }
+}
+@media (max-width: 1100px) {
+  .translation-view {
+    padding: 30px 24px;
+  }
+  .translation-badge {
+    display: none;
+  }
+  .translation-editor-head > span {
+    flex-wrap: wrap;
+    gap: 3px;
+  }
+  .translation-actionbar {
+    flex-wrap: wrap;
+  }
+  .translation-actionbar > div {
+    flex-basis: 100%;
+  }
+}
+@media (max-width: 700px) {
+  .translation-view {
+    padding: 26px 16px;
+  }
+  .translation-heading h1 {
+    font-size: 33px;
+  }
+  .translation-heading p {
+    font-size: 12px;
+  }
+  .translation-topline {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .translation-tabs {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .translation-topline select {
+    width: 100%;
+    max-width: none;
+  }
+  .translation-languages {
+    grid-template-columns: 1fr 32px 1fr;
+    gap: 0;
+  }
+  .translation-languages label {
+    flex-direction: column;
+    gap: 2px;
+    align-items: start;
+  }
+  .translation-languages select {
+    width: 100%;
+    padding-left: 0;
+    font-size: 12px;
+  }
+  .translation-editors {
+    grid-template-columns: 1fr;
+  }
+  .translation-editor textarea {
+    min-height: 210px;
+    font-size: 16px;
+  }
+  .translation-options-grid {
+    grid-template-columns: 1fr;
+  }
+  .translation-bottom {
+    flex-wrap: wrap;
+  }
+  .translation-bottom > span {
+    flex-basis: 100%;
+  }
+  .translation-metrics {
+    gap: 16px;
+  }
+  .translation-history-entry {
+    flex-wrap: wrap;
+  }
+  .translation-history-pair {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .translation-saved-head {
+    flex-wrap: wrap;
+  }
+  .translation-history-tools {
+    flex-wrap: wrap;
+  }
+  .translation-heading {
+    margin-bottom: 22px;
+  }
+}
+
+.translation-view select,
+.translation-options input,
+.translation-options textarea,
+.translation-history-tools > input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 9px 12px;
+  color: var(--ink);
+  font-family: inherit;
+}
+.translation-topline select {
+  font-size: 12px;
+  padding: 10px 15px;
+}
+.translation-languages select {
+  border: 0;
+  background: transparent;
+}
+.translation-editor-foot select {
+  border: 0;
+  background: transparent;
+}
+/* Five workspace destinations must fit alongside the mobile brand/actions. */
+@media (max-width: 700px) {
+  .sidebar {
+    gap: 5px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .sidebar nav {
+    flex-shrink: 0;
+  }
+  .sidebar .nav-item {
+    width: 30px;
+    padding: 5px;
+    gap: 0;
+  }
+  .sidebar .mobile-history {
+    padding: 4px;
+  }
+}

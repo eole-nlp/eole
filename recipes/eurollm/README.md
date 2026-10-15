@@ -1,4 +1,8 @@
-# Serving Eurollm in a gradio interface with Eole
+# EuroLLM model and legacy Gradio example
+
+For the current bundled translation UI, start with the
+[Hy-MT2 translation workspace](../translation/README.md). This recipe retains
+the EuroLLM model setup and standalone Gradio example.
 
 Run the following commands from the repository root. Install `gradio` and
 `requests` for the translator interface. The server YAML selects GPU 0, BF16,

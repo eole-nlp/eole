@@ -23,7 +23,8 @@ fixed, and actually executed on the current checkout.
 
 | Workflow | Recipe |
 |---|---|
-| EuroLLM translator web interface | [EuroLLM](eurollm/README.md) |
+| Translation workspace: text, documents, subtitles and glossaries | [Hy-MT2 workspace](translation/README.md) |
+| EuroLLM model and legacy Gradio example | [EuroLLM](eurollm/README.md) |
 | Train an encoder-decoder translation model | [WMT17 English–German](wmt17/README.md) |
 | NLLB conversion and translation | [NLLB](nllb/README.md) |
 | Translation with Tower and Llama | [Tower / Mistral](wmt22_with_TowerInstruct-Mistral/README.md), [Tower / Llama2](wmt22_with_TowerInstruct-llama2/README.md), [Llama3.1](wmt22_with_llama3.1/README.md) |

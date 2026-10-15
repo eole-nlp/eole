@@ -1,0 +1,29 @@
+# Converted tencent/Hy-MT2-7B checkpoint (BF16, approximately 14 GB of weights).
+models_root: "${EOLE_MODEL_DIR}"
+models:
+  - id: hy-mt2-7b
+    path: "${HY_MT2_MODEL}"
+    preload: true
+    translation:
+      prompt_style: instruction
+      source_language: auto
+      target_language: French
+    config:
+      compute_dtype: bf16
+      self_attn_backend: flash
+      beam_size: 1
+      n_best: 1
+      top_k: 1
+      top_p: 0.0
+      temperature: 1.0
+      min_length: 0
+      max_length: 4096
+      max_length_ratio: 0
+      context_length: 16384
+      batch_size: 1
+      self_speculative_decoding: false
+      report_time: true
+      fuse_kvq: true
+      fuse_gate: true
+      prefill_cache_size: 0
+      prefill_chunk_size: 256

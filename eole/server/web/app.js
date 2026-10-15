@@ -1,13 +1,6 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
-const escapeHTML = (value) =>
-  String(value ?? "").replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ],
-  );
+const escapeHTML = EoleUI.escape;
 const format = (value, digits = 1) =>
   Number.isFinite(value) ? value.toFixed(digits) : "—";
 let chats = [],
@@ -70,6 +63,7 @@ function switchView(view) {
     .forEach((el) => el.classList.toggle("selected", el.dataset.view === view));
   $("view-title").textContent = {
     chat: "Chat",
+    translate: "Translate",
     monitor: "Monitor",
     benchmark: "Benchmark",
     connect: "API & setup",
@@ -193,48 +187,22 @@ async function consume(payload, onDelta) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) {
-    const body = await response.json();
-    throw new Error(
-      typeof body.detail === "string"
-        ? body.detail
-        : "The request settings were rejected.",
-    );
-  }
-  const reader = response.body.getReader(),
-    decoder = new TextDecoder();
-  let buffer = "",
-    result = null;
+  let result = null;
   try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let position;
-      while ((position = buffer.indexOf("\n\n")) >= 0) {
-        const frame = buffer.slice(0, position);
-        buffer = buffer.slice(position + 2);
-        const data = frame
-          .split("\n")
-          .filter((l) => l.startsWith("data:"))
-          .map((l) => l.slice(5).trimStart())
-          .join("\n");
-        if (!data) continue;
-        const event = JSON.parse(data);
-        if (event.type === "start") {
-          activeRequest = event.request_id;
-          if (stopRequested)
-            await fetch(`/ui/cancel/${activeRequest}`, { method: "POST" });
-        }
-        if (event.type === "delta") {
-          $("run-state").textContent = "Generating locally…";
-          onDelta?.(event);
-        }
-        if (event.type === "error") throw new Error(event.message);
-        if (event.type === "done") {
-          result = event.stats;
-          activeRequest = null;
-        }
+    for await (const event of EoleUI.events(response)) {
+      if (event.type === "start") {
+        activeRequest = event.request_id;
+        if (stopRequested)
+          await fetch(`/ui/cancel/${activeRequest}`, { method: "POST" });
+      }
+      if (event.type === "delta") {
+        $("run-state").textContent = "Generating locally…";
+        onDelta?.(event);
+      }
+      if (event.type === "error") throw new Error(event.message);
+      if (event.type === "done") {
+        result = event.stats;
+        activeRequest = null;
       }
     }
     if (!result)
@@ -245,7 +213,6 @@ async function consume(payload, onDelta) {
       await fetch(`/ui/cancel/${activeRequest}`, { method: "POST" }).catch(
         () => {},
       );
-    await reader.cancel().catch(() => {});
     throw error;
   }
 }
@@ -402,7 +369,7 @@ function renderMonitor() {
         .slice(0, 12)
         .map(
           (r) =>
-            `<tr><td>${escapeHTML(r.model)}<small>${escapeHTML(r.status)} · ${new Date(r.timestamp * 1000).toLocaleTimeString()}</small></td><td>${r.prompt_tokens ?? "—"}</td><td>${r.output_tokens ?? "—"}</td><td>${format(r.first_token_seconds, 2)} s</td><td>${format(r.decode_tokens_per_second)} t/s</td><td>${r.mtp_active ? format(r.mtp_acceptance * 100, 0) + "%" : "Off"}</td></tr>`,
+            `<tr><td>${escapeHTML(r.model)}<small>${escapeHTML(r.task ? r.task + " · " + r.status : r.status)} · ${new Date(r.timestamp * 1000).toLocaleTimeString()}</small></td><td>${r.prompt_tokens ?? "—"}</td><td>${r.output_tokens ?? "—"}</td><td>${format(r.first_token_seconds, 2)} s</td><td>${format(r.decode_tokens_per_second)} t/s</td><td>${r.mtp_active ? format(r.mtp_acceptance * 100, 0) + "%" : "Off"}</td></tr>`,
         )
         .join("")
     : '<tr><td colspan="6" class="empty-cell">No requests yet. Start a conversation to see real measurements.</td></tr>';
@@ -460,6 +427,7 @@ async function refreshState() {
     updateContext();
     renderMonitor();
     renderAPI();
+    window.dispatchEvent(new CustomEvent("eole:state", { detail: state }));
   } catch {
     $("connection-dot").classList.add("offline");
     $("connection-text").textContent = "Server unavailable";
