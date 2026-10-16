@@ -44,7 +44,7 @@
         ><button class="nav-item" data-view="ocr">
           <span>▤</span> Documents (OCR)</button
         ><button class="nav-item" data-view="knowledge">
-          <span>▧</span> Knowledge</button
+          <span>▧</span> Knowledge (RAG)</button
         ><button class="nav-item" data-view="monitor">
           <span>▥</span> Monitor</button
         ><button class="nav-item" data-view="benchmark">
@@ -658,8 +658,8 @@
                 <strong>Temporary, by design.</strong>
                 <p>
                   Collections stay in server memory for this tab's session. They
-                  expire after one idle hour or a server restart. Keep your
-                  original files.
+                  remain until you delete them, reset this session, or restart
+                  the server. Keep your original files.
                 </p>
                 <button id="kg-reset" class="quiet-button">
                   Start a new session

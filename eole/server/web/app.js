@@ -71,7 +71,7 @@ function switchView(view) {
     chat: "Chat",
     translate: "Translate",
     ocr: "Documents (OCR)",
-    knowledge: "Knowledge",
+    knowledge: "Knowledge (RAG)",
     monitor: "Monitor",
     benchmark: "Benchmark",
     connect: "API & setup",

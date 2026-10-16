@@ -43,11 +43,12 @@ class TestCollections(unittest.TestCase):
                 operation()
         self.assertEqual(self.store.list(self.token)[0]["name"], "Research")
 
-    def test_expiry_and_capacity(self):
-        self.store.sessions[self.token]["touched"] -= 3601
-        with self.assertRaises(HTTPException):
-            self.store.list(self.token)
-        for _ in range(15):
+    def test_no_automatic_expiry_and_session_capacity(self):
+        from unittest.mock import patch
+
+        with patch("time.monotonic", return_value=10**12):
+            self.assertEqual(self.store.list(self.token)[0]["name"], "Research")
+        for _ in range(14):
             self.store.new_session()
         with self.assertRaises(ValueError):
             self.store.new_session()
@@ -205,7 +206,7 @@ class TestKnowledgeDocuments(unittest.TestCase):
         name, documents = load_documents(self.upload("../notes.md", b"# Hello\nSome content"))
         self.assertEqual(name, "notes.md")
         self.assertEqual(documents[0].metadata["source"], "notes.md")
-        for name, data in (("empty.txt", b" "), ("file.exe", b"x"), ("large.txt", b"x" * 80001)):
+        for name, data in (("empty.txt", b" "), ("file.exe", b"x"), ("large.txt", b"x" * 4000001)):
             with self.assertRaises(ValueError):
                 load_documents(self.upload(name, data))
 
@@ -225,6 +226,52 @@ class TestKnowledgeDocuments(unittest.TestCase):
             doc.new_page()
             with self.assertRaisesRegex(ValueError, "OCR"):
                 load_documents(self.upload("scan.pdf", doc.tobytes()))
+
+    def test_more_than_fifty_pages_and_large_extracted_text(self):
+        try:
+            import pymupdf
+        except ImportError:
+            self.skipTest("Optional PDF renderer absent")
+
+        with pymupdf.open() as doc:
+            for index in range(60):
+                page = doc.new_page()
+                page.insert_text((50, 50), f"Source page {index + 1}")
+            raw = doc.tobytes()
+        self.assertLess(len(raw), 4000000)
+        _, documents = load_documents(self.upload("long.pdf", raw))
+        self.assertEqual(len(documents), 60)
+        self.assertEqual(documents[-1].metadata["page"], 60)
+        _, documents = load_documents(self.upload("long.txt", b"Long document. " * 10000))
+        self.assertGreater(len(documents[0].page_content), 80000)
+
+    def test_large_index_is_batched_and_rolls_back_on_cancel(self):
+        from unittest.mock import patch
+        from langchain_core.documents import Document
+
+        store = Knowledge()
+        token = store.new_session()
+        collection_id = store.create(token, "Large index")
+        batches, removed = [], []
+        cancel = threading.Event()
+        collection = store.collection(token, collection_id)
+
+        def insert(documents, ids):
+            batches.append(len(documents))
+            if len(batches) == 2:
+                cancel.set()
+
+        collection.index = SimpleNamespace(add_documents=insert, delete=lambda ids: removed.extend(ids))
+        store.client = object()
+        store.embeddings = SimpleNamespace(model=SimpleNamespace(tokenizer=object()), cancel=None)
+        chunks = [Document(page_content="chunk", metadata={"source": "long.txt"}) for _ in range(600)]
+        with patch("langchain_text_splitters.RecursiveCharacterTextSplitter.from_huggingface_tokenizer") as splitter:
+            splitter.return_value.split_documents.return_value = chunks
+            with self.assertRaisesRegex(ValueError, "cancelled"):
+                store.add(token, collection_id, self.upload("long.txt", b"Some text"), cancel)
+        self.assertEqual(batches, [256, 256])
+        self.assertEqual(len(removed), 600)
+        self.assertEqual(collection.documents, {})
 
     def test_invalid_encoding(self):
         with self.assertRaises(ValueError):

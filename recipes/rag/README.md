@@ -1,4 +1,4 @@
-# Local Knowledge workspace (RAG)
+# Local Knowledge (RAG) workspace
 
 Import documents, ask questions, and inspect the passages used by the answer.
 
@@ -12,6 +12,23 @@ EmbeddingGemma runs text-only on **CPU in FP32**, with vision/audio encoders dis
 Its eager attention avoids interference from Eole's global CUDA SDPA backend settings.
 Qwen3.8-27B-INT4 generates answers on the GPU through Eole, using configured MTP
 when eligible. No external LLM API, LangGraph agent, or cloud vector database is used.
+
+## Relationship to the original prototype
+
+This workspace supersedes the basic RAG demonstration in [PR #159](https://github.com/eole-nlp/eole/pull/159):
+load documents → split → embed/index in Chroma → retrieve context → generate with Eole.
+It uses the same overall pipeline, with deliberate differences:
+
+- Explicit EmbeddingGemma 2 embeddings and token-based chunks replace Chroma's default
+  embeddings and character-based chunks.
+- Retrieval supplies the top five ranked passages directly. The prototype instead
+  selected the best match and its immediately preceding/following chunks.
+- Collections live in server memory; the prototype used a persistent Chroma directory.
+- The interactive workspace adds multiple documents, streamed answers, follow-up
+  questions, collection management and inspectable source references.
+
+The prototype's disk persistence and neighboring-chunk expansion are not implemented
+here. Closing it as superseded does not imply identical retrieval results.
 
 ## Install and start
 
@@ -61,8 +78,10 @@ Qwen answer can spend minutes compiling; subsequent requests reuse compiled prog
 - For scanned PDFs, use Documents (OCR), download the extracted Markdown, and import
   it here. This version indexes text, not page images, audio, or video.
 
-Limits: 4 MB/file, 50 PDF pages, 80,000 extracted characters/document,
-10 documents/collection, four collections/session, and 16 active sessions/server.
+Document limits: **4 MB/file and 10 documents/collection**, with no page-count,
+extracted-character or chunk-count cap. Large indexes are inserted in batches of 256
+chunks, with rollback on cancellation or failure. Four collections/session and 16
+sessions/server bound the number of independent libraries.
 Encrypted PDFs must be unlocked first. Generation keeps only passages that fit the
 selected model's context budget and rejects requests if no passage fits.
 
@@ -70,9 +89,9 @@ selected model's context budget and rejects requests if no passage fits.
 
 Collections, vectors and extracted text are temporary server-memory data. A random
 session token kept in this tab's `sessionStorage` separates collections from other
-sessions. Sessions expire logically after one idle hour; their data is reclaimed on
-the next collection operation, or on server shutdown. A server restart removes all
-collections. Resetting a session explicitly removes its previous collections.
+sessions. There is no idle timeout: collections remain until explicitly deleted, the session
+is reset, or the server restarts. Resetting a session explicitly removes its previous
+collections. A server restart removes all collections.
 Answers live in the tab's memory and are cleared on reload. The model weights remain
 in the normal Hugging Face cache. PDF parsing uses a temporary file removed after loading.
 Chroma persistence and anonymized telemetry are disabled.

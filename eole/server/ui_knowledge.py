@@ -11,7 +11,7 @@ from pathlib import Path
 import secrets
 import tempfile
 import threading
-from time import monotonic, perf_counter
+from time import perf_counter
 import uuid
 
 from fastapi import Header, HTTPException
@@ -72,8 +72,8 @@ def load_documents(upload):
         from langchain_community.document_loaders import PyPDFLoader
 
         reader = PdfReader(BytesIO(raw))
-        if reader.is_encrypted or len(reader.pages) > 50:
-            raise ValueError("Use an unlocked PDF with at most 50 pages")
+        if reader.is_encrypted:
+            raise ValueError("Unlock encrypted PDFs before importing")
         with tempfile.TemporaryDirectory(prefix="eole-rag-") as folder:
             path = Path(folder) / "document.pdf"
             path.write_bytes(raw)
@@ -81,14 +81,13 @@ def load_documents(upload):
         for document in documents:
             document.metadata = {"source": name, "page": int(document.metadata.get("page", 0)) + 1}
     elif extension == ".docx":
-        documents = [Document(page_content=extract_document(name, upload.data), metadata={"source": name})]
+        documents = [
+            Document(page_content=extract_document(name, upload.data, max_chars=None), metadata={"source": name})
+        ]
     elif extension in (".txt", ".md"):
         documents = [Document(page_content=raw.decode("utf-8-sig"), metadata={"source": name})]
     else:
         raise ValueError("Choose a text PDF, DOCX, Markdown or UTF-8 text file")
-    size = sum(len(document.page_content) for document in documents)
-    if size > 80000:
-        raise ValueError("Document exceeds 80,000 extracted characters; split the file")
     if not any(document.page_content.strip() for document in documents):
         raise ValueError("No text found. Extract scanned pages in Documents (OCR), then import the Markdown here.")
     return name, documents
@@ -149,27 +148,17 @@ class Knowledge:
         self.embeddings = None
         self.client = None
 
-    def _prune(self):
-        expired = [key for key, session in self.sessions.items() if monotonic() - session["touched"] > 3600]
-        for token in expired:
-            for collection in self.sessions.pop(token)["collections"].values():
-                if collection.index is not None:
-                    collection.index.delete_collection()
-
     def new_session(self):
         with self.lock:
-            self._prune()
             if len(self.sessions) >= 16:
-                raise ValueError("Knowledge workspace is full; try again after an idle session expires")
+                raise ValueError("Knowledge workspace is full; close unused sessions or restart the server")
             token = secrets.token_urlsafe(32)
-            self.sessions[token] = {"touched": monotonic(), "collections": {}}
+            self.sessions[token] = {"collections": {}}
             return token
 
     def session(self, token):
-        self._prune()
         if not token or token not in self.sessions:
-            raise HTTPException(401, "Knowledge session expired. Start a new session to import documents again.")
-        self.sessions[token]["touched"] = monotonic()
+            raise HTTPException(401, "Knowledge session is unavailable. Start a new session to import documents again.")
         return self.sessions[token]["collections"]
 
     def collection(self, token, collection_id):
@@ -249,8 +238,8 @@ class Knowledge:
                 chunk_overlap=self.config.chunk_overlap,
             )
             chunks = splitter.split_documents(documents)
-            if not chunks or len(chunks) > 400:
-                raise ValueError("Document must contain between 1 and 400 text chunks")
+            if not chunks:
+                raise ValueError("No indexable text found")
             if self.client is None:
                 self.client = chromadb.Client(Settings(anonymized_telemetry=False, is_persistent=False))
             if collection.index is None:
@@ -266,7 +255,10 @@ class Knowledge:
                 chunk.metadata.update(document_id=document_id, chunk=index + 1)
             embedding.cancel = cancel
             try:
-                collection.index.add_documents(chunks, ids=ids)
+                for start in range(0, len(chunks), 256):
+                    if cancel.is_set():
+                        raise ValueError("Operation cancelled")
+                    collection.index.add_documents(chunks[start : start + 256], ids=ids[start : start + 256])
                 if cancel.is_set():
                     raise ValueError("Operation cancelled")
             except BaseException:
