@@ -12,21 +12,23 @@ or train your own architecture.
 
 ## A local workspace, included
 
-Chat with your models, translate text and documents, watch GPU usage, and run a
-warmed benchmark from the bundled browser UI. Streaming, conversation history,
-glossaries, and generation controls are included, with no frontend build step.
+Chat with text and images, translate documents, extract OCR Markdown, and ask
+questions over a local document collection. Watch GPU usage and run a warmed
+benchmark from the bundled browser UI, with no frontend build step.
 
-![Eole workspace: Qwen chat and benchmark, plus Hy-MT2 translation](recipes/ui/images/showcase.gif)
+![Eole workspace: Chat, Translate, Documents (OCR), Knowledge (RAG), Monitor and Benchmark](recipes/ui/images/showcase.gif)
 
-[Watch the short MP4 tour](recipes/ui/images/showcase.mp4) ·
+[Watch the 39-second MP4 tour](recipes/ui/images/showcase.mp4) ·
 [Chat workspace](recipes/ui/README.md) ·
-[Hy-MT2 translation workspace](recipes/translation/README.md)
+[Hy-MT2 translation workspace](recipes/translation/README.md) ·
+[Knowledge (RAG)](recipes/rag/README.md)
 
-The tour shows two separately loaded models on one RTX 5090: RedHat
-Qwen3.8-27B INT4 for chat and benchmarking (MTP on, 28,672-token context), and
-Hy-MT2-7B BF16 for translation (MTP off, 16,384-token context). Both use compile
-mode 0. The benchmark measures post-first-token decode speed; results depend on
-the prompt, settings, and hardware.
+The edited tour uses real local results: RedHat Qwen3.8-27B INT4 for visual chat,
+RAG answers and benchmarking, Hy-MT2-7B for translation, and DeepSeek-OCR for
+page extraction. The complete workspace menu stays visible. Model loading and
+compilation waits are omitted; the displayed generation measurements come from
+Eole's inference worker on an RTX 5090. Benchmark numbers measure post-first-token
+decode speed and depend on the prompt, settings and hardware.
 
 ## Latest: 0.6.2
 

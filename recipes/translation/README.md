@@ -7,7 +7,8 @@ history or system persona in the translation prompt.
 ![Hy-MT2 local translation workspace](images/translation.jpg)
 
 The [workspace video tour](../ui/images/showcase.mp4) includes Hy-MT2 translation
-and its terminology controls, alongside a separate Qwen chat/benchmark demo.
+and its terminology controls, alongside Qwen visual chat and benchmarking,
+Documents (OCR), and Knowledge (RAG). All visuals show the full workspace menu.
 
 ## Showcase: Hy-MT2-7B
 
