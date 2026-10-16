@@ -309,6 +309,11 @@
           <div class="composer-wrap">
             <div class="composer">
               <div class="attachment" id="attachment" hidden></div>
+              <div
+                id="chat-image-attachments"
+                class="chat-images"
+                aria-label="Image attachments"
+              ></div>
               <textarea
                 id="prompt"
                 aria-label="Message"
@@ -320,15 +325,16 @@
                   <button
                     id="attach"
                     class="icon-button"
-                    aria-label="Attach a text file"
+                    aria-label="Attach an image or text file"
                   >
                     ＋</button
                   ><input
                     type="file"
                     id="file"
+                    multiple
                     accept=".txt,.md,.py,.js,.ts,.json,.csv,.yaml,.yml,.html,.css,.log"
                     hidden
-                  /><span class="small muted"
+                  /><span class="small muted" id="image-hint"
                     >Shift + Enter for a new line</span
                   >
                 </div>

@@ -54,7 +54,8 @@ the same interface, monitoring and local server.
 
 - **Chat:** streaming responses, browser-local conversation history, edit/resend,
   regenerate, continuation after an output limit, basic Markdown/code rendering,
-  copy/export, text-file attachments, separate thinking, and light/dark themes.
+  copy/export, text-file and image attachments, separate thinking, and light/dark themes.
+  Vision models support image previews, drag-and-drop, paste, and visual follow-up questions.
 - **Generation settings:** Fast uses greedy selection and configured MTP when
   eligible. Creative uses sampling and turns MTP off. The response footer shows
   actual MTP activity and acceptance, not just the configured option.
@@ -229,3 +230,30 @@ workspace:
 
 To showcase HunyuanOCR instead, replace the OCR model entry with the one from
 `serve-ocr-hunyuan.yaml` and set `workspace.models.ocr: hunyuan-ocr`.
+
+### Images in Chat
+
+![Qwen answers an image question and a visual follow-up](images/chat-images.png)
+
+The Qwen recipes (`serve.yaml` and `serve-showcase.yaml`) enable `data_type: image`
+for converted checkpoints containing the vision encoder. The Chat model selector
+labels supported models **Vision**. This first version supports the `qwen3vl` and
+`qwen3_5vl` adapters, including the showcased RedHat Qwen3.8 checkpoint.
+
+Attach an image using **＋**, drop it on the message composer, or paste an image
+from the clipboard. A preview appears before sending; remove it with **×**.
+Ask a question, send, and continue asking follow-up questions about the same image.
+Images stay with their original message when editing, regenerating, or reopening
+that conversation. They are saved in this browser alongside chat history, subject
+to the browser's storage quota; delete the conversation to remove its saved images.
+The Markdown chat export contains text only.
+
+Use JPEG, PNG, or WebP files up to 10 MB and 25 megapixels. The browser resizes them
+to a maximum 1024-pixel edge; the server independently validates each image and
+limits requests to four images total across the conversation. Video and remote
+image URLs are not accepted. Text file attachments remain available.
+
+Image requests use normal decoding: Eole currently limits MTP speculation to
+text-only inputs. Text-only requests to the same model retain MTP when configured.
+The context check includes expanded image tokens. Generation metrics describe
+output decoding; time to first token also includes image processing and prefill.

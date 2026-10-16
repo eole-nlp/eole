@@ -1198,3 +1198,39 @@ td small {
     height: calc(100dvh - 115px);
   }
 }
+
+.chat-images {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+}
+.chat-images:empty {
+  display: none;
+}
+.chat-images img {
+  width: 112px;
+  height: 96px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.chat-image-preview {
+  position: relative;
+}
+.chat-image-preview button {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+}
+.composer.image-dragover {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}

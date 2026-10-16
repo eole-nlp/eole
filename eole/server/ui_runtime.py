@@ -46,12 +46,12 @@ class Workspace:
                 row["status"] = "cancelled"
             self.recent.appendleft(row)
 
-    async def generate(self, model, prompt, settings, cancel, row):
+    async def generate(self, model, prompt, settings, cancel, row, budget_text=None):
         """Yield text deltas and one worker stats record; never mutate API defaults."""
         limit, input_limit = model.get_model_limits()
         if settings["max_length"] > limit:
             raise ValueError(f"This model allows at most {limit} output tokens")
-        prompt_tokens = model.count_tokens(prompt)
+        prompt_tokens = model.count_tokens(budget_text if budget_text is not None else prompt)
         decoder_only = isinstance(model.engine.predictor, GeneratorLM)
         if input_limit and prompt_tokens + (settings["max_length"] if decoder_only else 0) > input_limit + limit:
             raise ValueError("Input exceeds the context budget. Shorten the text or reduce output tokens.")
@@ -60,7 +60,10 @@ class Workspace:
         stats = {}
         submitted = perf_counter()
         if decoder_only:
-            parser = _OpenAIStreamParser(parse_tools=False, thinking=_chat_prompt_opens_thinking(prompt))
+            parser = _OpenAIStreamParser(
+                parse_tools=False,
+                thinking=_chat_prompt_opens_thinking(prompt["text"] if isinstance(prompt, dict) else prompt),
+            )
             async with inference_stream(
                 model.engine, prompt, settings, generation_stats=stats, cancel_event=cancel
             ) as chunks:

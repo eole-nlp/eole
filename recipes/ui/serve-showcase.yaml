@@ -12,6 +12,7 @@ models:
   path: ${QWEN38_MODEL}
   preload: false
   config:
+    data_type: image
     compute_dtype: bf16
     self_attn_backend: flash
     beam_size: 1

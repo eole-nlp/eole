@@ -371,8 +371,8 @@ class Model(object):
         """
         Count the number of tokens in *text* using the model's tokenizer.
 
-        The method walks the engine's transform pipeline to find the first
-        ``TokenizerTransform`` and uses it to tokenize the string.  If no
+        The method walks the engine's transform pipeline to find its HF ID
+        tokenizer or ``TokenizerTransform`` and tokenizes the string.  If no
         tokenizer is found (e.g. the model uses whitespace splitting), it falls
         back to ``estimate_tokens`` (≈4 chars per token).
 
@@ -383,12 +383,15 @@ class Model(object):
             int: Token count.
         """
         from eole.transforms.tokenize import TokenizerTransform
+        from eole.transforms.tokenize_id import HuggingfaceTokenizer
 
         if not self.loaded or self.engine is None:
             return estimate_tokens(text)
         transform_pipe = getattr(self.engine, "transform_pipe", None)
         if transform_pipe is not None:
             for transform in getattr(transform_pipe, "transforms", []):
+                if isinstance(transform, HuggingfaceTokenizer):
+                    return len(transform.tokenize_string(text, side="src")[0])
                 if isinstance(transform, TokenizerTransform):
                     try:
                         return len(transform._tokenize(text, side="src"))
