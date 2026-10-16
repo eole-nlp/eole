@@ -9,6 +9,8 @@ let chats = [],
   busy = false,
   activeRequest = null,
   attached = null,
+  chatImages = [],
+  imageUploads = 0,
   benchmark = null,
   stopRequested = false;
 try {
@@ -42,9 +44,13 @@ function current() {
   return chats.find((c) => c.id === selected);
 }
 function freshChat() {
-  if (busy)
-    return toast("Stop the active generation before starting a new chat.");
+  if (busy || imageUploads)
+    return toast(
+      "Finish the active generation or image upload before starting a new chat.",
+    );
   selected = null;
+  chatImages = [];
+  renderImageAttachments();
   attached = null;
   $("attachment").hidden = true;
   renderMessages();
@@ -129,7 +135,7 @@ function statsHTML(s) {
 }
 function messageHTML(m, index) {
   const assistant = m.role === "assistant";
-  return `<article class="message ${assistant ? "assistant" : "user"}"><div class="message-header"><span class="avatar">${assistant ? "≋" : "Y"}</span>${assistant ? "Eole" : "You"}</div>${m.reasoning ? `<details class="reasoning" ${busy && index === current()?.messages.length - 1 ? "open" : ""}><summary>Thinking</summary><pre>${escapeHTML(m.reasoning)}</pre></details>` : ""}<div class="message-body">${m.error ? `<div class="error">${escapeHTML(m.error)}</div>` : m.content ? markdown(m.content) : busy ? '<span class="pending muted">Preparing the model / reading your prompt…</span>' : ""}</div>${statsHTML(m.stats)}${!busy ? `<div class="message-actions"><button data-copy-message="${index}">Copy</button><button data-edit-message="${index}">${assistant ? "Regenerate" : "Edit & resend"}</button>${assistant && m.stats?.finish_reason === "length" && index === current()?.messages.length - 1 ? '<button data-continue="true">Continue →</button>' : ""}</div>` : ""}</article>`;
+  return `<article class="message ${assistant ? "assistant" : "user"}"><div class="message-header"><span class="avatar">${assistant ? "≋" : "Y"}</span>${assistant ? "Eole" : "You"}</div>${m.reasoning ? `<details class="reasoning" ${busy && index === current()?.messages.length - 1 ? "open" : ""}><summary>Thinking</summary><pre>${escapeHTML(m.reasoning)}</pre></details>` : ""}<div class="message-body">${m.error ? `<div class="error">${escapeHTML(m.error)}</div>` : m.content ? markdown(m.content) : busy ? '<span class="pending muted">Preparing the model / reading your prompt…</span>' : ""}</div>${imageThumbnails(m.images)}${statsHTML(m.stats)}${!busy ? `<div class="message-actions"><button data-copy-message="${index}">Copy</button><button data-edit-message="${index}">${assistant ? "Regenerate" : "Edit & resend"}</button>${assistant && m.stats?.finish_reason === "length" && index === current()?.messages.length - 1 ? '<button data-continue="true">Continue →</button>' : ""}</div>` : ""}</article>`;
 }
 function renderMessages() {
   const chat = current();
@@ -172,6 +178,7 @@ function requestPayload(messages, maxTokens = Number($("max-tokens").value)) {
     messages: messages.map((m) => ({
       role: m.role,
       content: m.content,
+      ...(m.images?.length ? { images: m.images } : {}),
       ...(m.role === "assistant" && m.reasoning
         ? { reasoning_content: m.reasoning }
         : {}),
@@ -219,15 +226,29 @@ async function consume(payload, onDelta) {
 }
 async function send(text = null) {
   if (busy) return;
+  if (imageUploads) return toast("Wait for the image preview before sending.");
   text = (text ?? $("prompt").value).trim();
-  if (!text && !attached) return;
+  if (!text && !attached && !chatImages.length) return;
+  const imageCount =
+    (current()?.messages || []).reduce(
+      (n, m) => n + (m.images?.length || 0),
+      0,
+    ) + chatImages.length;
+  if (imageCount > 4)
+    return toast(
+      "Use at most four images per conversation. Start a new chat for more.",
+    );
+  if (imageCount && !selectedModel()?.images_supported)
+    return toast(
+      "Select an image-capable model before sending this conversation.",
+    );
   if (!$("model").value) return toast("Wait for a model to become available.");
   if (attached)
     text += `\n\nAttached file: ${attached.name}\n\n${attached.content}`;
   if (!current()) {
     const chat = {
       id: crypto.randomUUID(),
-      title: text.slice(0, 45),
+      title: text.slice(0, 45) || chatImages[0]?.name || "Image conversation",
       messages: [],
       created: Date.now(),
     };
@@ -235,7 +256,13 @@ async function send(text = null) {
     selected = chat.id;
   }
   const chat = current();
-  chat.messages.push({ role: "user", content: text });
+  chat.messages.push({
+    role: "user",
+    content: text,
+    ...(chatImages.length ? { images: chatImages.slice() } : {}),
+  });
+  chatImages = [];
+  renderImageAttachments();
   const messages = chat.messages.slice();
   const reply = { role: "assistant", content: "", reasoning: "" };
   chat.messages.push(reply);
@@ -412,13 +439,15 @@ async function refreshState() {
     state = await response.json();
     const old = $("model").value;
     const chatModels = state.models.filter((m) => m.chat_available !== false);
-    const signature = JSON.stringify(chatModels.map((m) => m.id));
+    const signature = JSON.stringify(
+      chatModels.map((m) => [m.id, m.images_supported]),
+    );
     if (refreshState.modelSignature !== signature) {
       refreshState.modelSignature = signature;
       $("model").innerHTML = chatModels
         .map(
           (m) =>
-            `<option value="${escapeHTML(m.id)}">${escapeHTML(m.id)}</option>`,
+            `<option value="${escapeHTML(m.id)}">${escapeHTML(m.id)}${m.images_supported ? " · Vision" : ""}</option>`,
         )
         .join("");
     }
@@ -438,6 +467,7 @@ async function refreshState() {
         : "Connected to local server");
     $("version").textContent = "EOLE " + state.version;
     updateContext();
+    updateImageInput();
     renderMonitor();
     renderAPI();
     window.dispatchEvent(new CustomEvent("eole:state", { detail: state }));
@@ -555,11 +585,17 @@ document.addEventListener("click", (event) => {
     $("prompt").focus();
   }
   if (target.dataset.chat) {
-    if (busy) return toast("Stop generation before switching chats.");
+    if (busy || imageUploads)
+      return toast("Finish generation or image upload before switching chats.");
     selected = target.dataset.chat;
+    chatImages = [];
+    renderImageAttachments();
+    attached = null;
+    $("attachment").hidden = true;
     renderMessages();
     renderHistory();
     updateContext();
+    updateImageInput();
     switchView("chat");
   }
   if (target.dataset.delete) {
@@ -583,6 +619,8 @@ document.addEventListener("click", (event) => {
     if (!message || busy) return;
     if (message.role === "user") {
       $("prompt").value = message.content;
+      chatImages = (message.images || []).slice();
+      renderImageAttachments();
       chat.messages = chat.messages.slice(0, index);
       renderMessages();
       save();
@@ -590,6 +628,7 @@ document.addEventListener("click", (event) => {
     } else {
       const user = chat.messages[index - 1];
       chat.messages = chat.messages.slice(0, index - 1);
+      chatImages = (user?.images || []).slice();
       send(user?.content || "");
     }
   }
@@ -628,6 +667,7 @@ $("theme").onclick = () => {
 $("model").onchange = () => {
   EoleUI.rememberModel("chat", $("model").value);
   updateContext();
+  updateImageInput();
 };
 $("preset").onchange = () => {
   $("temperature").disabled = $("preset").value === "fast";
@@ -635,8 +675,20 @@ $("preset").onchange = () => {
 $("temperature").disabled = true;
 $("attach").onclick = () => $("file").click();
 $("file").onchange = async () => {
+  if (busy)
+    return toast("Wait for generation to finish before attaching files.");
   const file = $("file").files[0];
   if (!file) return;
+  if (file.type.startsWith("image/")) {
+    await addChatImages(Array.from($("file").files));
+    $("file").value = "";
+    return;
+  }
+  if (!/\.(txt|md|py|js|ts|json|csv|yaml|yml|html|css|log)$/i.test(file.name)) {
+    toast("Attach a supported text file or a JPEG, PNG or WebP image.");
+    $("file").value = "";
+    return;
+  }
   if (file.size > 200000) {
     toast("Please attach a text file smaller than 200 KB.");
     return;
@@ -687,3 +739,120 @@ $("mobile-history").onclick = () => {
     document.body.classList.contains("history-open"),
   );
 };
+
+function imageThumbnails(images = []) {
+  return images.length
+    ? `<div class="chat-images">${images
+        .filter((image) => /^[A-Za-z0-9+/=]+$/.test(image.data))
+        .map(
+          (image) =>
+            `<img src="data:image/jpeg;base64,${image.data}" alt="${escapeHTML(image.name)}" title="${escapeHTML(image.name)}" />`,
+        )
+        .join("")}</div>`
+    : "";
+}
+function renderImageAttachments() {
+  $("chat-image-attachments").innerHTML = chatImages
+    .map(
+      (image, index) =>
+        `<div class="chat-image-preview"><img src="data:image/jpeg;base64,${image.data}" alt="${escapeHTML(image.name)}" /><button type="button" data-remove-image="${index}" aria-label="Remove ${escapeHTML(image.name)}">×</button></div>`,
+    )
+    .join("");
+}
+function updateImageInput() {
+  const enabled = Boolean(selectedModel()?.images_supported);
+  $("image-hint").textContent = enabled
+    ? "Drop images here · up to 4 per chat"
+    : "Text attachments · select a vision model for images";
+  $("file").accept =
+    ".txt,.md,.py,.js,.ts,.json,.csv,.yaml,.yml,.html,.css,.log" +
+    (enabled ? ",image/png,image/jpeg,image/webp" : "");
+}
+async function addChatImages(files) {
+  if (busy)
+    return toast("Wait for generation to finish before attaching images.");
+  if (!selectedModel()?.images_supported)
+    return toast("Select an image-capable model to attach images.");
+  for (const file of files) {
+    const count =
+      chatImages.length +
+      (current()?.messages || []).reduce(
+        (n, m) => n + (m.images?.length || 0),
+        0,
+      );
+    if (count >= 4) {
+      toast("Use at most four images per conversation.");
+      break;
+    }
+    if (
+      !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
+      file.size > 10000000
+    ) {
+      toast("Use JPEG, PNG or WebP images smaller than 10 MB.");
+      continue;
+    }
+    try {
+      imageUploads++;
+      const bitmap = await createImageBitmap(file);
+      if (bitmap.width * bitmap.height > 25000000) {
+        bitmap.close();
+        throw new Error("Images must be smaller than 25 megapixels.");
+      }
+      const scale = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext("2d");
+      context.fillStyle = "white";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+      const latestCount =
+        chatImages.length +
+        (current()?.messages || []).reduce(
+          (n, m) => n + (m.images?.length || 0),
+          0,
+        );
+      if (latestCount >= 4)
+        throw new Error("Use at most four images per conversation.");
+      chatImages.push({
+        name: file.name.slice(0, 200),
+        data: canvas.toDataURL("image/jpeg", 0.9).split(",")[1],
+      });
+      renderImageAttachments();
+    } catch (error) {
+      toast(error.message || "Could not read this image.");
+    } finally {
+      imageUploads--;
+    }
+  }
+}
+$("chat-image-attachments").onclick = (event) => {
+  const button = event.target.closest("[data-remove-image]");
+  if (button) {
+    chatImages.splice(Number(button.dataset.removeImage), 1);
+    renderImageAttachments();
+  }
+};
+const chatComposer = document.querySelector("#view-chat .composer");
+chatComposer.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  chatComposer.classList.add("image-dragover");
+});
+chatComposer.addEventListener("dragleave", () =>
+  chatComposer.classList.remove("image-dragover"),
+);
+chatComposer.addEventListener("drop", async (event) => {
+  event.preventDefault();
+  chatComposer.classList.remove("image-dragover");
+  await addChatImages(Array.from(event.dataTransfer.files));
+});
+$("prompt").addEventListener("paste", async (event) => {
+  const files = Array.from(event.clipboardData.files).filter((file) =>
+    file.type.startsWith("image/"),
+  );
+  if (files.length) {
+    event.preventDefault();
+    await addChatImages(files);
+  }
+});

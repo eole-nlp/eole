@@ -813,6 +813,10 @@ class TransformerDecoder(DecoderBase):
 
             chunk_kwargs = dict(kwargs)
             chunk_kwargs["tgt_pad_mask"] = pad_mask_chunk
+            if kwargs.get("pos_ids_2d") is not None:
+                # Vision positions are (B, S, axes); each chunk must receive
+                # only its own positions, retaining their absolute values.
+                chunk_kwargs["pos_ids_2d"] = kwargs["pos_ids_2d"][:, start:end]
 
             if image_locations is not None:
                 # Always pass the full image_locations tensor; _forward_eager
@@ -1149,7 +1153,18 @@ class TransformerDecoder(DecoderBase):
                     for i in range(len(self.transformer_layers))
                 ]
         elif position_embeddings is not None:
-            pos_emb_list = [position_embeddings[pos_ids_1d]] * len(self.transformer_layers)
+            # XD RoPE indexes absolute multi-axis positions itself. Passing a
+            # chunk-local table makes later chunks index beyond its bounds.
+            sequential_positions = position_embeddings[pos_ids_1d]
+            pos_emb_list = [
+                (
+                    position_embeddings
+                    if kwargs.get("pos_ids_2d") is not None
+                    and getattr(getattr(layer, "self_attn", None), "xdrope_section", None) is not None
+                    else sequential_positions
+                )
+                for layer in self.transformer_layers
+            ]
         else:
             pos_emb_list = [None] * len(self.transformer_layers)
 

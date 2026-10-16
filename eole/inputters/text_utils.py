@@ -458,7 +458,7 @@ def tensorify(vocabs, minibatch, device, left_pad=False):
             torch.tensor(img_data, device=device, dtype=torch.float32)
             for ex in examples
             for img_data in ex["images"].values()
-        ]
+        ] or None
     else:
         tensor_batch["images"] = None
 

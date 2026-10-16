@@ -120,6 +120,11 @@ class ImageTextCorpus(object):
 
     def load(self, offset=0, stride=1):
         def make_ex(item):
+            # Text-only API calls remain valid for a vision-enabled model.
+            # ImageTextCorpusIterator formats image placeholders, so preserve
+            # literal braces in ordinary strings (e.g. JSON or code).
+            if isinstance(item, str):
+                item = {"text": item.replace("{", "{{").replace("}", "}}"), "images": {}}
             example = {"text": item["text"], "images": item.get("images", {})}
             return example
 

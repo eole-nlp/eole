@@ -8,9 +8,10 @@ from time import perf_counter
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 import eole
+from eole.server.ui_images import ChatImage, chat_prompt, image_capabilities
 from eole.server.ui_runtime import Workspace, event
 from eole.server.ui_ocr import register_ocr
 from eole.server.ui_ocr_models import ocr_adapter
@@ -22,6 +23,7 @@ from eole.predict.generator import GeneratorLM
 class UIMessage(BaseModel):
     role: str = Field(pattern="^(system|user|assistant)$")
     content: str = Field(max_length=500000)
+    images: list[ChatImage] = Field(default_factory=list, max_length=4)
     reasoning_content: str | None = Field(default=None, max_length=500000)
 
 
@@ -32,6 +34,14 @@ class UIChat(BaseModel):
     preset: str = Field(default="fast", pattern="^(fast|creative)$")
     thinking: bool = False
     temperature: float = Field(default=0.7, ge=0, le=2)
+
+    @model_validator(mode="after")
+    def validate_images(self):
+        if sum(len(message.images) for message in self.messages) > 4:
+            raise ValueError("At most four images are supported per conversation request")
+        if any(message.images and message.role != "user" for message in self.messages):
+            raise ValueError("Images can only be attached to user messages")
+        return self
 
 
 class Hardware:
@@ -124,6 +134,7 @@ def register_ui(app, server):
                     "chat_available": ocr is None
                     and not translation["preferred"]
                     and translation["prompt_style"] != "raw",
+                    "images_supported": image_capabilities(model),
                     "ocr": ocr is not None,
                     "ocr_layout": bool(ocr and ocr.layout),
                     "dtype": str(getattr(config, "compute_dtype", settings.get("compute_dtype", "auto"))),
@@ -185,9 +196,8 @@ def register_ui(app, server):
                         await workspace.prepare(request.model, model, row)
                         if not isinstance(model.engine.predictor, GeneratorLM):
                             raise ValueError("Chat requires a decoder-only model; use Translate for translation models")
-                        prompt = model.apply_chat_template(
-                            [message.model_dump(exclude_none=True) for message in request.messages],
-                            enable_thinking=request.thinking,
+                        prompt, budget_text = await asyncio.to_thread(
+                            chat_prompt, model, request.messages, request.thinking
                         )
                         settings = {
                             "max_length": request.max_tokens,
@@ -203,7 +213,9 @@ def register_ui(app, server):
                             and model.engine.config.self_speculative_decoding,
                         }
                         submission = perf_counter()
-                        async for item in workspace.generate(model, prompt, settings, cancel_event, row):
+                        async for item in workspace.generate(
+                            model, prompt, settings, cancel_event, row, budget_text=budget_text
+                        ):
                             if item["type"] == "stats":
                                 stats = item["stats"]
                             else:

@@ -48,6 +48,7 @@ and current limitations.
 | Try Qwen3.8-27B with MTP speculative decoding | [Qwen3.8 and MTP](recipes/qwen38/README.md) |
 | Use Codex with a locally served Qwen model | [Codex Responses API](recipes/codex/README.md) |
 | Use Claude Code with a locally served Qwen model | [Claude Code endpoint](recipes/claude-code/README.md) |
+| Chat with images in the browser | [Qwen vision Chat workspace](recipes/ui/README.md#images-in-chat) |
 | Try Qwen3.5 text and image inputs | [Qwen3.5](recipes/qwen35/README.md) |
 | Train a translation model | [WMT17](recipes/wmt17/README.md) |
 | Translate with a pretrained multilingual model | [NLLB](recipes/nllb/README.md) |
