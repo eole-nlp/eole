@@ -128,6 +128,14 @@ setup(
         "ui": ["nvidia-ml-py>=12.0.0", "psutil>=5.9.0"],
         "translation": ["pypdf>=5.0.0"],
         "ocr": ["PyMuPDF>=1.24.0"],
+        "rag": [
+            "sentence-transformers>=6.1,<7",
+            "transformers>=5.20,<6",
+            "langchain-community>=0.4,<0.5",
+            "langchain-text-splitters>=1.1,<2",
+            "langchain-chroma>=1.1,<2",
+            "pypdf>=5.0.0",
+        ],
         "wer": ["jiwer>=3.0", "whisper-normalizer>=0.1"],
         "trackio": [
             "trackio>=0.38.1,<0.41.0",

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, model_validator
 import eole
 from eole.server.ui_images import ChatImage, chat_prompt, image_capabilities
 from eole.server.ui_runtime import Workspace, event
+from eole.server.ui_knowledge import register_knowledge
 from eole.server.ui_ocr import register_ocr
 from eole.server.ui_ocr_models import ocr_adapter
 from eole.server.ui_documents import register_document_import
@@ -113,6 +114,7 @@ def register_ui(app, server):
     register_translation(app, server, workspace)
     register_document_import(app)
     register_ocr(app, server, workspace)
+    register_knowledge(app, server, workspace)
 
     @app.get("/", include_in_schema=False)
     def home():

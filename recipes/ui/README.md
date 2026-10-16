@@ -52,6 +52,10 @@ the same interface, monitoring and local server.
 
 ## Workspace features
 
+- **Knowledge:** local document collections, CPU EmbeddingGemma 2 retrieval through LangChain and Chroma,
+  streamed Qwen answers, clickable source references and separate retrieval/generation metrics.
+  See the [RAG recipe](../rag/README.md) for optional dependencies and a sample document.
+
 - **Chat:** streaming responses, browser-local conversation history, edit/resend,
   regenerate, continuation after an output limit, basic Markdown/code rendering,
   copy/export, text-file and image attachments, separate thinking, and light/dark themes.

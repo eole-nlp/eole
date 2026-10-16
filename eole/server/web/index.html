@@ -9,6 +9,8 @@
     <script src="/ui/assets/workspace.js" defer></script>
     <script src="/ui/assets/app.js" defer></script>
     <script src="/ui/assets/translator.js" defer></script>
+    <script src="/ui/assets/knowledge.js" defer></script>
+    <link rel="stylesheet" href="/ui/assets/knowledge.css" />
     <script src="/ui/assets/katex.min.js" defer></script>
     <script src="/ui/assets/ocr_render.js" defer></script>
     <script src="/ui/assets/ocr.js" defer></script>
@@ -41,6 +43,8 @@
           <span>⇄</span> Translate</button
         ><button class="nav-item" data-view="ocr">
           <span>▤</span> Documents (OCR)</button
+        ><button class="nav-item" data-view="knowledge">
+          <span>▧</span> Knowledge</button
         ><button class="nav-item" data-view="monitor">
           <span>▥</span> Monitor</button
         ><button class="nav-item" data-view="benchmark">
@@ -595,6 +599,139 @@
           </div>
         </section>
 
+        <section id="view-knowledge" class="view knowledge-view" hidden>
+          <div class="knowledge-heading">
+            <div>
+              <span class="eyebrow">YOUR DOCUMENTS, IN CONTEXT</span>
+              <h1>A little knowledge goes a long way.</h1>
+              <p class="muted">Ask your documents. Follow the evidence.</p>
+            </div>
+            <div class="knowledge-local">
+              <span class="dot"></span> Local retrieval · CPU embeddings
+            </div>
+          </div>
+          <div class="knowledge-layout">
+            <aside class="knowledge-library panel">
+              <div class="knowledge-section-label">YOUR LIBRARY</div>
+              <label for="kg-collection">Collection</label
+              ><select
+                id="kg-collection"
+                aria-label="Knowledge collection"
+              ></select>
+              <div class="knowledge-library-actions">
+                <button id="kg-new" class="quiet-button">
+                  ＋ New collection</button
+                ><button
+                  id="kg-delete"
+                  class="quiet-button"
+                  aria-label="Delete collection"
+                >
+                  Delete
+                </button>
+              </div>
+              <div id="kg-new-form" hidden>
+                <label for="kg-name">Collection name</label
+                ><input
+                  id="kg-name"
+                  maxlength="80"
+                  placeholder="e.g. Research notes"
+                /><button id="kg-create" class="quiet-button">
+                  Create collection
+                </button>
+              </div>
+              <button id="kg-upload" class="knowledge-drop">
+                <span>＋</span><strong>Add your documents</strong
+                ><small
+                  >Drop PDF, DOCX, Markdown or text<br />4 MB per file · 10
+                  documents</small
+                >
+              </button>
+              <input
+                id="kg-file"
+                type="file"
+                accept=".pdf,.docx,.md,.txt"
+                multiple
+                hidden
+              />
+              <div id="kg-documents" class="knowledge-documents"></div>
+              <div class="knowledge-storage">
+                <strong>Temporary, by design.</strong>
+                <p>
+                  Collections stay in server memory for this tab's session. They
+                  expire after one idle hour or a server restart. Keep your
+                  original files.
+                </p>
+                <button id="kg-reset" class="quiet-button">
+                  Start a new session
+                </button>
+              </div>
+            </aside>
+            <div class="knowledge-conversation panel">
+              <div class="knowledge-model">
+                <label for="kg-model">Answer model</label
+                ><select
+                  id="kg-model"
+                  aria-label="Knowledge answer model"
+                ></select
+                ><button id="kg-clear" class="quiet-button">
+                  New conversation
+                </button>
+              </div>
+              <div
+                id="kg-messages"
+                class="knowledge-messages"
+                aria-live="polite"
+              >
+                <div class="knowledge-empty">
+                  <span>▧</span>
+                  <h2>Start with a source.</h2>
+                  <p>
+                    Import a document, then ask a question.<br />Answers link
+                    back to the passages they use.
+                  </p>
+                </div>
+              </div>
+              <div class="knowledge-composer">
+                <textarea
+                  id="kg-question"
+                  aria-label="Question about documents"
+                  rows="3"
+                  placeholder="What would you like to find out?"
+                ></textarea>
+                <div>
+                  <label class="small" for="kg-max-tokens"
+                    >Max output
+                    <input
+                      id="kg-max-tokens"
+                      type="number"
+                      min="1"
+                      max="32768"
+                      value="4096" /></label
+                  ><button id="kg-stop" class="stop-button" hidden>
+                    ■ Stop</button
+                  ><button id="kg-ask" class="primary-button">
+                    Ask documents ↑
+                  </button>
+                </div>
+              </div>
+              <div id="kg-status" class="small muted" role="status">
+                Preparing your library…
+              </div>
+            </div>
+            <aside class="knowledge-evidence panel">
+              <div class="knowledge-section-label">BEHIND THE ANSWER</div>
+              <h2>Sources &amp; passages</h2>
+              <p class="small muted">
+                Inspect what was retrieved. A source reference points to a
+                passage, not a guarantee that the answer is correct.
+              </p>
+              <div id="kg-sources">
+                <p class="muted">Retrieved passages appear here.</p>
+              </div>
+              <div id="kg-embedding" class="small muted"></div>
+            </aside>
+          </div>
+        </section>
         <section id="view-monitor" class="view page-view" hidden>
           <div class="page-heading">
             <span class="eyebrow">THE ENGINE ROOM</span>
@@ -736,8 +873,9 @@
             <div id="about" class="about-grid"></div>
             <p class="small muted">
               Chats live in this browser's local storage. Clear browser data to
-              remove them. The server retains only the last 50 workspace request
-              metrics in memory.
+              remove them. Knowledge collections are temporary server-memory
+              data, isolated by tab session. The server also retains the last 50
+              workspace request metrics in memory.
             </p>
           </div>
         </section>

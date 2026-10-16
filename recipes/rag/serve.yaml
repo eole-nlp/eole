@@ -1,0 +1,37 @@
+# Converted RedHatAI/Qwen3.8-27B-INT4 checkpoint, including MTP weights.
+models_root: "${EOLE_MODEL_DIR}"
+model_policy: single
+workspace:
+  default_view: knowledge
+  models:
+    knowledge: qwen3.8-27B
+knowledge:
+  embedding_model: google/embeddinggemma-2
+  chunk_tokens: 384
+  chunk_overlap: 48
+  retrieval_k: 5
+models:
+  - id: qwen3.8-27B
+    path: "${QWEN38_MODEL}"
+    preload: false
+    config:
+      data_type: image
+      compute_dtype: bf16
+      self_attn_backend: flash
+      beam_size: 1
+      n_best: 1
+      top_k: 1
+      top_p: 0.0
+      temperature: 1.0
+      min_length: 0
+      max_length: 4096
+      max_length_ratio: 0
+      context_length: 28672
+      batch_size: 1
+      self_speculative_decoding: true
+      self_speculative_num_tokens: 3
+      report_time: true
+      fuse_kvq: true
+      fuse_gate: false
+      prefill_cache_size: 0
+      prefill_chunk_size: 256

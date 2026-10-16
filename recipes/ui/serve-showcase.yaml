@@ -7,6 +7,12 @@ workspace:
     chat: qwen3.8-27B
     translate: hy-mt2-7b
     ocr: deepseek-ocr
+    knowledge: qwen3.8-27B
+knowledge:
+  embedding_model: google/embeddinggemma-2
+  chunk_tokens: 384
+  chunk_overlap: 48
+  retrieval_k: 5
 models:
 - id: qwen3.8-27B
   path: ${QWEN38_MODEL}
