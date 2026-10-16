@@ -42,6 +42,7 @@
       "kg-delete",
       "kg-create",
       "kg-model",
+      "kg-embedding-cpu",
       "kg-clear",
       "kg-reset",
       "kg-ask",
@@ -199,7 +200,12 @@
           {
             method: "POST",
             headers: headers(),
-            body: JSON.stringify({ name: file.name, data }),
+            body: JSON.stringify({
+              name: file.name,
+              data,
+              model: $("kg-model").value,
+              embedding_cpu: $("kg-embedding-cpu").checked,
+            }),
           },
         );
         await events(response, (event) => {
@@ -248,6 +254,7 @@
         body: JSON.stringify({
           model: $("kg-model").value,
           question,
+          embedding_cpu: $("kg-embedding-cpu").checked,
           history,
           max_tokens: Number($("kg-max-tokens").value),
         }),
@@ -285,6 +292,28 @@
       $("kg-question").focus();
     }
   }
+  $("kg-embedding-cpu").onchange = async () => {
+    if (!token) return;
+    const cpu = $("kg-embedding-cpu").checked;
+    setBusy(true);
+    try {
+      const result = await request("/embedding-device", {
+        method: "POST",
+        body: JSON.stringify({
+          model: $("kg-model").value,
+          embedding_cpu: cpu,
+        }),
+      });
+      status(
+        `Embeddings will use ${result.device}. Existing documents remain indexed.`,
+      );
+    } catch (error) {
+      $("kg-embedding-cpu").checked = !cpu;
+      status(error.message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
   $("kg-upload").onclick = () => $("kg-file").click();
   $("kg-file").onchange = () => upload(Array.from($("kg-file").files));
   $("kg-upload").ondragover = (event) => {
@@ -418,7 +447,8 @@
     try {
       info = await request("/info");
       $("kg-embedding").textContent =
-        `${info.embedding_model} · text only · CPU`;
+        `${info.embedding_model} · text only · FP32`;
+      $("kg-embedding-cpu").checked = info.embedding_cpu;
       if (!info.available) {
         status("To enable Knowledge, install: pip install 'eole[rag]'", true);
         return;

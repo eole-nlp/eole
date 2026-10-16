@@ -5,6 +5,7 @@ import base64
 from importlib.util import find_spec
 import json
 from types import SimpleNamespace
+from unittest.mock import patch, Mock
 import threading
 import unittest
 
@@ -76,6 +77,9 @@ class TestCollections(unittest.TestCase):
 
 class TestKnowledgeRoutes(unittest.TestCase):
     def setUp(self):
+        cuda = patch("torch.cuda.is_available", return_value=True)
+        cuda.start()
+        self.addCleanup(cuda.stop)
         self.model = test_server_ui.Model()
         app = FastAPI()
         register_ui(app, SimpleNamespace(models={"test": self.model}))
@@ -99,9 +103,29 @@ class TestKnowledgeRoutes(unittest.TestCase):
         self.assertEqual(self.client.get("/ui/assets/knowledge.js").status_code, 200)
         self.assertEqual(self.client.get("/ui/assets/knowledge.css").status_code, 200)
         info = self.client.get("/ui/knowledge/info").json()
-        self.assertEqual(info["device"], "cpu")
+        self.assertEqual(info["device"], "gpu")
         self.assertEqual(info["embedding_model"], "google/embeddinggemma-2")
         self.assertTrue(info["temporary"])
+
+    def test_embedding_device_switch_keeps_collections_and_uses_decoder_gpu(self):
+        self.model.engine = SimpleNamespace(config=SimpleNamespace(gpu_ranks=[1]))
+        embedding = Mock()
+        self.store.embeddings = embedding
+        path = "/ui/knowledge/embedding-device"
+        self.assertEqual(self.client.post(path, json={"embedding_cpu": True}).status_code, 401)
+        for cpu, device in ((False, "cuda:1"), (True, "cpu")):
+            response = self.client.post(path, headers=self.headers, json={"model": "test", "embedding_cpu": cpu})
+            self.assertEqual(response.json(), {"device": device})
+            embedding.to.assert_called_with(device)
+            self.assertIs(self.store.embeddings, embedding)
+            self.assertEqual(len(self.store.list(self.token)), 1)
+        with patch("torch.cuda.is_available", return_value=False):
+            response = self.client.post(path, headers=self.headers, json={"model": "test"})
+            self.assertEqual(response.status_code, 422)
+            self.assertIn("enable Use CPU", response.json()["detail"])
+            self.assertEqual(
+                self.client.post(path, headers=self.headers, json={"embedding_cpu": True}).status_code, 200
+            )
 
     def test_ownership_enforced_before_stream(self):
         response = self.client.post(
@@ -161,7 +185,7 @@ class TestKnowledgeRoutes(unittest.TestCase):
         response = self.client.post(
             f"/ui/knowledge/collections/{self.collection}/import",
             headers=self.headers,
-            json={"name": "notes.txt", "data": "aGVsbG8="},
+            json={"model": "test", "name": "notes.txt", "data": "aGVsbG8="},
         )
         result = self.events(response)
         self.assertEqual(result[-1]["document"]["chunks"], 2)
@@ -263,7 +287,9 @@ class TestKnowledgeDocuments(unittest.TestCase):
 
         collection.index = SimpleNamespace(add_documents=insert, delete=lambda ids: removed.extend(ids))
         store.client = object()
-        store.embeddings = SimpleNamespace(model=SimpleNamespace(tokenizer=object()), cancel=None)
+        store.embeddings = SimpleNamespace(
+            model=SimpleNamespace(tokenizer=object()), cancel=None, to=lambda device: None
+        )
         chunks = [Document(page_content="chunk", metadata={"source": "long.txt"}) for _ in range(600)]
         with patch("langchain_text_splitters.RecursiveCharacterTextSplitter.from_huggingface_tokenizer") as splitter:
             splitter.return_value.split_documents.return_value = chunks

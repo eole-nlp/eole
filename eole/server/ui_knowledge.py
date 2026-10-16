@@ -29,6 +29,7 @@ PACKAGES = ("sentence_transformers", "langchain_chroma", "langchain_text_splitte
 class KnowledgeConfig(BaseModel):
     model_config = {"extra": "forbid"}
     embedding_model: str = "google/embeddinggemma-2"
+    embedding_cpu: bool = False
     chunk_tokens: int = Field(default=384, ge=64, le=1024)
     chunk_overlap: int = Field(default=48, ge=0, le=63)
     retrieval_k: int = Field(default=5, ge=1, le=8)
@@ -37,6 +38,13 @@ class KnowledgeConfig(BaseModel):
 class Upload(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     data: str = Field(max_length=5600000)
+    model: str = ""
+    embedding_cpu: bool = False
+
+
+class EmbeddingDevice(BaseModel):
+    model: str = ""
+    embedding_cpu: bool = False
 
 
 class CollectionName(BaseModel):
@@ -50,6 +58,7 @@ class Turn(BaseModel):
 
 class Question(BaseModel):
     model: str
+    embedding_cpu: bool = False
     question: str = Field(min_length=1, max_length=4000)
     history: list[Turn] = Field(default_factory=list, max_length=6)
     max_tokens: int = Field(default=4096, ge=1, le=32768)
@@ -94,19 +103,28 @@ def load_documents(upload):
 
 
 class GemmaEmbeddings:
-    """Lazy CPU-only Sentence Transformers adapter with retrieval-specific prompts."""
+    """Lazy Sentence Transformers adapter with retrieval-specific prompts."""
 
-    def __init__(self, model_name):
+    def __init__(self, model_name, device="cuda:0"):
         from sentence_transformers import SentenceTransformer
         import torch
 
         self.model = SentenceTransformer(
             os.path.expandvars(model_name),
-            device="cpu",
+            device=device,
             config_kwargs={"vision_config": None, "audio_config": None},
             model_kwargs={"dtype": torch.float32, "attn_implementation": "eager"},
         )
         self.cancel = None
+
+    def to(self, device):
+        # Keep the adapter identity: existing Chroma collections reference it.
+        if str(self.model.device) != device:
+            self.model.to(device)
+            if device == "cpu":
+                import torch
+
+                torch.cuda.empty_cache()
 
     def _encode(self, texts, prompt):
         vectors = []
@@ -211,12 +229,15 @@ class Knowledge:
                 collection.index.delete(ids=document["chunk_ids"])
                 del collection.documents[document_id]
 
-    def _embedding(self):
+    def _embedding(self, device=None):
+        device = device or ("cpu" if self.config.embedding_cpu else "cuda:0")
         if self.embeddings is None:
-            self.embeddings = GemmaEmbeddings(self.config.embedding_model)
+            self.embeddings = GemmaEmbeddings(self.config.embedding_model, device)
+        else:
+            self.embeddings.to(device)
         return self.embeddings
 
-    def add(self, token, collection_id, upload, cancel):
+    def add(self, token, collection_id, upload, cancel, device=None):
         if any(find_spec(package) is None for package in PACKAGES):
             raise ValueError("Install the optional RAG dependencies: pip install 'eole[rag]'")
         with self.lock:
@@ -226,7 +247,7 @@ class Knowledge:
             if len(collection.documents) >= 10:
                 raise ValueError("Keep at most ten documents per collection")
             name, documents = load_documents(upload)
-            embedding = self._embedding()
+            embedding = self._embedding(device)
             from langchain_text_splitters import RecursiveCharacterTextSplitter
             from langchain_chroma import Chroma
             import chromadb
@@ -270,12 +291,12 @@ class Knowledge:
             collection.documents[document_id] = record
             return {key: value for key, value in record.items() if key != "chunk_ids"}
 
-    def search(self, token, collection_id, question, cancel):
+    def search(self, token, collection_id, question, cancel, device=None):
         with self.lock:
             collection = self.collection(token, collection_id)
             if not collection.documents:
                 raise ValueError("Import a document before asking a question")
-            embedding = self._embedding()
+            embedding = self._embedding(device)
             embedding.cancel = cancel
             try:
                 matches = collection.index.similarity_search_with_score(question, k=self.config.retrieval_k)
@@ -341,9 +362,41 @@ def register_knowledge(app, server, workspace):
         return dict(
             available=all(find_spec(package) is not None for package in PACKAGES),
             embedding_model=knowledge.config.embedding_model,
-            device="cpu",
+            device="cpu" if knowledge.config.embedding_cpu else "gpu",
+            embedding_cpu=knowledge.config.embedding_cpu,
             temporary=True,
         )
+
+    def embedding_device(model_id, cpu):
+        if cpu:
+            return "cpu"
+        import torch
+
+        if not torch.cuda.is_available():
+            raise ValueError("GPU embeddings require CUDA; enable Use CPU for embeddings")
+        model = server.models.get(model_id)
+        if model is None:
+            raise ValueError("Select an answer model before indexing")
+        config = getattr(getattr(model, "engine", None), "config", None)
+        ranks = getattr(config, "gpu_ranks", None) or [0]
+        return f"cuda:{ranks[0]}"
+
+    @app.post("/ui/knowledge/embedding-device")
+    async def set_embedding_device(request: EmbeddingDevice, x_eole_knowledge_session: str = Header(default="")):
+        await cpu_job(knowledge.list, x_eole_knowledge_session)
+        try:
+            device = embedding_device(request.model, request.embedding_cpu)
+            async with workspace.lock:
+
+                def move():
+                    with knowledge.lock:
+                        if knowledge.embeddings is not None:
+                            knowledge.embeddings.to(device)
+
+                await cpu_job(move)
+            return {"device": device}
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.post("/ui/knowledge/session")
     def session():
@@ -384,20 +437,24 @@ def register_knowledge(app, server, workspace):
         await cpu_job(knowledge.list, x_eole_knowledge_session)
 
         async def events():
-            async with workspace.track("cpu-embeddings", "indexing") as row:
+            async with workspace.track("embeddings", "indexing") as row:
                 yield event("start", request_id=row["id"])
                 row["status"] = "indexing"
                 started = perf_counter()
-                yield event("progress", message="Loading embedding model and indexing on CPU…")
+                yield event("progress", message="Loading embedding model and indexing…")
                 try:
-                    record = await cpu_job(
-                        knowledge.add,
-                        x_eole_knowledge_session,
-                        collection_id,
-                        request,
-                        row["cancel"],
-                        cancel=row["cancel"],
-                    )
+                    # Serialize GPU embeddings with decoding/capture and model swaps.
+                    async with workspace.lock:
+                        device = embedding_device(request.model, request.embedding_cpu)
+                        record = await cpu_job(
+                            knowledge.add,
+                            x_eole_knowledge_session,
+                            collection_id,
+                            request,
+                            row["cancel"],
+                            device,
+                            cancel=row["cancel"],
+                        )
                     row["status"] = "complete"
                     row["request_seconds"] = perf_counter() - started
                     yield event("done", document=record, indexing_seconds=row["request_seconds"])
@@ -428,11 +485,18 @@ def register_knowledge(app, server, workspace):
                     previous_questions = [turn.content for turn in request.history if turn.role == "user"]
                     if previous_questions:
                         query = previous_questions[-1][-2000:] + "\n" + query
-                    sources = await cpu_job(
-                        knowledge.search, x_eole_knowledge_session, collection_id, query, cancel, cancel=cancel
-                    )
-                    retrieval_seconds = perf_counter() - started
                     async with workspace.lock:
+                        device = embedding_device(request.model, request.embedding_cpu)
+                        sources = await cpu_job(
+                            knowledge.search,
+                            x_eole_knowledge_session,
+                            collection_id,
+                            query,
+                            cancel,
+                            device,
+                            cancel=cancel,
+                        )
+                        retrieval_seconds = perf_counter() - started
                         if cancel.is_set():
                             raise ValueError("Operation cancelled")
                         await workspace.prepare(request.model, model, row)

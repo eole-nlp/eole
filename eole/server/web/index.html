@@ -607,7 +607,8 @@
               <p class="muted">Ask your documents. Follow the evidence.</p>
             </div>
             <div class="knowledge-local">
-              <span class="dot"></span> Local retrieval · CPU embeddings
+              <span class="dot"></span> Local retrieval · GPU embeddings by
+              default
             </div>
           </div>
           <div class="knowledge-layout">
@@ -728,6 +729,14 @@
               <div id="kg-sources">
                 <p class="muted">Retrieved passages appear here.</p>
               </div>
+              <label class="small"
+                ><input id="kg-embedding-cpu" type="checkbox" /> Use CPU for
+                embeddings</label
+              >
+              <p class="small muted">
+                GPU uses the answer model’s device. Switch to CPU to free GPU
+                memory; existing documents stay indexed.
+              </p>
               <div id="kg-embedding" class="small muted"></div>
             </aside>
           </div>

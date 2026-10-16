@@ -15,7 +15,7 @@ class TestRealKnowledgeEmbedding(unittest.TestCase):
         import torch
         import numpy as np
 
-        store = Knowledge({"embedding_model": os.environ["EOLE_TEST_RAG_MODEL"]})
+        store = Knowledge({"embedding_model": os.environ["EOLE_TEST_RAG_MODEL"], "embedding_cpu": True})
         token = store.new_session()
         collection = store.create(token, "Observatory")
         raw = (Path(__file__).parents[2] / "recipes/rag/observatory-guide.md").read_bytes()
@@ -35,6 +35,17 @@ class TestRealKnowledgeEmbedding(unittest.TestCase):
             self.assertFalse(torch.backends.cuda.math_sdp_enabled())
             results = store.search(token, collection, "How do I reserve a telescope?", threading.Event())
             self.assertTrue(any("visits@cedar.example" in result["text"] for result in results))
+            if os.environ.get("EOLE_TEST_RAG_CUDA"):
+                # Existing Chroma indexes retain the same adapter across device moves.
+                adapter = store.embeddings
+                gpu_results = store.search(
+                    token, collection, "How do I reserve a telescope?", threading.Event(), "cuda:0"
+                )
+                self.assertEqual(str(adapter.model.device), "cuda:0")
+                self.assertIs(store.embeddings, adapter)
+                self.assertEqual(gpu_results[0]["text"], results[0]["text"])
+                store.search(token, collection, "Hours?", threading.Event(), "cpu")
+                self.assertEqual(str(adapter.model.device), "cpu")
             store.delete(token, collection, record["id"])
             with self.assertRaisesRegex(ValueError, "Import a document"):
                 store.search(token, collection, "Hours?", threading.Event())

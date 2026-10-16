@@ -8,7 +8,11 @@ using the bundled Eole UI.
 
 The retrieval stack uses LangChain's PDF loader and tokenizer-aware text splitter,
 its Chroma integration, and **google/embeddinggemma-2** through Sentence Transformers.
-EmbeddingGemma runs text-only on **CPU in FP32**, with vision/audio encoders disabled.
+EmbeddingGemma runs text-only in **FP32 on the answer model’s GPU by default**, with vision/audio encoders disabled.
+Enable **Use CPU for embeddings** in the Sources panel to move it off the GPU and
+release its cached GPU memory. Existing collections remain usable without reindexing.
+The switch applies to indexing and query embeddings; GPU operations share the
+workspace inference lock. A CUDA-free server must enable the CPU option.
 Its eager attention avoids interference from Eole's global CUDA SDPA backend settings.
 Qwen3.8-27B-INT4 generates answers on the GPU through Eole, using configured MTP
 when eligible. No external LLM API, LangGraph agent, or cloud vector database is used.
@@ -106,6 +110,7 @@ contents are not included in those metrics.
 ```yaml
 knowledge:
   embedding_model: google/embeddinggemma-2  # also accepts its local model directory
+  embedding_cpu: false  # initial UI toggle state; GPU is the default
   chunk_tokens: 384
   chunk_overlap: 48
   retrieval_k: 5
@@ -118,7 +123,7 @@ Generation uses the selected Eole chat model. A Knowledge model default can be s
 through `workspace.models.knowledge`.
 
 Indexing time includes embedding-model initialization when needed. Retrieval time
-includes CPU queueing, query embedding and vector search. Decode tokens/second comes from Eole's
+includes workspace queueing, query embedding and vector search. Decode tokens/second comes from Eole's
 inference worker; it excludes retrieval, prefill and compilation. Source references
 identify retrieved evidence, but do not independently verify the generated claims.
 
@@ -136,3 +141,6 @@ For an opt-in real embedding/Chroma test (loads or downloads model weights):
 OMP_NUM_THREADS=8 EOLE_TEST_RAG_MODEL=google/embeddinggemma-2 \
   python -m unittest eole.tests.test_knowledge_embedding
 ```
+
+Set `EOLE_TEST_RAG_CUDA=1` alongside `EOLE_TEST_RAG_MODEL` to verify GPU query
+embeddings and switching the existing index back to CPU.

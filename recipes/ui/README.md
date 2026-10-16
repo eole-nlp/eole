@@ -52,7 +52,7 @@ the same interface, monitoring and local server.
 
 ## Workspace features
 
-- **Knowledge:** local document collections, CPU EmbeddingGemma 2 retrieval through LangChain and Chroma,
+- **Knowledge:** local document collections, EmbeddingGemma 2 retrieval (GPU by default, with a CPU toggle) through LangChain and Chroma,
   streamed Qwen answers, clickable source references and separate retrieval/generation metrics.
   See the [RAG recipe](../rag/README.md) for optional dependencies and a sample document.
 
