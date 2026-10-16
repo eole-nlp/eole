@@ -1,0 +1,7 @@
+# Optional local retrieval stack; install without rebuilding Eole's CUDA extension.
+sentence-transformers>=6.1,<7
+transformers>=5.20,<6
+langchain-community>=0.4,<0.5
+langchain-text-splitters>=1.1,<2
+langchain-chroma>=1.1,<2
+pypdf>=5.0.0

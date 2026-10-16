@@ -30,6 +30,7 @@ class Server(object):
         self.models_root = None
         self.model_policy = None
         self.workspace = {}
+        self.knowledge_config = {}
         self.model_lock = asyncio.Lock()
         self.model_activity = None
 
@@ -44,12 +45,13 @@ class Server(object):
         if self.model_policy not in (None, "single", "keep_loaded"):
             raise ValueError("model_policy must be single or keep_loaded")
         self.workspace = server_config.get("workspace", {})
+        self.knowledge_config = server_config.get("knowledge", {})
         defaults = self.workspace.get("models", {})
         ids = {model["id"] for model in server_config["models"]}
-        if set(defaults) - {"chat", "translate", "ocr"} or set(defaults.values()) - ids:
-            raise ValueError("workspace.models must map chat, translate or ocr to configured model IDs")
-        if self.workspace.get("default_view", "chat") not in ("chat", "translate", "ocr"):
-            raise ValueError("workspace.default_view must be chat, translate or ocr")
+        if set(defaults) - {"chat", "translate", "ocr", "knowledge"} or set(defaults.values()) - ids:
+            raise ValueError("workspace.models must map chat, translate, ocr or knowledge to configured model IDs")
+        if self.workspace.get("default_view", "chat") not in ("chat", "translate", "ocr", "knowledge"):
+            raise ValueError("workspace.default_view must be chat, translate, ocr or knowledge")
         if self.model_policy == "single" and sum(bool(m.get("preload")) for m in server_config["models"]) > 1:
             raise ValueError("single model policy permits at most one preloaded model")
         for model in server_config["models"]:

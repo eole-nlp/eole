@@ -16,7 +16,7 @@ class ImportDocument(BaseModel):
     data: str = Field(max_length=5600000)
 
 
-def extract_document(name, data):
+def extract_document(name, data, max_chars=80000):
     try:
         raw = base64.b64decode(data, validate=True)
     except (binascii.Error, ValueError) as exc:
@@ -60,7 +60,7 @@ def extract_document(name, data):
         raise ValueError("Choose a DOCX or text-based PDF document")
     if not text.strip():
         raise ValueError("No text found. Scanned documents need OCR before translation.")
-    if len(text) > 80000:
+    if max_chars is not None and len(text) > max_chars:
         raise ValueError("Extracted text exceeds 80,000 characters; split the document")
     return text
 

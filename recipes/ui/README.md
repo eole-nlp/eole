@@ -6,11 +6,13 @@ remain available. The original `apps/chatbot.py` stays a small Gradio example.
 
 ![Eole workspace](images/workspace.jpg)
 
-[Watch the short UI tour](images/showcase.mp4). The recording shows real local
-Qwen chat, hardware telemetry and a completed benchmark, followed by Hy-MT2
-translation and terminology controls. The two models are loaded separately on one
-RTX 5090. Navigation pauses are shortened; generation measurements come from the
-inference worker. The animated preview is on the repository front page.
+[Watch the 39-second UI tour](images/showcase.mp4). This edited tour shows real local
+Qwen visual chat and benchmark results, Hy-MT2 translation, DeepSeek-OCR page
+extraction, and Knowledge (RAG) with cited PDF passages and the embedding CPU toggle.
+Every view shows the complete left-hand workspace menu. Model loading and compilation
+waits are omitted; the displayed measurements come from the inference worker on
+an RTX 5090. OCR captures use the dedicated eager OCR recipe. The animated
+preview is on the repository front page.
 
 ## Start with Qwen3.8 INT4
 
@@ -51,6 +53,10 @@ For a dedicated translation workflow, including Hy-MT2-7B, see the
 the same interface, monitoring and local server.
 
 ## Workspace features
+
+- **Knowledge:** local document collections, EmbeddingGemma 2 retrieval (GPU by default, with a CPU toggle) through LangChain and Chroma,
+  streamed Qwen answers, clickable source references and separate retrieval/generation metrics.
+  See the [RAG recipe](../rag/README.md) for optional dependencies and a sample document.
 
 - **Chat:** streaming responses, browser-local conversation history, edit/resend,
   regenerate, continuation after an output limit, basic Markdown/code rendering,
@@ -157,7 +163,7 @@ bounded expansion/size: there are no CDN or external font requests. Source and r
 OCR preserve the generated document for export. The preview does not recreate PDF
 typography or embed extracted figures.
 
-To expose all three workflows, combine model entries from the UI, translation and
+To expose these workflows, combine model entries from the UI, translation and
 OCR recipes in one server YAML. Model loading consumes GPU memory; do not preload
 more models than fit. This OCR workflow currently supports single-process
 DeepSeek-OCR and HunyuanOCR with `data_type: image`; model-specific prompts and
@@ -183,9 +189,9 @@ guarantee usable layout coordinates, so the layout control is disabled for this
 adapter; DeepSeek-OCR retains its grounding overlays. All import, navigation,
 cancellation, retry, performance metrics and export controls are shared.
 
-![HunyuanOCR table and formula preview](images/hunyuan-ocr-workspace.jpg)
+![HunyuanOCR table and Markdown preview](images/hunyuan-ocr-workspace.jpg)
 
-## Combined showcase: Chat, Translate and Documents (OCR)
+## Combined showcase: Chat, Translate, Documents (OCR) and Knowledge (RAG)
 
 The combined recipe selects Qwen3.8-27B-INT4 for Chat, Hy-MT2-7B for Translate,
 and DeepSeek-OCR for Documents (OCR). Start it with your converted checkpoints:
@@ -233,7 +239,7 @@ To showcase HunyuanOCR instead, replace the OCR model entry with the one from
 
 ### Images in Chat
 
-![Qwen answers an image question and a visual follow-up](images/chat-images.png)
+![Qwen identifies shapes in an uploaded image](images/chat-images.png)
 
 The Qwen recipes (`serve.yaml` and `serve-showcase.yaml`) enable `data_type: image`
 for converted checkpoints containing the vision encoder. The Chat model selector

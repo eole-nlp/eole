@@ -71,10 +71,12 @@ function switchView(view) {
     chat: "Chat",
     translate: "Translate",
     ocr: "Documents (OCR)",
+    knowledge: "Knowledge (RAG)",
     monitor: "Monitor",
     benchmark: "Benchmark",
     connect: "API & setup",
   }[view];
+  window.dispatchEvent(new CustomEvent("eole:view", { detail: view }));
 }
 function renderHistory() {
   $("history").innerHTML = chats
