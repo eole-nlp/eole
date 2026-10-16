@@ -7,6 +7,30 @@ import torch
 from eole.utils.logging import logger
 
 
+def initialize_cuda_graph_thread():
+    """Initialize Inductor graph-tree state for a Python inference worker.
+
+    PyTorch initializes this state only in the thread importing cudagraph_trees
+    (or in autograd-created threads via inherited TLS). A new ThreadPoolExecutor
+    worker has neither after a previous model imported it, so legacy compiled
+    image/attention paths otherwise assert in Inductor's get_obj(). Keep each
+    worker's managers independent, and preserve any inherited/existing state.
+    """
+    from collections import defaultdict
+    import threading
+    from torch._inductor import cudagraph_trees
+
+    for name, factory in (
+        ("tree_manager_containers", dict),
+        ("tree_manager_locks", lambda: defaultdict(threading.Lock)),
+    ):
+        if not hasattr(cudagraph_trees.local, name):
+            state = torch._C._get_obj_in_tls(name) if torch._C._is_key_in_tls(name) else factory()
+            setattr(cudagraph_trees.local, name, state)
+        if not torch._C._is_key_in_tls(name):
+            torch._C._stash_obj_in_tls(name, getattr(cudagraph_trees.local, name))
+
+
 def _tensor_signature(value):
     return value.shape, value.stride(), value.dtype, value.device
 

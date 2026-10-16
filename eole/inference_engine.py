@@ -4,6 +4,7 @@ from typing import List, Tuple, Optional, Dict, Any
 from time import time
 import torch
 
+from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
 from eole.constants import CorpusTask, DefaultTokens, ModelType, InferenceConstants
 from eole.inputters.dynamic_iterator import build_dynamic_dataset_iter
 from eole.utils.logging import init_logger
@@ -255,23 +256,28 @@ class InferenceEnginePY(InferenceEngine):
         self.transforms = make_transforms(self.config, self.transforms_cls, self.vocabs)
         self.transform_pipe = TransformPipe.build_from(self.transforms.values())
 
-        # Create a persistent thread pool whose workers are pre-initialised
-        # with CUDA graph infrastructure.  Using a long-lived pool (rather
-        # than a fresh thread per request) ensures that the TLS initialised
-        # during warmup persists for every subsequent request.
+        # Keep inference and its CUDA graph state on one persistent worker.
         self._thread_pool = self._make_thread_pool()
 
     def _make_thread_pool(self):
         """Keep inference on one persistent worker; decoder caches are shared.
 
-        Bound graphs warm on actual requests in that worker. Legacy compile
-        warmup remains request-scoped; there is no initializer warmup here.
+        Initialize graph-tree TLS for legacy compiled paths after model switches.
+        Compilation/warmup stays request-scoped and is included in its timings.
         """
         import concurrent.futures
 
+        from eole.utils.decoder_graph import initialize_cuda_graph_thread
+
+        initializer = (
+            initialize_cuda_graph_thread
+            if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ("0", "2") and torch.cuda.is_available()
+            else None
+        )
         return concurrent.futures.ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="eole-infer",
+            initializer=initializer,
         )
 
     @torch.inference_mode()
@@ -382,7 +388,7 @@ class InferenceEnginePY(InferenceEngine):
             except GenerationCancelled:
                 streamer.end()
             except Exception as exc:  # noqa: BLE001
-                self.logger.error(f"Streaming inference failed: {exc}")
+                self.logger.exception("Streaming inference failed (%s): %s", type(exc).__name__, exc)
                 # Failed prefill/decode skips GeneratorLM's normal cache teardown.
                 # Clear persistent states in this same inference worker before
                 # another request can reuse the model. Do not retain the failed
