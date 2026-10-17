@@ -1,4 +1,4 @@
-"""Prepare one Qwen Chat Pod, then supervise a private Eole server."""
+"""Prepare a multi-model workspace Pod, then supervise a private Eole server."""
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
@@ -23,6 +23,32 @@ except ImportError:
 LOG = logging.getLogger("eole.runpod")
 MODEL_ID = "RedHatAI/Qwen3.8-27B-INT4"
 RECIPE = Path(__file__).resolve().parent
+QWEN_MODELS = {"int4": MODEL_ID, "bf16": "Qwen/Qwen3.8-27B"}
+WORKSPACE_MODELS = {"translate": "tencent/Hy-MT2-7B", "ocr": "deepseek-ai/DeepSeek-OCR"}
+
+
+def qwen_variants():
+    choice = os.environ.get("EOLE_QWEN_VARIANT", "int4").lower()
+    if choice not in {"int4", "bf16", "both"}:
+        raise ValueError("EOLE_QWEN_VARIANT must be int4, bf16 or both")
+    return ["int4", "bf16"] if choice == "both" else [choice]
+
+
+def workspace_settings(source, models):
+    settings = yaml.safe_load((source / "recipes/ui/serve-showcase.yaml").read_text())
+    settings["models_root"] = str(next(iter(models.values())).parent)
+    qwen, translation, ocr = settings["models"]
+    entries = []
+    for variant in qwen_variants():
+        entry = json.loads(json.dumps(qwen))
+        entry["id"] = "qwen3.8-27B" if variant == "int4" else "qwen3.8-27B-bf16"
+        entry["path"] = str(models[variant])
+        entries.append(entry)
+    translation["path"] = str(models["translate"])
+    ocr["path"] = str(models["ocr"])
+    settings["models"] = [*entries, translation, ocr]
+    settings["workspace"]["models"].update(chat=entries[0]["id"], knowledge=entries[0]["id"])
+    return settings
 
 
 def valid_model(path):
@@ -93,13 +119,17 @@ class Deployment:
             """
 import json, platform, subprocess, sys, torch
 assert torch.cuda.is_available(), 'The Pod needs a visible NVIDIA GPU'
-assert torch.cuda.get_device_properties(0).total_memory >= 30 * 1024**3, 'Choose at least 32 GB advertised VRAM'
+required = int(sys.argv[2])
+assert torch.cuda.get_device_properties(0).total_memory >= required * 1024**3, (
+    f'Choose at least {required + 2} GB advertised VRAM'
+)
 info = dict(torch=torch.__version__, python=sys.version, machine=platform.machine(),
             cuda=torch.version.cuda, nvcc=subprocess.check_output(['nvcc','--version'],text=True),
             architectures=sorted(set(torch.cuda.get_device_capability(i) for i in range(torch.cuda.device_count()))))
 open(sys.argv[1],'w').write(json.dumps(info))
 """,
             runtime_file,
+            78 if "bf16" in qwen_variants() else 30,
         )
         key = kernel_fingerprint(self.source, json.loads(runtime_file.read_text()))
         cache = self.root / "kernels" / key
@@ -135,23 +165,32 @@ for i in range(torch.cuda.device_count()):
             shutil.copy2(path, cache / path.name)
         (cache / "complete").touch()
 
-    async def model(self):
-        explicit = os.environ.get("EOLE_MODEL_PATH")
+    async def model(self, model_id=MODEL_ID, role="int4"):
+        prefix = {
+            "int4": "EOLE_MODEL",
+            "bf16": "EOLE_BF16_MODEL",
+            "translate": "EOLE_TRANSLATION_MODEL",
+            "ocr": "EOLE_OCR_MODEL",
+        }[role]
+        # EOLE_MODEL_PATH also applies when BF16 is the only selected chat model.
+        if role == "bf16" and qwen_variants() == ["bf16"]:
+            prefix = "EOLE_MODEL"
+        explicit = os.environ.get(prefix + "_PATH")
         if explicit:
             model = Path(explicit).resolve()
             if not valid_model(model):
-                raise ValueError("EOLE_MODEL_PATH must contain a converted Qwen checkpoint and tokenizer")
+                raise ValueError("Existing model path must contain a converted checkpoint and tokenizer")
             return model
-        revision = os.environ.get("EOLE_MODEL_REVISION", "main")
-        identity = {"model": MODEL_ID, "revision": revision}
+        revision = os.environ.get(prefix + "_REVISION", "main")
+        identity = {"model": model_id, "revision": revision}
         key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:16]
         model = self.root / "models" / key
         marker = model / "deployment.json"
         if marker.is_file() and valid_model(model) and json.loads(marker.read_text()) == identity:
-            self.stage("download", "Using the model saved on your volume.")
+            self.stage("download", f"Using {model_id} saved on your volume.")
             return model
-        self.stage("download", "Downloading RedHat Qwen3.8-27B INT4. The first download can take several minutes…")
-        snapshot = self.root / "snapshot.txt"
+        self.stage("download", f"Downloading {model_id}. The first download can take several minutes…")
+        snapshot = self.root / ("snapshot.txt" if role == "int4" else f"snapshot-{role}.txt")
         await self.command(
             sys.executable,
             "-c",
@@ -162,11 +201,11 @@ import sys
 path = snapshot_download(sys.argv[1], revision=sys.argv[2], ignore_patterns=['*.md', '*.png', '*.jpg'])
 Path(sys.argv[3]).write_text(path)
 """,
-            MODEL_ID,
+            model_id,
             revision,
             snapshot,
         )
-        self.stage("convert", "Converting the downloaded INT4 weights for Eole…")
+        self.stage("convert", f"Converting {model_id} for Eole…")
         staging = model.with_name(model.name + ".partial")
         shutil.rmtree(staging, ignore_errors=True)
         staging.parent.mkdir(parents=True, exist_ok=True)
@@ -215,12 +254,14 @@ Path(sys.argv[3]).write_text(path)
             except BlockingIOError:
                 raise RuntimeError("This deployment directory is in use by another Pod") from None
             await self.kernels()
-            model = await self.model()
-            self.stage("load", "Loading Qwen and starting the workspace. Compilation warmup runs on the first request…")
-            os.environ["QWEN38_MODEL"] = str(model)
-            os.environ["EOLE_MODEL_DIR"] = str(model.parent)
+            models = {}
+            for variant in qwen_variants():
+                models[variant] = await self.model(QWEN_MODELS[variant], variant)
+            for role, model_id in WORKSPACE_MODELS.items():
+                models[role] = await self.model(model_id, role)
+            self.stage("load", "Starting the workspace. Models load on selection; first use compiles inference…")
             config = self.root / "serve.yaml"
-            settings = yaml.safe_load((self.source / "recipes/ui/serve.yaml").read_text())
+            settings = workspace_settings(self.source, models)
             config.write_text(yaml.safe_dump(settings, sort_keys=False))
             self.process = await asyncio.create_subprocess_exec(
                 sys.executable,

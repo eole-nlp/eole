@@ -12,7 +12,7 @@ import httpx
 
 from recipes.runpod.gateway import create_gateway, response_body
 from recipes.runpod.auth import BrowserSessions, COOKIE_NAME, SESSION_SECONDS
-from recipes.runpod.launch import Deployment, kernel_fingerprint, relocate
+from recipes.runpod.launch import Deployment, kernel_fingerprint, relocate, workspace_settings, qwen_variants
 from recipes.runpod.publish_template import template_spec
 
 PASSWORD = "local-test-password-123"
@@ -304,7 +304,7 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
         async def command(*args):
             nonlocal fail_probe
             calls.append(args)
-            if args[-1] == self.root / "runtime.json":
+            if self.root / "runtime.json" in args:
                 (self.root / "runtime.json").write_text(json.dumps({"torch": "2.14.1", "gpu": "12.0"}))
             elif args[0] == "/usr/local/bin/eole-build-kernels":
                 (self.root / "eole" / "_ops.test.so").write_bytes(b"built")
@@ -324,6 +324,59 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
         fail_probe = True
         await self.deployment.kernels()
         self.assertEqual(sum(args[0] == "/usr/local/bin/eole-build-kernels" for args in calls), 1)
+
+    def test_workspace_routes_models_and_enforces_single_resident_model(self):
+        models = {role: self.root / role for role in ["int4", "bf16", "translate", "ocr"]}
+        source = Path(__file__).resolve().parents[2]
+        for choice, ids in [
+            ("int4", ["qwen3.8-27B"]),
+            ("bf16", ["qwen3.8-27B-bf16"]),
+            ("both", ["qwen3.8-27B", "qwen3.8-27B-bf16"]),
+        ]:
+            with patch.dict("os.environ", {"EOLE_QWEN_VARIANT": choice}):
+                settings = workspace_settings(source, models)
+            self.assertEqual(settings["model_policy"], "single")
+            self.assertEqual([m["id"] for m in settings["models"]], ids + ["hy-mt2-7b", "deepseek-ocr"])
+            self.assertFalse(any(m["preload"] for m in settings["models"]))
+            self.assertEqual(settings["workspace"]["models"]["chat"], ids[0])
+            self.assertEqual(settings["workspace"]["models"]["ocr"], "deepseek-ocr")
+            self.assertEqual(settings["workspace"]["models"]["translate"], "hy-mt2-7b")
+            self.assertNotIn("${", json.dumps(settings))
+        with patch.dict("os.environ", {"EOLE_QWEN_VARIANT": "unknown"}):
+            with self.assertRaises(ValueError):
+                qwen_variants()
+
+    async def test_all_models_have_independent_conversion_caches_and_tokenizers(self):
+        calls = []
+
+        async def command(*args):
+            calls.append(args)
+            if "--output" in args:
+                output = Path(args[args.index("--output") + 1])
+                self.checkpoint(output)
+                (output / "tokenizer.json").unlink()  # Real HF conversion references its source cache.
+            else:
+                snapshot = self.root / ("snapshot-" + str(len(calls)))
+                snapshot.mkdir()
+                (snapshot / "tokenizer.json").write_text("{}")
+                Path(args[-1]).write_text(str(snapshot))
+
+        self.deployment.command = command
+        with patch.dict("os.environ", {"EOLE_QWEN_VARIANT": "both"}, clear=True):
+            checkpoints = []
+            for role, model_id in [
+                ("int4", "RedHatAI/Qwen3.8-27B-INT4"),
+                ("bf16", "Qwen/Qwen3.8-27B"),
+                ("translate", "tencent/Hy-MT2-7B"),
+                ("ocr", "deepseek-ai/DeepSeek-OCR"),
+            ]:
+                model = await self.deployment.model(model_id, role)
+                checkpoints.append(model)
+                self.assertEqual(json.loads((model / "deployment.json").read_text())["model"], model_id)
+                self.assertTrue((model / "tokenizer.json").is_file())
+                self.assertEqual(await self.deployment.model(model_id, role), model)
+            self.assertEqual(len(set(checkpoints)), 4)
+            self.assertEqual(len(calls), 8)
 
     def test_template_never_contains_a_shared_password_or_rents_a_pod(self):
         spec = template_spec("ghcr.io/eole-nlp/eole-runpod:dev-123456789abc")

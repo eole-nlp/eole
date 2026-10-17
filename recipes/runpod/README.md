@@ -1,6 +1,6 @@
-# Deploy Eole Chat on RunPod
+# Deploy the Eole workspace on RunPod
 
-This recipe packages an automatically prepared Qwen Chat Pod. Users open a shared
+This recipe packages an automatically prepared Chat, translation and OCR Pod. Users open a shared
 RunPod template, select a GPU, confirm its cost, and open the workspace through
 RunPod's HTTPS link. No terminal commands are needed **after the template is
 published**. First-time users still need a RunPod account, payment setup, and a
@@ -9,7 +9,9 @@ private password Secret. Downloads, conversion and compilation take time.
 The recipe is ready for local testing and template registration. **There is no
 live public template ID yet.** A maintainer must publish the image, test a private
 Pod, and register the public template before adding a working deploy button.
-Local Docker validation does not establish RunPod hardware/proxy compatibility.
+The private RTX PRO 6000 test validated INT4 Chat, a fresh download/conversion,
+compiled MTP, browser sessions and the HTTPS proxy. The multi-model/BF16 extension
+is covered by local orchestration tests; cloud validation is still pending.
 
 ## User experience
 
@@ -18,17 +20,22 @@ Local Docker validation does not establish RunPod hardware/proxy compatibility.
    is your own account's secret; the public template never contains a shared password.
 2. Open the maintainer's public template link. Choose **one NVIDIA GPU with at
    least 32 GB advertised VRAM**, on an **x86-64 host** with a driver supporting
-   CUDA 13.2. RTX 5090 is locally tested; H100/H200 are expected compatible but
+   CUDA 13.2. RTX 5090 is locally tested and RTX PRO 6000 cloud-tested with INT4; H100/H200 are expected compatible but
    not hardware-validated. Grace/ARM systems need another image. Use at least
    32 GB host RAM; 64 GB is preferable for conversion and kernel compilation.
-3. Confirm GPU availability, disk settings and rental cost, then deploy.
+3. Select `EOLE_QWEN_VARIANT=int4`, `bf16`, or `both` in the template environment
+   before deploying (see below). BF16 needs an **80 GB or larger GPU; 96 GB is
+   recommended**, with at least 128 GB host RAM for conversion. Keep the suggested
+   **250 GB persistent volume** for the full suite. Confirm rental cost and deploy.
 4. Open **Connect → HTTP service on port 5000**. Sign in as `eole` with the
    password you saved. A preparation page reports GPU checks, kernel preparation,
    download, conversion and model loading. It automatically opens the workspace
    when ready. The first inference request additionally compiles decoding/MTP;
    the existing UI reports that warmup separately.
-5. Use Chat with text/images and the built-in benchmark. Qwen is the provisioned
-   model; the dedicated translation/OCR models are not downloaded by this recipe.
+5. Use Chat with text/images, Translate with **Hy-MT2-7B**, and Documents (OCR)
+   with **DeepSeek-OCR**. Selecting a workspace loads its assigned model and
+   unloads the previous one from the GPU. First use of each model may compile;
+   switching is automatic but loading and warmup take time.
 6. Stop/terminate the Pod when done. Compute and storage have separate charges;
    check RunPod's current billing/storage rules. Keep needed files on your volume.
 
@@ -44,6 +51,27 @@ Never expose backend port 5001. The gateway does not add an SSH service.
 See RunPod's official [template configuration](https://docs.runpod.io/pods/templates/manage-templates),
 [port exposure](https://docs.runpod.io/pods/configuration/expose-ports) and
 [storage](https://docs.runpod.io/pods/storage/types) documentation.
+
+
+## Choose the Qwen model
+
+Set **EOLE_QWEN_VARIANT** in the RunPod deployment environment:
+
+| Value | Chat model(s) prepared | GPU |
+|---|---|---|
+| `int4` (default) | RedHatAI/Qwen3.8-27B-INT4 | 32 GB or larger |
+| `bf16` | [Original Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) | 80 GB minimum, 96 GB recommended |
+| `both` | Both, selectable in Chat | 80 GB minimum, 96 GB recommended |
+
+BF16 uses the original weights converted to BF16, without INT4 quantization.
+With `both`, the default remains INT4 (`qwen3.8-27B`); the original is listed as
+`qwen3.8-27B-bf16`. Each choice also prepares translation and OCR. Changing the
+environment and restarting reuses completed checkpoints on the persistent volume.
+All selected models finish preparation before the workspace opens; their first
+GPU load and compilation happen on selection. The original Qwen download is
+about 56 GB, and conversion keeps a second copy, so allow time and disk space.
+The 250 GB recommendation includes both Qwen variants plus translation/OCR and
+cache headroom. Existing 100 GB test volumes should be expanded before BF16 use.
 
 ## Maintainer: build the deployment image
 
@@ -70,7 +98,7 @@ This thin image adds startup automation and an authenticated gateway. Normal
 
 ## Maintainer: register and test the template
 
-Inspect `template.json`. Its defaults are 60 GB container disk, 100 GB persistent
+Inspect `template.json`. Its defaults are 60 GB container disk, 250 GB persistent
 volume at `/workspace`, and HTTP port 5000. The volume must have room for both the
 HF source weights and converted checkpoint. The template does not choose a GPU
 or guarantee availability. Users may attach a network volume for persistence
@@ -107,13 +135,16 @@ The entrypoint starts the gateway immediately, then prepares the backend:
   RMSNorm check. Kernel caches are keyed by source, Python, PyTorch, compiler and
   visible GPU architectures; mismatches trigger a rebuild. Compilation uses
   `MAX_JOBS=2` by default and targets all visible GPUs.
-- Download `RedHatAI/Qwen3.8-27B-INT4` into the volume's HF cache. Only that
-  model/layout is configured here; arbitrary model IDs are not interchangeable.
+- Download the selected Qwen variant(s), `tencent/Hy-MT2-7B`, and
+  `deepseek-ai/DeepSeek-OCR` into the volume's HF cache. These supported model
+  IDs have specific workspace settings; arbitrary IDs are not interchangeable.
 - Convert into a staging directory, relocate output tokenizer paths, and rename
   only after completion. Interrupted conversions are retried, not reused.
-- Run the existing `recipes/ui/serve.yaml` settings privately: BF16, FlashAttention,
+- Run the existing `recipes/ui/serve-showcase.yaml` settings privately: BF16, FlashAttention,
   packed projections, 28,672-token context, 4,096 output tokens, three MTP drafts
-  and chunked prefill. FP32 normalization is unchanged.
+  and chunked prefill for Qwen. Translation/OCR retain their own recipe settings.
+  `model_policy: single` and lazy loading keep only one inference model resident.
+  FP32 normalization is unchanged.
 - Stream requests through the authenticated gateway, with SSE heartbeats during
   long compilation/prefill waits so the public connection does not sit idle.
   Stop child process groups
@@ -130,8 +161,12 @@ Pods share a network volume. Container-local `/eole` can be recreated safely.
 | `EOLE_USERNAME` | `eole`; browser sign-in / Basic-auth username |
 | `EOLE_PASSWORD` | Required private Secret, at least 16 characters; also API Bearer token |
 | `EOLE_DEPLOY_DIR` | `/workspace/eole`; persistent deployment directory |
+| `EOLE_QWEN_VARIANT` | `int4`, `bf16`, or `both`; selects which Qwen checkpoints to prepare |
+| `EOLE_BF16_MODEL_PATH` / `EOLE_BF16_MODEL_REVISION` | Existing BF16 checkpoint / HF revision when selecting `both` |
+| `EOLE_TRANSLATION_MODEL_PATH` / `EOLE_TRANSLATION_MODEL_REVISION` | Existing Hy-MT2 checkpoint / revision (`main`) |
+| `EOLE_OCR_MODEL_PATH` / `EOLE_OCR_MODEL_REVISION` | Existing DeepSeek-OCR checkpoint / revision (`main`) |
 | `EOLE_MODEL_REVISION` | `main`; set an HF commit SHA for reproducible model downloads |
-| `EOLE_MODEL_PATH` | Optional existing converted Qwen directory; skips download/conversion |
+| `EOLE_MODEL_PATH` | Optional converted default Qwen (INT4, or BF16 when selected alone); skips its download/conversion |
 | `HF_TOKEN` | Optional private HF credential via a RunPod Secret |
 | `EOLE_COOKIE_SECURE` | `1`; set `0` only for a local HTTP-only test |
 | `MAX_JOBS` | `2`; CUDA compilation parallelism |
@@ -186,6 +221,10 @@ benchmarks. The cold first-request MTP warmup took about six minutes.
 
 CPU tests cover authentication, proxy uploads/SSE cleanup and heartbeats,
 conversion staging/reuse/path relocation, runtime cache invalidation, process
-cancellation and template defaults. The download/conversion orchestration is
-mocked in these tests; a fresh full model download/conversion and an actual
-RunPod deployment still need the private-Pod validation described above.
+cancellation and template defaults. The multi-model download/conversion orchestration is mocked in these tests.
+The private RunPod test subsequently validated a fresh INT4 download/conversion,
+GPU extension build/cache, streamed compiled MTP Chat and browser sign-in behind
+the RunPod proxy. It exposed and fixed an extension import-order problem,
+a tokenizer location mismatch, and proxy Host rewriting in the origin check.
+The Pod is stopped; no paid cloud test of BF16 or automatic translation/OCR
+preparation has been run yet.
