@@ -109,6 +109,20 @@ class TestRunPodGateway(unittest.TestCase):
         )
         self.assertEqual(oversized.status_code, 413)
 
+    def test_public_proxy_origin_login_with_rewritten_host(self):
+        origin = "https://pod123-5000.proxy.runpod.net"
+        app = create_gateway("eole", PASSWORD, self.state, public_origin=origin)
+        with TestClient(app, base_url=origin) as client:
+            data = {"username": "eole", "password": PASSWORD}
+            headers = {"host": "internal-proxy:5000", "origin": origin, "accept": "application/json"}
+            response = client.post("/_deployment/login", data=data, headers=headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {"authenticated": True})
+            self.assertEqual(client.get("/_deployment/status").status_code, 200)
+            for bad in ["https://attacker.example", "https://pod123-5000.proxy.runpod.net.attacker.example"]:
+                headers["origin"] = bad
+                self.assertEqual(client.post("/_deployment/login", data=data, headers=headers).status_code, 403)
+
     def test_browser_sessions_expire_and_are_invalid_after_restart(self):
         sessions = BrowserSessions()
         token = sessions.issue()

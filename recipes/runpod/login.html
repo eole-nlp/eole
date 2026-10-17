@@ -15,7 +15,7 @@ document.querySelector('form').addEventListener('submit',async event=>{
  event.preventDefault(); const form=event.currentTarget, button=form.querySelector('button'), error=form.querySelector('.error');
  button.disabled=true; error.textContent='';
  try{const response=await fetch(form.action,{method:'POST',headers:{'Accept':'application/json'},body:new URLSearchParams(new FormData(form)),credentials:'same-origin'});
- if(response.ok){location.replace('/');return;}error.textContent='Sign-in failed. Check your username and password.';
+ if(response.ok){location.replace('/');return;}error.textContent=response.status===401?'Incorrect username or password.':response.status===403?'Sign-in was blocked by the proxy origin check. Please contact the instance owner.':'Sign-in failed. Please try again.';
  }catch{error.textContent='Cannot reach the instance. Please try again.';}button.disabled=false;
 });
 </script></html>

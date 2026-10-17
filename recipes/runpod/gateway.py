@@ -99,7 +99,7 @@ def forwarding_headers(headers):
     return [(k, v) for k, v in items if k.lower() not in excluded]
 
 
-def create_gateway(username, password, state, prepare=None, transport=None, cookie_secure=True):
+def create_gateway(username, password, state, prepare=None, transport=None, cookie_secure=True, public_origin=None):
     username, password = credentials(username, password)
     sessions = BrowserSessions()
 
@@ -159,7 +159,12 @@ def create_gateway(username, password, state, prepare=None, transport=None, cook
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             origin = request.headers.get("origin")
             if request.headers.get("sec-fetch-site") == "cross-site" or (
-                origin and urlsplit(origin).netloc.lower() != request.headers.get("host", "").lower()
+                origin
+                and (
+                    origin.rstrip("/") != public_origin
+                    if public_origin
+                    else urlsplit(origin).netloc.lower() != request.headers.get("host", "").lower()
+                )
             ):
                 return Response("Cross-origin requests are not allowed", 403)
         if request.url.path == "/_deployment/login" and request.method == "POST":

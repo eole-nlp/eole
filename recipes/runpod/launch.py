@@ -284,6 +284,9 @@ def main():
         state,
         prepare,
         cookie_secure=os.environ.get("EOLE_COOKIE_SECURE", "1") != "0",
+        public_origin=(
+            f"https://{os.environ["RUNPOD_POD_ID"]}-5000.proxy.runpod.net" if os.environ.get("RUNPOD_POD_ID") else None
+        ),
     )
     uvicorn.run(app, host="0.0.0.0", port=5000, access_log=False)
 
