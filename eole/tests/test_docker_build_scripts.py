@@ -13,9 +13,7 @@ class DockerBuildScriptsTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        shutil.copytree(
-            Path(__file__).resolve().parents[2] / "docker", self.root / "docker"
-        )
+        shutil.copytree(Path(__file__).resolve().parents[2] / "docker", self.root / "docker")
         self.run_command("git", "init", "-q")
         self.run_command("git", "add", ".")
         self.run_command(
@@ -42,9 +40,7 @@ class DockerBuildScriptsTest(unittest.TestCase):
         }
 
     def run_command(self, *args, **kwargs):
-        return subprocess.run(
-            args, cwd=self.root, text=True, capture_output=True, check=True, **kwargs
-        )
+        return subprocess.run(args, cwd=self.root, text=True, capture_output=True, check=True, **kwargs)
 
     def script(self, name, *args):
         return subprocess.run(
@@ -69,12 +65,8 @@ class DockerBuildScriptsTest(unittest.TestCase):
         self.assertFalse(self.log.exists())
 
     def test_explicit_push_and_development_tag(self):
-        revision = self.run_command(
-            "git", "rev-parse", "--short=12", "HEAD"
-        ).stdout.strip()
-        result = self.script(
-            "build.sh", f"dev-{revision}", "2.14.1", "13.2.1", "--push"
-        )
+        revision = self.run_command("git", "rev-parse", "--short=12", "HEAD").stdout.strip()
+        result = self.script("build.sh", f"dev-{revision}", "2.14.1", "13.2.1", "--push")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.log.read_text().splitlines()), 2)
         self.assertTrue(self.log.read_text().splitlines()[1].startswith("push "))
