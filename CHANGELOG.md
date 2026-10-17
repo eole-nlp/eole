@@ -2,6 +2,28 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.6.3
+
+* Add a bundled local browser workspace with streaming Chat, inference metrics, and image attachments ([#458](https://github.com/eole-nlp/eole/pull/458), [#464](https://github.com/eole-nlp/eole/pull/464)).
+* Add translation with Hy-MT2, terminology/context controls and structured document/subtitle workflows; add PDF/image OCR with DeepSeek-OCR and HunyuanOCR; coordinate model selection/loading across workspaces ([#461](https://github.com/eole-nlp/eole/pull/461), [#462](https://github.com/eole-nlp/eole/pull/462), [#463](https://github.com/eole-nlp/eole/pull/463)).
+* Add a Knowledge (RAG) workspace for local document indexing, retrieval and answers with sources, including GPU/CPU embedding selection ([#465](https://github.com/eole-nlp/eole/pull/465)).
+* Add the stateless Responses API and Codex CLI/Linux app recipe; improve OpenAI tool calls, Anthropic system messages, context handling and streaming failure recovery. Separate serving runtime and API protocols into `eole.server` ([#446](https://github.com/eole-nlp/eole/pull/446), [#447](https://github.com/eole-nlp/eole/pull/447), [#448](https://github.com/eole-nlp/eole/pull/448), [#449](https://github.com/eole-nlp/eole/pull/449), [#450](https://github.com/eole-nlp/eole/pull/450)).
+* Support packed Marlin KVQ projections, packed INT4 tensor-parallel loading and extension builds targeting all visible GPU architectures ([#451](https://github.com/eole-nlp/eole/pull/451), [#454](https://github.com/eole-nlp/eole/pull/454)).
+* Add bound CUDA graph replay for decoder and MTP verification, optimize small GDN control projections, stabilize Triton cache selection and fix compiled warmup and decode throughput timing ([#453](https://github.com/eole-nlp/eole/pull/453), [#455](https://github.com/eole-nlp/eole/pull/455), [#456](https://github.com/eole-nlp/eole/pull/456), [#457](https://github.com/eole-nlp/eole/pull/457)).
+* Initialize Inductor CUDA graph state in inference worker threads after model switches, fixing compiled OCR/workspace requests ([#466](https://github.com/eole-nlp/eole/pull/466)).
+* Improve vocabulary file parsing diagnostics ([#370](https://github.com/eole-nlp/eole/pull/370)).
+* Support PyTorch >= 2.10 and < 2.15. Refresh Docker to PyTorch 2.14.1 / CUDA 13.2 with patched nvcc, current workspace dependencies, FFmpeg, explicit image publishing, source-aware tags and a GPU-container kernel build helper ([#467](https://github.com/eole-nlp/eole/pull/467)).
+
+Qwen MTP remains limited to single-sequence greedy text requests; exact token
+parity with ordinary greedy decoding is not guaranteed. Compiled inference
+requires compatible GPU kernels. Docker images are published separately from
+Python releases; run `eole-build-kernels` inside a GPU container before using
+Eole's CUDA/Marlin extension. The current image workflow builds x86-64 images;
+Grace ARM systems require separate ARM64 packaging and validation. See the
+[Docker guide](docs/docker.md) for build and publishing instructions.
+
+**Full Changelog**: https://github.com/eole-nlp/eole/compare/0.6.2...0.6.3
+
 ## 0.6.2
 
 * Fix Qwen HF RoPE conversion to preserve split-half coordinate pairing ([#441](https://github.com/eole-nlp/eole/pull/441)).
