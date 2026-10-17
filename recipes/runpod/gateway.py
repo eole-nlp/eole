@@ -3,16 +3,22 @@
 import asyncio
 import base64
 import binascii
+from html import escape
 from contextlib import asynccontextmanager, suppress
 import secrets
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import anyio
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse, RedirectResponse
 from starlette.background import BackgroundTask
+
+try:
+    from .auth import BrowserSessions, COOKIE_NAME, SESSION_SECONDS
+except ImportError:
+    from auth import BrowserSessions, COOKIE_NAME, SESSION_SECONDS
 
 HOP_HEADERS = {
     "connection",
@@ -62,8 +68,12 @@ async def response_body(upstream):
 
 
 def credentials(username, password):
-    if not username or ":" in username or len(password) < 16 or "RUNPOD_SECRET" in password:
-        raise ValueError("Set EOLE_USERNAME and a private EOLE_PASSWORD of at least 16 characters (RunPod Secret)")
+    if not username or ":" in username:
+        raise ValueError("EOLE_USERNAME must be nonempty and cannot contain a colon")
+    if "RUNPOD_SECRET" in password:
+        raise ValueError("EOLE_PASSWORD contains an unresolved RunPod Secret reference; check its binding")
+    if len(password) < 16:
+        raise ValueError("EOLE_PASSWORD must contain at least 16 characters; update its Secret and reset the Pod")
     return username.encode(), password.encode()
 
 
@@ -89,8 +99,9 @@ def forwarding_headers(headers):
     return [(k, v) for k, v in items if k.lower() not in excluded]
 
 
-def create_gateway(username, password, state, prepare=None, transport=None):
+def create_gateway(username, password, state, prepare=None, transport=None, cookie_secure=True):
     username, password = credentials(username, password)
+    sessions = BrowserSessions()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -104,24 +115,71 @@ def create_gateway(username, password, state, prepare=None, transport=None):
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     page = (Path(__file__).parent / "preparing.html").read_text()
 
-    @app.middleware("http")
-    async def authenticate(request, call_next):
-        if not authorized(request.headers.get("authorization", ""), username, password):
-            return Response(
-                "Authentication required",
-                401,
-                headers={"WWW-Authenticate": 'Basic realm="Eole", charset="UTF-8"', "Cache-Control": "no-store"},
-            )
+    login_page = (
+        (Path(__file__).parent / "login.html")
+        .read_text()
+        .replace("EOLE_USERNAME_VALUE", escape(username.decode(), quote=True))
+    )
+
+    def login_form(error="", status_code=200):
+        return HTMLResponse(login_page.replace("EOLE_LOGIN_ERROR", error), status_code=status_code)
+
+    async def login(request):
+        if not request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
+            return login_form("Invalid sign-in request.", 400)
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > 4096:
+                return login_form("Invalid sign-in request.", 413)
+        try:
+            form = parse_qs(body.decode(), max_num_fields=2)
+            user, supplied = form.get("username", [""])[0], form.get("password", [""])[0]
+        except (UnicodeError, ValueError):
+            return login_form("Invalid sign-in request.", 400)
+        if not (secrets.compare_digest(user.encode(), username) & secrets.compare_digest(supplied.encode(), password)):
+            return login_form("Incorrect username or password.", 401)
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(
+            COOKIE_NAME,
+            sessions.issue(),
+            max_age=SESSION_SECONDS,
+            httponly=True,
+            secure=cookie_secure,
+            samesite="strict",
+            path="/",
+        )
+        return response
+
+    async def authenticated(request, call_next):
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             origin = request.headers.get("origin")
             if request.headers.get("sec-fetch-site") == "cross-site" or (
                 origin and urlsplit(origin).netloc.lower() != request.headers.get("host", "").lower()
             ):
                 return Response("Cross-origin requests are not allowed", 403)
-        response = await call_next(request)
+        if request.url.path == "/_deployment/login" and request.method == "POST":
+            return await login(request)
+        owner = authorized(request.headers.get("authorization", ""), username, password) or sessions.valid(
+            request.cookies.get(COOKIE_NAME, "")
+        )
+        if not owner:
+            if request.method in {"GET", "HEAD"} and request.url.path in {"/", "/_deployment/login"}:
+                return login_form()
+            return Response("Authentication required", 401, headers={"WWW-Authenticate": 'Bearer realm="Eole"'})
+        if request.url.path == "/_deployment/logout" and request.method == "POST":
+            response = RedirectResponse("/", status_code=303)
+            response.delete_cookie(COOKIE_NAME, path="/", secure=cookie_secure, httponly=True, samesite="strict")
+            return response
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def authenticate(request, call_next):
+        response = await authenticated(request, call_next)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Frame-Options"] = "DENY"
         return response
 
     @app.api_route("/{path:path}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])

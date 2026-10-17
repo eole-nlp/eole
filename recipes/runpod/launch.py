@@ -278,7 +278,13 @@ def main():
             with suppress(asyncio.CancelledError):
                 await task
 
-    app = create_gateway(os.environ.get("EOLE_USERNAME", "eole"), os.environ.get("EOLE_PASSWORD", ""), state, prepare)
+    app = create_gateway(
+        os.environ.get("EOLE_USERNAME", "eole"),
+        os.environ.get("EOLE_PASSWORD", ""),
+        state,
+        prepare,
+        cookie_secure=os.environ.get("EOLE_COOKIE_SECURE", "1") != "0",
+    )
     uvicorn.run(app, host="0.0.0.0", port=5000, access_log=False)
 
 

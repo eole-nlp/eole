@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import httpx
 
 from recipes.runpod.gateway import create_gateway, response_body
+from recipes.runpod.auth import BrowserSessions, COOKIE_NAME, SESSION_SECONDS
 from recipes.runpod.launch import Deployment, kernel_fingerprint, relocate
 from recipes.runpod.publish_template import template_spec
 
@@ -41,17 +42,17 @@ class TestRunPodGateway(unittest.TestCase):
             return httpx.Response(201, stream=httpx.ByteStream(b"\x00\xffbinary"), headers={"x-upstream": "present"})
 
         app = create_gateway("eole", PASSWORD, self.state, transport=httpx.MockTransport(upstream))
-        self.client = self.enterContext(TestClient(app))
+        self.client = self.enterContext(TestClient(app, base_url="https://testserver"))
         self.client.auth = ("eole", PASSWORD)
 
     def test_all_paths_require_auth_before_preparation_and_after_ready(self):
         for stage in ["download", "ready", "failed"]:
             self.state["stage"] = stage
-            for path in ["/", "/_deployment/status", "/health", "/docs", "/ui/state", "/v1/models"]:
+            for path in ["/_deployment/status", "/health", "/docs", "/ui/state", "/v1/models"]:
                 with self.subTest(stage=stage, path=path):
                     response = self.client.get(path, auth=None)
                     self.assertEqual(response.status_code, 401)
-                    self.assertIn("Basic", response.headers["www-authenticate"])
+                    self.assertIn("Bearer", response.headers["www-authenticate"])
         self.assertFalse(self.requests)
 
     def test_missing_or_unresolved_password_is_rejected(self):
@@ -61,7 +62,61 @@ class TestRunPodGateway(unittest.TestCase):
 
     def test_wrong_or_malformed_credentials_are_rejected(self):
         for header in ["Basic invalid", "Basic bm9jb2xvbg==", "Bearer wrong"]:
-            self.assertEqual(self.client.get("/", headers={"authorization": header}, auth=None).status_code, 401)
+            self.assertEqual(
+                self.client.get("/v1/models", headers={"authorization": header}, auth=None).status_code, 401
+            )
+
+    def test_browser_login_is_public_but_contains_no_workspace_state(self):
+        response = self.client.get("/", auth=None)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Sign in to your workspace", response.text)
+        self.assertNotIn("Downloading model", response.text)
+        self.assertNotIn("www-authenticate", response.headers)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+
+    def test_browser_session_protects_ui_api_and_logout(self):
+        self.client.auth = None
+        bad = self.client.post("/_deployment/login", data={"username": "eole", "password": "wrong"})
+        self.assertEqual(bad.status_code, 401)
+        self.assertNotIn("set-cookie", bad.headers)
+        login = self.client.post(
+            "/_deployment/login", data={"username": "eole", "password": PASSWORD}, follow_redirects=False
+        )
+        self.assertEqual(login.status_code, 303)
+        self.assertEqual(login.headers["location"], "/")
+        cookie = login.headers["set-cookie"]
+        for flag in ["HttpOnly", "Secure", "SameSite=strict", "Path=/", f"Max-Age={SESSION_SECONDS}"]:
+            self.assertIn(flag, cookie)
+        self.assertNotIn(PASSWORD, cookie)
+        self.assertIn("Preparing your workspace", self.client.get("/").text)
+        self.assertEqual(self.client.get("/_deployment/status").json(), self.state)
+        self.client.post("/_deployment/logout", follow_redirects=False)
+        self.assertEqual(self.client.get("/_deployment/status").status_code, 401)
+
+    def test_invalid_session_and_cross_site_login_are_rejected(self):
+        self.client.auth = None
+        self.assertEqual(
+            self.client.get("/_deployment/status", headers={"cookie": f"{COOKIE_NAME}=forged"}).status_code, 401
+        )
+        response = self.client.post(
+            "/_deployment/login",
+            data={"username": "eole", "password": PASSWORD},
+            headers={"origin": "https://other.example"},
+        )
+        self.assertEqual(response.status_code, 403)
+        oversized = self.client.post(
+            "/_deployment/login", content=b"x" * 5000, headers={"content-type": "application/x-www-form-urlencoded"}
+        )
+        self.assertEqual(oversized.status_code, 413)
+
+    def test_browser_sessions_expire_and_are_invalid_after_restart(self):
+        sessions = BrowserSessions()
+        token = sessions.issue()
+        self.assertTrue(sessions.valid(token))
+        self.assertFalse(sessions.valid(token + "x"))
+        self.assertFalse(BrowserSessions().valid(token))
+        with patch("recipes.runpod.auth.time.time", return_value=int(token.split(".")[0]) + 1):
+            self.assertFalse(sessions.valid(token))
 
     def test_progress_and_failed_state_are_available_to_owner(self):
         self.assertIn("Preparing your workspace", self.client.get("/").text)

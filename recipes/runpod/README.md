@@ -35,7 +35,9 @@ Local Docker validation does not establish RunPod hardware/proxy compatibility.
 RunPod exposes the UI at `https://<pod-id>-5000.proxy.runpod.net/` and APIs at
 that address plus `/v1`. The URL is reachable from other computers. **HTTPS
 provides encryption, not authorization**: this recipe requires authentication on
-all routes, including preparation status, static assets, health, APIs and uploads.
+the workspace, preparation status, static assets, health, APIs and uploads.
+Only the generic sign-in page and login submission are public.
+The browser opens a normal sign-in page without a native HTTP-auth prompt.
 Only expose `5000/http`; the Eole backend is bound privately to `127.0.0.1:5001`.
 Never expose backend port 5001. The gateway does not add an SSH service.
 
@@ -125,12 +127,13 @@ Pods share a network volume. Container-local `/eole` can be recreated safely.
 
 | Variable | Default / purpose |
 |---|---|
-| `EOLE_USERNAME` | `eole`; browser Basic-auth username |
+| `EOLE_USERNAME` | `eole`; browser sign-in / Basic-auth username |
 | `EOLE_PASSWORD` | Required private Secret, at least 16 characters; also API Bearer token |
 | `EOLE_DEPLOY_DIR` | `/workspace/eole`; persistent deployment directory |
 | `EOLE_MODEL_REVISION` | `main`; set an HF commit SHA for reproducible model downloads |
 | `EOLE_MODEL_PATH` | Optional existing converted Qwen directory; skips download/conversion |
 | `HF_TOKEN` | Optional private HF credential via a RunPod Secret |
+| `EOLE_COOKIE_SECURE` | `1`; set `0` only for a local HTTP-only test |
 | `MAX_JOBS` | `2`; CUDA compilation parallelism |
 | `EOLE_TORCH_COMPILE` / `EOLE_COMPILE_MODE` | `1` / `0` |
 
@@ -140,7 +143,9 @@ reuse the saved conversion until `EOLE_MODEL_REVISION` changes; pin a commit SHA
 when publishing a reproducible template. Compiler caches are accelerators, not a
 promise that every restart skips warmup. Do not share an access password with
 untrusted users: it grants the UI's model-management and inference capabilities.
-Browser Basic-auth credentials may remain cached until its session is closed.
+Browser sign-in uses an HttpOnly, Secure, SameSite=Strict cookie, valid for 12 hours
+and invalidated by a gateway restart. POST `/_deployment/logout` to end the session.
+Basic and Bearer authentication remain available for API clients.
 
 API clients can use the same secret without a browser login:
 
@@ -156,6 +161,7 @@ environment file (never commit it):
 
 ```bash
 # /absolute/private/runpod.env contains EOLE_PASSWORD=your-unique-long-password
+# For this localhost HTTP test only, also set EOLE_COOKIE_SECURE=0.
 # Add EOLE_MODEL_PATH=/models/Qwen3.8-27B-INT4 to reuse a converted checkpoint.
 docker run --name eole-runpod-test --gpus all --shm-size=8g \
   --env-file /absolute/private/runpod.env \

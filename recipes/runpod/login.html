@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eole · Sign in</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#10141c;color:#edf2fb}body{margin:0;min-height:100vh;display:grid;place-items:center}main{box-sizing:border-box;width:min(460px,90vw);padding:clamp(24px,5vw,40px);border:1px solid #303b50;border-radius:24px;background:#171e2b;box-shadow:0 24px 80px #0005}.brand{font-size:18px;font-weight:700;color:#95c8ff}h1{font-size:32px;letter-spacing:-1px}p{color:#afbdd2;line-height:1.6}label{display:block;margin-top:20px;font-size:14px}input{box-sizing:border-box;width:100%;margin-top:8px;padding:13px;border:1px solid #40516e;border-radius:10px;background:#101722;color:#edf2fb;font:inherit}input:focus{outline:2px solid #79b5ff}button{width:100%;margin-top:26px;padding:14px;border:0;border-radius:10px;background:#92c7ff;color:#102238;font:inherit;font-weight:700;cursor:pointer}.error{color:#ffb9b9;min-height:1.5em;font-size:14px}.footer{font-size:13px;margin-bottom:0}</style>
+<main><div class="brand">eole / cloud workspace</div><h1>Sign in to your workspace</h1>
+<p>Use the password saved in your private RunPod Secret.</p>
+<form action="/_deployment/login" method="post">
+<label for="username">Username</label><input id="username" name="username" value="EOLE_USERNAME_VALUE" autocomplete="username" required>
+<label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
+<p class="error" role="alert">EOLE_LOGIN_ERROR</p><button type="submit">Sign in</button>
+</form><p class="footer">Your session expires after 12 hours or when the instance restarts.</p></main></html>
