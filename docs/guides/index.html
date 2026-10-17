@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">Build and maintain the documentation | Eole</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/guides/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Build and maintain the documentation | Eole"><meta data-rh="true" name="description" content="The website combines three sources:"><meta data-rh="true" property="og:description" content="The website combines three sources:"><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/guides/"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/guides/" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/guides/" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Build and maintain the documentation","item":"https://eole-nlp.github.io/eole/docs/guides/"}]}</script><link rel="stylesheet" href="/eole/assets/css/styles.209cbda3.css">
-<script src="/eole/assets/js/runtime~main.0a1df1eb.js" defer="defer"></script>
-<script src="/eole/assets/js/main.1a1f1966.js" defer="defer"></script>
+<script src="/eole/assets/js/runtime~main.0e5fd7a2.js" defer="defer"></script>
+<script src="/eole/assets/js/main.d406666a.js" defer="defer"></script>
 </head>
 <body>
 <svg style="display: none;"><defs>
@@ -29,7 +29,9 @@ For a standalone HTML API reference, run from the repository root:</p>
 assembly keeps recipe links to other documentation within the site and links
 code/config assets to GitHub. Each generated page has an edit link to its real
 source. Bibliography and Mermaid nodes are handled by the Sphinx Markdown
-translator in <code>source/conf.py</code>.</p>
+translator in <code>source/conf.py</code>.
+Tracked recipe images are staged beside their Markdown so local screenshots
+and animated previews resolve in both GitHub and the documentation website.</p>
 <p>The deployment workflow uses the Yarn lockfile. Keep Docusaurus packages aligned
 and update the lockfile when changing site dependencies. The generated site
 checks broken page links and anchors; this does not prove that external URLs, full training,

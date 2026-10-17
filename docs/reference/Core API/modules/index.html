@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">modules | Eole</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/reference/Core API/modules"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="modules | Eole"><meta data-rh="true" name="description" content="Embeddings"><meta data-rh="true" property="og:description" content="Embeddings"><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/reference/Core API/modules"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/reference/Core API/modules" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/reference/Core API/modules" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"modules","item":"https://eole-nlp.github.io/eole/docs/reference/Core API/modules"}]}</script><link rel="stylesheet" href="/eole/assets/css/styles.209cbda3.css">
-<script src="/eole/assets/js/runtime~main.0a1df1eb.js" defer="defer"></script>
-<script src="/eole/assets/js/main.1a1f1966.js" defer="defer"></script>
+<script src="/eole/assets/js/runtime~main.0e5fd7a2.js" defer="defer"></script>
+<script src="/eole/assets/js/main.d406666a.js" defer="defer"></script>
 </head>
 <body>
 <svg style="display: none;"><defs>
@@ -472,7 +472,7 @@ or <code>None</code> if the decoder has no attention.</li>
 </li>
 </ul>
 <p><a id="eole.decoders.TransformerDecoder" class="anchorTargetStickyNavbar_Vzrq"></a></p>
-<h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eoledecoderstransformerdecoderdecoder_config-running_confignonesource"><em>class</em> eole.decoders.TransformerDecoder(decoder_config, running_config=None)<a href="https://github.com/eole-nlp/eole/blob/main/eole/decoders/transformer.py#L335-L1183" target="_blank" rel="noopener noreferrer" class="">[source]</a><a href="#class-eoledecoderstransformerdecoderdecoder_config-running_confignonesource" class="hash-link" aria-label="Direct link to class-eoledecoderstransformerdecoderdecoder_config-running_confignonesource" title="Direct link to class-eoledecoderstransformerdecoderdecoder_config-running_confignonesource" translate="no">​</a></h3>
+<h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eoledecoderstransformerdecoderdecoder_config-running_confignonesource"><em>class</em> eole.decoders.TransformerDecoder(decoder_config, running_config=None)<a href="https://github.com/eole-nlp/eole/blob/main/eole/decoders/transformer.py#L350-L1422" target="_blank" rel="noopener noreferrer" class="">[source]</a><a href="#class-eoledecoderstransformerdecoderdecoder_config-running_confignonesource" class="hash-link" aria-label="Direct link to class-eoledecoderstransformerdecoderdecoder_config-running_confignonesource" title="Direct link to class-eoledecoderstransformerdecoderdecoder_config-running_confignonesource" translate="no">​</a></h3>
 <p>Bases: <a href="#eole.decoders.decoder.DecoderBase" class=""><code>DecoderBase</code></a></p>
 <p>The Transformer decoder from “Attention is All You Need”
 [<a class="" href="/eole/docs/reference/bibliography#id32">VSP+17</a>]</p>
@@ -485,7 +485,7 @@ or <code>None</code> if the decoder has no attention.</li>
 </li>
 </ul>
 <p><a id="eole.decoders.TransformerDecoder.forward" class="anchorTargetStickyNavbar_Vzrq"></a></p>
-<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="forwardemb-kwargssource">forward(emb, **kwargs)<a href="https://github.com/eole-nlp/eole/blob/main/eole/decoders/transformer.py#L831-L843" target="_blank" rel="noopener noreferrer" class="">[source]</a><a href="#forwardemb-kwargssource" class="hash-link" aria-label="Direct link to forwardemb-kwargssource" title="Direct link to forwardemb-kwargssource" translate="no">​</a></h4>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="forwardemb-kwargssource">forward(emb, **kwargs)<a href="https://github.com/eole-nlp/eole/blob/main/eole/decoders/transformer.py#L1033-L1069" target="_blank" rel="noopener noreferrer" class="">[source]</a><a href="#forwardemb-kwargssource" class="hash-link" aria-label="Direct link to forwardemb-kwargssource" title="Direct link to forwardemb-kwargssource" translate="no">​</a></h4>
 <p>Forward pass</p>
 <ul>
 <li class=""><strong>Parameters:</strong>
@@ -520,10 +520,10 @@ or <code>None</code> if the decoder has no attention.</li>
 (Tensor, Dict[str, Tensor])</li>
 </ul>
 <p><a id="eole.decoders.TransformerDecoder.init_state" class="anchorTargetStickyNavbar_Vzrq"></a></p>
-<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="init_statekwargssource">init_state(**kwargs)<a href="https://github.com/eole-nlp/eole/blob/main/eole/decoders/transformer.py#L438-L440" target="_blank" rel="noopener noreferrer" class="">[source]</a><a href="#init_statekwargssource" class="hash-link" aria-label="Direct link to init_statekwargssource" title="Direct link to init_statekwargssource" translate="no">​</a></h4>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="init_statekwargssource">init_state(**kwargs)<a href="https://github.com/eole-nlp/eole/blob/main/eole/decoders/transformer.py#L484-L486" target="_blank" rel="noopener noreferrer" class="">[source]</a><a href="#init_statekwargssource" class="hash-link" aria-label="Direct link to init_statekwargssource" title="Direct link to init_statekwargssource" translate="no">​</a></h4>
 <p>Initialize decoder state.</p>
 <p><a id="eole.decoders.TransformerDecoder.map_state" class="anchorTargetStickyNavbar_Vzrq"></a></p>
-<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="map_statefnsource">map_state(fn)<a href="https://github.com/eole-nlp/eole/blob/main/eole/decoders/transformer.py#L442-L461" target="_blank" rel="noopener noreferrer" class="">[source]</a><a href="#map_statefnsource" class="hash-link" aria-label="Direct link to map_statefnsource" title="Direct link to map_statefnsource" translate="no">​</a></h4>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="map_statefnsource">map_state(fn)<a href="https://github.com/eole-nlp/eole/blob/main/eole/decoders/transformer.py#L488-L508" target="_blank" rel="noopener noreferrer" class="">[source]</a><a href="#map_statefnsource" class="hash-link" aria-label="Direct link to map_statefnsource" title="Direct link to map_statefnsource" translate="no">​</a></h4>
 <p>Apply a function to all tensors in decoder state.</p>
 <p>Used for operations like moving to device or selecting batch indices.</p>
 <ul>
@@ -531,7 +531,7 @@ or <code>None</code> if the decoder has no attention.</li>
 <strong>fn</strong> – Function to apply to each tensor in the state.</li>
 </ul>
 <p><a id="eole.decoders.TransformerDecoder.update_dropout" class="anchorTargetStickyNavbar_Vzrq"></a></p>
-<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="update_dropoutdropout-attention_dropoutsource">update_dropout(dropout, attention_dropout)<a href="https://github.com/eole-nlp/eole/blob/main/eole/decoders/transformer.py#L463-L465" target="_blank" rel="noopener noreferrer" class="">[source]</a><a href="#update_dropoutdropout-attention_dropoutsource" class="hash-link" aria-label="Direct link to update_dropoutdropout-attention_dropoutsource" title="Direct link to update_dropoutdropout-attention_dropoutsource" translate="no">​</a></h4>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="update_dropoutdropout-attention_dropoutsource">update_dropout(dropout, attention_dropout)<a href="https://github.com/eole-nlp/eole/blob/main/eole/decoders/transformer.py#L510-L512" target="_blank" rel="noopener noreferrer" class="">[source]</a><a href="#update_dropoutdropout-attention_dropoutsource" class="hash-link" aria-label="Direct link to update_dropoutdropout-attention_dropoutsource" title="Direct link to update_dropoutdropout-attention_dropoutsource" translate="no">​</a></h4>
 <p>Update dropout rates dynamically.</p>
 <ul>
 <li class=""><strong>Parameters:</strong>
@@ -750,7 +750,7 @@ Tuple of</li>
 Unnormalized attention scores (batch, tgt_len, src_len)</li>
 </ul>
 <p><a id="eole.modules.multi_headed_attn.MultiHeadedAttention" class="anchorTargetStickyNavbar_Vzrq"></a></p>
-<h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eolemodulesmulti_headed_attnmultiheadedattentionmodel_config-running_confignone-is_decoder-bool--truesource"><em>class</em> eole.modules.multi_headed_attn.MultiHeadedAttention(model_config, running_config=None, is_decoder: bool = True)<a href="https://github.com/eole-nlp/eole/blob/main/eole/modules/multi_headed_attn.py#L36-L442" target="_blank" rel="noopener noreferrer" class="">[source]</a><a href="#class-eolemodulesmulti_headed_attnmultiheadedattentionmodel_config-running_confignone-is_decoder-bool--truesource" class="hash-link" aria-label="Direct link to class-eolemodulesmulti_headed_attnmultiheadedattentionmodel_config-running_confignone-is_decoder-bool--truesource" title="Direct link to class-eolemodulesmulti_headed_attnmultiheadedattentionmodel_config-running_confignone-is_decoder-bool--truesource" translate="no">​</a></h3>
+<h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="class-eolemodulesmulti_headed_attnmultiheadedattentionmodel_config-running_confignone-is_decoder-bool--truesource"><em>class</em> eole.modules.multi_headed_attn.MultiHeadedAttention(model_config, running_config=None, is_decoder: bool = True)<a href="https://github.com/eole-nlp/eole/blob/main/eole/modules/multi_headed_attn.py#L36-L453" target="_blank" rel="noopener noreferrer" class="">[source]</a><a href="#class-eolemodulesmulti_headed_attnmultiheadedattentionmodel_config-running_confignone-is_decoder-bool--truesource" class="hash-link" aria-label="Direct link to class-eolemodulesmulti_headed_attnmultiheadedattentionmodel_config-running_confignone-is_decoder-bool--truesource" title="Direct link to class-eolemodulesmulti_headed_attnmultiheadedattentionmodel_config-running_confignone-is_decoder-bool--truesource" translate="no">​</a></h3>
 <p>Bases: <code>Module</code></p>
 <p>Multi-Head Attention module from “Attention is All You Need”
 [<a class="" href="/eole/docs/reference/bibliography#id32">VSP+17</a>].</p>
