@@ -1,0 +1,21 @@
+{
+  "name": "Eole Chat - Qwen3.8-27B INT4",
+  "category": "NVIDIA",
+  "imageName": "REPLACE_WITH_PUBLISHED_RUNPOD_IMAGE",
+  "isPublic": false,
+  "isServerless": false,
+  "containerDiskInGb": 60,
+  "volumeInGb": 100,
+  "volumeMountPath": "/workspace",
+  "ports": ["5000/http"],
+  "dockerEntrypoint": ["python", "/opt/eole-runpod/launch.py"],
+  "dockerStartCmd": [],
+  "env": {
+    "EOLE_USERNAME": "eole",
+    "EOLE_PASSWORD": "{{ RUNPOD_SECRET_eole_password }}",
+    "EOLE_DEPLOY_DIR": "/workspace/eole",
+    "EOLE_TORCH_COMPILE": "1",
+    "EOLE_COMPILE_MODE": "0"
+  },
+  "readme": "Eole browser Chat with RedHat Qwen3.8-27B INT4. Before deploying, create a private RunPod Secret named eole_password with at least 16 characters. Choose one x86-hosted NVIDIA GPU with at least 32 GB VRAM and a driver supporting CUDA 13.2; RTX 5090 is locally tested. Open Connect > HTTP port 5000 and sign in as eole with your secret. Preparation automatically builds GPU kernels, downloads/converts the model, and starts Eole. The first request compiles inference. The volume stores weights and kernel caches. Account, storage/GPU payment confirmation and initial preparation are required. Only Chat is provisioned. H100/H200 are expected compatible but not hardware-validated; Grace ARM systems are not supported by this image. No SSH service is installed. See https://github.com/eole-nlp/eole/tree/main/recipes/runpod for details."
+}

@@ -1,0 +1,263 @@
+"""Cloud gateway and resumable preparation checks without renting a GPU."""
+
+import asyncio
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import AsyncMock, patch
+
+from fastapi.testclient import TestClient
+import httpx
+
+from recipes.runpod.gateway import create_gateway, response_body
+from recipes.runpod.launch import Deployment, kernel_fingerprint, relocate
+from recipes.runpod.publish_template import template_spec
+
+PASSWORD = "local-test-password-123"
+
+
+class RawStream(httpx.AsyncByteStream):
+    closed = False
+
+    async def __aiter__(self):
+        yield b"data: first\n\n"
+        yield b"data: [DONE]\n\n"
+
+    async def aclose(self):
+        self.closed = True
+
+
+class TestRunPodGateway(unittest.TestCase):
+    def setUp(self):
+        self.state = {"stage": "download", "message": "Downloading model"}
+        self.requests = []
+        self.stream = RawStream()
+
+        async def upstream(request):
+            self.requests.append((request, await request.aread()))
+            if request.url.path == "/stream":
+                return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=self.stream)
+            return httpx.Response(201, stream=httpx.ByteStream(b"\x00\xffbinary"), headers={"x-upstream": "present"})
+
+        app = create_gateway("eole", PASSWORD, self.state, transport=httpx.MockTransport(upstream))
+        self.client = self.enterContext(TestClient(app))
+        self.client.auth = ("eole", PASSWORD)
+
+    def test_all_paths_require_auth_before_preparation_and_after_ready(self):
+        for stage in ["download", "ready", "failed"]:
+            self.state["stage"] = stage
+            for path in ["/", "/_deployment/status", "/health", "/docs", "/ui/state", "/v1/models"]:
+                with self.subTest(stage=stage, path=path):
+                    response = self.client.get(path, auth=None)
+                    self.assertEqual(response.status_code, 401)
+                    self.assertIn("Basic", response.headers["www-authenticate"])
+        self.assertFalse(self.requests)
+
+    def test_missing_or_unresolved_password_is_rejected(self):
+        for password in ["", "short", "{{ RUNPOD_SECRET_eole_password }}"]:
+            with self.assertRaises(ValueError):
+                create_gateway("eole", password, self.state)
+
+    def test_wrong_or_malformed_credentials_are_rejected(self):
+        for header in ["Basic invalid", "Basic bm9jb2xvbg==", "Bearer wrong"]:
+            self.assertEqual(self.client.get("/", headers={"authorization": header}, auth=None).status_code, 401)
+
+    def test_progress_and_failed_state_are_available_to_owner(self):
+        self.assertIn("Preparing your workspace", self.client.get("/").text)
+        self.assertEqual(self.client.get("/_deployment/status").json(), self.state)
+        response = self.client.post("/v1/responses", json={})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.headers["retry-after"], "5")
+        self.state.update(stage="failed", message="Check private logs")
+        self.assertEqual(self.client.get("/_deployment/status").json()["stage"], "failed")
+
+    def test_authenticated_binary_upload_proxy_and_query(self):
+        self.state["stage"] = "ready"
+        response = self.client.post(
+            "/ui/images?mode=test",
+            content=b"\x00\xffupload",
+            headers={"cookie": "secret-cookie", "connection": "x-hop", "x-hop": "strip"},
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.content, b"\x00\xffbinary")
+        self.assertEqual(response.headers["x-upstream"], "present")
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        request, body = self.requests[-1]
+        self.assertEqual(body, b"\x00\xffupload")
+        self.assertEqual(str(request.url), "http://127.0.0.1:5001/ui/images?mode=test")
+        for header in ["authorization", "cookie", "x-hop"]:
+            self.assertNotIn(header, request.headers)
+
+    def test_api_bearer_and_sse_are_forwarded_without_buffering_or_rewriting(self):
+        self.state["stage"] = "ready"
+        response = self.client.get("/stream", auth=None, headers={"authorization": f"Bearer {PASSWORD}"})
+        self.assertEqual(response.content, b"data: first\n\ndata: [DONE]\n\n")
+        self.assertEqual(response.headers["content-type"], "text/event-stream")
+        self.assertTrue(self.stream.closed)
+
+    def test_cross_origin_mutation_is_rejected(self):
+        self.state["stage"] = "ready"
+        self.assertEqual(
+            self.client.post("/unload_model", headers={"origin": "https://other.example"}).status_code, 403
+        )
+        self.assertEqual(self.client.post("/unload_model", headers={"origin": "http://testserver"}).status_code, 201)
+
+    def test_backend_connection_failure_is_not_exposed(self):
+        self.state["stage"] = "ready"
+        with patch.object(self.client.app.state.client, "send", side_effect=httpx.ConnectError("private detail")):
+            response = self.client.get("/")
+        self.assertEqual(response.status_code, 502)
+        self.assertNotIn("private detail", response.text)
+
+
+class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.deployment = Deployment(self.root, self.root, {})
+
+    def checkpoint(self, path):
+        path.mkdir(parents=True)
+        (path / "config.json").write_text(json.dumps({"tokenizer": str(path / "tokenizer.json")}))
+        (path / "tokenizer.json").write_text("{}")
+        (path / "model.00.safetensors").touch()
+
+    async def test_conversion_is_atomic_and_cached_and_paths_are_relocated(self):
+        calls = []
+
+        async def command(*args):
+            calls.append(args)
+            if "--output" in args:
+                self.checkpoint(Path(args[args.index("--output") + 1]))
+            else:
+                (self.root / "snapshot.txt").write_text("/cached/hf-snapshot")
+
+        self.deployment.command = command
+        with patch.dict("os.environ", {"EOLE_MODEL_REVISION": "pinned-commit"}):
+            with patch.dict("os.environ") as env:
+                env.pop("EOLE_MODEL_PATH", None)
+                model = await self.deployment.model()
+                self.assertTrue((model / "deployment.json").is_file())
+                self.assertEqual(
+                    json.loads((model / "config.json").read_text())["tokenizer"], str(model / "tokenizer.json")
+                )
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(await self.deployment.model(), model)
+                self.assertEqual(len(calls), 2)
+                env["EOLE_MODEL_REVISION"] = "another-commit"
+                self.assertNotEqual(await self.deployment.model(), model)
+                self.assertEqual(len(calls), 4)
+
+    async def test_interrupted_conversion_is_not_marked_complete(self):
+        async def command(*args):
+            if "--output" in args:
+                path = Path(args[args.index("--output") + 1])
+                path.mkdir()
+                (path / "config.json").write_text("{}")
+                raise RuntimeError("interrupted")
+            (self.root / "snapshot.txt").write_text("/cached/hf-snapshot")
+
+        self.deployment.command = command
+        with patch.dict("os.environ") as env:
+            env.pop("EOLE_MODEL_PATH", None)
+            with self.assertRaises(RuntimeError):
+                await self.deployment.model()
+        self.assertFalse(list(self.root.rglob("deployment.json")))
+        self.assertTrue(list(self.root.rglob("*.partial")))
+
+    async def test_explicit_existing_model_skips_download(self):
+        path = self.root / "existing"
+        self.checkpoint(path)
+        self.deployment.command = AsyncMock()
+        with patch.dict("os.environ", {"EOLE_MODEL_PATH": str(path)}):
+            self.assertEqual(await self.deployment.model(), path)
+        self.deployment.command.assert_not_called()
+
+    async def test_cancelled_build_terminates_its_process(self):
+        task = asyncio.create_task(self.deployment.command("sleep", "60"))
+        for _ in range(100):
+            if self.deployment.process:
+                break
+            await asyncio.sleep(0.01)
+        process = self.deployment.process
+        self.assertIsNotNone(process)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertIsNotNone(process.returncode)
+
+    async def test_sse_heartbeats_during_warmup_and_stream_closes_on_disconnect(self):
+        class SlowStream(httpx.AsyncByteStream):
+            closed = False
+
+            async def __aiter__(self):
+                await asyncio.sleep(60)
+                yield b"data: token\n\n"
+
+            async def aclose(self):
+                self.closed = True
+
+        stream = SlowStream()
+        response = httpx.Response(200, stream=stream, headers={"content-type": "text/event-stream"})
+        with patch("recipes.runpod.gateway.SSE_HEARTBEAT_SECONDS", 0.01):
+            body = response_body(response)
+            self.assertEqual(await anext(body), b": eole keepalive\n\n")
+            await body.aclose()
+        self.assertTrue(stream.closed)
+
+    def test_cache_key_changes_with_gpu_torch_and_source(self):
+        (self.root / "setup.py").write_text("source-v1")
+        key = kernel_fingerprint(self.root, {"torch": "2.14.1", "architectures": [[12, 0]]})
+        self.assertNotEqual(key, kernel_fingerprint(self.root, {"torch": "2.14.1", "architectures": [[9, 0]]}))
+        self.assertNotEqual(key, kernel_fingerprint(self.root, {"torch": "2.13.0", "architectures": [[12, 0]]}))
+        (self.root / "setup.py").write_text("source-v2")
+        self.assertNotEqual(key, kernel_fingerprint(self.root, {"torch": "2.14.1", "architectures": [[12, 0]]}))
+
+    async def test_kernel_cache_is_reused_and_invalid_binary_is_rebuilt(self):
+        (self.root / "eole").mkdir()
+        (self.root / "csrc").mkdir()
+        (self.root / "setup.py").write_text("source")
+        calls = []
+        fail_probe = False
+
+        async def command(*args):
+            nonlocal fail_probe
+            calls.append(args)
+            if args[-1] == self.root / "runtime.json":
+                (self.root / "runtime.json").write_text(json.dumps({"torch": "2.14.1", "gpu": "12.0"}))
+            elif args[0] == "/usr/local/bin/eole-build-kernels":
+                (self.root / "eole" / "_ops.test.so").write_bytes(b"built")
+            elif fail_probe:
+                fail_probe = False
+                raise RuntimeError("bad cached binary")
+
+        self.deployment.command = command
+        await self.deployment.kernels()
+        self.assertEqual(sum(args[0] == "/usr/local/bin/eole-build-kernels" for args in calls), 1)
+        (self.root / "eole" / "_ops.test.so").unlink()
+        calls.clear()
+        await self.deployment.kernels()
+        self.assertFalse(any(args[0] == "/usr/local/bin/eole-build-kernels" for args in calls))
+        self.assertEqual((self.root / "eole" / "_ops.test.so").read_bytes(), b"built")
+        calls.clear()
+        fail_probe = True
+        await self.deployment.kernels()
+        self.assertEqual(sum(args[0] == "/usr/local/bin/eole-build-kernels" for args in calls), 1)
+
+    def test_template_never_contains_a_shared_password_or_rents_a_pod(self):
+        spec = template_spec("ghcr.io/eole-nlp/eole-runpod:dev-123456789abc")
+        self.assertFalse(spec["isPublic"])
+        self.assertFalse(spec["isServerless"])
+        self.assertEqual(spec["ports"], ["5000/http"])
+        self.assertEqual(spec["env"]["EOLE_PASSWORD"], "{{ RUNPOD_SECRET_eole_password }}")
+        self.assertNotIn("5001", json.dumps(spec))
+        with self.assertRaises(ValueError):
+            template_spec("ghcr.io/eole-nlp/eole-runpod:latest")
+
+    def test_path_relocation_does_not_change_other_paths(self):
+        self.assertEqual(
+            relocate(["/stage/tokenizer", "/stage-other/tokenizer"], Path("/stage"), Path("/final")),
+            ["/final/tokenizer", "/stage-other/tokenizer"],
+        )
