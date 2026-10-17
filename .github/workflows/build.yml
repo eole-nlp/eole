@@ -39,8 +39,10 @@ jobs:
           fetch-depth: 0
       - name: Require updated Docker tooling
         run: |
-          grep -q CUDA_NVCC_PACKAGE docker/build_base.sh
-          grep -q VCS_REF docker/build.sh
+          if ! grep -q CUDA_NVCC_PACKAGE docker/build_base.sh || ! grep -q VCS_REF docker/build.sh; then
+            echo "::error::Select a source ref containing the Docker refresh; older release scripts cannot publish these images."
+            exit 1
+          fi
       - name: Free build space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
