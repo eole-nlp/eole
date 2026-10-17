@@ -139,7 +139,11 @@ def create_gateway(username, password, state, prepare=None, transport=None, cook
             return login_form("Invalid sign-in request.", 400)
         if not (secrets.compare_digest(user.encode(), username) & secrets.compare_digest(supplied.encode(), password)):
             return login_form("Incorrect username or password.", 401)
-        response = RedirectResponse("/", status_code=303)
+        response = (
+            JSONResponse({"authenticated": True})
+            if "application/json" in request.headers.get("accept", "")
+            else RedirectResponse("/", status_code=303)
+        )
         response.set_cookie(
             COOKIE_NAME,
             sessions.issue(),

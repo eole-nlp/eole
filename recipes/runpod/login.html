@@ -9,4 +9,13 @@
 <label for="username">Username</label><input id="username" name="username" value="EOLE_USERNAME_VALUE" autocomplete="username" required>
 <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
 <p class="error" role="alert">EOLE_LOGIN_ERROR</p><button type="submit">Sign in</button>
-</form><p class="footer">Your session expires after 12 hours or when the instance restarts.</p></main></html>
+</form><p class="footer">Your session expires after 12 hours or when the instance restarts.</p></main>
+<script>
+document.querySelector('form').addEventListener('submit',async event=>{
+ event.preventDefault(); const form=event.currentTarget, button=form.querySelector('button'), error=form.querySelector('.error');
+ button.disabled=true; error.textContent='';
+ try{const response=await fetch(form.action,{method:'POST',headers:{'Accept':'application/json'},body:new URLSearchParams(new FormData(form)),credentials:'same-origin'});
+ if(response.ok){location.replace('/');return;}error.textContent='Sign-in failed. Check your username and password.';
+ }catch{error.textContent='Cannot reach the instance. Please try again.';}button.disabled=false;
+});
+</script></html>
