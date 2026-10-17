@@ -3,51 +3,64 @@ name: Build Docker Images
 on:
   workflow_dispatch:
     inputs:
-      eole_version:
-        description: "EOLE version"
+      source_ref:
+        description: "Source branch, tag or commit (release labels require an exact release tag)"
         required: true
+        default: main
         type: string
       torch_version:
         description: "PyTorch version"
         required: true
+        default: 2.14.1
         type: string
       cuda_version:
-        description: "CUDA version"
+        description: "NVIDIA CUDA devel image version"
         required: true
+        default: 13.2.1
         type: string
 
-run-name: ${{ github.workflow }} -- ${{ inputs.eole_version }} torch:${{ inputs.torch_version }}, cuda:${{ inputs.cuda_version }}
+permissions:
+  contents: read
+  packages: write
 
 env:
-  EOLE_VERSION: ${{ inputs.eole_version }}
   TORCH_VERSION: ${{ inputs.torch_version }}
   CUDA_VERSION: ${{ inputs.cuda_version }}
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-    # strategy:
-    #   matrix:
-    #     cuda_version: [11.8.0, 12.1.0]
-    permissions: write-all
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
-    - name: Maximize build space
-      uses: easimon/maximize-build-space@master
-      with:
-        root-reserve-mb: 512
-        swap-size-mb: 10
-        remove-dotnet: 'true'
-        remove-android: 'true'
-        remove-haskell: 'true'
-        overprovision-lvm: 'true'
-    - name: Checkout repo
-      uses: actions/checkout@v7
-    - name: Login to ghcr
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    - name: Build
-      run: |
-        docker/build.sh ${{ env.EOLE_VERSION }} ${{ env.TORCH_VERSION}} ${{ env.CUDA_VERSION}}
+      - name: Checkout requested source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+      - name: Require updated Docker tooling
+        run: |
+          if ! grep -q CUDA_NVCC_PACKAGE docker/build_base.sh || ! grep -q VCS_REF docker/build.sh; then
+            echo "::error::Select a source ref containing the Docker refresh; older release scripts cannot publish these images."
+            exit 1
+          fi
+      - name: Free build space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          docker system prune -af
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish matching base
+        run: docker/build_base.sh "$TORCH_VERSION" "$CUDA_VERSION" --push
+      - name: Derive image source version
+        run: |
+          VERSION=$(git describe --tags --exact-match HEAD 2>/dev/null || true)
+          if [[ ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            VERSION="dev-$(git rev-parse --short=12 HEAD)"
+          fi
+          echo "EOLE_VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Build and publish Eole
+        run: docker/build.sh "$EOLE_VERSION" "$TORCH_VERSION" "$CUDA_VERSION" --push

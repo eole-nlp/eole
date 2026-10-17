@@ -1,41 +1,30 @@
-# base image with torch and apex
-# relatively lighter than the full-fledged ngc pytorch images
-ARG CUDA_VERSION=12.8.0
-FROM nvidia/cuda:$CUDA_VERSION-devel-ubuntu24.04
+# Ubuntu/Python 3.12 with a matching PyTorch CUDA wheel and build toolkit.
+ARG CUDA_VERSION=13.2.1
+FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04
 
-ARG TORCH_VERSION==2.10.0
-
+ARG CUDA_VERSION
+ARG TORCH_VERSION=2.14.1
 ARG PYTHON_TAG=cp312
 ARG FLASH_ATTN_VERSION=2.8.3
-
-RUN apt-get update && apt-get install -y \
-    libprotobuf-dev \
-    libprotobuf-c-dev \
-    g++ \
-    gcc \
-    git \
-    locales \
-    python3-dev \
-    python3-pip
-    
-
-RUN apt-get update && apt-get install -y --no-install-recommends python3-venv && rm -rf /var/lib/apt/lists/*
+# 13.2.1's bundled nvcc predates the compiler correctness fix. This can be
+# overridden for other CUDA families; an empty value leaves the toolkit alone.
+ARG CUDA_NVCC_PACKAGE=cuda-nvcc-13-2=13.2.86-1
+ENV PIP_NO_CACHE_DIR=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libprotobuf-dev libprotobuf-c-dev g++ gcc git locales python3-dev \
+    python3-pip python3-venv curl jq ffmpeg ninja-build \
+    ${CUDA_NVCC_PACKAGE} && rm -rf /var/lib/apt/lists/*
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
-RUN python -m pip install --upgrade pip setuptools wheel
-RUN python -m pip install packaging
+RUN python -m pip install --upgrade 'setuptools<85' pip wheel packaging numpy psutil
+RUN CU=$(echo "${CUDA_VERSION%.*}" | tr -d '.') && \
+    python -m pip install "torch==${TORCH_VERSION}" --index-url "https://download.pytorch.org/whl/cu${CU}"
 
-# Install torch
-RUN CU=$(echo "${CUDA_VERSION%.*}" | sed 's/\.//g'); pip3 install torch==$TORCH_VERSION --index-url "https://download.pytorch.org/whl/cu$CU"
-
-# Install flash-attention
-RUN pip install numpy psutil
-RUN apt-get update && apt-get install -y curl jq && rm -rf /var/lib/apt/lists/*
-RUN CUDA_TAG=$(echo "${CUDA_VERSION%.*}" | sed 's/\.//g') && \
+# Community prebuilt wheels; compile from source if this exact ABI is absent.
+RUN CUDA_TAG=$(echo "${CUDA_VERSION%.*}" | tr -d '.') && \
     TORCH_TAG=$(echo "${TORCH_VERSION}" | cut -d. -f1,2) && \
     PATTERN="flash_attn-${FLASH_ATTN_VERSION}+cu${CUDA_TAG}torch${TORCH_TAG}-${PYTHON_TAG}-${PYTHON_TAG}-linux_x86_64.whl" && \
-    WHEEL_URL=$(curl -s "https://api.github.com/repos/mjun0812/flash-attention-prebuild-wheels/releases?per_page=100" \
+    WHEEL_URL=$(curl -fsSL "https://api.github.com/repos/mjun0812/flash-attention-prebuild-wheels/releases?per_page=100" \
         | jq -r --arg pat "$PATTERN" '.[].assets[] | select(.name == $pat) | .browser_download_url' | head -n1) && \
-    test -n "$WHEEL_URL" && pip3 install "$WHEEL_URL" || \
-    (echo "No prebuilt wheel for $PATTERN, falling back to source build" >&2 && \
-     MAX_JOBS=2 pip3 install flash-attn==${FLASH_ATTN_VERSION} --no-build-isolation)
+    if [ -n "$WHEEL_URL" ]; then python -m pip install "$WHEEL_URL"; \
+    else MAX_JOBS=2 python -m pip install "flash-attn==${FLASH_ATTN_VERSION}" --no-build-isolation; fi
