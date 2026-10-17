@@ -183,11 +183,21 @@ Path(sys.argv[3]).write_text(path)
             "--dtype",
             "bf16",
             "--check-tensors",
+            "--tokenizer",
+            "hf",
         )
+        # HF conversion may reference the download cache instead of copying its tokenizer.
+        tokenizer = Path(snapshot.read_text().strip()) / "tokenizer.json"
+        if tokenizer.is_file():
+            shutil.copy2(tokenizer, staging / "tokenizer.json")
         if not valid_model(staging):
             raise RuntimeError("Converted checkpoint is incomplete; see the private Pod logs")
         config = staging / "config.json"
-        config.write_text(json.dumps(relocate(json.loads(config.read_text()), staging, model), indent=2))
+        settings = relocate(json.loads(config.read_text()), staging, model)
+        settings.setdefault("transforms_configs", {}).setdefault("huggingface_tokenize", {})["path"] = str(
+            model / "tokenizer.json"
+        )
+        config.write_text(json.dumps(settings, indent=2))
         (staging / "deployment.json").write_text(json.dumps(identity))
         if model.exists():
             raise RuntimeError("An incomplete destination exists; preserve/remove it manually before retrying")

@@ -201,7 +201,10 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
             if "--output" in args:
                 self.checkpoint(Path(args[args.index("--output") + 1]))
             else:
-                (self.root / "snapshot.txt").write_text("/cached/hf-snapshot")
+                snapshot = self.root / "snapshot"
+                snapshot.mkdir(exist_ok=True)
+                (snapshot / "tokenizer.json").write_text("{}")
+                (self.root / "snapshot.txt").write_text(str(snapshot))
 
         self.deployment.command = command
         with patch.dict("os.environ", {"EOLE_MODEL_REVISION": "pinned-commit"}):
@@ -211,6 +214,13 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue((model / "deployment.json").is_file())
                 self.assertEqual(
                     json.loads((model / "config.json").read_text())["tokenizer"], str(model / "tokenizer.json")
+                )
+                self.assertIn("--tokenizer", calls[1])
+                self.assertEqual(
+                    json.loads((model / "config.json").read_text())["transforms_configs"]["huggingface_tokenize"][
+                        "path"
+                    ],
+                    str(model / "tokenizer.json"),
                 )
                 self.assertEqual(len(calls), 2)
                 self.assertEqual(await self.deployment.model(), model)
