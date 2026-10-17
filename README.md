@@ -151,7 +151,7 @@ must be measured on the chosen checkpoint.
 ### From source
 
 - Python >= 3.11 (current CI uses Python 3.12).
-- PyTorch >= 2.10 and < 2.13, with a CUDA build compatible with your GPU and driver.
+- PyTorch >= 2.10 and < 2.15, with a CUDA build compatible with your GPU and driver.
 - To compile CUDA extensions: the CUDA toolkit (`nvcc`), a compatible C++ compiler,
   and the build dependencies below. The CUDA runtime bundled with PyTorch alone
   does not provide `nvcc`.
@@ -246,7 +246,8 @@ Requires Docker, a compatible NVIDIA driver, and the
 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
 Use a [published image](https://github.com/eole-nlp/eole/pkgs/container/eole) or
-build an image from your checkout. The [Docker guide](docs/docker.md) covers GPU
+build an image from your checkout (the tested default is PyTorch 2.14.1 / CUDA 13.2).
+Images include the Chat, Translate, Documents and Knowledge dependencies. The [Docker guide](docs/docker.md) covers GPU
 prerequisites, local builds, CUDA kernels, model/data mounts, YAML inference and
 training, and serving an API endpoint.
 
