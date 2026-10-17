@@ -30,15 +30,18 @@ compilation waits are omitted; the displayed generation measurements come from
 Eole's inference worker on an RTX 5090. Benchmark numbers measure post-first-token
 decode speed and depend on the prompt, settings and hardware.
 
-## Latest: 0.6.2
+## Latest: 0.6.3
 
-This release fixes Qwen RoPE conversion and GGUF MTP/tokenizer handling, adds
-compressed-tensors INT4 support and the out-of-tree vLLM GGUF backend, and
-provides a LiveCodeBench evaluation recipe. Start with the
-[Qwen3.8/MTP recipe](recipes/qwen38/README.md) using the recommended RedHatAI INT4
-checkpoint, or the [LiveCodeBench recipe](recipes/livecodebench/README.md).
-See the [changelog](CHANGELOG.md#062) for details, conversion migration guidance,
-and current limitations.
+This release adds a bundled browser workspace for Chat with images, translation,
+PDF/image OCR and local document RAG, with coordinated model switching. It also
+improves compiled decoding and MTP verification, packed Marlin projections and
+INT4 tensor parallelism, and expands OpenAI/Anthropic API compatibility.
+
+Eole supports **PyTorch >= 2.10 and < 2.15**, including PyTorch 2.14.1. The refreshed
+Docker defaults use PyTorch 2.14.1 with CUDA 13.2. Start with the
+[workspace UI](recipes/ui/README.md), [Qwen3.8/MTP recipe](recipes/qwen38/README.md),
+or [Docker guide](docs/docker.md). See the [changelog](CHANGELOG.md#063) for release
+details and remaining limitations.
 
 ## Choose your workflow
 
