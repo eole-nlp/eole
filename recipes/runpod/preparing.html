@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eole · Preparing your workspace</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#10141c;color:#edf2fb}body{margin:0;min-height:100vh;display:grid;place-items:center}main{box-sizing:border-box;width:min(660px,90vw);padding:clamp(24px,5vw,40px);border:1px solid #303b50;border-radius:24px;background:#171e2b;box-shadow:0 24px 80px #0005}.brand{font-size:18px;font-weight:700;color:#95c8ff}h1{font-size:32px;letter-spacing:-1px}p{color:#afbdd2;line-height:1.65}ol{list-style:none;padding:0;display:grid;gap:12px}li{padding:12px 16px;border-radius:10px;color:#7c8da8;background:#121925}li.active{color:#cfe6ff;border:1px solid #5ba5fa}li.done{color:#8cdbb0}#message{min-height:3em}.footer{font-size:13px;border-top:1px solid #303b50;padding-top:20px}a{color:#a3ceff}</style>
+<main><div class="brand">eole / cloud workspace</div><h1 id="title">Preparing your workspace</h1>
+<p id="message" role="status" aria-live="polite">Connecting to your instance…</p>
+<ol id="steps"><li data-stage="gpu">Check GPU</li><li data-stage="kernels">Prepare GPU kernels</li><li data-stage="download">Download model</li><li data-stage="convert">Convert weights</li><li data-stage="load">Load Eole</li></ol>
+<p class="footer">First startup can take several minutes. Saved models and matching kernels are reused. Your rented GPU remains billable during preparation.</p></main>
+<script>
+const order=['gpu','kernels','download','convert','load','ready'];
+async function refresh(){try{const r=await fetch('/_deployment/status',{cache:'no-store'});if(!r.ok)throw Error();const s=await r.json();document.querySelector('#message').textContent=s.message;
+if(s.stage==='ready'){location.replace('/');return;}
+if(s.stage==='failed'){document.querySelector('#title').textContent='Preparation stopped';return;}
+document.querySelectorAll('[data-stage]').forEach(el=>{const n=order.indexOf(el.dataset.stage),current=order.indexOf(s.stage);el.className=n===current?'active':n<current?'done':'';});
+}catch{document.querySelector('#message').textContent='Waiting for the instance. Retrying…';}setTimeout(refresh,3000);}refresh();
+</script></html>

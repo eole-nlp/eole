@@ -12,6 +12,7 @@ fixed, and actually executed on the current checkout.
 | Workflow | Recipe |
 |---|---|
 | Direct inference from a supported Hugging Face model ID | [HF inference](hf/README.md) |
+| Cloud Qwen Chat with automatic preparation and authentication | [RunPod deployment](runpod/README.md) |
 | FastAPI server, native inference, OpenAI-style chat, Anthropic-style Messages | [Server](server/README.md) |
 | Qwen3.8-27B text inference, MTP verification, and baseline comparison | [Qwen3.8 / MTP](qwen38/README.md) |
 | Claude Code CLI backed by local Qwen3.8 | [Claude Code](claude-code/README.md) |

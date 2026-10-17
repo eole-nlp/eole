@@ -48,6 +48,7 @@ details and remaining limitations.
 | I want to… | Start here |
 |---|---|
 | Run a supported HF model without a separate conversion step | [Direct HF inference](recipes/hf/README.md) |
+| Deploy an authenticated Chat, translation and OCR workspace on a rented GPU | [RunPod deployment recipe](recipes/runpod/README.md) |
 | Chat with a local LLM in your browser | [Local workspace UI](recipes/ui/README.md) |
 | Translate through a web interface: text, terminology, subtitles, and documents | [Hy-MT2 translation workspace](recipes/translation/README.md) |
 | Try Qwen3.8-27B with MTP speculative decoding | [Qwen3.8 and MTP](recipes/qwen38/README.md) |
