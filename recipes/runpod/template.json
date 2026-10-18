@@ -1,0 +1,27 @@
+{
+  "name": "Eole Workspace",
+  "category": "NVIDIA",
+  "imageName": "ghcr.io/eole-nlp/eole-runpod:0.6.4",
+  "isPublic": false,
+  "isServerless": false,
+  "containerDiskInGb": 60,
+  "volumeInGb": 250,
+  "volumeMountPath": "/workspace",
+  "ports": [
+    "5000/http"
+  ],
+  "dockerEntrypoint": [
+    "python",
+    "/opt/eole-runpod/launch.py"
+  ],
+  "dockerStartCmd": [],
+  "env": {
+    "EOLE_USERNAME": "eole",
+    "EOLE_PASSWORD": "{{ RUNPOD_SECRET_eole_password }}",
+    "EOLE_DEPLOY_DIR": "/workspace/eole",
+    "EOLE_TORCH_COMPILE": "1",
+    "EOLE_COMPILE_MODE": "0",
+    "EOLE_QWEN_VARIANT": "int4"
+  },
+  "readme": "Eole workspace with Qwen3.8-27B Chat, Tencent Hy-MT2-7B translation and DeepSeek-OCR documents. Create a private eole_password RunPod Secret with at least 16 characters. EOLE_QWEN_VARIANT selects int4 (default, >=32 GB GPU), bf16 (original Qwen/Qwen3.8-27B, >=80 GB GPU; 96 GB recommended), or both (both Qwen models in the selector). Use an x86 host with CUDA 13.2 driver support and the recommended 250 GB volume; keep HF sources and converted weights on /workspace. Open Connect > HTTP port 5000 and sign in as eole. Preparation downloads/converts all selected models. Switching workspaces unloads the previous GPU model and loads the selected one; first use compiles inference. RTX PRO 6000 96 GB cloud-tested with INT4/BF16 Chat, Hy-MT2 translation, PDF OCR and automatic model switching. Grace ARM hosts are unsupported. No SSH service is installed. Compute/storage charges apply. See https://github.com/eole-nlp/eole/tree/main/recipes/runpod"
+}

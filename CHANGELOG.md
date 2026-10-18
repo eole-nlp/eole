@@ -2,6 +2,20 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.6.4
+
+* Add an authenticated RunPod workspace with automatic preparation of Qwen3.8-27B, Hy-MT2-7B and DeepSeek-OCR, single-model GPU switching, persistent caches, and INT4/BF16 Qwen selection ([#469](https://github.com/eole-nlp/eole/pull/469)).
+* Add a public deployment template/button and a separate RunPod image built from the matching release image, with browser sign-in, signed sessions and streamed HTTPS proxying ([#469](https://github.com/eole-nlp/eole/pull/469)).
+* Fix DeepSeek-OCR conversion producing zero-width CLIP attention heads; affected converted checkpoints need reconversion. The RunPod launcher invalidates affected OCR conversion caches ([#469](https://github.com/eole-nlp/eole/pull/469)).
+* Import PyTorch before checking Eole's CUDA extension so its shared libraries are available ([#469](https://github.com/eole-nlp/eole/pull/469)).
+
+Build the Eole and RunPod Docker images from the merged `0.6.4` release tag so
+both include these fixes. Docker images are published separately from Python
+releases; see the [Docker guide](docs/docker.md) and
+[RunPod publishing guide](recipes/runpod/MAINTAINERS.md).
+
+**Full Changelog**: https://github.com/eole-nlp/eole/compare/0.6.3...0.6.4
+
 ## 0.6.3
 
 * Add a bundled local browser workspace with streaming Chat, inference metrics, and image attachments ([#458](https://github.com/eole-nlp/eole/pull/458), [#464](https://github.com/eole-nlp/eole/pull/464)).

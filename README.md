@@ -30,24 +30,31 @@ compilation waits are omitted; the displayed generation measurements come from
 Eole's inference worker on an RTX 5090. Benchmark numbers measure post-first-token
 decode speed and depend on the prompt, settings and hardware.
 
-## Latest: 0.6.3
+## Latest: 0.6.4
 
-This release adds a bundled browser workspace for Chat with images, translation,
-PDF/image OCR and local document RAG, with coordinated model switching. It also
-improves compiled decoding and MTP verification, packed Marlin projections and
-INT4 tensor parallelism, and expands OpenAI/Anthropic API compatibility.
+This release adds a browser-first RunPod deployment for Chat, translation and
+PDF/image OCR, with automatic model preparation and switching, optional original
+BF16 Qwen, and an authenticated public gateway. It also fixes DeepSeek-OCR vision
+head dimensions during conversion and CUDA extension verification at image startup.
 
 Eole supports **PyTorch >= 2.10 and < 2.15**, including PyTorch 2.14.1. The refreshed
 Docker defaults use PyTorch 2.14.1 with CUDA 13.2. Start with the
 [workspace UI](recipes/ui/README.md), [Qwen3.8/MTP recipe](recipes/qwen38/README.md),
-or [Docker guide](docs/docker.md). See the [changelog](CHANGELOG.md#063) for release
+or [Docker guide](docs/docker.md). See the [changelog](CHANGELOG.md#064) for release
 details and remaining limitations.
+
+[![Deploy on RunPod](https://img.shields.io/badge/RunPod-Deploy%20Eole-673AB7?style=for-the-badge)](https://console.runpod.io/deploy?template=e9e19ozt9c&type=gpu)
+
+Browser-based Chat, translation and OCR on a rented GPU. See the
+[RunPod quick start](recipes/runpod/README.md) for password setup, GPU choices and
+availability; the 0.6.4 deployment image is published after #469 merges.
 
 ## Choose your workflow
 
 | I want to… | Start here |
 |---|---|
 | Run a supported HF model without a separate conversion step | [Direct HF inference](recipes/hf/README.md) |
+| Deploy an authenticated Chat, translation and OCR workspace on a rented GPU | [RunPod deployment recipe](recipes/runpod/README.md) |
 | Chat with a local LLM in your browser | [Local workspace UI](recipes/ui/README.md) |
 | Translate through a web interface: text, terminology, subtitles, and documents | [Hy-MT2 translation workspace](recipes/translation/README.md) |
 | Try Qwen3.8-27B with MTP speculative decoding | [Qwen3.8 and MTP](recipes/qwen38/README.md) |
