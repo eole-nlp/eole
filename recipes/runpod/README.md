@@ -6,13 +6,11 @@ You do not need to install Eole, download models or run terminal commands.
 
 [![Deploy on RunPod](https://img.shields.io/badge/RunPod-Deploy%20Eole-673AB7?style=for-the-badge)](https://console.runpod.io/deploy?template=e9e19ozt9c&type=gpu)
 
-**Available after the first RunPod image build following merge of #469.** The
-button opens the preconfigured public template. Its image is
-`ghcr.io/eole-nlp/eole-runpod:0.6.4`; a maintainer publishes it using
-**Actions → Build RunPod Image** with `source_ref=0.6.4`, after publishing the
-matching Eole base image. Until that build finishes,
-the template's image cannot be pulled. Private cloud validation has passed
-INT4/BF16 Chat, translation, PDF OCR and automatic model switching.
+The button opens the public Eole template. **Before confirming deployment, attach
+its required 250 GB model volume using the steps below.** RunPod only recommends
+that volume; it does not attach it automatically. The 60 GB container disk alone
+is not sufficient. Private cloud validation has passed INT4/BF16 Chat,
+translation, PDF OCR and automatic model switching with an attached volume.
 
 ## Get started
 
@@ -22,9 +20,14 @@ INT4/BF16 Chat, translation, PDF OCR and automatic model switching.
    This setup is only needed once.
 2. **Click Deploy Eole above.** Choose an
    **RTX 5090 (32 GB)** for the default INT4 model, or an **RTX PRO 6000 (96 GB)**
-   for more memory. Keep the template's disk, port and environment defaults.
-   Check that the deployment includes its **250 GB volume at `/workspace`**,
-   review the displayed price, then click **Deploy**.
+   for more memory. Keep the 60 GB container disk and other defaults.
+   **Attach the model volume explicitly:** choose **Add volume → Volume disk →
+   250 GB → Add volume disk**, mounted at **`/workspace`**. The template only
+   recommends this volume; RunPod does not attach it automatically. Before
+   clicking **Deploy**, verify **Attached volumes** lists the 250 GB Volume disk
+   and the pricing breakdown includes its cost (**310 GB total disk**, including
+   the 60 GB container disk). Do not proceed with “Nothing mounted at the
+   template’s path”.
 3. **Open your workspace.** In the Pod's **Connect** tab, open the HTTP service
    on **port 5000**. Sign in with username **`eole`** and the password **value**
    you saved in `eole_password` (not your RunPod account password).
@@ -84,6 +87,16 @@ deleted. Download anything you want to keep first. Check the price RunPod shows
 for both compute and storage.
 
 ## Need help?
+
+- **“No persistent volume” / storage check fails:** the volume is missing, even if
+  `/workspace` exists. In a new deployment choose **Add volume → Volume disk**,
+  set **250 GB**, and check its mount is `/workspace`. A 60 GB container disk
+  alone is insufficient. The launcher checks storage before kernels/downloads.
+- **“No space left on device”:** check which disk is full and the mounted volume's
+  quota. Downloads, converted checkpoints and temporary output all need space.
+  Increasing only the temporary container disk does not attach persistent storage.
+  Stopping/resetting a volume-less Pod loses its container-local downloads.
+
 
 - **Sign-in fails:** use lowercase `eole` and the value of your `eole_password`
   Secret. After changing that Secret, reset the Pod so it receives the new value.

@@ -37,6 +37,31 @@ is the deploying account's `eole_password` Secret reference. Do not use temporar
 pinned-source bootstrap commands from private validation Pods. Pod volumes survive
 Stop but not Terminate; network volumes have a separate lifecycle.
 
+## Storage provisioning and the post-0.6.4 guard
+
+RunPod's deploy form displays the template's `volumeInGb=250` and
+`volumeMountPath=/workspace` as a recommendation. It allows deployment with no
+volume attached, even though the template contains both fields. Changing those
+fields alone cannot force a mount. The user must choose **Add volume → Volume
+disk → 250 GB → Add volume disk** and verify the attached-volume summary.
+See [RunPod's storage configuration step](https://docs.runpod.io/get-started#configure-storage).
+
+The launcher validates Linux mount information before compiling kernels or
+fetching models. It rejects the root filesystem and volatile mounts, including
+cache paths pointed outside persistent storage. Space estimates account for
+source weights, converted weights and the transient second output file, with
+completed checkpoints excluded. A second check uses actual downloaded tensor
+sizes before conversion. Filesystem space reports on shared storage may not
+reflect per-volume quotas; verify the provisioned capacity in RunPod as well.
+Storage errors are shown to the authenticated owner on the preparation page.
+
+This guard is a follow-up to release 0.6.4. After merging it, build the wrapper
+with **Build RunPod Image → source_ref=main**, using the published 0.6.4 Eole
+base image. Update public template `e9e19ozt9c` to the immutable `dev-<commit>`
+image shown in the workflow summary. Building `source_ref=0.6.4` rebuilds the
+released source without this follow-up; do not move the existing release tag.
+No base-image rebuild is needed for this launcher-only correction.
+
 ## Local image build
 
 With the matching Eole release image already published:

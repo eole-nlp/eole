@@ -6,13 +6,27 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
+from collections import namedtuple
 
 from fastapi.testclient import TestClient
 import httpx
 
 from recipes.runpod.gateway import create_gateway, response_body
 from recipes.runpod.auth import BrowserSessions, COOKIE_NAME, SESSION_SECONDS
-from recipes.runpod.launch import Deployment, kernel_fingerprint, relocate, workspace_settings, qwen_variants
+from recipes.runpod.launch import (
+    Deployment,
+    kernel_fingerprint,
+    relocate,
+    workspace_settings,
+    qwen_variants,
+    filesystem_mount,
+    preparation_space,
+    StorageError,
+    checkpoint_path,
+    model_options,
+    QWEN_MODELS,
+    WORKSPACE_MODELS,
+)
 from recipes.runpod.publish_template import template_spec
 
 PASSWORD = "local-test-password-123"
@@ -192,6 +206,68 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
         (path / "config.json").write_text(json.dumps({"tokenizer": str(path / "tokenizer.json")}))
         (path / "tokenizer.json").write_text("{}")
         (path / "model.00.safetensors").touch()
+
+    def test_mountinfo_recognizes_bind_mounts_escaped_paths_and_nested_mounts(self):
+        mounts = """1 0 0:1 / / rw - overlay overlay rw
+2 1 0:1 /models /workspace rw - ext4 /dev/test rw
+3 1 0:2 / /workspace/nested rw - nfs server:/models rw
+4 1 0:3 / /with\\040space rw - ext4 /dev/test2 rw
+"""
+        self.assertEqual(filesystem_mount("/workspace/eole", mounts), (Path("/workspace"), "ext4"))
+        self.assertEqual(filesystem_mount("/workspace/nested/eole", mounts), (Path("/workspace/nested"), "nfs"))
+        self.assertEqual(filesystem_mount("/with space/models", mounts), (Path("/with space"), "ext4"))
+        self.assertEqual(filesystem_mount("/workspace-other/eole", mounts)[0], Path("/"))
+
+    async def test_missing_volume_stops_before_compilation_or_download(self):
+        self.deployment.command = AsyncMock()
+        with patch("pathlib.Path.read_text", return_value="1 0 0:1 / / rw - ext4 /dev/root rw"):
+            with self.assertRaisesRegex(StorageError, "Add volume"):
+                await self.deployment.run()
+        self.deployment.command.assert_not_called()
+        self.assertFalse((self.root / "prepare.lock").exists())
+
+    def test_insufficient_space_and_volatile_cache_mount_are_rejected(self):
+        mounts = f"1 0 0:1 / / rw - overlay overlay rw\n2 1 0:2 / {self.root} rw - ext4 /dev/test rw"
+        usage = namedtuple("Usage", "total used free")
+        with patch.dict("os.environ", {}, clear=True), patch("pathlib.Path.read_text", return_value=mounts):
+            with patch("shutil.disk_usage", return_value=usage(60 * 1024**3, 0, 60 * 1024**3)):
+                with self.assertRaisesRegex(StorageError, "GiB free"):
+                    self.deployment.storage()
+            with patch("shutil.disk_usage", return_value=usage(250 * 1024**3, 0, 250 * 1024**3)):
+                self.deployment.storage()
+            with patch.dict("os.environ", {"HF_HOME": "/container-cache"}):
+                with self.assertRaisesRegex(StorageError, "No persistent volume"):
+                    self.deployment.storage()
+
+    def test_completed_models_reduce_storage_requirement_after_restart(self):
+        with patch.dict("os.environ", {"EOLE_QWEN_VARIANT": "both"}, clear=True):
+            cold = preparation_space(self.root)
+            self.assertGreater(cold, 190 * 1024**3)
+            self.assertLess(cold, 250 * 10**9)
+            for role, model_id in [*QWEN_MODELS.items(), *WORKSPACE_MODELS.items()]:
+                _, identity = model_options(model_id, role)
+                model = checkpoint_path(self.root, identity)
+                self.checkpoint(model)
+                (model / "deployment.json").write_text(json.dumps(identity))
+            self.assertEqual(preparation_space(self.root), 8 * 1024**3)
+
+    async def test_conversion_checks_space_for_streaming_temporary_output(self):
+        snapshot = self.root / "source"
+        snapshot.mkdir()
+        (snapshot / "model.safetensors").write_bytes(b"source weights")
+        calls = []
+
+        async def command(*args):
+            calls.append(args)
+            (self.root / "snapshot.txt").write_text(str(snapshot))
+
+        self.deployment.command = command
+        usage = namedtuple("Usage", "total used free")
+        with patch.dict("os.environ", {}, clear=True), patch("shutil.disk_usage", return_value=usage(1, 1, 0)):
+            with self.assertRaisesRegex(StorageError, "temporary output"):
+                await self.deployment.model()
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(any("--output" in args for args in calls))
 
     async def test_conversion_is_atomic_and_cached_and_paths_are_relocated(self):
         calls = []
