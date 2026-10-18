@@ -960,6 +960,9 @@ def _deepseek_ocr_config_from_hf(top, text, vis):
             "norm_eps": 1e-6,
         },
         "encoder": {
+            # The generic vision fallback derives zero from DeepSeek's nested CLIP config.
+            # Derive the head width from the resolved encoder hidden size and head count.
+            "head_dim": None,
             "mlp_activation_fn": "quick_gelu",
             "layer_norm": "standard",
             "norm_eps": 1e-5,

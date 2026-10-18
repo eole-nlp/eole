@@ -183,6 +183,8 @@ for i in range(torch.cuda.device_count()):
             return model
         revision = os.environ.get(prefix + "_REVISION", "main")
         identity = {"model": model_id, "revision": revision}
+        if role == "ocr":
+            identity["conversion"] = 2  # Discard OCR conversions with the old zero-width vision heads.
         key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:16]
         model = self.root / "models" / key
         marker = model / "deployment.json"
