@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">Using Eole with Docker | Eole</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/guides/docker"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Using Eole with Docker | Eole"><meta data-rh="true" name="description" content="The host needs Docker, a compatible NVIDIA driver and the"><meta data-rh="true" property="og:description" content="The host needs Docker, a compatible NVIDIA driver and the"><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/guides/docker"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/guides/docker" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/guides/docker" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Using Eole with Docker","item":"https://eole-nlp.github.io/eole/docs/guides/docker"}]}</script><link rel="stylesheet" href="/eole/assets/css/styles.209cbda3.css">
-<script src="/eole/assets/js/runtime~main.0e5fd7a2.js" defer="defer"></script>
-<script src="/eole/assets/js/main.d406666a.js" defer="defer"></script>
+<script src="/eole/assets/js/runtime~main.dd43aa22.js" defer="defer"></script>
+<script src="/eole/assets/js/main.5e3d89b1.js" defer="defer"></script>
 </head>
 <body>
 <svg style="display: none;"><defs>
@@ -96,10 +96,10 @@ checkout gets <code>dev-&lt;12-character-commit&gt;</code>. OCI labels record th
 No unrelated release number is assigned to current main. Publishing requires
 GHCR package write permission; the workflow uses its repository <code>GITHUB_TOKEN</code>.
 <strong>Build Base Docker Image</strong> publishes just the base when needed.</p>
-<p>For the <strong>0.6.3 release image</strong>, after the version-bump PR is merged and the
-<code>0.6.3</code> tag is created on the release commit, select <code>source_ref=0.6.3</code> (keep the
+<p>For the <strong>0.6.4 release image</strong>, after the version-bump PR is merged and the
+<code>0.6.4</code> tag is created on the release commit, select <code>source_ref=0.6.4</code> (keep the
 workflow branch on <code>main</code>). The workflow then publishes:</p>
-<div class="language-text codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-text codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">ghcr.io/eole-nlp/eole:0.6.3-torch2.14.1-ubuntu24.04-cuda13.2.1</span><br></div></code></pre></div></div>
+<div class="language-text codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-text codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">ghcr.io/eole-nlp/eole:0.6.4-torch2.14.1-ubuntu24.04-cuda13.2.1</span><br></div></code></pre></div></div>
 <p>The release tag must include the refreshed Docker tooling. Publishing a GitHub
 release triggers the Python package/docs workflow; Docker publication still
 requires the separate manual workflow above.</p>
