@@ -133,12 +133,12 @@ No unrelated release number is assigned to current main. Publishing requires
 GHCR package write permission; the workflow uses its repository `GITHUB_TOKEN`.
 **Build Base Docker Image** publishes just the base when needed.
 
-For the **0.6.3 release image**, after the version-bump PR is merged and the
-`0.6.3` tag is created on the release commit, select `source_ref=0.6.3` (keep the
+For the **0.6.4 release image**, after the version-bump PR is merged and the
+`0.6.4` tag is created on the release commit, select `source_ref=0.6.4` (keep the
 workflow branch on `main`). The workflow then publishes:
 
 ```text
-ghcr.io/eole-nlp/eole:0.6.3-torch2.14.1-ubuntu24.04-cuda13.2.1
+ghcr.io/eole-nlp/eole:0.6.4-torch2.14.1-ubuntu24.04-cuda13.2.1
 ```
 
 The release tag must include the refreshed Docker tooling. Publishing a GitHub

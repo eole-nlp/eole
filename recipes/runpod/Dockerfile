@@ -1,9 +1,8 @@
-ARG EOLE_IMAGE=ghcr.io/eole-nlp/eole:0.6.3-torch2.14.1-ubuntu24.04-cuda13.2.1
+ARG EOLE_IMAGE=ghcr.io/eole-nlp/eole:0.6.4-torch2.14.1-ubuntu24.04-cuda13.2.1
 FROM ${EOLE_IMAGE}
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.source="https://github.com/eole-nlp/eole" \
       org.opencontainers.image.revision="${VCS_REF}"
-COPY eole/bin/convert/HF_mappings.py /eole/eole/bin/convert/HF_mappings.py
 COPY recipes/runpod /opt/eole-runpod
 COPY recipes/ui/serve-showcase.yaml /eole/recipes/ui/serve-showcase.yaml
 COPY docker/build-kernels.sh /usr/local/bin/eole-build-kernels

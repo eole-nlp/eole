@@ -87,7 +87,7 @@ setup(
     description="Open language modeling toolkit based on PyTorch",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    version="0.6.3",
+    version="0.6.4",
     packages=find_packages(),
     package_data={"eole.server": ["web/*"]},
     ext_modules=ext_modules,

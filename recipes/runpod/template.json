@@ -1,7 +1,7 @@
 {
-  "name": "Eole Workspace - Chat, Translate and OCR",
+  "name": "Eole Workspace",
   "category": "NVIDIA",
-  "imageName": "REPLACE_WITH_PUBLISHED_RUNPOD_IMAGE",
+  "imageName": "ghcr.io/eole-nlp/eole-runpod:0.6.4",
   "isPublic": false,
   "isServerless": false,
   "containerDiskInGb": 60,

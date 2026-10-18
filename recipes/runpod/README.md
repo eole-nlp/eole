@@ -4,10 +4,15 @@ Run the Eole workspace in your browser on a rented GPU. The deployment prepares
 **Qwen Chat, Hy-MT2 translation and DeepSeek-OCR documents** automatically.
 You do not need to install Eole, download models or run terminal commands.
 
-**Deploy button: not published yet.** The private RTX PRO 6000 deployment has passed
-INT4/BF16 Chat, translation, PDF OCR and automatic model-switching tests.
-The image and public RunPod template still need publishing. Once that is
-done, this page will provide a deploy button that opens the preconfigured template.
+[![Deploy on RunPod](https://img.shields.io/badge/RunPod-Deploy%20Eole-673AB7?style=for-the-badge)](https://console.runpod.io/deploy?template=e9e19ozt9c&type=gpu)
+
+**Available after the first RunPod image build following merge of #469.** The
+button opens the preconfigured public template. Its image is
+`ghcr.io/eole-nlp/eole-runpod:0.6.4`; a maintainer publishes it using
+**Actions → Build RunPod Image** with `source_ref=0.6.4`, after publishing the
+matching Eole base image. Until that build finishes,
+the template's image cannot be pulled. Private cloud validation has passed
+INT4/BF16 Chat, translation, PDF OCR and automatic model switching.
 
 ## Get started
 
@@ -15,7 +20,7 @@ done, this page will provide a deploy button that opens the preconfigured templa
    In **Secrets**, create a Secret named `eole_password` with a unique password
    of at least 16 characters. Keep the value: you will use it to sign in to Eole.
    This setup is only needed once.
-2. **Open the Eole deploy button/template link** when published. Choose an
+2. **Click Deploy Eole above.** Choose an
    **RTX 5090 (32 GB)** for the default INT4 model, or an **RTX PRO 6000 (96 GB)**
    for more memory. Keep the template's disk, port and environment defaults.
    Check that the deployment includes its **250 GB volume at `/workspace`**,

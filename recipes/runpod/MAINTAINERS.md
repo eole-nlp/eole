@@ -1,41 +1,57 @@
 # RunPod publishing and technical reference
 
 For deploying an existing template, follow the [user quick start](README.md).
-This guide is for maintainers publishing the deploy button, or users customizing
-the deployment. Ordinary users do not need Docker commands or an API key.
+This guide is for maintainers publishing the images and deploy button, or users
+customizing the deployment. Ordinary users do not need Docker commands or an API key.
 
-## Build the deployment image
+## Publish release 0.6.4 and activate the deploy button
 
-First publish the Eole 0.6.3 CUDA13.2 image using the [Docker guide](../../docs/docker.md).
-Then run **Actions → Build RunPod Image** with a source ref containing this recipe.
-Its `eole_image` input defaults to:
+Build both images from the same merged release so the base image includes the
+converter and CUDA-helper fixes; the wrapper adds the deployment automation.
 
-```text
-ghcr.io/eole-nlp/eole:0.6.3-torch2.14.1-ubuntu24.04-cuda13.2.1
-```
+1. Merge #469, then create the **`0.6.4` release tag on that merged commit**.
+2. Run **Actions → Build Docker Images** from workflow branch `main`, with
+   `source_ref=0.6.4`, `torch_version=2.14.1` and `cuda_version=13.2.1`.
+   It builds/publishes the CUDA/PyTorch base and then:
+   `ghcr.io/eole-nlp/eole:0.6.4-torch2.14.1-ubuntu24.04-cuda13.2.1`.
+3. Once that succeeds, run **Actions → Build RunPod Image**, also with
+   **`source_ref=0.6.4`**. Keep its default `eole_image` pointing at the image
+   from step 2. This publishes the immutable `dev-<commit>` tag and the
+   **`ghcr.io/eole-nlp/eole-runpod:0.6.4`** tag used by the deploy button.
+4. Verify that the GHCR packages are public so RunPod can pull without credentials.
+   Open the README's button to check the public template **`e9e19ozt9c`**.
 
-The workflow builds and publishes a separate immutable source tag such as
-`ghcr.io/eole-nlp/eole-runpod:dev-<12-character-commit>`. It does not register a
-template or rent a Pod. The published base image must already exist. Local build:
+The public template is already configured for `eole-runpod:0.6.4`; no new template
+ID or README edit is needed after the builds. Before step 3 completes, its image
+is unavailable. Building/publishing images does not start or charge for a Pod.
+Publishing the GitHub release also triggers Python/docs publication; Docker
+builds remain separate manual workflows. See the [Docker guide](../../docs/docker.md).
+
+Other source refs build only an immutable dev image, leaving the deploy-button
+tag unchanged. For later releases, update the workflow's release ref/tag and the
+template's image together. Retain immutable tags for testing and rollback.
+
+The template uses 60 GB container disk, a 250 GB volume at `/workspace`, port
+`5000/http`, the image's Python launcher and `EOLE_QWEN_VARIANT=int4`. Its password
+is the deploying account's `eole_password` Secret reference. Do not use temporary
+pinned-source bootstrap commands from private validation Pods. Pod volumes survive
+Stop but not Terminate; network volumes have a separate lifecycle.
+
+## Local image build
+
+With the matching Eole release image already published:
 
 ```bash
 docker build -f recipes/runpod/Dockerfile \
-  -t ghcr.io/YOUR_ACCOUNT/eole-runpod:YOUR_VERSION .
-docker push ghcr.io/YOUR_ACCOUNT/eole-runpod:YOUR_VERSION
+  -t ghcr.io/YOUR_ACCOUNT/eole-runpod:0.6.4 .
+docker push ghcr.io/YOUR_ACCOUNT/eole-runpod:0.6.4
 ```
 
-This thin image adds startup automation and an authenticated gateway. Normal
-`eole serve` and the generic Docker image remain unchanged.
+## Register another template (optional)
 
-## Register and test the template
-
-Inspect `template.json`. Its defaults are 60 GB container disk, 250 GB persistent
-volume at `/workspace`, and HTTP port 5000. The volume must have room for both the
-HF source weights and converted checkpoint. The template does not choose a GPU
-or guarantee availability. Users may attach a network volume for persistence
-beyond a Pod's lifetime; a Pod volume alone does not survive termination.
-
-Register a **private** template first (requires Python `requests`):
+The existing public template should normally be edited in the console. The
+helper below creates a new template each time; it does not update `e9e19ozt9c`
+and never rents a Pod. For a separate private test template:
 
 ```bash
 export RUNPOD_API_KEY=YOUR_PRIVATE_RUNPOD_API_KEY
@@ -45,17 +61,9 @@ python recipes/runpod/publish_template.py \
   --image ghcr.io/eole-nlp/eole-runpod:dev-YOUR_COMMIT
 ```
 
-The helper calls RunPod's template API only; **it never creates a billable Pod**.
-It prints the template URL. Deploy a test Pod from that link in the console and
-verify authentication, preparation, streamed Chat, image upload, restart/cache
-reuse and shutdown. This test rents compute and requires your account/payment.
-
-Once validated, register a public template by adding `--public` to the command.
-The helper prints the real Markdown deploy link, ready to add to the main README
-and website. It creates a new template on each invocation; retain the returned ID
-and use the console to edit an existing listing rather than creating duplicates.
-The Secret placeholder is resolved for the deploying account; never replace it
-with your own password or include API keys/HF tokens in the public template.
+Add `--public` only when publishing a separate tested template. Never include
+actual passwords, API keys or HF tokens in template metadata; keep the Secret
+placeholder so each deploying account supplies its own credential.
 
 ## Preparation and persistence
 
@@ -167,8 +175,7 @@ freshly downloaded/converted original BF16 Qwen, Hy-MT2-7B and DeepSeek-OCR.
 Fresh OCR conversion exposed a zero-width vision-head configuration. The fix
 clears the generic zero head width for DeepSeek's nested CLIP configuration,
 allowing Eole to derive 64 from hidden size 1024 / 16 heads. All 2,806 OCR tensors
-matched their source; the failure was in configuration, not weights. The deployment
-image includes this converter correction even when extending the older base image.
+matched their source; the failure was in configuration, not weights. Release 0.6.4 includes the converter correction in the Eole base image.
 The OCR conversion cache is versioned to avoid reusing affected checkpoints.
 
 Fifty targeted CPU tests passed, with Black and Flake8 checks. Tests cover
@@ -181,5 +188,6 @@ Chat/SSE and cache reuse.
 These are functional compatibility tests with short synthetic inputs, including
 first-use compilation; their request durations are not throughput benchmarks.
 Knowledge/RAG indexing and other GPU families were not part of this validation.
-No public template is registered yet. The test GPU is stopped after validation;
+The deploy button links to template `e9e19ozt9c`, awaiting the post-merge 0.6.4 image builds.
+The test GPU is stopped after validation;
 stored Pod volumes remain billable until removed.

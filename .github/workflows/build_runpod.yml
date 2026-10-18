@@ -6,12 +6,12 @@ on:
       source_ref:
         description: "Source ref containing the RunPod recipe"
         required: true
-        default: main
+        default: "0.6.4"
         type: string
       eole_image:
-        description: "Published Eole image to extend (matching Torch/CUDA and Eole 0.6.3+)"
+        description: "Published Eole image to extend (matching Torch/CUDA and Eole 0.6.4+)"
         required: true
-        default: ghcr.io/eole-nlp/eole:0.6.3-torch2.14.1-ubuntu24.04-cuda13.2.1
+        default: ghcr.io/eole-nlp/eole:0.6.4-torch2.14.1-ubuntu24.04-cuda13.2.1
         type: string
 
 permissions:
@@ -20,6 +20,7 @@ permissions:
 
 env:
   EOLE_IMAGE: ${{ inputs.eole_image }}
+  SOURCE_REF: ${{ inputs.source_ref }}
 
 jobs:
   build:
@@ -46,3 +47,9 @@ jobs:
           docker run --rm --entrypoint python "$IMAGE" -m py_compile /opt/eole-runpod/launch.py /opt/eole-runpod/gateway.py
           docker push "$IMAGE"
           echo "RunPod image: \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$SOURCE_REF" == "0.6.4" ]]; then
+            DEPLOY_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/eole-runpod:0.6.4"
+            docker tag "$IMAGE" "$DEPLOY_IMAGE"
+            docker push "$DEPLOY_IMAGE"
+            echo "Deploy-button image: \`$DEPLOY_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
