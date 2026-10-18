@@ -62,6 +62,30 @@ image shown in the workflow summary. Building `source_ref=0.6.4` rebuilds the
 released source without this follow-up; do not move the existing release tag.
 No base-image rebuild is needed for this launcher-only correction.
 
+## Validate a launcher PR without publishing images
+
+Keep the existing released image and use a private test Pod with a fresh 250 GB
+volume. Pin the PR commit locally, then use the Pod web terminal (or SSH when
+configured) to place its changed launcher files in `/workspace/eole-pr/`.
+Override only that Pod's container start command, for example:
+
+```json
+{"entrypoint":["/bin/bash","-lc"],"cmd":["set -e; cp /workspace/eole-pr/launch.py /workspace/eole-pr/preparing.html /opt/eole-runpod/; exec python /opt/eole-runpod/launch.py"]}
+```
+
+Stage the files before applying the override; editing the Pod restarts its
+container. Include any other changed launcher dependencies when needed. This
+tests launcher changes against the released Eole runtime, not changes to Eole's
+installed Python code or CUDA sources. Verify file hashes, authentication,
+fresh downloads/conversions, Chat/Translate/PDF OCR, model unloading and a cached
+restart before publishing a final image. Keep this override out of the public
+template. No PyPI release, version bump or image publication is needed for this
+validation.
+
+If HF metadata works but Xet transfers stall on a provider host, try
+`HF_HUB_DISABLE_XET=1` in the test Pod environment to use ordinary HTTPS downloads.
+Record this override with the results rather than treating it as the default.
+
 ## Local image build
 
 With the matching Eole release image already published:
