@@ -147,20 +147,39 @@ and backend subprocesses are terminated too. Keep the volume for the next run.
 
 ## Validation recorded for this PR
 
-Local tests used a Docker image with PyTorch 2.14.1/CUDA 13.2, FlashAttention
-2.8.3, FLA 0.5.2 and a prebuilt Eole extension, on an RTX 5090. The existing
-converted RedHat checkpoint was mounted read-only. Authentication was checked
-on the UI, docs, status and API; Basic/Bearer access and real compiled MTP SSE
-Chat succeeded. A recreated container reused the persisted extension cache and
-reached ready again. These short requests are compatibility tests, not speed
-benchmarks. The cold first-request MTP warmup took about six minutes.
+Private RunPod validation on 18 October 2026 used one RTX PRO 6000 (96 GB),
+the published Eole 0.6.3 / PyTorch 2.14.1 / CUDA 13.2 image, compiled mode 0,
+and a 250 GB volume. The original stopped Pod's GPU was unavailable, so RunPod
+migrated its data to another RTX PRO 6000. The test reused INT4 weights and
+freshly downloaded/converted original BF16 Qwen, Hy-MT2-7B and DeepSeek-OCR.
 
-CPU tests cover authentication, proxy uploads/SSE cleanup and heartbeats,
-conversion staging/reuse/path relocation, runtime cache invalidation, process
-cancellation and template defaults. The multi-model download/conversion orchestration is mocked in these tests.
-The private RunPod test subsequently validated a fresh INT4 download/conversion,
-GPU extension build/cache, streamed compiled MTP Chat and browser sign-in behind
-the RunPod proxy. It exposed and fixed an extension import-order problem,
-a tokenizer location mismatch, and proxy Host rewriting in the origin check.
-The Pod is stopped; no paid cloud test of BF16 or automatic translation/OCR
-preparation has been run yet.
+| Check | Result |
+|---|---|
+| Browser-session sign-in through the public HTTPS proxy | Passed |
+| INT4 Qwen Chat with compiled MTP | Returned the requested text |
+| Hy-MT2 English → French translation | Returned “Bonjour, l’espace de travail de traduction est prêt.” |
+| PDF import, rasterization and compiled DeepSeek-OCR | Recovered the synthetic document's text |
+| Original BF16 Qwen Chat with compiled MTP | Returned the requested text on the 96 GB GPU |
+| Switching INT4 → translation → OCR → BF16 → INT4 | Only the selected inference model remained loaded after each request |
+| Restart with corrected converter | Reused valid checkpoints; automatically reconverted OCR and passed PDF OCR again |
+| Local deployment-image build from the published base | Passed, including the packaged converter fix |
+
+Fresh OCR conversion exposed a zero-width vision-head configuration. The fix
+clears the generic zero head width for DeepSeek's nested CLIP configuration,
+allowing Eole to derive 64 from hidden size 1024 / 16 heads. All 2,806 OCR tensors
+matched their source; the failure was in configuration, not weights. The deployment
+image includes this converter correction even when extending the older base image.
+The OCR conversion cache is versioned to avoid reusing affected checkpoints.
+
+Fifty targeted CPU tests passed, with Black and Flake8 checks. Tests cover
+conversion staging/caches, workspace routing, authentication, proxy streaming,
+process cleanup, runtime cache invalidation and the OCR head-width regression.
+The initial private test on 17 October also validated fresh INT4 preparation and
+GPU extension compilation. Local RTX 5090 Docker tests exercised compiled MTP
+Chat/SSE and cache reuse.
+
+These are functional compatibility tests with short synthetic inputs, including
+first-use compilation; their request durations are not throughput benchmarks.
+Knowledge/RAG indexing and other GPU families were not part of this validation.
+No public template is registered yet. The test GPU is stopped after validation;
+stored Pod volumes remain billable until removed.

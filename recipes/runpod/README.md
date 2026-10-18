@@ -4,9 +4,9 @@ Run the Eole workspace in your browser on a rented GPU. The deployment prepares
 **Qwen Chat, Hy-MT2 translation and DeepSeek-OCR documents** automatically.
 You do not need to install Eole, download models or run terminal commands.
 
-**Deploy button: not published yet.** The private deployment has been tested
-with INT4 Chat. The expanded translation/OCR and BF16 setup still needs cloud
-validation before we publish its image and public RunPod template. Once that is
+**Deploy button: not published yet.** The private RTX PRO 6000 deployment has passed
+INT4/BF16 Chat, translation, PDF OCR and automatic model-switching tests.
+The image and public RunPod template still need publishing. Once that is
 done, this page will provide a deploy button that opens the preconfigured template.
 
 ## Get started
