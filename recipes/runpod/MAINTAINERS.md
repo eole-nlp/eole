@@ -82,6 +82,11 @@ restart before publishing a final image. Keep this override out of the public
 template. No PyPI release, version bump or image publication is needed for this
 validation.
 
+After validation, save the results and terminate disposable test Pods to remove
+their attached Volume disks and end storage charges. Stop retains billable
+storage and should be used only when another session is planned. Agree on
+retention before testing; separately created network volumes need separate cleanup.
+
 If HF metadata works but Xet transfers stall on a provider host, try
 `HF_HUB_DISABLE_XET=1` in the test Pod environment to use ordinary HTTPS downloads.
 Record this override with the results rather than treating it as the default.

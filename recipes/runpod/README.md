@@ -35,6 +35,10 @@ translation, PDF OCR and automatic model switching with an attached volume.
    workspace automatically once downloads and conversion finish. First use of
    each model also loads it onto the GPU and compiles inference; the UI reports
    warmup separately. This can take several minutes.
+5. **Clean up when finished.** For a disposable test, choose **Terminate** in
+   RunPod to delete the Pod and its attached Volume disk and end their charges.
+   Save any outputs you want first. Choose **Stop** only if you intend to resume:
+   the retained volume continues to cost money even while the GPU is stopped.
 
 The button preconfigures the software, models and server. RunPod still requires
 an account, a private password, an available GPU and your approval of the rental
@@ -78,13 +82,23 @@ Keep the password private; it grants access to the workspace and its APIs.
 
 ## When you are finished
 
-In RunPod, choose **Stop** to end GPU billing and keep the volume for another
-session. **Storage remains billable while stopped.** Restarting reuses completed
-model downloads/conversions and compatible caches, though inference may warm up again.
+**For a completed demo or disposable test, save your outputs and choose
+Terminate. Closing the browser or signing out does not stop billing.**
 
-Choose **Terminate** only when you no longer need the Pod: its Pod volume is
-deleted. Download anything you want to keep first. Check the price RunPod shows
-for both compute and storage.
+| RunPod action | Compute charges | Attached Volume disk |
+|---|---|---|
+| **Stop** | Stop | Retained and still billed; use when resuming later |
+| **Terminate** | End | Permanently deleted, including models, caches and outputs; its storage charges end |
+
+Stopping preserves completed downloads, converted models and compatible compiler
+caches, so resuming avoids preparing everything again. Inference may still warm
+up again. It is useful for another session, but unnecessary for a finished test.
+
+For reference, the 250 GB test Volume disk was quoted at **$0.069/hour while
+stopped (about $1.67/day)**. Prices can change: check RunPod's current price and
+the final confirmation dialog. Termination cannot be undone. Separately created
+network volumes have their own lifecycle and remain billable until deleted
+separately; the quick start above uses an attached **Volume disk**.
 
 ## Need help?
 
