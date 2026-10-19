@@ -6,7 +6,12 @@ on:
       source_ref:
         description: "Source ref containing the RunPod recipe"
         required: true
-        default: "0.6.4"
+        default: "main"
+        type: string
+      deploy_tag:
+        description: "Optional deployment image tag (use 0.6.4-r1 for the RunPod correction; empty publishes dev tag only)"
+        required: false
+        default: ""
         type: string
       eole_image:
         description: "Published Eole image to extend (matching Torch/CUDA and Eole 0.6.4+)"
@@ -20,7 +25,7 @@ permissions:
 
 env:
   EOLE_IMAGE: ${{ inputs.eole_image }}
-  SOURCE_REF: ${{ inputs.source_ref }}
+  DEPLOY_TAG: ${{ inputs.deploy_tag }}
 
 jobs:
   build:
@@ -30,6 +35,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.source_ref }}
+      - name: Validate deployment tag
+        run: |
+          if [[ -n "$DEPLOY_TAG" && ! "$DEPLOY_TAG" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]]; then
+            echo "Invalid deployment image tag" >&2
+            exit 1
+          fi
       - name: Free build space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
@@ -47,8 +58,8 @@ jobs:
           docker run --rm --entrypoint python "$IMAGE" -m py_compile /opt/eole-runpod/launch.py /opt/eole-runpod/gateway.py
           docker push "$IMAGE"
           echo "RunPod image: \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$SOURCE_REF" == "0.6.4" ]]; then
-            DEPLOY_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/eole-runpod:0.6.4"
+          if [[ -n "$DEPLOY_TAG" ]]; then
+            DEPLOY_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/eole-runpod:$DEPLOY_TAG"
             docker tag "$IMAGE" "$DEPLOY_IMAGE"
             docker push "$DEPLOY_IMAGE"
             echo "Deploy-button image: \`$DEPLOY_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"

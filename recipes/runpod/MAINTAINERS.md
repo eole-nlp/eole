@@ -4,32 +4,37 @@ For deploying an existing template, follow the [user quick start](README.md).
 This guide is for maintainers publishing the images and deploy button, or users
 customizing the deployment. Ordinary users do not need Docker commands or an API key.
 
-## Publish release 0.6.4 and activate the deploy button
+## Publish the RunPod correction as 0.6.4-r1
 
-Build both images from the same merged release so the base image includes the
-converter and CUDA-helper fixes; the wrapper adds the deployment automation.
+Eole **0.6.4** and its CUDA/PyTorch base image are already published. This PR
+changes the RunPod wrapper only; keep the Python package, Git release tag and
+base image unchanged. No new GitHub/PyPI release or base-image build is needed.
 
-1. Merge #469, then create the **`0.6.4` release tag on that merged commit**.
-2. Run **Actions → Build Docker Images** from workflow branch `main`, with
-   `source_ref=0.6.4`, `torch_version=2.14.1` and `cuda_version=13.2.1`.
-   It builds/publishes the CUDA/PyTorch base and then:
-   `ghcr.io/eole-nlp/eole:0.6.4-torch2.14.1-ubuntu24.04-cuda13.2.1`.
-3. Once that succeeds, run **Actions → Build RunPod Image**, also with
-   **`source_ref=0.6.4`**. Keep its default `eole_image` pointing at the image
-   from step 2. This publishes the immutable `dev-<commit>` tag and the
-   **`ghcr.io/eole-nlp/eole-runpod:0.6.4`** tag used by the deploy button.
-4. Verify that the GHCR packages are public so RunPod can pull without credentials.
-   Open the README's button to check the public template **`e9e19ozt9c`**.
+1. Merge **#470** into `main`.
+2. Run **Actions → Build RunPod Image** from workflow branch **`main`** with:
+   - **`source_ref=main`** (or the exact merged commit SHA).
+   - **`deploy_tag=0.6.4-r1`**.
+   - Keep **`eole_image=ghcr.io/eole-nlp/eole:0.6.4-torch2.14.1-ubuntu24.04-cuda13.2.1`**.
+3. The workflow builds, smoke-tests and publishes both `dev-<commit>` and
+   **`ghcr.io/eole-nlp/eole-runpod:0.6.4-r1`**. Check the workflow summary and
+   verify that the GHCR package is public.
+4. Once the build succeeds, edit existing public RunPod template **`e9e19ozt9c`**
+   and set its container image to **`ghcr.io/eole-nlp/eole-runpod:0.6.4-r1`**.
+   Keep its normal Python launcher, Secret reference, ports and storage settings.
+   The repository's `template.json` records this image, but merging it does not
+   update the already-published RunPod template automatically.
+5. Open the README's deploy button and verify the selected template shows the
+   **`0.6.4-r1`** image. Its template ID and deploy links stay unchanged.
 
-The public template is already configured for `eole-runpod:0.6.4`; no new template
-ID or README edit is needed after the builds. Before step 3 completes, its image
-is unavailable. Building/publishing images does not start or charge for a Pod.
-Publishing the GitHub release also triggers Python/docs publication; Docker
-builds remain separate manual workflows. See the [Docker guide](../../docs/docker.md).
+Do not build `source_ref=0.6.4` for this correction: that tag predates the storage
+fix. Do not delete or move the existing release tag or replace the published
+`0.6.4` images. The revised wrapper extends the existing base; it does not
+require recompiling or republishing that base.
 
-Other source refs build only an immutable dev image, leaving the deploy-button
-tag unchanged. For later releases, update the workflow's release ref/tag and the
-template's image together. Retain immutable tags for testing and rollback.
+For development builds, leave `deploy_tag` empty to publish only `dev-<commit>`.
+The named deployment tag is explicit, independent of the Python version and
+source ref. Building/publishing an image does not rent a Pod. See the
+[Docker guide](../../docs/docker.md) for base-image builds when those are needed.
 
 The template uses 60 GB container disk, a 250 GB volume at `/workspace`, port
 `5000/http`, the image's Python launcher and `EOLE_QWEN_VARIANT=int4`. Its password
@@ -37,14 +42,65 @@ is the deploying account's `eole_password` Secret reference. Do not use temporar
 pinned-source bootstrap commands from private validation Pods. Pod volumes survive
 Stop but not Terminate; network volumes have a separate lifecycle.
 
+## Storage provisioning and the post-0.6.4 guard
+
+RunPod's deploy form displays the template's `volumeInGb=250` and
+`volumeMountPath=/workspace` as a recommendation. It allows deployment with no
+volume attached, even though the template contains both fields. Changing those
+fields alone cannot force a mount. The user must choose **Add volume → Volume
+disk → 250 GB → Add volume disk** and verify the attached-volume summary.
+See [RunPod's storage configuration step](https://docs.runpod.io/get-started#configure-storage).
+
+The launcher validates Linux mount information before compiling kernels or
+fetching models. It rejects the root filesystem and volatile mounts, including
+cache paths pointed outside persistent storage. Space estimates account for
+source weights, converted weights and the transient second output file, with
+completed checkpoints excluded. A second check uses actual downloaded tensor
+sizes before conversion. Filesystem space reports on shared storage may not
+reflect per-volume quotas; verify the provisioned capacity in RunPod as well.
+Storage errors are shown to the authenticated owner on the preparation page.
+
+The guard is included in the **0.6.4-r1 RunPod wrapper**, using the existing
+0.6.4 Eole base image. Follow the publishing steps above to activate it on the
+public template.
+
+## Optional: validate future launcher PRs without publishing images
+
+Keep the existing released image and use a private test Pod with a fresh 250 GB
+volume. Pin the PR commit locally, then use the Pod web terminal (or SSH when
+configured) to place its changed launcher files in `/workspace/eole-pr/`.
+Override only that Pod's container start command, for example:
+
+```json
+{"entrypoint":["/bin/bash","-lc"],"cmd":["set -e; cp /workspace/eole-pr/launch.py /workspace/eole-pr/preparing.html /opt/eole-runpod/; exec python /opt/eole-runpod/launch.py"]}
+```
+
+Stage the files before applying the override; editing the Pod restarts its
+container. Include any other changed launcher dependencies when needed. This
+tests launcher changes against the released Eole runtime, not changes to Eole's
+installed Python code or CUDA sources. Verify file hashes, authentication,
+fresh downloads/conversions, Chat/Translate/PDF OCR, model unloading and a cached
+restart before publishing a final image. Keep this override out of the public
+template. No PyPI release, version bump or image publication is needed for this
+validation.
+
+After validation, save the results and terminate disposable test Pods to remove
+their attached Volume disks and end storage charges. Stop retains billable
+storage and should be used only when another session is planned. Agree on
+retention before testing; separately created network volumes need separate cleanup.
+
+If HF metadata works but Xet transfers stall on a provider host, try
+`HF_HUB_DISABLE_XET=1` in the test Pod environment to use ordinary HTTPS downloads.
+Record this override with the results rather than treating it as the default.
+
 ## Local image build
 
 With the matching Eole release image already published:
 
 ```bash
 docker build -f recipes/runpod/Dockerfile \
-  -t ghcr.io/YOUR_ACCOUNT/eole-runpod:0.6.4 .
-docker push ghcr.io/YOUR_ACCOUNT/eole-runpod:0.6.4
+  -t ghcr.io/YOUR_ACCOUNT/eole-runpod:0.6.4-r1 .
+docker push ghcr.io/YOUR_ACCOUNT/eole-runpod:0.6.4-r1
 ```
 
 ## Register another template (optional)
@@ -188,6 +244,8 @@ Chat/SSE and cache reuse.
 These are functional compatibility tests with short synthetic inputs, including
 first-use compilation; their request durations are not throughput benchmarks.
 Knowledge/RAG indexing and other GPU families were not part of this validation.
-The deploy button links to template `e9e19ozt9c`, awaiting the post-merge 0.6.4 image builds.
-The test GPU is stopped after validation;
-stored Pod volumes remain billable until removed.
+The deploy button keeps template ID `e9e19ozt9c`; after publishing the correction,
+update that template to `eole-runpod:0.6.4-r1` as described above. The fresh RTX 5090
+validation of #470 also passed all three workspaces and a cached restart using
+the existing image with the PR launcher injected. Its test Pod and attached volume
+were terminated after validation; no test storage is retained.

@@ -6,13 +6,15 @@ You do not need to install Eole, download models or run terminal commands.
 
 [![Deploy on RunPod](https://img.shields.io/badge/RunPod-Deploy%20Eole-673AB7?style=for-the-badge)](https://console.runpod.io/deploy?template=e9e19ozt9c&type=gpu)
 
-**Available after the first RunPod image build following merge of #469.** The
-button opens the preconfigured public template. Its image is
-`ghcr.io/eole-nlp/eole-runpod:0.6.4`; a maintainer publishes it using
-**Actions → Build RunPod Image** with `source_ref=0.6.4`, after publishing the
-matching Eole base image. Until that build finishes,
-the template's image cannot be pulled. Private cloud validation has passed
-INT4/BF16 Chat, translation, PDF OCR and automatic model switching.
+The button opens the public Eole template. **Before confirming deployment, attach
+its required 250 GB model volume using the steps below.** RunPod only recommends
+that volume; it does not attach it automatically. The 60 GB container disk alone
+is not sufficient. Private cloud validation has passed INT4/BF16 Chat,
+translation, PDF OCR and automatic model switching with an attached volume.
+
+The corrected deployment image is **`eole-runpod:0.6.4-r1`**, extending the
+existing Eole **0.6.4** base. Maintainers must publish it and update the existing
+template before the button uses it; see the [publishing steps](MAINTAINERS.md#publish-the-runpod-correction-as-064-r1).
 
 ## Get started
 
@@ -22,9 +24,14 @@ INT4/BF16 Chat, translation, PDF OCR and automatic model switching.
    This setup is only needed once.
 2. **Click Deploy Eole above.** Choose an
    **RTX 5090 (32 GB)** for the default INT4 model, or an **RTX PRO 6000 (96 GB)**
-   for more memory. Keep the template's disk, port and environment defaults.
-   Check that the deployment includes its **250 GB volume at `/workspace`**,
-   review the displayed price, then click **Deploy**.
+   for more memory. Keep the 60 GB container disk and other defaults.
+   **Attach the model volume explicitly:** choose **Add volume → Volume disk →
+   250 GB → Add volume disk**, mounted at **`/workspace`**. The template only
+   recommends this volume; RunPod does not attach it automatically. Before
+   clicking **Deploy**, verify **Attached volumes** lists the 250 GB Volume disk
+   and the pricing breakdown includes its cost (**310 GB total disk**, including
+   the 60 GB container disk). Do not proceed with “Nothing mounted at the
+   template’s path”.
 3. **Open your workspace.** In the Pod's **Connect** tab, open the HTTP service
    on **port 5000**. Sign in with username **`eole`** and the password **value**
    you saved in `eole_password` (not your RunPod account password).
@@ -32,6 +39,10 @@ INT4/BF16 Chat, translation, PDF OCR and automatic model switching.
    workspace automatically once downloads and conversion finish. First use of
    each model also loads it onto the GPU and compiles inference; the UI reports
    warmup separately. This can take several minutes.
+5. **Clean up when finished.** For a disposable test, choose **Terminate** in
+   RunPod to delete the Pod and its attached Volume disk and end their charges.
+   Save any outputs you want first. Choose **Stop** only if you intend to resume:
+   the retained volume continues to cost money even while the GPU is stopped.
 
 The button preconfigures the software, models and server. RunPod still requires
 an account, a private password, an available GPU and your approval of the rental
@@ -75,15 +86,35 @@ Keep the password private; it grants access to the workspace and its APIs.
 
 ## When you are finished
 
-In RunPod, choose **Stop** to end GPU billing and keep the volume for another
-session. **Storage remains billable while stopped.** Restarting reuses completed
-model downloads/conversions and compatible caches, though inference may warm up again.
+**For a completed demo or disposable test, save your outputs and choose
+Terminate. Closing the browser or signing out does not stop billing.**
 
-Choose **Terminate** only when you no longer need the Pod: its Pod volume is
-deleted. Download anything you want to keep first. Check the price RunPod shows
-for both compute and storage.
+| RunPod action | Compute charges | Attached Volume disk |
+|---|---|---|
+| **Stop** | Stop | Retained and still billed; use when resuming later |
+| **Terminate** | End | Permanently deleted, including models, caches and outputs; its storage charges end |
+
+Stopping preserves completed downloads, converted models and compatible compiler
+caches, so resuming avoids preparing everything again. Inference may still warm
+up again. It is useful for another session, but unnecessary for a finished test.
+
+For reference, the 250 GB test Volume disk was quoted at **$0.069/hour while
+stopped (about $1.67/day)**. Prices can change: check RunPod's current price and
+the final confirmation dialog. Termination cannot be undone. Separately created
+network volumes have their own lifecycle and remain billable until deleted
+separately; the quick start above uses an attached **Volume disk**.
 
 ## Need help?
+
+- **“No persistent volume” / storage check fails:** the volume is missing, even if
+  `/workspace` exists. In a new deployment choose **Add volume → Volume disk**,
+  set **250 GB**, and check its mount is `/workspace`. A 60 GB container disk
+  alone is insufficient. The launcher checks storage before kernels/downloads.
+- **“No space left on device”:** check which disk is full and the mounted volume's
+  quota. Downloads, converted checkpoints and temporary output all need space.
+  Increasing only the temporary container disk does not attach persistent storage.
+  Stopping/resetting a volume-less Pod loses its container-local downloads.
+
 
 - **Sign-in fails:** use lowercase `eole` and the value of your `eole_password`
   Secret. After changing that Secret, reset the Pod so it receives the new value.

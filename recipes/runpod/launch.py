@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import sys
@@ -25,6 +26,67 @@ MODEL_ID = "RedHatAI/Qwen3.8-27B-INT4"
 RECIPE = Path(__file__).resolve().parent
 QWEN_MODELS = {"int4": MODEL_ID, "bf16": "Qwen/Qwen3.8-27B"}
 WORKSPACE_MODELS = {"translate": "tencent/Hy-MT2-7B", "ocr": "deepseek-ai/DeepSeek-OCR"}
+GIB = 1024**3
+STORAGE_HELP = "In RunPod deployment, choose Add volume → Volume disk, set 250 GB and mount it at /workspace."
+
+
+class StorageError(RuntimeError):
+    """An actionable preparation error safe to show to the authenticated owner."""
+
+
+def filesystem_mount(path, mountinfo):
+    """Use mountinfo rather than st_dev so same-device bind mounts are recognized."""
+    path = Path(path).resolve()
+    matches = []
+    for line in mountinfo.splitlines():
+        before, separator, after = line.partition(" - ")
+        fields = before.split()
+        if separator and len(fields) >= 5 and after.split():
+            mount = Path(re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), fields[4]))
+            if path == mount or mount in path.parents:
+                matches.append((mount, after.split()[0]))
+    return max(matches, key=lambda pair: len(pair[0].parts)) if matches else (Path("/"), "unknown")
+
+
+def model_options(model_id, role):
+    prefix = {
+        "int4": "EOLE_MODEL",
+        "bf16": "EOLE_BF16_MODEL",
+        "translate": "EOLE_TRANSLATION_MODEL",
+        "ocr": "EOLE_OCR_MODEL",
+    }[role]
+    if role == "bf16" and qwen_variants() == ["bf16"]:
+        prefix = "EOLE_MODEL"
+    identity = {"model": model_id, "revision": os.environ.get(prefix + "_REVISION", "main")}
+    if role == "ocr":
+        identity["conversion"] = 2
+    return os.environ.get(prefix + "_PATH"), identity
+
+
+def checkpoint_path(root, identity):
+    key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:16]
+    return root / "models" / key
+
+
+def completed_checkpoint(model, identity):
+    marker = model / "deployment.json"
+    return marker.is_file() and valid_model(model) and json.loads(marker.read_text()) == identity
+
+
+def preparation_space(root):
+    # Source + converted weights remain on disk. Streaming conversion temporarily
+    # keeps another output copy; account for the sequential preparation order.
+    sizes = {"int4": 18, "bf16": 53, "translate": 14, "ocr": 7}
+    retained, peak = 0, 8 * GIB  # Kernel/compiler cache and download headroom.
+    selected = [(v, QWEN_MODELS[v]) for v in qwen_variants()] + list(WORKSPACE_MODELS.items())
+    for role, model_id in selected:
+        explicit, identity = model_options(model_id, role)
+        if explicit or completed_checkpoint(checkpoint_path(root, identity), identity):
+            continue
+        size = sizes[role] * GIB
+        peak = max(peak, retained + 3 * size + 8 * GIB)
+        retained += 2 * size
+    return peak
 
 
 def qwen_variants():
@@ -100,6 +162,36 @@ class Deployment:
         self.state.update(stage=stage, message=message)
         LOG.info("%s", message)
 
+    def storage(self):
+        self.stage("storage", "Checking persistent storage before GPU preparation…")
+        mountinfo = Path("/proc/self/mountinfo").read_text()
+        paths = [
+            self.root,
+            *[
+                Path(os.environ[key])
+                for key in ("HF_HOME", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR")
+                if os.environ.get(key)
+            ],
+        ]
+        for path in paths:
+            mount, filesystem = filesystem_mount(path, mountinfo)
+            if mount == Path("/") or filesystem in {"overlay", "tmpfs", "ramfs", "unknown"}:
+                raise StorageError(
+                    f"No persistent volume is mounted for {path}. {STORAGE_HELP} "
+                    "The 60 GB container disk is not the model volume; preparation has not started."
+                )
+        self.root.mkdir(parents=True, exist_ok=True)
+        free = shutil.disk_usage(self.root).free
+        needed = preparation_space(self.root)
+        if free < needed:
+            raise StorageError(
+                f"Model storage has {free / GIB:.1f} GiB free; approximately "
+                f"{needed / GIB:.1f} GiB is needed for remaining preparation. {STORAGE_HELP}"
+            )
+        LOG.info(
+            "Persistent storage verified: %.1f GiB reported free; %.1f GiB estimated needed.", free / GIB, needed / GIB
+        )
+
     async def command(self, *args):
         self.process = await asyncio.create_subprocess_exec(*map(str, args), cwd=self.source, start_new_session=True)
         try:
@@ -166,29 +258,15 @@ for i in range(torch.cuda.device_count()):
         (cache / "complete").touch()
 
     async def model(self, model_id=MODEL_ID, role="int4"):
-        prefix = {
-            "int4": "EOLE_MODEL",
-            "bf16": "EOLE_BF16_MODEL",
-            "translate": "EOLE_TRANSLATION_MODEL",
-            "ocr": "EOLE_OCR_MODEL",
-        }[role]
-        # EOLE_MODEL_PATH also applies when BF16 is the only selected chat model.
-        if role == "bf16" and qwen_variants() == ["bf16"]:
-            prefix = "EOLE_MODEL"
-        explicit = os.environ.get(prefix + "_PATH")
+        explicit, identity = model_options(model_id, role)
         if explicit:
             model = Path(explicit).resolve()
             if not valid_model(model):
                 raise ValueError("Existing model path must contain a converted checkpoint and tokenizer")
             return model
-        revision = os.environ.get(prefix + "_REVISION", "main")
-        identity = {"model": model_id, "revision": revision}
-        if role == "ocr":
-            identity["conversion"] = 2  # Discard OCR conversions with the old zero-width vision heads.
-        key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:16]
-        model = self.root / "models" / key
-        marker = model / "deployment.json"
-        if marker.is_file() and valid_model(model) and json.loads(marker.read_text()) == identity:
+        revision = identity["revision"]
+        model = checkpoint_path(self.root, identity)
+        if completed_checkpoint(model, identity):
             self.stage("download", f"Using {model_id} saved on your volume.")
             return model
         self.stage("download", f"Downloading {model_id}. The first download can take several minutes…")
@@ -211,6 +289,11 @@ Path(sys.argv[3]).write_text(path)
         staging = model.with_name(model.name + ".partial")
         shutil.rmtree(staging, ignore_errors=True)
         staging.parent.mkdir(parents=True, exist_ok=True)
+        source_size = sum(p.stat().st_size for p in Path(snapshot.read_text().strip()).glob("*.safetensors"))
+        if source_size and shutil.disk_usage(staging.parent).free < 2 * source_size + 2 * GIB:
+            raise StorageError(
+                f"Not enough free space to convert {model_id}, including temporary output files. " + STORAGE_HELP
+            )
         await self.command(
             sys.executable,
             "-m",
@@ -249,7 +332,7 @@ Path(sys.argv[3]).write_text(path)
         # One startup writer per volume; don't corrupt shared caches/models.
         import fcntl
 
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.storage()
         with (self.root / "prepare.lock").open("w") as lock:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -306,7 +389,7 @@ def main():
     os.environ.setdefault("TRITON_CACHE_DIR", str(root / "triton"))
     os.environ.setdefault("EOLE_TORCH_COMPILE", "1")
     os.environ.setdefault("EOLE_COMPILE_MODE", "0")
-    state = {"stage": "gpu", "message": "Preparing your instance…"}
+    state = {"stage": "storage", "message": "Checking persistent storage…"}
     deployment = Deployment(root, source, state)
 
     @asynccontextmanager
@@ -316,6 +399,9 @@ def main():
                 await deployment.run()
             except asyncio.CancelledError:
                 raise
+            except StorageError as exc:
+                LOG.error("Deployment storage check failed: %s", exc)
+                state.update(stage="failed", message=str(exc))
             except Exception:
                 LOG.exception("Deployment preparation failed")
                 state.update(
