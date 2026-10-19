@@ -1,7 +1,7 @@
 {
   "name": "Eole Workspace",
   "category": "NVIDIA",
-  "imageName": "ghcr.io/eole-nlp/eole-runpod:0.6.4",
+  "imageName": "ghcr.io/eole-nlp/eole-runpod:0.6.4-r1",
   "isPublic": false,
   "isServerless": false,
   "containerDiskInGb": 60,

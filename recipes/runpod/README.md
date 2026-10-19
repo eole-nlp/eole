@@ -12,6 +12,10 @@ that volume; it does not attach it automatically. The 60 GB container disk alone
 is not sufficient. Private cloud validation has passed INT4/BF16 Chat,
 translation, PDF OCR and automatic model switching with an attached volume.
 
+The corrected deployment image is **`eole-runpod:0.6.4-r1`**, extending the
+existing Eole **0.6.4** base. Maintainers must publish it and update the existing
+template before the button uses it; see the [publishing steps](MAINTAINERS.md#publish-the-runpod-correction-as-064-r1).
+
 ## Get started
 
 1. **Prepare your RunPod account.** Sign in and add credit for GPU rental.
