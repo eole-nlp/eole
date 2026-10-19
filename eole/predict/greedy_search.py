@@ -16,14 +16,13 @@ def sample_topp(logits, top_p):
     last_included.clamp_(0, sorted_indices_to_keep.size()[1] - 1)
     sorted_indices_to_keep = sorted_indices_to_keep.scatter_(1, last_included, 1)
 
-    # Set all logits that are not in the top-p to -10000.
-    # This puts the probabilities close to 0.
+    # Excluded tokens must have zero probability, regardless of logit magnitude.
     keep_indices = sorted_indices_to_keep.scatter(
         1,
         sorted_indices,
         sorted_indices_to_keep,
     )
-    return logits.masked_fill(~keep_indices, -10000)
+    return logits.masked_fill(~keep_indices, -float("inf"))
 
 
 def sample_topk(logits, top_k):
@@ -31,10 +30,9 @@ def sample_topk(logits, top_k):
     kth_best = top_values[:, -1].view([-1, 1])
     kth_best = kth_best.repeat([1, logits.shape[1]]).float()
 
-    # Set all logits that are not in the top-k to -10000.
-    # This puts the probabilities close to 0.
+    # Excluded tokens must have zero probability, regardless of logit magnitude.
     ignore = torch.lt(logits, kth_best)
-    return logits.masked_fill(ignore, -10000)
+    return logits.masked_fill(ignore, -float("inf"))
 
 
 def sample_with_temperature(logits, temperature, top_k, top_p):

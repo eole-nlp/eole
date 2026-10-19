@@ -1,7 +1,40 @@
 import unittest
-from eole.predict.greedy_search import GreedySearch
+from eole.predict.greedy_search import GreedySearch, sample_topk, sample_topp, sample_with_temperature
 
 import torch
+
+
+class TestSamplingFilters(unittest.TestCase):
+    def test_filters_assign_zero_probability_to_excluded_tokens(self):
+        for dtype in (torch.float16, torch.float32, torch.float64):
+            logits = torch.tensor([[-20000, -20016, -20032], [-20032, -20000, -20016]], dtype=dtype)
+            for filter_fn, threshold, excluded in (
+                (sample_topk, 2, [[False, False, True], [True, False, False]]),
+                (sample_topp, 0.9, [[False, True, True], [True, False, True]]),
+            ):
+                with self.subTest(dtype=dtype, filter=filter_fn.__name__):
+                    filtered = filter_fn(logits, threshold)
+                    mask = torch.tensor(excluded)
+                    self.assertTrue(torch.isneginf(filtered[mask]).all())
+                    self.assertTrue(torch.equal(filtered[~mask], logits[~mask]))
+                    self.assertTrue((filtered.softmax(-1)[mask] == 0).all())
+                    self.assertEqual(filtered.dtype, dtype)
+
+    def test_filters_do_not_restore_forbidden_tokens(self):
+        logits = torch.tensor([[-20000.0, -20016.0, -float("inf")]])
+        for filter_fn, threshold in ((sample_topk, 2), (sample_topp, 0.9)):
+            with self.subTest(filter=filter_fn.__name__):
+                filtered = filter_fn(logits, threshold)
+                self.assertTrue(torch.isneginf(filtered[0, 2]))
+                self.assertEqual(filtered.softmax(-1)[0, 2].item(), 0)
+
+    def test_temperature_sampling_never_selects_forbidden_token(self):
+        logits = torch.tensor([[-2.0, -3.0, -float("inf")]]).repeat(8, 1)
+        for top_k, top_p in ((2, 0.0), (0, 0.9), (2, 0.9)):
+            with self.subTest(top_k=top_k, top_p=top_p):
+                ids, scores = sample_with_temperature(logits, temperature=0.0001, top_k=top_k, top_p=top_p)
+                self.assertTrue((ids != 2).all())
+                self.assertTrue(torch.isfinite(scores).all())
 
 
 class GlobalScorerStub(object):
