@@ -507,3 +507,53 @@ Beam search and other ineligible configurations retain their existing decoder
 path. The legacy compiled tensor-parallel beam path can still hang at worker
 shutdown; bound greedy/MTP decoding does not fix that separate path. Streaming
 inference remains limited to single-process mode.
+
+## Experimental restricted MTP draft vocabulary
+
+An optional inference setting copies selected rows of a dense generator into a
+smaller draft-only head:
+
+```yaml
+self_speculative_decoding: true
+self_speculative_num_tokens: 3
+self_speculative_draft_vocab: /absolute/path/to/draft_vocab_ids.json
+```
+
+The file must be a nonempty JSON list of unique integer token IDs matching the
+checkpoint's tokenizer. Drafts are mapped back to original token IDs. The target
+generator, full-vocabulary verification, scoring and normalization are unchanged;
+tokens outside the shortlist can still be emitted by the target. The extra head
+is built once after loading and is not saved in model checkpoints. Only a dense
+`torch.nn.Linear` generator is supported; quantized/custom output heads are
+rejected rather than silently dequantized. The current MTP eligibility rules
+(single-sequence deterministic greedy text decoding) still apply.
+
+For Qwen3.8-27B with BF16 weights, a 40,960-token head uses an additional
+400 MiB. This can reduce draft projection traffic substantially, but excluding
+likely tokens reduces acceptance and can make decoding slower. Keep the default
+full head unless a shortlist is measured on the intended language and workload.
+Changing draft acceptance also changes verification chunk boundaries; as with
+MTP itself, floating-point differences near tied target logits can affect output.
+
+To reproduce the paired experiment with the external 40,960-token shortlist
+from [xvus/syv-ai-qwen38-27b-rtx3090](https://github.com/xvus/syv-ai-qwen38-27b-rtx3090):
+
+```bash
+curl -fL https://raw.githubusercontent.com/xvus/syv-ai-qwen38-27b-rtx3090/18349177b7962ef1d699dc154844f9c04317a474/prepare/draft_vocab_ids.json \
+  -o /tmp/qwen38-draft-vocab.json
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+python recipes/qwen38/benchmark_draft_vocab.py \
+  --model "$EOLE_MODEL_DIR/Qwen3.8-27B-INT4" \
+  --draft-vocab /tmp/qwen38-draft-vocab.json \
+  --output /tmp/qwen38-draft-vocab-results.json
+```
+
+The harness keeps the same loaded target and extra-head allocation in both arms,
+warms both paths, and alternates order over prose, code and French prompts.
+It records exact delivered decode-token counts, first-to-last-token timing,
+acceptance, per-phase GPU events and output text. Outputs are capped at 512 tokens
+with natural EOS enabled; a minimum-length constraint would disable MTP.
+Use `EOLE_COMPILE_MODE=2` to repeat with layer compilation. These are local
+comparisons, not a matched benchmark against another engine or GPU.
+
+See the [measured results and limitations](draft-vocab-results.md) before choosing a shortlist.
