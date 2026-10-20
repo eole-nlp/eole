@@ -9,7 +9,7 @@ on:
         default: "main"
         type: string
       deploy_tag:
-        description: "New deployment revision tag (empty publishes dev tag only; do not overwrite existing tags)"
+        description: "Deployment revision: use 0.6.4-r2 for prebuilt ops (empty publishes dev tag only)"
         required: false
         default: ""
         type: string

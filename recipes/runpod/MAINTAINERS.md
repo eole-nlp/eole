@@ -16,12 +16,13 @@ publish new development/revision tags rather than overwriting `0.6.4` or
 2. Run **Actions → Build RunPod Image** from `main` with:
    - `source_ref`: the same commit.
    - `eole_image`: the full Eole image tag/digest published in step 1.
-   - `deploy_tag`: a new deployment revision tag, or empty for testing only.
+   - `deploy_tag`: **`0.6.4-r2`** for this update, or empty for testing only.
    The previous 0.6.4 parent lacks bundled ops and is intentionally rejected.
 3. Verify the published image is public and test a disposable Pod. Build-time
    import checks do not replace GPU inference validation.
-4. Once validated, update `template.json`'s `imageName` and existing public
-   RunPod template **`e9e19ozt9c`** to the new RunPod image. Keep the launcher,
+4. Once validated, update existing public RunPod template **`e9e19ozt9c`** to
+   **`ghcr.io/eole-nlp/eole-runpod:0.6.4-r2`**. The repository's `template.json`
+   already records this image. Keep the launcher,
    Secret reference, ports and storage settings. Merging repository changes or
    publishing an image does not update the live template automatically.
 5. Open the README's deploy button and verify the selected image. The template
@@ -250,8 +251,9 @@ Chat/SSE and cache reuse.
 These are functional compatibility tests with short synthetic inputs, including
 first-use compilation; their request durations are not throughput benchmarks.
 Knowledge/RAG indexing and other GPU families were not part of this validation.
-The deploy button keeps template ID `e9e19ozt9c`; after publishing the correction,
-update that template to `eole-runpod:0.6.4-r1` as described above. The fresh RTX 5090
+The earlier storage correction was published as `eole-runpod:0.6.4-r1`. The
+deploy button keeps template ID `e9e19ozt9c`; the prebuilt-kernel update targets
+`0.6.4-r2` as described above. The fresh RTX 5090
 validation of #470 also passed all three workspaces and a cached restart using
 the existing image with the PR launcher injected. Its test Pod and attached volume
 were terminated after validation; no test storage is retained.
@@ -264,7 +266,7 @@ selected PyTorch/CUDA environment on a GPU-less builder. Adjust `cuda_arch_list`
 if selecting an older toolkit. See [Docker documentation](../../docs/docker.md).
 Then set **Build RunPod Image → eole_image** to the resulting full image tag or
 digest. Older parent images without importable ops now fail that build explicitly.
-Publish a new deployment tag and update `template.json`/the public template to it;
-do not overwrite existing deployment tags. No PyPI release is required for this
+Publish `0.6.4-r2` and update the public template to it after validation.
+The repository template already points to r2; do not overwrite older tags. No PyPI release is required for this
 Docker-only update. Test real inference on each claimed GPU family before
 advertising it as validated; the build only cross-compiles those targets.

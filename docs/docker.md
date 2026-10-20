@@ -187,11 +187,12 @@ hardware before claiming a new combination is supported.
 
 Build/publish the full Eole image from a commit containing this change first.
 Then run **Build RunPod Image** with `eole_image` set to that newly published tag
-(or digest), and a new `deploy_tag`. The RunPod build rejects parent images that
+(or digest), and `deploy_tag=0.6.4-r2`. The RunPod build rejects parent images that
 lack importable Eole ops, rather than silently publishing an image that compiles
 on every first deployment. Existing 0.6.4/0.6.4-r1 images are not changed by this PR.
 
-Update the public template's `imageName` to the newly published RunPod tag using
+The repository template targets `0.6.4-r2`. Update the public template's
+`imageName` to that tag after publishing and validation, using
 [the template publishing instructions](../recipes/runpod/MAINTAINERS.md).
 Changing Git source alone does not update an existing template or running Pod.
 On startup the launcher probes the bundled extension on each visible GPU, then

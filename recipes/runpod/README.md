@@ -12,9 +12,9 @@ that volume; it does not attach it automatically. The 60 GB container disk alone
 is not sufficient. Private cloud validation has passed INT4/BF16 Chat,
 translation, PDF OCR and automatic model switching with an attached volume.
 
-The corrected deployment image is **`eole-runpod:0.6.4-r1`**, extending the
-existing Eole **0.6.4** base. Maintainers must publish it and update the existing
-template before the button uses it; see the [publishing steps](MAINTAINERS.md#publish-an-update-with-bundled-cuda-ops).
+This recipe targets **`eole-runpod:0.6.4-r2`**, with prebuilt Eole CUDA ops.
+Maintainers must first build a full Eole image containing those ops, publish the
+RunPod wrapper, and update the existing public template before the button uses it; see the [publishing steps](MAINTAINERS.md#publish-an-update-with-bundled-cuda-ops).
 
 ## Get started
 
