@@ -125,3 +125,10 @@ separately; the quick start above uses an attached **Volume disk**.
 
 Maintainers: [publish the image and deploy button](MAINTAINERS.md). That guide also
 contains advanced settings, API access and local Docker testing.
+
+New images built with bundled Eole CUDA ops check the binary at startup instead
+of compiling it on the rented GPU. A source-build fallback handles incompatible
+binaries. Model preparation and Triton/torch.compile warmup still take time.
+Older published images retain their original startup behavior. Maintainers must
+publish a new image and update the deployment template to enable this change;
+see [publishing instructions](MAINTAINERS.md#publishing-images-with-bundled-cuda-ops).

@@ -1,5 +1,8 @@
-ARG EOLE_IMAGE=ghcr.io/eole-nlp/eole:0.6.4-torch2.14.1-ubuntu24.04-cuda13.2.1
+ARG EOLE_IMAGE
 FROM ${EOLE_IMAGE}
+# Refuse older parent images that defer extension compilation to deployment.
+# Import on a GPU-less builder checks the Python/PyTorch ABI, not GPU execution.
+RUN python -c 'import torch; from eole import _ops; print(_ops.__file__)'
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.source="https://github.com/eole-nlp/eole" \
       org.opencontainers.image.revision="${VCS_REF}"

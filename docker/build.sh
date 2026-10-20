@@ -22,5 +22,7 @@ fi
 IMAGE="ghcr.io/eole-nlp/eole:${EOLE_VERSION}-torch${TORCH_VERSION}-ubuntu24.04-cuda${CUDA_VERSION}"
 docker build --progress=plain -t "$IMAGE" -f docker/Dockerfile \
     --build-arg "TORCH_VERSION=$TORCH_VERSION" --build-arg "CUDA_VERSION=$CUDA_VERSION" \
+    --build-arg "TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST:-8.0 8.6 8.9 9.0 10.0 10.3 12.0}" \
+    --build-arg "MAX_JOBS=${MAX_JOBS:-2}" \
     --build-arg "EOLE_VERSION=$EOLE_VERSION" --build-arg "VCS_REF=$REVISION" .
 if [[ ${4:-} == --push ]]; then docker push "$IMAGE"; fi

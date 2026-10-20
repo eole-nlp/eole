@@ -9,14 +9,14 @@ on:
         default: "main"
         type: string
       deploy_tag:
-        description: "Optional deployment image tag (use 0.6.4-r1 for the RunPod correction; empty publishes dev tag only)"
+        description: "New deployment revision tag (empty publishes dev tag only; do not overwrite existing tags)"
         required: false
         default: ""
         type: string
       eole_image:
-        description: "Published Eole image to extend (matching Torch/CUDA and Eole 0.6.4+)"
+        description: "Newly built Eole image with bundled CUDA ops (matching Torch/CUDA)"
         required: true
-        default: ghcr.io/eole-nlp/eole:0.6.4-torch2.14.1-ubuntu24.04-cuda13.2.1
+        default: ""
         type: string
 
 permissions:
@@ -56,6 +56,7 @@ jobs:
           docker build -f recipes/runpod/Dockerfile --build-arg "EOLE_IMAGE=$EOLE_IMAGE" \
             --build-arg "VCS_REF=$(git rev-parse HEAD)" -t "$IMAGE" .
           docker run --rm --entrypoint python "$IMAGE" -m py_compile /opt/eole-runpod/launch.py /opt/eole-runpod/gateway.py
+          docker run --rm --entrypoint python "$IMAGE" -c 'import torch; from eole import _ops; print(_ops.__file__)'
           docker push "$IMAGE"
           echo "RunPod image: \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
           if [[ -n "$DEPLOY_TAG" ]]; then

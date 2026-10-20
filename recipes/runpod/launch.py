@@ -234,22 +234,24 @@ for i in range(torch.cuda.device_count()):
  _ops.rms_norm(out,x,torch.ones(128,device='cuda',dtype=x.dtype),1e-6)
  torch.testing.assert_close(out,x,rtol=.02,atol=.02)
 """
-        self.stage("kernels", "Preparing kernels for this GPU and PyTorch version…")
+        self.stage("kernels", "Checking bundled GPU kernels…")
+        # Prefer the image's multi-architecture binary over a deployment cache.
+        # This also avoids overwriting a good bundled binary with stale cache data.
+        bundled = list((self.source / "eole").glob("_ops*.so"))
         binaries = list(cache.glob("_ops*.so")) if (cache / "complete").is_file() else []
-        if binaries:
+        if not bundled and binaries:
             LOG.info("Reusing cached GPU extension for this runtime.")
             for path in binaries:
                 shutil.copy2(path, self.source / "eole" / path.name)
-        else:
-            # Official image builds are GPU-less. A locally prepared image may
-            # already have a compatible extension, which the probe below checks.
-            if not list((self.source / "eole").glob("_ops*.so")):
-                await self.command("/usr/local/bin/eole-build-kernels")
         try:
             await self.command(sys.executable, "-c", probe)
         except RuntimeError:
+            LOG.warning("GPU extension unavailable or incompatible; building for visible GPUs.")
+            self.stage("kernels", "Building kernels for this GPU and PyTorch version…")
             for path in (self.source / "eole").glob("_ops*.so"):
                 path.unlink()
+            # The image architecture list is a build argument, not a runtime ENV;
+            # fallback builds therefore target the devices actually visible here.
             await self.command("/usr/local/bin/eole-build-kernels")
             await self.command(sys.executable, "-c", probe)
         cache.mkdir(parents=True, exist_ok=True)
