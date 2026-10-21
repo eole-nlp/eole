@@ -146,11 +146,10 @@ class GeneratorLM(Inference):
                 decoder._disable_cache()
 
     def _warmup_speculative_decoder(self, emb, verify_len):
-        """Compile every verifier tail and final one-token fallback before timing.
+        """Prepare the full verifier; mode-0 single-GPU tails remain eager.
 
-        A shorter output budget can use any length below the full chunk. Those
-        shapes need their own compiled programs even though they are not captured.
-        Prefill reinitializes all temporary state after this warmup.
+        Other compile modes and tensor parallel retain their existing warmup.
+        Prefill reinitializes temporary state after this warmup.
         """
         decoder = self.model.decoder
         linear_layers = [
@@ -160,7 +159,9 @@ class GeneratorLM(Inference):
             and module.conv_state is not None
             and module.recurrent_state is not None
         ]
-        for length in range(verify_len, 1, -1):
+        full_chunk_only = getattr(decoder, "_full_chunk_verifier", False) is True
+        lengths = (verify_len,) if full_chunk_only and verify_len > 1 else range(verify_len, 1, -1)
+        for length in lengths:
             dummy = torch.zeros(emb.size(0), length, decoder.hidden_size, device=emb.device, dtype=emb.dtype)
             mask = torch.zeros(emb.size(0), 1, length, device=emb.device, dtype=torch.bool)
             try:
@@ -172,6 +173,8 @@ class GeneratorLM(Inference):
                 decoder._speculative_forward = False
                 for layer in linear_layers:
                     layer.end_speculation()
+        if full_chunk_only:
+            return
         dummy = torch.zeros(emb.size(0), 1, decoder.hidden_size, device=emb.device, dtype=emb.dtype)
         mask = torch.zeros(emb.size(0), 1, 1, device=emb.device, dtype=torch.bool)
         if decoder._can_replay_decoder(dummy, {"tgt_pad_mask": mask}, for_warmup=True):
@@ -272,10 +275,11 @@ class GeneratorLM(Inference):
                 "and a model with loaded MTP heads; using normal decoding"
             )
 
+        full_chunk_only = getattr(self.model.decoder, "_full_chunk_verifier", False) is True
         if use_spec_decoding:
             qwen_recurrent_mtp = getattr(self.model.mtp_heads[0], "emb_norm", None) is not None
             draft_count = self.self_speculative_num_tokens if qwen_recurrent_mtp else len(self.model.mtp_heads)
-            verify_len = min(draft_count + 1, self.max_length)
+            verify_len = draft_count + 1 if full_chunk_only else min(draft_count + 1, self.max_length)
             self.model.decoder._verify_graph_sequence_length = verify_len
 
         # (4) warmup for Torch compile
@@ -313,7 +317,12 @@ class GeneratorLM(Inference):
                 self.model.decoder.transformer_layers[0]._compile_decoder(
                     emb, position_embeddings=position_embeddings, cache_seqlens=self.model.decoder.cache_seqlens
                 )
-            if use_spec_decoding and self.max_length > 1 and EOLE_COMPILE_MODE in ("0", "1", "2"):
+            if (
+                use_spec_decoding
+                and self.max_length > 1
+                and EOLE_COMPILE_MODE in ("0", "1", "2")
+                and (not full_chunk_only or self.max_length >= verify_len)
+            ):
                 self._warmup_speculative_decoder(emb, verify_len)
             if torch.cuda.is_available():
                 torch.cuda.synchronize()

@@ -212,6 +212,30 @@ Record GPU/driver, PyTorch/kernel versions, checkpoint ID, precision,
 prompt/output lengths, compile mode, and draft acceptance with shared results. Try `self_speculative_num_tokens: 1`,
 `2`, and `3` in a local YAML copy; more drafts can be slower when rejected.
 
+## Startup preparation and the local verifier cache
+
+`serve.yaml` preloads Qwen and runs a short inference warmup before accepting HTTP
+requests. In single-GPU compile mode 0 with MTP, only the full verification chunk
+is compiled; shorter final chunks execute eagerly. The first compilation is saved
+locally, and the same in-memory program serves requests immediately. Restarts
+reload the compatible program without tracing the whole decoder again.
+
+This also applies to ordinary local Python inference with `InferenceEnginePY`:
+
+```bash
+export EOLE_VERIFIER_CACHE_DIR="$HOME/.cache/eole/verifiers"
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+  python -m eole.bin.main predict -c recipes/qwen38/predict-mtp.yaml
+```
+
+The cache directory defaults to `~/.cache/eole/verifiers` (or under `XDG_CACHE_HOME`).
+Use `speculative_verifier_cache: ""` to disable persistence. Artifacts are local,
+trusted executable files, keyed by source/runtime, GPU, model layout and cache
+shape. They are regenerated when incompatible; unsupported serialization falls
+back to ordinary compilation. No downloadable artifact is needed. Mode 2,
+non-MTP and tensor-parallel compilation behavior is unchanged. Container/Pod
+restarts benefit only while the cache storage is retained.
+
 ## Run the complete local validation
 
 `validation.yaml` names the checkpoint, baseline/MTP inference YAML files,

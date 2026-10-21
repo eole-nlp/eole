@@ -4,6 +4,7 @@ models:
   - id: qwen3.8-27B
     path: "${QWEN38_MODEL}"
     preload: true
+    warmup: true
     config:
       data_type: image
       compute_dtype: bf16

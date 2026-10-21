@@ -108,6 +108,11 @@ def workspace_settings(source, models):
     translation["path"] = str(models["translate"])
     ocr["path"] = str(models["ocr"])
     settings["models"] = [*entries, translation, ocr]
+    # Prepare only the default chat model; other models still load on selection.
+    # Keeping this engine alive reuses the just-compiled verifier immediately.
+    entries[0]["preload"] = True
+    for entry in entries:
+        entry["warmup"] = True
     settings["workspace"]["models"].update(chat=entries[0]["id"], knowledge=entries[0]["id"])
     return settings
 
@@ -157,7 +162,7 @@ class Deployment:
             self.root,
             *[
                 Path(os.environ[key])
-                for key in ("HF_HOME", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR")
+                for key in ("HF_HOME", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "EOLE_VERIFIER_CACHE_DIR")
                 if os.environ.get(key)
             ],
         ]
@@ -289,7 +294,7 @@ for i in range(torch.cuda.device_count()):
                 models[variant] = await self.model(QWEN_MODELS[variant], variant)
             for role, model_id in WORKSPACE_MODELS.items():
                 models[role] = await self.model(model_id, role)
-            self.stage("load", "Starting the workspace. Models load on selection; first use compiles inference…")
+            self.stage("load", "Loading Qwen and preparing inference: reuse the local verifier or compile it once…")
             config = self.root / "serve.yaml"
             settings = workspace_settings(self.source, models)
             config.write_text(yaml.safe_dump(settings, sort_keys=False))
@@ -332,6 +337,7 @@ def main():
     os.environ.setdefault("HF_HOME", str(root / "huggingface"))
     os.environ.setdefault("TORCHINDUCTOR_CACHE_DIR", str(root / "inductor"))
     os.environ.setdefault("TRITON_CACHE_DIR", str(root / "triton"))
+    os.environ.setdefault("EOLE_VERIFIER_CACHE_DIR", str(root / "verifiers"))
     os.environ.setdefault("EOLE_TORCH_COMPILE", "1")
     os.environ.setdefault("EOLE_COMPILE_MODE", "0")
     state = {"stage": "storage", "message": "Checking persistent storage…"}

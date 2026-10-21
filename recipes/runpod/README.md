@@ -37,10 +37,11 @@ RunPod wrapper, and update the existing public template before the button uses i
 3. **Open your workspace.** In the Pod's **Connect** tab, open the HTTP service
    on **port 5000**. Sign in with username **`eole`** and the password **value**
    you saved in `eole_password` (not your RunPod account password).
-4. **Wait for preparation, then start using Eole.** The progress page opens the
-   workspace automatically once downloads and file verification finish. First use of
-   each model also loads it onto the GPU and compiles inference; the UI reports
-   warmup separately. This can take several minutes.
+4. **Wait for preparation, then start using Eole.** With images built from this
+   revision, Qwen loads and warms inference before the workspace opens. Its first
+   startup compiles the full MTP verification chunk and saves it locally; restarts
+   reuse that verifier from the volume. Translation and OCR still load and warm
+   on first use. First preparation can take several minutes.
 5. **Clean up when finished.** For a disposable test, choose **Terminate** in
    RunPod to delete the Pod and its attached Volume disk and end their charges.
    Save any outputs you want first. Choose **Stop** only if you intend to resume:
@@ -63,6 +64,29 @@ cost; it cannot skip those steps.
 Switching workspaces automatically unloads the previous inference model and loads
 the appropriate one. All prepared weights stay on disk. Loading and first-use
 warmup take time, so a switch is not instantaneous.
+
+### Startup compilation and restarts
+
+The default Qwen Chat model is preloaded with `warmup: true`. The server drains a
+short preparation request in its inference worker before `/health` becomes
+available. The gateway shows **Load Qwen and prepare inference** until the model
+is ready. The just-compiled verifier stays in memory and serves requests immediately.
+No verifier artifact is downloaded or published.
+
+`EOLE_VERIFIER_CACHE_DIR` defaults to `/workspace/eole/verifiers`. Artifacts are
+generated for the local GPU, PyTorch/CUDA build, Eole code, model layout and cache
+dimensions. Incompatible or corrupt entries are rebuilt; unsupported serialization
+or unwritable caches fall back to ordinary full-chunk compilation. Keep the volume
+to reuse the cache. Terminating the Pod and its volume deletes it. Short verification
+tails remain eager. This covers single-GPU compile mode 0; mode 2, tensor parallel
+and non-MTP paths retain their existing policy. New prompt/image shapes can still
+need additional kernel warmup.
+
+**Publishing:** these startup changes require a full Eole image and RunPod wrapper
+built from this revision. The existing public `0.6.4-r2` image/template is unchanged
+by editing this recipe. Publish the next deployment image and update the template
+using [MAINTAINERS.md](MAINTAINERS.md). The wrapper build rejects parent images
+that lack the matching server/cache implementation.
 
 ## Optional: use original Qwen instead of INT4
 

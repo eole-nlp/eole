@@ -2,6 +2,9 @@
 Implementation of "Attention is All You Need" Transformer Decoder
 """
 
+import os
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 from eole.decoders.decoder import DecoderBase
@@ -413,6 +416,34 @@ class TransformerDecoder(DecoderBase):
         self._verify_graph = None
         self._verify_buffer_signature = None
         self._graph_parallel_gpu = getattr(running_config, "parallel_gpu", 1)
+        self._full_chunk_verifier = EOLE_COMPILE_MODE == "0" and self._graph_parallel_gpu == 1
+        self._cached_verifier = None
+        cache = getattr(running_config, "speculative_verifier_cache", "auto")
+        if cache == "auto":
+            cache = os.environ.get("EOLE_VERIFIER_CACHE_DIR") or str(
+                Path(os.environ.get("XDG_CACHE_HOME", "~/.cache")).expanduser() / "eole/verifiers"
+            )
+        self._verifier_cache_directory = cache
+        self._verifier_cache_config = {
+            "decoder": decoder_config.model_dump(),
+            "context_length": self.kvcache_maxsize,
+            "running": {
+                key: getattr(running_config, key, None)
+                for key in (
+                    "fuse_kvq",
+                    "fuse_gate",
+                    "quant_type",
+                    "w_bit",
+                    "group_size",
+                    "autoround_sym",
+                    "autoround_packing_format",
+                    "quant_layers",
+                    "quant_exclude_modules",
+                    "self_attn_backend",
+                    "prefill_chunk_size",
+                )
+            },
+        }
         self._graph_capture_timeout = getattr(running_config, "timeout", 60)
         self._graph_capture_coordinator = None
         self._decode_graph_enabled = EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ("0", "2")
@@ -974,6 +1005,12 @@ class TransformerDecoder(DecoderBase):
         if self._verify_graph is None:
             if EOLE_COMPILE_MODE == "2":
                 function = self._forward_eager
+            elif self._full_chunk_verifier and self._verifier_cache_directory:
+                from eole.utils.verifier_cache import CachedVerifier
+
+                if self._cached_verifier is None:
+                    self._cached_verifier = CachedVerifier(self, self._verifier_cache_directory)
+                function = self._cached_verifier
             else:
                 function = torch.compile(
                     self._forward_verify_graph,
@@ -1051,12 +1088,16 @@ class TransformerDecoder(DecoderBase):
             if self._can_replay_decoder(emb, kwargs):
                 return self._replay_decoder(emb, kwargs)
             if self._can_replay_verifier(emb, kwargs, allow_tail=True):
+                if self._full_chunk_verifier:
+                    return self._forward_eager(emb, **kwargs)
                 # No graph for shortened tails. Reuse the non-graph compiled
                 # verifier, including in workers without graph-tree TLS.
                 return self._replay_verifier(emb, kwargs, capture=False)
             if getattr(self, "_verify_graph_request_allowed", False) and self._can_replay_decoder(
                 emb, kwargs, for_warmup=True
             ):
+                if self._full_chunk_verifier:
+                    return self._forward_eager(emb, **kwargs)
                 return self._replay_decoder(emb, kwargs, capture=False)
             self._reset_decode_graph()
             return self._forward_compile(emb, **kwargs)
