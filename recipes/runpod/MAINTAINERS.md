@@ -10,11 +10,15 @@ No new PyPI version is required. Existing images are immutable for this workflow
 publish new development/revision tags rather than overwriting `0.6.4` or
 `0.6.4-r1`.
 
-1. Merge the change, then run **Actions → Build Docker Images** from `main`,
-   with `source_ref` set to the merged commit, the desired PyTorch/CUDA versions,
-   and the architecture list. A non-release ref publishes a `dev-<commit>` image.
+1. Merge both the precompiled-ops and pre-converted-model changes. Build the full
+   Eole parent with **Actions → Build Docker Images** from `main`, using the merged
+   commit, desired PyTorch/CUDA versions and architecture list. A non-release ref
+   publishes a `dev-<commit>` image. If you already built a compatible parent from
+   merged #473, reuse it: this model-download change only needs a new RunPod wrapper.
+   The wrapper also supplies a matching Torchvision wheel for RAG when the parent
+   lacks it, constrained to the parent's exact PyTorch version and CUDA wheel index.
 2. Run **Actions → Build RunPod Image** from `main` with:
-   - `source_ref`: the same commit.
+   - `source_ref`: the merged commit containing this model-download change.
    - `eole_image`: the full Eole image tag/digest published in step 1.
    - `deploy_tag`: **`0.6.4-r2`** for this update, or empty for testing only.
    The previous 0.6.4 parent lacks bundled ops and is intentionally rejected.
@@ -56,9 +60,9 @@ See [RunPod's storage configuration step](https://docs.runpod.io/get-started#con
 The launcher validates Linux mount information before compiling kernels or
 fetching models. It rejects the root filesystem and volatile mounts, including
 cache paths pointed outside persistent storage. Space estimates account for
-source weights, converted weights and the transient second output file, with
-completed checkpoints excluded. A second check uses actual downloaded tensor
-sizes before conversion. Filesystem space reports on shared storage may not
+one copy of each pinned pre-converted checkpoint plus 8 GiB for download/compiler
+headroom, with completed checkpoints excluded. Downloads go directly into resumable
+staging directories; there is no second HF weight cache or conversion output. Filesystem space reports on shared storage may not
 reflect per-volume quotas; verify the provisioned capacity in RunPod as well.
 Storage errors are shown to the authenticated owner on the preparation page.
 
@@ -81,7 +85,7 @@ Stage the files before applying the override; editing the Pod restarts its
 container. Include any other changed launcher dependencies when needed. This
 tests launcher changes against the released Eole runtime, not changes to Eole's
 installed Python code or CUDA sources. Verify file hashes, authentication,
-fresh downloads/conversions, Chat/Translate/PDF OCR, model unloading and a cached
+fresh downloads/checksum verification, Chat/Translate/PDF OCR, model unloading and a cached
 restart before publishing a final image. Keep this override out of the public
 template. No PyPI release, version bump or image publication is needed for this
 validation.
@@ -126,6 +130,23 @@ Add `--public` only when publishing a separate tested template. Never include
 actual passwords, API keys or HF tokens in template metadata; keep the Secret
 placeholder so each deploying account supplies its own credential.
 
+## Pre-converted checkpoint catalog
+
+`models.json` records public Eole repositories, immutable commit pins, expected
+file sizes and upstream attribution for INT4 Qwen, BF16 Qwen, Hy-MT2 and DeepSeek-OCR.
+All four packages passed a fresh private-Hub download, complete SHA256 comparison
+and offline inference before publication. INT4 (with MTP), translation and OCR
+were tested on RTX 5090; the original BF16 checkpoint was tested on CPU using
+Eole's PyTorch fallback. This does not constitute BF16 GPU validation of r2.
+
+To update a model, validate the new Eole package first, then change its catalog
+commit and size together and rebuild the RunPod wrapper. The Eole parent image
+can be reused if its source/runtime and ops remain compatible. No PyPI release
+is needed. The first r2 publication must include **both merged PRs**.
+Existing r1 Pods/templates do not update themselves.
+The public template must be changed only after the r2 image is available and
+validated. Never advertise an unpublished image as currently deployed.
+
 ## Preparation and persistence
 
 The entrypoint starts the gateway immediately, then prepares the backend:
@@ -137,11 +158,15 @@ The entrypoint starts the gateway immediately, then prepares the backend:
   compile for the visible GPUs and probe again. Caches are keyed by source,
   Python, PyTorch, compiler and visible GPU architectures. Fallback compilation
   uses `MAX_JOBS=2` by default. Triton/Inductor compilation remains separate.
-- Download the selected Qwen variant(s), `tencent/Hy-MT2-7B`, and
-  `deepseek-ai/DeepSeek-OCR` into the volume's HF cache. These supported model
-  IDs have specific workspace settings; arbitrary IDs are not interchangeable.
-- Convert into a staging directory, relocate output tokenizer paths, and rename
-  only after completion. Interrupted conversions are retried, not reused.
+- Download the selected Qwen variant(s), Hy-MT2-7B and DeepSeek-OCR from public
+  `eole-nlp/*-eole` repositories, pinned by full commit SHA in `models.json`.
+  No HF token is required. Original HF weights are not downloaded or converted.
+- Download directly into a `.partial` model directory; interrupted transfers resume
+  in place. Verify every manifest file's size and SHA256, plus the shard index,
+  before writing the completion marker and atomically renaming the directory.
+  Published configs use `${MODEL_PATH}` for portable tokenizer paths.
+  Cached complete checkpoints skip downloading and hashing on restart. Older
+  source-conversion caches are preserved but not selected by the new cache identity.
 - Run the existing `recipes/ui/serve-showcase.yaml` settings privately: BF16, FlashAttention,
   packed projections, 28,672-token context, 4,096 output tokens, three MTP drafts
   and chunked prefill for Qwen. Translation/OCR retain their own recipe settings.
@@ -154,7 +179,7 @@ The entrypoint starts the gateway immediately, then prepares the backend:
   errors stay in private Pod logs.
 
 `/workspace/eole` holds model weights, kernels and compiler caches. Reusing it
-avoids another download/conversion and reuses matching kernels. One startup
+avoids another download and reuses matching kernels. One startup
 writer owns this directory; use different `EOLE_DEPLOY_DIR` values if multiple
 Pods share a network volume. Container-local `/eole` can be recreated safely.
 
@@ -165,19 +190,19 @@ Pods share a network volume. Container-local `/eole` can be recreated safely.
 | `EOLE_DEPLOY_DIR` | `/workspace/eole`; persistent deployment directory |
 | `EOLE_QWEN_VARIANT` | `int4`, `bf16`, or `both`; selects which Qwen checkpoints to prepare |
 | `EOLE_BF16_MODEL_PATH` / `EOLE_BF16_MODEL_REVISION` | Existing BF16 checkpoint / HF revision when selecting `both` |
-| `EOLE_TRANSLATION_MODEL_PATH` / `EOLE_TRANSLATION_MODEL_REVISION` | Existing Hy-MT2 checkpoint / revision (`main`) |
-| `EOLE_OCR_MODEL_PATH` / `EOLE_OCR_MODEL_REVISION` | Existing DeepSeek-OCR checkpoint / revision (`main`) |
-| `EOLE_MODEL_REVISION` | `main`; set an HF commit SHA for reproducible model downloads |
-| `EOLE_MODEL_PATH` | Optional converted default Qwen (INT4, or BF16 when selected alone); skips its download/conversion |
-| `HF_TOKEN` | Optional private HF credential via a RunPod Secret |
+| `EOLE_TRANSLATION_MODEL_PATH` / `EOLE_TRANSLATION_MODEL_REVISION` | Existing Hy-MT2 checkpoint / full Hub commit SHA |
+| `EOLE_OCR_MODEL_PATH` / `EOLE_OCR_MODEL_REVISION` | Existing DeepSeek-OCR checkpoint / full Hub commit SHA |
+| `EOLE_MODEL_REVISION` | Full Hub commit SHA; defaults to the catalog pin for the selected Qwen variant |
+| `EOLE_MODEL_PATH` | Optional converted default Qwen (INT4, or BF16 when selected alone); skips its download/verification |
+| `HF_TOKEN` | Not required for the public showcase checkpoints; optional for Hub authentication |
 | `EOLE_COOKIE_SECURE` | `1`; set `0` only for a local HTTP-only test |
 | `MAX_JOBS` | `2`; CUDA compilation parallelism |
 | `EOLE_TORCH_COMPILE` / `EOLE_COMPILE_MODE` | `1` / `0` |
 
 An existing model must have valid container-side tokenizer paths. Do not copy a
-config containing inaccessible paths from your workstation. `main` revisions
-reuse the saved conversion until `EOLE_MODEL_REVISION` changes; pin a commit SHA
-when publishing a reproducible template. Compiler caches are accelerators, not a
+config containing inaccessible paths from your workstation. Model revision overrides must be full commit SHAs in the corresponding
+pre-converted repository. Changing a pin creates a distinct deployment cache;
+branch names such as `main` are rejected to avoid silently reusing stale weights. Compiler caches are accelerators, not a
 promise that every restart skips warmup. Do not share an access password with
 untrusted users: it grants the UI's model-management and inference capabilities.
 Browser sign-in uses an HttpOnly, Secure, SameSite=Strict cookie, valid for 12 hours
@@ -216,7 +241,34 @@ Open `http://127.0.0.1:5000/` locally and log in. For real remote use, use RunPo
 HTTPS URL. Stop the container with `docker stop eole-runpod-test`; preparation
 and backend subprocesses are terminated too. Keep the volume for the next run.
 
-## Validation recorded for this PR
+## Pre-converted workflow validation (21 October 2026)
+
+Local Docker validation used the multi-architecture parent built for #473,
+PyTorch 2.14.1 / CUDA 13.2 and a single RTX 5090. The new wrapper built without a
+GPU, downloaded DeepSeek-OCR anonymously from its pinned public commit, verified
+all files and brought up the authenticated workspace. INT4 and translation reused
+portable packages mounted read-only. Compiled mode 0 exercised MTP Chat → Hy-MT2
+translation → OCR with layout boxes → MTP Chat, with only Qwen loaded at the end.
+The short OCR check recovered the synthetic numeric marker; it is not an OCR
+quality benchmark. A cached restart reused the completed OCR checkpoint.
+
+The additional RAG test exposed the missing Torchvision processor dependency.
+The Docker helper now installs the compatible vision wheel from the selected
+CUDA index while constraining PyTorch to its existing exact version, preserving
+the extension ABI. The `rag` extra declares the image processor dependency too.
+Build-time checks import both Torchvision and Eole ops. GPU EmbeddingGemma
+indexing, source retrieval and a compiled MTP answer also passed in the corrected
+wrapper, returning the synthetic document's requested code.
+
+Sixty focused CPU tests, Black 24.10.0, Flake8 and a strict Sphinx build passed.
+The four public catalog pins and sizes were checked anonymously against Hub
+manifests. Every published model had already passed fresh-download checksum and
+offline inference validation before this launcher change; BF16's publication
+inference test used CPU. No new paid RunPod session or GHCR image was published
+for this validation. Test the published r2 image through RunPod's HTTPS proxy
+before updating the public template.
+
+## Earlier cloud validation
 
 Private RunPod validation on 18 October 2026 used one RTX PRO 6000 (96 GB),
 the published Eole 0.6.3 / PyTorch 2.14.1 / CUDA 13.2 image, compiled mode 0,

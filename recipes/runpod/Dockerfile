@@ -3,6 +3,9 @@ FROM ${EOLE_IMAGE}
 # Refuse older parent images that defer extension compilation to deployment.
 # Import on a GPU-less builder checks the Python/PyTorch ABI, not GPU execution.
 RUN python -c 'import torch; from eole import _ops; print(_ops.__file__)'
+# Older compatible parents may lack the processor dependency used by RAG.
+COPY docker/install-vision.sh /usr/local/bin/eole-install-vision
+RUN bash /usr/local/bin/eole-install-vision
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.source="https://github.com/eole-nlp/eole" \
       org.opencontainers.image.revision="${VCS_REF}"

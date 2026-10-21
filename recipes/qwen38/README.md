@@ -33,11 +33,37 @@ does not prove its kernels are selected.
 
 The recommended INT4 checkpoint for this recipe is
 [`RedHatAI/Qwen3.8-27B-INT4`](https://huggingface.co/RedHatAI/Qwen3.8-27B-INT4).
-Prepare it from the repository root in your Eole environment:
+Choose either preparation option below; both use the same local path and recipe
+YAMLs. Pre-converted packages require Eole 0.6.4 or newer and the same runtime
+kernels and GPU memory as a checkpoint you convert yourself.
 
 ```bash
 export EOLE_MODEL_DIR=/path/to/models
 export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-INT4"
+```
+
+### Download the pre-converted Eole checkpoint
+
+The public [Eole INT4 package](https://huggingface.co/eole-nlp/Qwen3.8-27B-INT4-eole)
+contains converted weights, configuration, tokenizer, vision weights and MTP heads.
+Download it directly; no conversion or HF token is required:
+
+```bash
+hf download eole-nlp/Qwen3.8-27B-INT4-eole --local-dir "$QWEN38_MODEL"
+```
+
+Use a new directory for the download. For reproducible deployments, add
+`--revision COMMIT_SHA`; validated commit pins are recorded in the
+[RunPod model catalog](../runpod/models.json). These are Eole-format checkpoints,
+loaded with Eole rather than Transformers. Downloading them skips conversion,
+not runtime kernel installation or first-use compilation.
+
+### Convert the original HF checkpoint yourself
+
+Alternatively, let the converter download the original HF checkpoint, or pass
+an existing local HF directory as `--model_dir`:
+
+```bash
 python eole/bin/main.py convert HF \
   --model_dir RedHatAI/Qwen3.8-27B-INT4 \
   --output "$QWEN38_MODEL" \
@@ -78,9 +104,20 @@ module selection. The converted RedHat checkpoint has been exercised with compil
 GPU inference; the targeted comparison below records the results. RedHat MTP
 throughput and greedy parity have not been measured.
 
-For a BF16 deployment with sufficient memory, use `Qwen/Qwen3.8-27B` as the
-source and a separate output directory. Quantized checkpoints are not all
-equivalent: some omit MTP tensors. Conversion cannot recreate missing trained
+For a BF16 deployment with sufficient memory, either convert `Qwen/Qwen3.8-27B`
+into a separate output directory, or download the public
+[Eole BF16 package](https://huggingface.co/eole-nlp/Qwen3.8-27B-BF16-eole):
+
+```bash
+export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-BF16"
+hf download eole-nlp/Qwen3.8-27B-BF16-eole --local-dir "$QWEN38_MODEL"
+```
+
+The full BF16 weights do not fit a single 32 GB GPU. Both preparation options
+retain the original precision; downloading a pre-converted package does not
+quantize it.
+
+Quantized checkpoints are not all equivalent: some omit MTP tensors. Conversion cannot recreate missing trained
 heads. Check the converted artifact before loading:
 
 ```bash

@@ -4,6 +4,9 @@
 frontend build, external fonts, or CDN is required. API routes and `/docs`
 remain available. The original `apps/chatbot.py` stays a small Gradio example.
 
+For all four workspaces on your own GPU, follow the
+[combined local quick start](#combined-showcase-chat-translate-documents-ocr-and-knowledge-rag).
+
 ![Eole workspace](images/workspace.jpg)
 
 [Watch the 39-second UI tour](images/showcase.mp4). This edited tour shows real local
@@ -17,12 +20,15 @@ preview is on the repository front page.
 ## Start with Qwen3.8 INT4
 
 Use the converted **RedHatAI/Qwen3.8-27B-INT4** checkpoint, including MTP weights.
-See [the Qwen3.8 recipe](../qwen38/README.md) for conversion.
+See [the Qwen3.8 recipe](../qwen38/README.md#hardware-and-checkpoint) for runtime
+installation and either direct Eole checkpoint download or HF conversion.
 Run from the repository root:
 
 ```bash
 export EOLE_MODEL_DIR=/path/to/models
 export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-INT4"
+# Skip this download if QWEN38_MODEL already contains your Eole checkpoint.
+hf download eole-nlp/Qwen3.8-27B-INT4-eole --local-dir "$QWEN38_MODEL"
 CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
   eole serve -c recipes/ui/serve.yaml --host 127.0.0.1 --port 5000
 ```
@@ -102,7 +108,8 @@ Interactive streaming currently supports **single-process decoder-only models**.
 Use Translate with a configured language pair for native encoder-decoder models,
 or `/infer` for general inference. Use the inference recipes for tensor-parallel workloads.
 Text attachments are inserted into the prompt, not indexed as a RAG collection.
-The UI does not execute generated code or tools, and has no image-input flow.
+The UI does not execute generated code or tools. Vision models accept image
+attachments in Chat; see [Images in Chat](#images-in-chat).
 
 Chats are saved in this browser's local storage; export them before clearing
 browser data. No chat database is created on the server. The server retains at
@@ -193,17 +200,56 @@ cancellation, retry, performance metrics and export controls are shared.
 
 ## Combined showcase: Chat, Translate, Documents (OCR) and Knowledge (RAG)
 
-The combined recipe selects Qwen3.8-27B-INT4 for Chat, Hy-MT2-7B for Translate,
-and DeepSeek-OCR for Documents (OCR). Start it with your converted checkpoints:
+Run all four workspaces locally on one GPU, with Qwen3.8-27B INT4 for Chat and
+Knowledge, Hy-MT2-7B for Translate, and DeepSeek-OCR for Documents (OCR).
+This combination was tested on an RTX 5090 (32 GB); only one inference model
+is kept on the GPU at a time.
+
+**1. Install the runtime and workspace dependencies.** From the repository root,
+use a CUDA-enabled Eole environment with the Qwen runtime kernels described in
+[the Qwen3.8 installation instructions](../qwen38/README.md#hardware-and-checkpoint).
+Install the optional packages for telemetry, PDF/OCR and RAG:
+
+```bash
+MAX_JOBS=2 python -m pip install -e '.[ui,translation,ocr,rag]' --no-build-isolation
+```
+
+**2. Download the pre-converted checkpoints.** With Eole 0.6.4 or newer, these
+public packages need no HF token and no model conversion. Choose a model storage
+location with space for all three checkpoints and compiler caches:
 
 ```bash
 export EOLE_MODEL_DIR=/path/to/models
 export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-INT4"
 export HY_MT2_MODEL="$EOLE_MODEL_DIR/Hy-MT2-7B"
 export DEEPSEEK_OCR_MODEL="$EOLE_MODEL_DIR/DeepSeek-OCR"
-EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+
+hf download eole-nlp/Qwen3.8-27B-INT4-eole --local-dir "$QWEN38_MODEL"
+hf download eole-nlp/Hy-MT2-7B-eole --local-dir "$HY_MT2_MODEL"
+hf download eole-nlp/DeepSeek-OCR-eole --local-dir "$DEEPSEEK_OCR_MODEL"
+```
+
+Use new download directories. If you already have Eole checkpoints, point the
+variables at them and skip their downloads. You can also convert the original
+HF checkpoints yourself; see [Qwen3.8](../qwen38/README.md#hardware-and-checkpoint),
+[Hy-MT2](../translation/README.md#showcase-hy-mt2-7b) and
+[DeepSeek-OCR](../deepseekocr/README.md#prepare-the-checkpoint).
+Both preparation routes use the same YAML and path variables. For reproducible
+downloads, add `--revision COMMIT_SHA` using the
+[validated model catalog](../runpod/models.json).
+
+**3. Start the workspace in the same terminal:**
+
+```bash
+CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
   eole serve -c recipes/ui/serve-showcase.yaml --host 127.0.0.1 --port 5000
 ```
+
+**4. Open http://127.0.0.1:5000** and choose Chat, Translate, Documents (OCR),
+or Knowledge (RAG). The first processing request loads the selected model and
+compiles inference; allow several minutes for cold warmup. Knowledge downloads
+its small EmbeddingGemma model on first indexing and uses the same GPU by default;
+its CPU toggle is available if memory is tight. Stop the server with **Ctrl+C**.
 
 Each workspace has its own model selector, remembers your choice in browser storage,
 and keeps its conversation, text or document results when you switch views.

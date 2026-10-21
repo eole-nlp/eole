@@ -47,7 +47,8 @@ details and remaining limitations.
 
 Browser-based Chat, translation and OCR on a rented GPU. See the
 [RunPod quick start](recipes/runpod/README.md) for password setup, GPU choices and
-the required persistent-volume attachment.
+the required persistent-volume attachment. The `0.6.4-r2` deployment
+uses prebuilt GPU kernels and pre-converted public Eole checkpoints.
 
 ## Choose your workflow
 
