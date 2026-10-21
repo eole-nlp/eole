@@ -4,32 +4,34 @@ For deploying an existing template, follow the [user quick start](README.md).
 This guide is for maintainers publishing the images and deploy button, or users
 customizing the deployment. Ordinary users do not need Docker commands or an API key.
 
-## Publish the RunPod correction as 0.6.4-r1
+## Publish an update with bundled CUDA ops
 
-Eole **0.6.4** and its CUDA/PyTorch base image are already published. This PR
-changes the RunPod wrapper only; keep the Python package, Git release tag and
-base image unchanged. No new GitHub/PyPI release or base-image build is needed.
+No new PyPI version is required. Existing images are immutable for this workflow:
+publish new development/revision tags rather than overwriting `0.6.4` or
+`0.6.4-r1`.
 
-1. Merge **#470** into `main`.
-2. Run **Actions → Build RunPod Image** from workflow branch **`main`** with:
-   - **`source_ref=main`** (or the exact merged commit SHA).
-   - **`deploy_tag=0.6.4-r1`**.
-   - Keep **`eole_image=ghcr.io/eole-nlp/eole:0.6.4-torch2.14.1-ubuntu24.04-cuda13.2.1`**.
-3. The workflow builds, smoke-tests and publishes both `dev-<commit>` and
-   **`ghcr.io/eole-nlp/eole-runpod:0.6.4-r1`**. Check the workflow summary and
-   verify that the GHCR package is public.
-4. Once the build succeeds, edit existing public RunPod template **`e9e19ozt9c`**
-   and set its container image to **`ghcr.io/eole-nlp/eole-runpod:0.6.4-r1`**.
-   Keep its normal Python launcher, Secret reference, ports and storage settings.
-   The repository's `template.json` records this image, but merging it does not
-   update the already-published RunPod template automatically.
-5. Open the README's deploy button and verify the selected template shows the
-   **`0.6.4-r1`** image. Its template ID and deploy links stay unchanged.
+1. Merge the change, then run **Actions → Build Docker Images** from `main`,
+   with `source_ref` set to the merged commit, the desired PyTorch/CUDA versions,
+   and the architecture list. A non-release ref publishes a `dev-<commit>` image.
+2. Run **Actions → Build RunPod Image** from `main` with:
+   - `source_ref`: the same commit.
+   - `eole_image`: the full Eole image tag/digest published in step 1.
+   - `deploy_tag`: **`0.6.4-r2`** for this update, or empty for testing only.
+   The previous 0.6.4 parent lacks bundled ops and is intentionally rejected.
+3. Verify the published image is public and test a disposable Pod. Build-time
+   import checks do not replace GPU inference validation.
+4. Once validated, update existing public RunPod template **`e9e19ozt9c`** to
+   **`ghcr.io/eole-nlp/eole-runpod:0.6.4-r2`**. The repository's `template.json`
+   already records this image. Keep the launcher,
+   Secret reference, ports and storage settings. Merging repository changes or
+   publishing an image does not update the live template automatically.
+5. Open the README's deploy button and verify the selected image. The template
+   ID and deploy links stay unchanged; existing Pods keep their existing images.
 
-Do not build `source_ref=0.6.4` for this correction: that tag predates the storage
-fix. Do not delete or move the existing release tag or replace the published
-`0.6.4` images. The revised wrapper extends the existing base; it does not
-require recompiling or republishing that base.
+The CUDA base may be reused if its Python/PyTorch/toolkit environment is unchanged;
+**Build Docker Images** also builds/publishes the matching base. The full Eole
+image must be rebuilt to include the extension and updated source. Do not move an
+existing release tag just to publish a Docker correction.
 
 For development builds, leave `deploy_tag` empty to publish only `dev-<commit>`.
 The named deployment tag is explicit, independent of the Python version and
@@ -95,12 +97,15 @@ Record this override with the results rather than treating it as the default.
 
 ## Local image build
 
-With the matching Eole release image already published:
+With a matching Eole image containing bundled CUDA ops already built:
 
 ```bash
+export EOLE_IMAGE=ghcr.io/eole-nlp/eole:NEW_FULL_IMAGE_TAG
 docker build -f recipes/runpod/Dockerfile \
-  -t ghcr.io/YOUR_ACCOUNT/eole-runpod:0.6.4-r1 .
-docker push ghcr.io/YOUR_ACCOUNT/eole-runpod:0.6.4-r1
+  --build-arg "EOLE_IMAGE=$EOLE_IMAGE" \
+  --build-arg "VCS_REF=$(git rev-parse HEAD)" \
+  -t ghcr.io/YOUR_ACCOUNT/eole-runpod:NEW_DEPLOY_TAG .
+docker push ghcr.io/YOUR_ACCOUNT/eole-runpod:NEW_DEPLOY_TAG
 ```
 
 ## Register another template (optional)
@@ -126,10 +131,12 @@ placeholder so each deploying account supplies its own credential.
 The entrypoint starts the gateway immediately, then prepares the backend:
 
 - Fail closed if `EOLE_PASSWORD` is missing, too short or an unresolved Secret.
-- Check GPU access/VRAM. Compile Eole kernels if absent, then execute a small
-  RMSNorm check. Kernel caches are keyed by source, Python, PyTorch, compiler and
-  visible GPU architectures; mismatches trigger a rebuild. Compilation uses
-  `MAX_JOBS=2` by default and targets all visible GPUs.
+- Check GPU access/VRAM and probe the bundled multi-architecture Eole extension
+  with RMSNorm on every visible GPU. Normal deployments do not compile Eole ops.
+  If the binary is absent, try the matching volume cache. If the probe fails,
+  compile for the visible GPUs and probe again. Caches are keyed by source,
+  Python, PyTorch, compiler and visible GPU architectures. Fallback compilation
+  uses `MAX_JOBS=2` by default. Triton/Inductor compilation remains separate.
 - Download the selected Qwen variant(s), `tencent/Hy-MT2-7B`, and
   `deepseek-ai/DeepSeek-OCR` into the volume's HF cache. These supported model
   IDs have specific workspace settings; arbitrary IDs are not interchangeable.
@@ -244,8 +251,22 @@ Chat/SSE and cache reuse.
 These are functional compatibility tests with short synthetic inputs, including
 first-use compilation; their request durations are not throughput benchmarks.
 Knowledge/RAG indexing and other GPU families were not part of this validation.
-The deploy button keeps template ID `e9e19ozt9c`; after publishing the correction,
-update that template to `eole-runpod:0.6.4-r1` as described above. The fresh RTX 5090
+The earlier storage correction was published as `eole-runpod:0.6.4-r1`. The
+deploy button keeps template ID `e9e19ozt9c`; the prebuilt-kernel update targets
+`0.6.4-r2` as described above. The fresh RTX 5090
 validation of #470 also passed all three workspaces and a cached restart using
 the existing image with the PR launcher injected. Its test Pod and attached volume
 were terminated after validation; no test storage is retained.
+
+### Publishing images with bundled CUDA ops
+
+First run **Build Docker Images** on a ref containing the precompiled-ops change.
+Its default targets are `8.0 8.6 8.9 9.0 10.0 10.3 12.0`, compiled with the
+selected PyTorch/CUDA environment on a GPU-less builder. Adjust `cuda_arch_list`
+if selecting an older toolkit. See [Docker documentation](../../docs/docker.md).
+Then set **Build RunPod Image → eole_image** to the resulting full image tag or
+digest. Older parent images without importable ops now fail that build explicitly.
+Publish `0.6.4-r2` and update the public template to it after validation.
+The repository template already points to r2; do not overwrite older tags. No PyPI release is required for this
+Docker-only update. Test real inference on each claimed GPU family before
+advertising it as validated; the build only cross-compiles those targets.

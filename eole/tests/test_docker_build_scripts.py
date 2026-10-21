@@ -59,6 +59,14 @@ class DockerBuildScriptsTest(unittest.TestCase):
         self.assertIn("VCS_REF=", calls)
         self.assertNotIn("push ", calls)
 
+    def test_explicit_architectures_and_parallelism_reach_image_build(self):
+        self.env.update(TORCH_CUDA_ARCH_LIST="8.9 12.0", MAX_JOBS="1")
+        result = self.script("build.sh", "0.6.3", "2.14.1", "13.2.1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.log.read_text()
+        self.assertIn("--build-arg TORCH_CUDA_ARCH_LIST=8.9 12.0", calls)
+        self.assertIn("--build-arg MAX_JOBS=1", calls)
+
     def test_release_tag_must_match_checkout(self):
         result = self.script("build.sh", "0.6.2", "2.14.1", "13.2.1", "--push")
         self.assertNotEqual(result.returncode, 0)

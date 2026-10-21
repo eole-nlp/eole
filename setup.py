@@ -5,7 +5,7 @@ setup.py for eole.
 csrc/ is fully self-contained.
 
 """
-from os import path
+from os import path, environ
 from setuptools import setup, find_packages
 
 this_directory = path.abspath(path.dirname(__file__))
@@ -21,29 +21,32 @@ def get_ext_modules_and_cmdclass():
     except ImportError:
         return [], {}
 
-    if not torch.cuda.is_available():
+    if environ.get("EOLE_SKIP_CUDA_BUILD") == "1":
+        return [], {}
+    explicit_arches = environ.get("TORCH_CUDA_ARCH_LIST", "").strip()
+    if not explicit_arches and not torch.cuda.is_available():
         return [], {}
 
     from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-    # ── CUDA arch flags ───────────────────────────────────────────────────────
-    # Device indices respect CUDA_VISIBLE_DEVICES. Deduplicate architectures
-    # so identical GPUs do not produce redundant compilation targets.
-    capabilities = set()
-    for device in range(torch.cuda.device_count()):
-        try:
-            capabilities.add(torch.cuda.get_device_capability(device))
-        except Exception as error:
-            raise RuntimeError(f"Cannot determine CUDA architecture for visible GPU {device}") from error
+    # Manual flags override TORCH_CUDA_ARCH_LIST, so only detect visible
+    # devices when no explicit cross-compilation targets were supplied.
     flags = []
-    for major, minor in sorted(capabilities):
-        arch = major * 10 + minor
-        flags.extend(
-            [
-                f"-gencode=arch=compute_{arch},code=sm_{arch}",
-                f"-gencode=arch=compute_{arch},code=compute_{arch}",
-            ]
-        )
+    if not explicit_arches:
+        capabilities = set()
+        for device in range(torch.cuda.device_count()):
+            try:
+                capabilities.add(torch.cuda.get_device_capability(device))
+            except Exception as error:
+                raise RuntimeError(f"Cannot determine CUDA architecture for visible GPU {device}") from error
+        for major, minor in sorted(capabilities):
+            arch = major * 10 + minor
+            flags.extend(
+                [
+                    f"-gencode=arch=compute_{arch},code=sm_{arch}",
+                    f"-gencode=arch=compute_{arch},code=compute_{arch}",
+                ]
+            )
 
     # ── Core sources (always compiled) ───────────────────────────────────────
     core_sources = [

@@ -1,5 +1,6 @@
 """The CUDA extension targets every visible GPU without invoking a compiler."""
 
+import os
 from pathlib import Path
 import runpy
 import unittest
@@ -7,9 +8,10 @@ from unittest.mock import patch
 
 
 class TestSetupCudaArchitectures(unittest.TestCase):
-    def build_flags(self, capabilities, available=True):
+    def build_flags(self, capabilities, available=True, env=None):
         setup_path = Path(__file__).resolve().parents[2] / "setup.py"
         with (
+            patch.dict(os.environ, {"TORCH_CUDA_ARCH_LIST": "", "EOLE_SKIP_CUDA_BUILD": "0", **(env or {})}),
             patch("torch.cuda.is_available", return_value=available),
             patch("torch.cuda.device_count", return_value=len(capabilities)),
             patch("torch.cuda.get_device_capability", side_effect=capabilities) as capability,
@@ -18,6 +20,20 @@ class TestSetupCudaArchitectures(unittest.TestCase):
         ):
             runpy.run_path(str(setup_path))
         return extension, capability
+
+    def test_explicit_targets_build_without_gpu_and_without_overriding_pytorch_flags(self):
+        extension, capability = self.build_flags([], available=False, env={"TORCH_CUDA_ARCH_LIST": "8.0 12.0"})
+        extension.assert_called_once()
+        capability.assert_not_called()
+        flags = extension.call_args.kwargs["extra_compile_args"]["nvcc"]
+        self.assertFalse(any(flag.startswith("-gencode") for flag in flags))
+
+    def test_dependency_install_can_skip_cuda_even_with_explicit_targets(self):
+        extension, capability = self.build_flags(
+            [], available=False, env={"TORCH_CUDA_ARCH_LIST": "12.0", "EOLE_SKIP_CUDA_BUILD": "1"}
+        )
+        extension.assert_not_called()
+        capability.assert_not_called()
 
     def test_mixed_gpus_compile_both_architectures(self):
         extension, capability = self.build_flags([(12, 0), (8, 9)])

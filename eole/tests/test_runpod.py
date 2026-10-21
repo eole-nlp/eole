@@ -384,9 +384,9 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
                 (self.root / "runtime.json").write_text(json.dumps({"torch": "2.14.1", "gpu": "12.0"}))
             elif args[0] == "/usr/local/bin/eole-build-kernels":
                 (self.root / "eole" / "_ops.test.so").write_bytes(b"built")
-            elif fail_probe:
+            elif fail_probe or not list((self.root / "eole").glob("_ops*.so")):
                 fail_probe = False
-                raise RuntimeError("bad cached binary")
+                raise RuntimeError("missing or bad binary")
 
         self.deployment.command = command
         await self.deployment.kernels()
@@ -400,6 +400,25 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
         fail_probe = True
         await self.deployment.kernels()
         self.assertEqual(sum(args[0] == "/usr/local/bin/eole-build-kernels" for args in calls), 1)
+
+    async def test_bundled_kernel_is_probed_before_cache_without_building(self):
+        (self.root / "eole").mkdir()
+        (self.root / "eole" / "_ops.test.so").write_bytes(b"bundled")
+        calls = []
+
+        async def command(*args):
+            calls.append(args)
+            if self.root / "runtime.json" in args:
+                (self.root / "runtime.json").write_text(json.dumps({"torch": "2.14.1", "gpu": "12.0"}))
+
+        self.deployment.command = command
+        await self.deployment.kernels()
+        for cached in (self.root / "kernels").glob("*/_ops*.so"):
+            cached.write_bytes(b"stale")
+        calls.clear()
+        await self.deployment.kernels()
+        self.assertFalse(any(args[0] == "/usr/local/bin/eole-build-kernels" for args in calls))
+        self.assertEqual((self.root / "eole" / "_ops.test.so").read_bytes(), b"bundled")
 
     def test_workspace_routes_models_and_enforces_single_resident_model(self):
         models = {role: self.root / role for role in ["int4", "bf16", "translate", "ocr"]}

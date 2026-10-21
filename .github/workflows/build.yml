@@ -19,6 +19,17 @@ on:
         default: 13.2.1
         type: string
 
+      cuda_arch_list:
+        description: "Eole CUDA targets (must be supported by the selected toolkit)"
+        required: true
+        default: "8.0 8.6 8.9 9.0 10.0 10.3 12.0"
+        type: string
+      max_jobs:
+        description: "Parallel extension compiler jobs (increase only with sufficient RAM)"
+        required: true
+        default: "2"
+        type: string
+
 permissions:
   contents: read
   packages: write
@@ -26,11 +37,13 @@ permissions:
 env:
   TORCH_VERSION: ${{ inputs.torch_version }}
   CUDA_VERSION: ${{ inputs.cuda_version }}
+  TORCH_CUDA_ARCH_LIST: ${{ inputs.cuda_arch_list }}
+  MAX_JOBS: ${{ inputs.max_jobs }}
 
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 240
     steps:
       - name: Checkout requested source
         uses: actions/checkout@v7
@@ -39,7 +52,7 @@ jobs:
           fetch-depth: 0
       - name: Require updated Docker tooling
         run: |
-          if ! grep -q CUDA_NVCC_PACKAGE docker/build_base.sh || ! grep -q VCS_REF docker/build.sh; then
+          if ! grep -q CUDA_NVCC_PACKAGE docker/build_base.sh || ! grep -q TORCH_CUDA_ARCH_LIST docker/build.sh; then
             echo "::error::Select a source ref containing the Docker refresh; older release scripts cannot publish these images."
             exit 1
           fi
@@ -64,3 +77,31 @@ jobs:
           echo "EOLE_VERSION=$VERSION" >> "$GITHUB_ENV"
       - name: Build and publish Eole
         run: docker/build.sh "$EOLE_VERSION" "$TORCH_VERSION" "$CUDA_VERSION" --push
+
+      - name: Export matching CUDA binary and compatibility manifest
+        run: |
+          mkdir -p cuda-ops
+          IMAGE="ghcr.io/eole-nlp/eole:${EOLE_VERSION}-torch${TORCH_VERSION}-ubuntu24.04-cuda${CUDA_VERSION}"
+          docker run --rm -i --entrypoint python \
+            -e TORCH_CUDA_ARCH_LIST -e "EOLE_SOURCE_REVISION=$(git rev-parse HEAD)" \
+            -v "$PWD/cuda-ops:/artifacts" "$IMAGE" - <<'PY'
+          import hashlib, json, os, platform, shutil, sys, sysconfig
+          from pathlib import Path
+          import torch
+          from eole import _ops
+          binary = Path(_ops.__file__)
+          shutil.copy2(binary, Path('/artifacts') / binary.name)
+          manifest = dict(source_revision=os.environ['EOLE_SOURCE_REVISION'],
+                          torch=torch.__version__, cuda=torch.version.cuda,
+                          python=sys.version, python_abi=sysconfig.get_config_var('SOABI'),
+                          machine=platform.machine(), libc=platform.libc_ver(),
+                          cxx11_abi=torch._C._GLIBCXX_USE_CXX11_ABI,
+                          architectures=os.environ['TORCH_CUDA_ARCH_LIST'].split(),
+                          filename=binary.name, sha256=hashlib.sha256(binary.read_bytes()).hexdigest())
+          Path('/artifacts/manifest.json').write_text(json.dumps(manifest, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eole-cuda-ops-torch${{ inputs.torch_version }}-cuda${{ inputs.cuda_version }}
+          path: cuda-ops/
+          if-no-files-found: error
