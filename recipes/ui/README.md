@@ -194,7 +194,12 @@ cancellation, retry, performance metrics and export controls are shared.
 ## Combined showcase: Chat, Translate, Documents (OCR) and Knowledge (RAG)
 
 The combined recipe selects Qwen3.8-27B-INT4 for Chat, Hy-MT2-7B for Translate,
-and DeepSeek-OCR for Documents (OCR). Start it with your converted checkpoints:
+and DeepSeek-OCR for Documents (OCR). You can download public pre-converted Eole
+packages or convert the original HF checkpoints yourself; see the preparation
+instructions for [Qwen3.8](../qwen38/README.md#hardware-and-checkpoint),
+[Hy-MT2](../translation/README.md#showcase-hy-mt2-7b) and
+[DeepSeek-OCR](../deepseekocr/README.md#prepare-the-checkpoint).
+Both routes use the same model paths below:
 
 ```bash
 export EOLE_MODEL_DIR=/path/to/models

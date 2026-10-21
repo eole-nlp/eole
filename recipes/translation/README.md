@@ -12,16 +12,38 @@ Documents (OCR), and Knowledge (RAG). All visuals show the full workspace menu.
 
 ## Showcase: Hy-MT2-7B
 
-Use a converted [tencent/Hy-MT2-7B](https://huggingface.co/tencent/Hy-MT2-7B)
-checkpoint. This is a BF16 model, not the INT4 Qwen chat checkpoint. For a local
-installation matching the example:
+Use an Eole checkpoint of [tencent/Hy-MT2-7B](https://huggingface.co/tencent/Hy-MT2-7B).
+This is a BF16 model, not the INT4 Qwen chat checkpoint. With Eole 0.6.4 or newer,
+choose either preparation option below. Both use the same local model path:
 
 ```bash
 export EOLE_MODEL_DIR=/path/to/models
-# Skip conversion if this directory is already an Eole checkpoint.
-eole convert HF --model_dir tencent/Hy-MT2-7B \
-  --output "$EOLE_MODEL_DIR/Hy-MT2-7B"
 export HY_MT2_MODEL="$EOLE_MODEL_DIR/Hy-MT2-7B"
+```
+
+**Download pre-converted weights:** the public
+[Eole Hy-MT2 package](https://huggingface.co/eole-nlp/Hy-MT2-7B-eole) includes its
+configuration and tokenizer. No conversion or HF token is required:
+
+```bash
+hf download eole-nlp/Hy-MT2-7B-eole --local-dir "$HY_MT2_MODEL"
+```
+
+**Or convert the original HF checkpoint:** pass the upstream repository ID or
+an existing local HF directory:
+
+```bash
+eole convert HF --model_dir tencent/Hy-MT2-7B \
+  --output "$HY_MT2_MODEL" --dtype bf16
+```
+
+Use a new destination for either option; skip preparation if you already have an
+Eole checkpoint. To pin a pre-converted download, add `--revision COMMIT_SHA`;
+validated pins are in the [RunPod model catalog](../runpod/models.json).
+Runtime dependencies and GPU memory requirements are the same for both options.
+Then start the server:
+
+```bash
 CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
   eole serve -c recipes/translation/serve.yaml --host 127.0.0.1 --port 5000
 ```
