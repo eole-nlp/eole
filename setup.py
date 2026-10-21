@@ -132,7 +132,7 @@ setup(
         "translation": ["pypdf>=5.0.0"],
         "ocr": ["PyMuPDF>=1.24.0"],
         "rag": [
-            "sentence-transformers>=6.1,<7",
+            "sentence-transformers[image]>=6.1,<7",
             "transformers>=5.20,<6",
             "langchain-community>=0.4,<0.5",
             "langchain-text-splitters>=1.1,<2",

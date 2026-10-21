@@ -185,7 +185,11 @@ hardware before claiming a new combination is supported.
 
 ### RunPod deployment images
 
-Build/publish the full Eole image from a commit containing this change first.
+Build/publish the full Eole image from a commit containing the precompiled-ops
+change first. A compatible parent already built from #473 can be reused; the
+pre-converted-model changes only require rebuilding the RunPod wrapper from
+the newly merged source commit. Both image builds install a matching Torchvision
+wheel for the RAG processor, constrained to the selected PyTorch/CUDA runtime.
 Then run **Build RunPod Image** with `eole_image` set to that newly published tag
 (or digest), and `deploy_tag=0.6.4-r2`. The RunPod build rejects parent images that
 lack importable Eole ops, rather than silently publishing an image that compiles
@@ -195,6 +199,9 @@ The repository template targets `0.6.4-r2`. Update the public template's
 `imageName` to that tag after publishing and validation, using
 [the template publishing instructions](../recipes/runpod/MAINTAINERS.md).
 Changing Git source alone does not update an existing template or running Pod.
+The r2 launcher downloads pre-converted public `eole-nlp` checkpoints pinned in
+`recipes/runpod/models.json`, then verifies file SHA256 checksums. It does not
+download original HF weights or run model conversion on the Pod.
 On startup the launcher probes the bundled extension on each visible GPU, then
 uses source compilation only if the binary is absent or incompatible. A matching
 volume cache is used when no bundled binary exists. The fallback result is cached.

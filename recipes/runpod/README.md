@@ -12,7 +12,9 @@ that volume; it does not attach it automatically. The 60 GB container disk alone
 is not sufficient. Private cloud validation has passed INT4/BF16 Chat,
 translation, PDF OCR and automatic model switching with an attached volume.
 
-This recipe targets **`eole-runpod:0.6.4-r2`**, with prebuilt Eole CUDA ops.
+This recipe targets **`eole-runpod:0.6.4-r2`**, with prebuilt Eole CUDA ops and
+pre-converted models from the public [eole-nlp organization](https://huggingface.co/eole-nlp).
+No HF token is required for these four checkpoints; no model conversion runs on the Pod.
 Maintainers must first build a full Eole image containing those ops, publish the
 RunPod wrapper, and update the existing public template before the button uses it; see the [publishing steps](MAINTAINERS.md#publish-an-update-with-bundled-cuda-ops).
 
@@ -36,7 +38,7 @@ RunPod wrapper, and update the existing public template before the button uses i
    on **port 5000**. Sign in with username **`eole`** and the password **value**
    you saved in `eole_password` (not your RunPod account password).
 4. **Wait for preparation, then start using Eole.** The progress page opens the
-   workspace automatically once downloads and conversion finish. First use of
+   workspace automatically once downloads and file verification finish. First use of
    each model also loads it onto the GPU and compiles inference; the UI reports
    warmup separately. This can take several minutes.
 5. **Clean up when finished.** For a disposable test, choose **Terminate** in
@@ -52,9 +54,9 @@ cost; it cannot skip those steps.
 
 | Workspace | Prepared model / behavior |
 |---|---|
-| Chat | Qwen3.8-27B INT4; text and image conversations |
-| Translate | Hy-MT2-7B; dedicated translation workflow |
-| Documents (OCR) | DeepSeek-OCR; upload PDFs/images and extract Markdown |
+| Chat | [Qwen3.8-27B INT4](https://huggingface.co/eole-nlp/Qwen3.8-27B-INT4-eole); text and image conversations |
+| Translate | [Hy-MT2-7B](https://huggingface.co/eole-nlp/Hy-MT2-7B-eole); dedicated translation workflow |
+| Documents (OCR) | [DeepSeek-OCR](https://huggingface.co/eole-nlp/DeepSeek-OCR-eole); upload PDFs/images and extract Markdown |
 | Knowledge (RAG) | Qwen answers questions using your documents; the embedding model downloads on first use |
 | Benchmark | Measure generation speed after warmup |
 
@@ -64,8 +66,8 @@ warmup take time, so a switch is not instantaneous.
 
 ## Optional: use original Qwen instead of INT4
 
-For the default deployment, change nothing. To try the original unquantized model,
-change **`EOLE_QWEN_VARIANT`** under **Environment variables** before clicking Deploy:
+For the default deployment, change nothing. To try the
+[original BF16 model](https://huggingface.co/eole-nlp/Qwen3.8-27B-BF16-eole), change **`EOLE_QWEN_VARIANT`** under **Environment variables** before clicking Deploy:
 
 | Value | Chat models available | GPU choice |
 |---|---|---|
@@ -73,9 +75,9 @@ change **`EOLE_QWEN_VARIANT`** under **Environment variables** before clicking D
 | `bf16` | Original Qwen3.8-27B in BF16 | 80 GB minimum; 96 GB recommended |
 | `both` | Both models, selectable in Chat | 80 GB minimum; 96 GB recommended |
 
-Translation and OCR are included with every choice. BF16 preparation also needs
-at least **128 GB host RAM**; keep the **250 GB volume**. Its larger download and
-conversion take longer. For either option, use an **x86-64 host** and a driver
+Translation and OCR are included with every choice. Keep the **250 GB volume**.
+The original BF16 model has a larger download. Pre-converted checkpoints avoid
+conversion and its extra host RAM and disk requirements. For either option, use an **x86-64 host** and a driver
 supporting **CUDA 13.2**; this image does not support Grace/ARM hosts.
 
 ## Open it from another computer
@@ -94,7 +96,7 @@ Terminate. Closing the browser or signing out does not stop billing.**
 | **Stop** | Stop | Retained and still billed; use when resuming later |
 | **Terminate** | End | Permanently deleted, including models, caches and outputs; its storage charges end |
 
-Stopping preserves completed downloads, converted models and compatible compiler
+Stopping preserves completed downloads, verified models and compatible compiler
 caches, so resuming avoids preparing everything again. Inference may still warm
 up again. It is useful for another session, but unnecessary for a finished test.
 
@@ -111,7 +113,7 @@ separately; the quick start above uses an attached **Volume disk**.
   set **250 GB**, and check its mount is `/workspace`. A 60 GB container disk
   alone is insufficient. The launcher checks storage before kernels/downloads.
 - **“No space left on device”:** check which disk is full and the mounted volume's
-  quota. Downloads, converted checkpoints and temporary output all need space.
+  quota. Checkpoints, partial downloads and compiler caches all need space.
   Increasing only the temporary container disk does not attach persistent storage.
   Stopping/resetting a volume-less Pod loses its container-local downloads.
 
@@ -128,7 +130,7 @@ contains advanced settings, API access and local Docker testing.
 
 New images built with bundled Eole CUDA ops check the binary at startup instead
 of compiling it on the rented GPU. A source-build fallback handles incompatible
-binaries. Model preparation and Triton/torch.compile warmup still take time.
+binaries. Model downloads, checksum verification and Triton/torch.compile warmup still take time.
 Older published images retain their original startup behavior. Maintainers must
 publish a new image and update the deployment template to enable this change;
 see [publishing instructions](MAINTAINERS.md#publishing-images-with-bundled-cuda-ops).

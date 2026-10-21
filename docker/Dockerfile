@@ -11,7 +11,9 @@ LABEL org.opencontainers.image.source="https://github.com/eole-nlp/eole" \
       org.opencontainers.image.revision="${VCS_REF}"
 COPY . /eole
 WORKDIR /eole
-RUN python -m pip install -r requirements.opt.txt && \
+COPY docker/install-vision.sh /usr/local/bin/eole-install-vision
+RUN bash /usr/local/bin/eole-install-vision && \
+    python -m pip install -r requirements.opt.txt && \
     python -m pip install 'fla-core==0.5.2' 'transformers>=5.20,<6' && \
     EOLE_SKIP_CUDA_BUILD=1 python -m pip install -e '.[ui,translation,ocr,rag]' --no-build-isolation && \
     python -m pip check && eole --help

@@ -55,8 +55,9 @@ jobs:
           IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/eole-runpod:dev-$(git rev-parse --short=12 HEAD)"
           docker build -f recipes/runpod/Dockerfile --build-arg "EOLE_IMAGE=$EOLE_IMAGE" \
             --build-arg "VCS_REF=$(git rev-parse HEAD)" -t "$IMAGE" .
-          docker run --rm --entrypoint python "$IMAGE" -m py_compile /opt/eole-runpod/launch.py /opt/eole-runpod/gateway.py
-          docker run --rm --entrypoint python "$IMAGE" -c 'import torch; from eole import _ops; print(_ops.__file__)'
+          docker run --rm --entrypoint python "$IMAGE" -m py_compile /opt/eole-runpod/launch.py /opt/eole-runpod/gateway.py /opt/eole-runpod/checkpoints.py
+          docker run --rm --entrypoint python "$IMAGE" -c 'import torch, torchvision; from eole import _ops; print(_ops.__file__)'
+          docker run --rm --entrypoint python "$IMAGE" -c 'import json; from pathlib import Path; p=Path("/opt/eole-runpod"); models=json.loads((p/"models.json").read_text()); assert len(models)==4; assert all(len(m["revision"])==40 for m in models.values())'
           docker push "$IMAGE"
           echo "RunPod image: \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
           if [[ -n "$DEPLOY_TAG" ]]; then

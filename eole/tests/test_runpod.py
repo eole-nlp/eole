@@ -16,7 +16,6 @@ from recipes.runpod.auth import BrowserSessions, COOKIE_NAME, SESSION_SECONDS
 from recipes.runpod.launch import (
     Deployment,
     kernel_fingerprint,
-    relocate,
     workspace_settings,
     qwen_variants,
     filesystem_mount,
@@ -24,6 +23,7 @@ from recipes.runpod.launch import (
     StorageError,
     checkpoint_path,
     model_options,
+    MODEL_CATALOG,
     QWEN_MODELS,
     WORKSPACE_MODELS,
 )
@@ -202,7 +202,7 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
         self.deployment = Deployment(self.root, self.root, {})
 
     def checkpoint(self, path):
-        path.mkdir(parents=True)
+        path.mkdir(parents=True, exist_ok=True)
         (path / "config.json").write_text(json.dumps({"tokenizer": str(path / "tokenizer.json")}))
         (path / "tokenizer.json").write_text("{}")
         (path / "model.00.safetensors").touch()
@@ -214,8 +214,14 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
 4 1 0:3 / /with\\040space rw - ext4 /dev/test2 rw
 """
         self.assertEqual(filesystem_mount("/workspace/eole", mounts), (Path("/workspace"), "ext4"))
-        self.assertEqual(filesystem_mount("/workspace/nested/eole", mounts), (Path("/workspace/nested"), "nfs"))
-        self.assertEqual(filesystem_mount("/with space/models", mounts), (Path("/with space"), "ext4"))
+        self.assertEqual(
+            filesystem_mount("/workspace/nested/eole", mounts),
+            (Path("/workspace/nested"), "nfs"),
+        )
+        self.assertEqual(
+            filesystem_mount("/with space/models", mounts),
+            (Path("/with space"), "ext4"),
+        )
         self.assertEqual(filesystem_mount("/workspace-other/eole", mounts)[0], Path("/"))
 
     async def test_missing_volume_stops_before_compilation_or_download(self):
@@ -230,7 +236,7 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
         mounts = f"1 0 0:1 / / rw - overlay overlay rw\n2 1 0:2 / {self.root} rw - ext4 /dev/test rw"
         usage = namedtuple("Usage", "total used free")
         with patch.dict("os.environ", {}, clear=True), patch("pathlib.Path.read_text", return_value=mounts):
-            with patch("shutil.disk_usage", return_value=usage(60 * 1024**3, 0, 60 * 1024**3)):
+            with patch("shutil.disk_usage", return_value=usage(30 * 1024**3, 0, 30 * 1024**3)):
                 with self.assertRaisesRegex(StorageError, "GiB free"):
                     self.deployment.storage()
             with patch("shutil.disk_usage", return_value=usage(250 * 1024**3, 0, 250 * 1024**3)):
@@ -242,7 +248,8 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
     def test_completed_models_reduce_storage_requirement_after_restart(self):
         with patch.dict("os.environ", {"EOLE_QWEN_VARIANT": "both"}, clear=True):
             cold = preparation_space(self.root)
-            self.assertGreater(cold, 190 * 1024**3)
+            self.assertGreater(cold, 95 * 1024**3)
+            self.assertLess(cold, 105 * 1024**3)
             self.assertLess(cold, 250 * 10**9)
             for role, model_id in [*QWEN_MODELS.items(), *WORKSPACE_MODELS.items()]:
                 _, identity = model_options(model_id, role)
@@ -251,73 +258,47 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
                 (model / "deployment.json").write_text(json.dumps(identity))
             self.assertEqual(preparation_space(self.root), 8 * 1024**3)
 
-    async def test_conversion_checks_space_for_streaming_temporary_output(self):
-        snapshot = self.root / "source"
-        snapshot.mkdir()
-        (snapshot / "model.safetensors").write_bytes(b"source weights")
+    async def test_download_is_atomic_cached_and_revision_pinned(self):
         calls = []
 
         async def command(*args):
             calls.append(args)
-            (self.root / "snapshot.txt").write_text(str(snapshot))
+            if args[2] == "download":
+                self.checkpoint(Path(args[-1]))
 
         self.deployment.command = command
-        usage = namedtuple("Usage", "total used free")
-        with patch.dict("os.environ", {}, clear=True), patch("shutil.disk_usage", return_value=usage(1, 1, 0)):
-            with self.assertRaisesRegex(StorageError, "temporary output"):
-                await self.deployment.model()
-        self.assertEqual(len(calls), 1)
-        self.assertFalse(any("--output" in args for args in calls))
-
-    async def test_conversion_is_atomic_and_cached_and_paths_are_relocated(self):
-        calls = []
-
-        async def command(*args):
-            calls.append(args)
-            if "--output" in args:
-                self.checkpoint(Path(args[args.index("--output") + 1]))
-            else:
-                snapshot = self.root / "snapshot"
-                snapshot.mkdir(exist_ok=True)
-                (snapshot / "tokenizer.json").write_text("{}")
-                (self.root / "snapshot.txt").write_text(str(snapshot))
-
-        self.deployment.command = command
-        with patch.dict("os.environ", {"EOLE_MODEL_REVISION": "pinned-commit"}):
-            with patch.dict("os.environ") as env:
-                env.pop("EOLE_MODEL_PATH", None)
-                model = await self.deployment.model()
-                self.assertTrue((model / "deployment.json").is_file())
-                self.assertEqual(
-                    json.loads((model / "config.json").read_text())["tokenizer"], str(model / "tokenizer.json")
-                )
-                self.assertIn("--tokenizer", calls[1])
-                self.assertEqual(
-                    json.loads((model / "config.json").read_text())["transforms_configs"]["huggingface_tokenize"][
-                        "path"
-                    ],
-                    str(model / "tokenizer.json"),
-                )
-                self.assertEqual(len(calls), 2)
-                self.assertEqual(await self.deployment.model(), model)
-                self.assertEqual(len(calls), 2)
-                env["EOLE_MODEL_REVISION"] = "another-commit"
+        with patch.dict("os.environ", {}, clear=True):
+            model = await self.deployment.model()
+            self.assertTrue((model / "deployment.json").is_file())
+            self.assertEqual([args[2] for args in calls], ["download", "verify"])
+            self.assertEqual(calls[0][-2], MODEL_CATALOG["int4"]["revision"])
+            self.assertEqual(await self.deployment.model(), model)
+            self.assertEqual(len(calls), 2)
+            with patch.dict("os.environ", {"EOLE_MODEL_REVISION": "a" * 40}):
                 self.assertNotEqual(await self.deployment.model(), model)
-                self.assertEqual(len(calls), 4)
+            self.assertEqual(len(calls), 4)
+            with patch.dict("os.environ", {"EOLE_MODEL_REVISION": "main"}):
+                with self.assertRaisesRegex(ValueError, "full Hub commit"):
+                    await self.deployment.model()
 
-    async def test_interrupted_conversion_is_not_marked_complete(self):
+    async def test_interrupted_download_resumes_and_verification_failure_is_not_cached(
+        self,
+    ):
         async def command(*args):
-            if "--output" in args:
-                path = Path(args[args.index("--output") + 1])
-                path.mkdir()
-                (path / "config.json").write_text("{}")
-                raise RuntimeError("interrupted")
-            (self.root / "snapshot.txt").write_text("/cached/hf-snapshot")
+            path = Path(args[-1])
+            if args[2] == "download":
+                if not (path / "config.json").exists():
+                    (path / "config.json").write_text("{}")
+                    raise RuntimeError("interrupted")
+                self.assertTrue((path / "config.json").exists())
+            else:
+                raise RuntimeError("checksum mismatch")
 
         self.deployment.command = command
-        with patch.dict("os.environ") as env:
-            env.pop("EOLE_MODEL_PATH", None)
-            with self.assertRaises(RuntimeError):
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                await self.deployment.model()
+            with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
                 await self.deployment.model()
         self.assertFalse(list(self.root.rglob("deployment.json")))
         self.assertTrue(list(self.root.rglob("*.partial")))
@@ -365,10 +346,19 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
     def test_cache_key_changes_with_gpu_torch_and_source(self):
         (self.root / "setup.py").write_text("source-v1")
         key = kernel_fingerprint(self.root, {"torch": "2.14.1", "architectures": [[12, 0]]})
-        self.assertNotEqual(key, kernel_fingerprint(self.root, {"torch": "2.14.1", "architectures": [[9, 0]]}))
-        self.assertNotEqual(key, kernel_fingerprint(self.root, {"torch": "2.13.0", "architectures": [[12, 0]]}))
+        self.assertNotEqual(
+            key,
+            kernel_fingerprint(self.root, {"torch": "2.14.1", "architectures": [[9, 0]]}),
+        )
+        self.assertNotEqual(
+            key,
+            kernel_fingerprint(self.root, {"torch": "2.13.0", "architectures": [[12, 0]]}),
+        )
         (self.root / "setup.py").write_text("source-v2")
-        self.assertNotEqual(key, kernel_fingerprint(self.root, {"torch": "2.14.1", "architectures": [[12, 0]]}))
+        self.assertNotEqual(
+            key,
+            kernel_fingerprint(self.root, {"torch": "2.14.1", "architectures": [[12, 0]]}),
+        )
 
     async def test_kernel_cache_is_reused_and_invalid_binary_is_rebuilt(self):
         (self.root / "eole").mkdir()
@@ -431,7 +421,10 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
             with patch.dict("os.environ", {"EOLE_QWEN_VARIANT": choice}):
                 settings = workspace_settings(source, models)
             self.assertEqual(settings["model_policy"], "single")
-            self.assertEqual([m["id"] for m in settings["models"]], ids + ["hy-mt2-7b", "deepseek-ocr"])
+            self.assertEqual(
+                [m["id"] for m in settings["models"]],
+                ids + ["hy-mt2-7b", "deepseek-ocr"],
+            )
             self.assertFalse(any(m["preload"] for m in settings["models"]))
             self.assertEqual(settings["workspace"]["models"]["chat"], ids[0])
             self.assertEqual(settings["workspace"]["models"]["ocr"], "deepseek-ocr")
@@ -441,37 +434,39 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 qwen_variants()
 
-    async def test_all_models_have_independent_conversion_caches_and_tokenizers(self):
+    async def test_all_models_have_independent_download_caches_and_tokenizers(self):
         calls = []
 
         async def command(*args):
             calls.append(args)
-            if "--output" in args:
-                output = Path(args[args.index("--output") + 1])
-                self.checkpoint(output)
-                (output / "tokenizer.json").unlink()  # Real HF conversion references its source cache.
-            else:
-                snapshot = self.root / ("snapshot-" + str(len(calls)))
-                snapshot.mkdir()
-                (snapshot / "tokenizer.json").write_text("{}")
-                Path(args[-1]).write_text(str(snapshot))
+            if args[2] == "download":
+                self.checkpoint(Path(args[-1]))
 
         self.deployment.command = command
         with patch.dict("os.environ", {"EOLE_QWEN_VARIANT": "both"}, clear=True):
             checkpoints = []
-            for role, model_id in [
-                ("int4", "RedHatAI/Qwen3.8-27B-INT4"),
-                ("bf16", "Qwen/Qwen3.8-27B"),
-                ("translate", "tencent/Hy-MT2-7B"),
-                ("ocr", "deepseek-ai/DeepSeek-OCR"),
-            ]:
+            for role, model_id in [*QWEN_MODELS.items(), *WORKSPACE_MODELS.items()]:
                 model = await self.deployment.model(model_id, role)
                 checkpoints.append(model)
-                self.assertEqual(json.loads((model / "deployment.json").read_text())["model"], model_id)
+                identity = json.loads((model / "deployment.json").read_text())
+                self.assertEqual(identity["model"], model_id)
+                self.assertEqual(identity["revision"], MODEL_CATALOG[role]["revision"])
                 self.assertTrue((model / "tokenizer.json").is_file())
                 self.assertEqual(await self.deployment.model(model_id, role), model)
             self.assertEqual(len(set(checkpoints)), 4)
             self.assertEqual(len(calls), 8)
+
+    def test_catalog_pins_all_models_and_r2_template_packages_them(self):
+        self.assertEqual(set(MODEL_CATALOG), {"int4", "bf16", "translate", "ocr"})
+        for model in MODEL_CATALOG.values():
+            self.assertTrue(model["repo"].startswith("eole-nlp/"))
+            self.assertRegex(model["revision"], r"^[0-9a-f]{40}$")
+            self.assertGreater(model["size_bytes"], 1024**3)
+        recipe = Path(__file__).resolve().parents[2] / "recipes/runpod"
+        template = json.loads((recipe / "template.json").read_text())
+        self.assertEqual(template["imageName"], "ghcr.io/eole-nlp/eole-runpod:0.6.4-r2")
+        self.assertIn('data-stage="verify"', (recipe / "preparing.html").read_text())
+        self.assertNotIn('data-stage="convert"', (recipe / "preparing.html").read_text())
 
     def test_template_never_contains_a_shared_password_or_rents_a_pod(self):
         spec = template_spec("ghcr.io/eole-nlp/eole-runpod:dev-123456789abc")
@@ -482,9 +477,3 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("5001", json.dumps(spec))
         with self.assertRaises(ValueError):
             template_spec("ghcr.io/eole-nlp/eole-runpod:latest")
-
-    def test_path_relocation_does_not_change_other_paths(self):
-        self.assertEqual(
-            relocate(["/stage/tokenizer", "/stage-other/tokenizer"], Path("/stage"), Path("/final")),
-            ["/final/tokenizer", "/stage-other/tokenizer"],
-        )

@@ -22,10 +22,11 @@ except ImportError:
     from gateway import create_gateway
 
 LOG = logging.getLogger("eole.runpod")
-MODEL_ID = "RedHatAI/Qwen3.8-27B-INT4"
+MODEL_CATALOG = json.loads((Path(__file__).resolve().parent / "models.json").read_text())
+MODEL_ID = MODEL_CATALOG["int4"]["repo"]
 RECIPE = Path(__file__).resolve().parent
-QWEN_MODELS = {"int4": MODEL_ID, "bf16": "Qwen/Qwen3.8-27B"}
-WORKSPACE_MODELS = {"translate": "tencent/Hy-MT2-7B", "ocr": "deepseek-ai/DeepSeek-OCR"}
+QWEN_MODELS = {role: MODEL_CATALOG[role]["repo"] for role in ("int4", "bf16")}
+WORKSPACE_MODELS = {role: MODEL_CATALOG[role]["repo"] for role in ("translate", "ocr")}
 GIB = 1024**3
 STORAGE_HELP = "In RunPod deployment, choose Add volume → Volume disk, set 250 GB and mount it at /workspace."
 
@@ -57,9 +58,10 @@ def model_options(model_id, role):
     }[role]
     if role == "bf16" and qwen_variants() == ["bf16"]:
         prefix = "EOLE_MODEL"
-    identity = {"model": model_id, "revision": os.environ.get(prefix + "_REVISION", "main")}
-    if role == "ocr":
-        identity["conversion"] = 2
+    revision = os.environ.get(prefix + "_REVISION", MODEL_CATALOG[role]["revision"])
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError(prefix + "_REVISION must be a full Hub commit SHA")
+    identity = {"model": model_id, "revision": revision, "format": "eole"}
     return os.environ.get(prefix + "_PATH"), identity
 
 
@@ -74,19 +76,16 @@ def completed_checkpoint(model, identity):
 
 
 def preparation_space(root):
-    # Source + converted weights remain on disk. Streaming conversion temporarily
-    # keeps another output copy; account for the sequential preparation order.
-    sizes = {"int4": 18, "bf16": 53, "translate": 14, "ocr": 7}
-    retained, peak = 0, 8 * GIB  # Kernel/compiler cache and download headroom.
+    # Download directly into the final filesystem: no upstream weight cache or
+    # conversion output duplicates. Existing/partial files already consume disk;
+    # conservatively reserve a complete missing checkpoint plus cache headroom.
+    needed = 8 * GIB
     selected = [(v, QWEN_MODELS[v]) for v in qwen_variants()] + list(WORKSPACE_MODELS.items())
     for role, model_id in selected:
         explicit, identity = model_options(model_id, role)
-        if explicit or completed_checkpoint(checkpoint_path(root, identity), identity):
-            continue
-        size = sizes[role] * GIB
-        peak = max(peak, retained + 3 * size + 8 * GIB)
-        retained += 2 * size
-    return peak
+        if not explicit and not completed_checkpoint(checkpoint_path(root, identity), identity):
+            needed += MODEL_CATALOG[role]["size_bytes"]
+    return needed
 
 
 def qwen_variants():
@@ -119,17 +118,6 @@ def valid_model(path):
         and (path / "tokenizer.json").is_file()
         and any(path.glob("model.*.safetensors"))
     )
-
-
-def relocate(value, old, new):
-    """Conversion writes tokenizer paths before its staging directory is renamed."""
-    if isinstance(value, str) and value.startswith(str(old) + "/"):
-        return str(new) + value[len(str(old)) :]
-    if isinstance(value, dict):
-        return {key: relocate(item, old, new) for key, item in value.items()}
-    if isinstance(value, list):
-        return [relocate(item, old, new) for item in value]
-    return value
 
 
 def kernel_fingerprint(source, runtime):
@@ -266,64 +254,19 @@ for i in range(torch.cuda.device_count()):
             if not valid_model(model):
                 raise ValueError("Existing model path must contain a converted checkpoint and tokenizer")
             return model
-        revision = identity["revision"]
         model = checkpoint_path(self.root, identity)
         if completed_checkpoint(model, identity):
             self.stage("download", f"Using {model_id} saved on your volume.")
             return model
-        self.stage("download", f"Downloading {model_id}. The first download can take several minutes…")
-        snapshot = self.root / ("snapshot.txt" if role == "int4" else f"snapshot-{role}.txt")
-        await self.command(
-            sys.executable,
-            "-c",
-            """
-from huggingface_hub import snapshot_download
-from pathlib import Path
-import sys
-path = snapshot_download(sys.argv[1], revision=sys.argv[2], ignore_patterns=['*.md', '*.png', '*.jpg'])
-Path(sys.argv[3]).write_text(path)
-""",
-            model_id,
-            revision,
-            snapshot,
-        )
-        self.stage("convert", f"Converting {model_id} for Eole…")
         staging = model.with_name(model.name + ".partial")
-        shutil.rmtree(staging, ignore_errors=True)
-        staging.parent.mkdir(parents=True, exist_ok=True)
-        source_size = sum(p.stat().st_size for p in Path(snapshot.read_text().strip()).glob("*.safetensors"))
-        if source_size and shutil.disk_usage(staging.parent).free < 2 * source_size + 2 * GIB:
-            raise StorageError(
-                f"Not enough free space to convert {model_id}, including temporary output files. " + STORAGE_HELP
-            )
-        await self.command(
-            sys.executable,
-            "-m",
-            "eole.bin.main",
-            "convert",
-            "HF",
-            "--model_dir",
-            snapshot.read_text().strip(),
-            "--output",
-            staging,
-            "--dtype",
-            "bf16",
-            "--check-tensors",
-            "--tokenizer",
-            "hf",
-        )
-        # HF conversion may reference the download cache instead of copying its tokenizer.
-        tokenizer = Path(snapshot.read_text().strip()) / "tokenizer.json"
-        if tokenizer.is_file():
-            shutil.copy2(tokenizer, staging / "tokenizer.json")
+        staging.mkdir(parents=True, exist_ok=True)
+        helper = RECIPE / "checkpoints.py"
+        self.stage("download", f"Downloading pre-converted {model_id}. The first download can take several minutes…")
+        await self.command(sys.executable, helper, "download", model_id, identity["revision"], staging)
+        self.stage("verify", f"Verifying downloaded files for {model_id}…")
+        await self.command(sys.executable, helper, "verify", model_id, identity["revision"], staging)
         if not valid_model(staging):
-            raise RuntimeError("Converted checkpoint is incomplete; see the private Pod logs")
-        config = staging / "config.json"
-        settings = relocate(json.loads(config.read_text()), staging, model)
-        settings.setdefault("transforms_configs", {}).setdefault("huggingface_tokenize", {})["path"] = str(
-            model / "tokenizer.json"
-        )
-        config.write_text(json.dumps(settings, indent=2))
+            raise RuntimeError("Downloaded checkpoint is incomplete; see the private Pod logs")
         (staging / "deployment.json").write_text(json.dumps(identity))
         if model.exists():
             raise RuntimeError("An incomplete destination exists; preserve/remove it manually before retrying")

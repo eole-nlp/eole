@@ -5,10 +5,10 @@
 :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#10141c;color:#edf2fb}body{margin:0;min-height:100vh;display:grid;place-items:center}main{box-sizing:border-box;width:min(660px,90vw);padding:clamp(24px,5vw,40px);border:1px solid #303b50;border-radius:24px;background:#171e2b;box-shadow:0 24px 80px #0005}.brand{font-size:18px;font-weight:700;color:#95c8ff}h1{font-size:32px;letter-spacing:-1px}p{color:#afbdd2;line-height:1.65}ol{list-style:none;padding:0;display:grid;gap:12px}li{padding:12px 16px;border-radius:10px;color:#7c8da8;background:#121925}li.active{color:#cfe6ff;border:1px solid #5ba5fa}li.done{color:#8cdbb0}#message{min-height:3em}.footer{font-size:13px;border-top:1px solid #303b50;padding-top:20px}a{color:#a3ceff}</style>
 <main><div class="brand">eole / cloud workspace</div><h1 id="title">Preparing your workspace</h1>
 <p id="message" role="status" aria-live="polite">Connecting to your instance…</p>
-<ol id="steps"><li data-stage="storage">Check persistent storage</li><li data-stage="gpu">Check GPU</li><li data-stage="kernels">Check prebuilt GPU kernels</li><li data-stage="download">Download model</li><li data-stage="convert">Convert weights</li><li data-stage="load">Load Eole</li></ol>
+<ol id="steps"><li data-stage="storage">Check persistent storage</li><li data-stage="gpu">Check GPU</li><li data-stage="kernels">Check prebuilt GPU kernels</li><li data-stage="download">Download model</li><li data-stage="verify">Verify model files</li><li data-stage="load">Load Eole</li></ol>
 <p class="footer">GPU kernels arrive with the image; source compilation is a fallback. First startup can take several minutes. Saved models and compiler caches are reused. Your rented GPU remains billable during preparation.</p></main>
 <script>
-const order=['storage','gpu','kernels','download','convert','load','ready'];
+const order=['storage','gpu','kernels','download','verify','load','ready'];
 async function refresh(){try{const r=await fetch('/_deployment/status',{cache:'no-store'});if(!r.ok)throw Error();const s=await r.json();document.querySelector('#message').textContent=s.message;
 if(s.stage==='kernels'){document.querySelector('[data-stage="kernels"]').textContent=s.message.startsWith('Building kernels')?'Build GPU kernels (fallback)':'Check prebuilt GPU kernels';}
 if(s.stage==='ready'){location.replace('/');return;}

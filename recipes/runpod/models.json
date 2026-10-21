@@ -1,0 +1,26 @@
+{
+  "int4": {
+    "repo": "eole-nlp/Qwen3.8-27B-INT4-eole",
+    "revision": "d4a1a9ceefb98bf052a0055269655615b2426393",
+    "size_bytes": 19595937153,
+    "upstream": "RedHatAI/Qwen3.8-27B-INT4"
+  },
+  "translate": {
+    "repo": "eole-nlp/Hy-MT2-7B-eole",
+    "revision": "1bd01d2a4278934a6e1df6d7c383bf6b3ffe37e2",
+    "size_bytes": 15034117848,
+    "upstream": "tencent/Hy-MT2-7B"
+  },
+  "ocr": {
+    "repo": "eole-nlp/DeepSeek-OCR-eole",
+    "revision": "ca2931c0c2fdf8eb6f8f5988ea31a59b31e12f0a",
+    "size_bytes": 6690567155,
+    "upstream": "deepseek-ai/DeepSeek-OCR"
+  },
+  "bf16": {
+    "repo": "eole-nlp/Qwen3.8-27B-BF16-eole",
+    "revision": "7c882f01aef1bb6dab98b93fa04843aa016f5c14",
+    "size_bytes": 54847741875,
+    "upstream": "Qwen/Qwen3.8-27B"
+  }
+}
