@@ -100,7 +100,7 @@ jobs:
                           filename=binary.name, sha256=hashlib.sha256(binary.read_bytes()).hexdigest())
           Path('/artifacts/manifest.json').write_text(json.dumps(manifest, indent=2))
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: eole-cuda-ops-torch${{ inputs.torch_version }}-cuda${{ inputs.cuda_version }}
           path: cuda-ops/
