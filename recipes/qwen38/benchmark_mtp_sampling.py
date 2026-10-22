@@ -74,7 +74,10 @@ def main():
     }
     engine = InferenceEnginePY(config)
     try:
-        if not isinstance(engine.predictor.model.generator, torch.nn.Linear):
+        if (
+            not isinstance(engine.predictor.model.generator, torch.nn.Linear)
+            or engine.predictor.model.generator.weight.dtype != torch.bfloat16
+        ):
             raise ValueError("This benchmark requires the original dense BF16 vocabulary head")
         engine.predictor.max_length = min(128, args.tokens)
         engine.infer_list([next(iter(prompts.values()))])

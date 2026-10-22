@@ -56,6 +56,11 @@ class TestSpeculativeSampling(unittest.TestCase):
         scores = torch.randn(2, 5)
         self.assertIs(apply_token_penalties(scores, torch.zeros(2, 0, dtype=torch.long)), scores)
 
+    def test_zero_probability_draft_is_never_accepted(self):
+        scores = torch.tensor([[[-float("inf"), 0.0], [0.0, -float("inf")]]])
+        actual = sample_target_chunk(scores, torch.tensor([[0]]), torch.empty(1, 0, dtype=torch.long), 0.6, 0, 0.95)
+        torch.testing.assert_close(actual[:, 0], torch.tensor([1]))
+
     def test_topk_one_keeps_greedy_selection(self):
         logits = torch.tensor([[[3.0, 1.0, 2.0], [0.0, 5.0, 1.0]]])
         actual = sample_target_chunk(logits, torch.tensor([[0]]), torch.empty(1, 0, dtype=torch.long), 1.0, 1, 0.0)
@@ -64,7 +69,12 @@ class TestSpeculativeSampling(unittest.TestCase):
     def test_sampled_correction_and_eos_commit_only_emitted_prefix(self):
         # Exercise the actual generator round with a sampled correction, then
         # with an accepted EOS before later matching proposals.
-        for selected, expected_count, expected_commit in (([1, 4, 2, 3], 2, 2), ([1, 2, 3, 4], 2, 2)):
+        for selected, expected_count, expected_commit in (
+            ([4, 1, 2, 3], 1, 1),
+            ([2, 1, 3, 4], 1, 1),
+            ([1, 4, 2, 3], 2, 2),
+            ([1, 2, 3, 4], 2, 2),
+        ):
             with self.subTest(selected=selected):
                 decoder = torch.nn.Module()
                 decoder.cache_seqlens = torch.tensor([14], dtype=torch.int32)
@@ -105,7 +115,7 @@ class TestSpeculativeSampling(unittest.TestCase):
                     step, _, position = GeneratorLM._speculative_draft_verify(
                         predictor, strategy, torch.zeros(1, 1, 4), 7, 1, streamer
                     )
-                self.assertEqual(strategy.advance_speculative.call_args.args[3], selected[1] == 2)
+                self.assertEqual(strategy.advance_speculative.call_args.args[3], selected[expected_count - 1] == 2)
                 self.assertEqual(streamer.put.call_count, expected_count)
                 self.assertEqual(step, 1 + expected_count)
                 model.commit_mtp_draft.assert_called_once_with(expected_commit)

@@ -201,7 +201,8 @@ This uses three text fixtures from NInfer revision
 thinking disabled. The default is a 64K cache reservation, 4,096 output tokens
 and seeds 42/43. Compare actual output lengths and draft acceptance as well as
 speed. The decoder checkpoint may be INT4; the benchmark requires its original
-dense BF16 vocabulary head and does not quantize it.
+dense BF16 vocabulary head and does not quantize it. See the
+[measured sampling speed and acceptance](mtp-sampling-results.md).
 
 For a real coding client continue with [Claude Code](../claude-code/README.md).
 
