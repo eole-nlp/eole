@@ -152,7 +152,7 @@ class BatchProcessor:
         self, src, tgt, src_len, batch: Dict[str, Any], normalization: int, accum_count: int, kwargs: Dict[str, Any]
     ) -> Tuple[Optional[torch.Tensor], eole.utils.Statistics]:
         """Compute loss for a batch."""
-        with get_autocast(enabled=self.optim.amp):
+        with get_autocast(enabled=self.optim.amp, dtype=self.optim.compute_dtype):
             model_output = self.model(src, tgt, src_len, with_align=self.with_align, **kwargs)
             model_out, attns, estim = model_output
             # MTP auxiliary head outputs (None when MTP is disabled)
@@ -497,7 +497,7 @@ class Trainer:
                 src_len = batch["srclen"]
                 tgt = batch["tgt"]
 
-                with get_autocast(enabled=self.optim.amp):
+                with get_autocast(enabled=self.optim.amp, dtype=self.optim.compute_dtype):
                     # F-prop through the model.
                     model_out, attns, estim = valid_model(src, tgt, src_len, with_align=self.config.with_align)
 
@@ -518,7 +518,7 @@ class Trainer:
             if len(self.valid_scorers) > 0:
                 computed_metrics = {}
                 start = time.time()
-                with get_autocast(enabled=self.optim.amp):
+                with get_autocast(enabled=self.optim.amp, dtype=self.optim.compute_dtype):
                     preds, texts_ref, texts_src = self.scoring_preparator.translate(
                         model=self.model,
                         gpu_rank=self.config.gpu_rank,

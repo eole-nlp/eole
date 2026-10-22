@@ -111,7 +111,7 @@ def configure_cuda_backends():
     torch.backends.cuda.enable_cudnn_sdp(False)
 
 
-def get_autocast(enabled=True, device_type="auto"):
+def get_autocast(enabled=True, device_type="auto", dtype=None):
     if not enabled:
         return nullcontext()
 
@@ -119,7 +119,7 @@ def get_autocast(enabled=True, device_type="auto"):
         device_type = get_device_type()
 
     if device_type == "cuda":
-        return torch.amp.autocast("cuda")
+        return torch.amp.autocast("cuda", dtype=dtype or torch.float16)
     elif device_type == "mps":
         return torch.amp.autocast(device_type="mps")
     else:

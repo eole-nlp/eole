@@ -302,6 +302,7 @@ class Optimizer:
         learning_rate_decay_fn: Optional callable for LR scheduling.
         max_grad_norm: Clip gradients to this global norm (0 = no clipping).
         use_amp: Whether to use automatic mixed precision.
+        compute_dtype: Autocast dtype used when AMP is enabled.
     """
 
     def __init__(
@@ -311,6 +312,7 @@ class Optimizer:
         learning_rate_decay_fn: Optional[Callable[[int], float]] = None,
         max_grad_norm: Optional[float] = None,
         use_amp: bool = True,
+        compute_dtype: Optional[torch.dtype] = None,
     ) -> None:
         self._optimizer = optimizer
         self._learning_rate = learning_rate
@@ -319,6 +321,7 @@ class Optimizer:
         self._training_step = 1
         self._decay_step = 1
         self.use_amp = use_amp
+        self.compute_dtype = compute_dtype
         self._scaler: Optional[GradScaler] = None
 
     @classmethod
@@ -349,6 +352,7 @@ class Optimizer:
             learning_rate_decay_fn=make_learning_rate_decay_fn(config, running_config),
             max_grad_norm=running_config.max_grad_norm,
             use_amp=use_amp,
+            compute_dtype=running_config.compute_dtype,
         )
 
         # Initialize GradScaler for AMP using the model's device

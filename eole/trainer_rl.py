@@ -175,7 +175,7 @@ class RLTrainer(Trainer):
         src_len = batch["srclen"]
         kwargs = {"images": batch.get("images"), "prefix_len": batch.get("prefix_len")}
 
-        with get_autocast(enabled=self.optim.amp):
+        with get_autocast(enabled=self.optim.amp, dtype=self.optim.compute_dtype):
             if self.model.is_decoder_only:
                 out = self.model.compute_log_probs(sampled_tgt, sampled_tgt, sampled_len, **kwargs)
             else:
