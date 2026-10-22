@@ -267,6 +267,23 @@ checkpoint. Requests reuse an already-loaded model when possible.
 
 Use `model_policy: keep_loaded` to retain several models when GPU memory permits.
 With `single`, at most one model may have `preload: true`; the showcase preloads none.
+To prepare Qwen before the server opens, set both `preload: true` and `warmup: true`
+on its model entry (beside `config`, not inside it). The single-model
+[`serve.yaml`](serve.yaml) does this by default. `warmup: true` also prepares a model
+when it is loaded again after a workspace switch. Preparation drains a short real
+request in the inference worker and retains the engine for subsequent requests.
+
+For single-GPU compile mode 0 with MTP, only the full verification chunk is compiled;
+short tails stay eager. The compiled verifier is generated locally and reused from
+`EOLE_VERIFIER_CACHE_DIR`, or `~/.cache/eole/verifiers` by default (respecting
+`XDG_CACHE_HOME`). The same cache works with local scripts such as
+`recipes/qwen35/test_inference3.py`; no download step or PyTorch upgrade is required
+on versions supporting AOT save/load. To select another directory, set
+`speculative_verifier_cache: /path/to/cache` in the inference config; set it to `""`
+to disable persistence. Missing/incompatible caches are compiled automatically.
+Only use trusted, locally generated cache files: they contain executable code.
+Mode 2, tensor parallel and non-MTP inference keep their existing compilation policy.
+
 Omitting `model_policy` preserves legacy behavior (API requests unload other models,
 while workspace jobs retain them). The explicit policy is recommended for mixed
 API/workspace deployments. Workspace defaults are configured independently:

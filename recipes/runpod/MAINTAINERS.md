@@ -8,27 +8,27 @@ customizing the deployment. Ordinary users do not need Docker commands or an API
 
 No new PyPI version is required. Existing images are immutable for this workflow:
 publish new development/revision tags rather than overwriting `0.6.4` or
-`0.6.4-r1`.
+`0.6.4-r1` or `0.6.4-r2`.
 
-1. Merge both the precompiled-ops and pre-converted-model changes. Build the full
-   Eole parent with **Actions → Build Docker Images** from `main`, using the merged
-   commit, desired PyTorch/CUDA versions and architecture list. A non-release ref
-   publishes a `dev-<commit>` image. If you already built a compatible parent from
-   merged #473, reuse it: this model-download change only needs a new RunPod wrapper.
-   The wrapper also supplies a matching Torchvision wheel for RAG when the parent
-   lacks it, constrained to the parent's exact PyTorch version and CUDA wheel index.
-2. Run **Actions → Build RunPod Image** from `main` with:
-   - `source_ref`: the merged commit containing this model-download change.
+1. Build the full Eole parent with **Actions → Build Docker Images** from the
+   merged source containing startup verifier preparation, using the desired
+   PyTorch/CUDA versions and architecture list. A non-release ref publishes a
+   `dev-<commit>` image. A parent from #473/#474 cannot supply the new server/cache
+   code; rebuild the full image. The CUDA base may be reused when its environment
+   is unchanged. The wrapper supplies matching Torchvision when required.
+2. Run **Actions → Build RunPod Image** with:
+   - `source_ref`: the merged commit containing these startup changes.
    - `eole_image`: the full Eole image tag/digest published in step 1.
-   - `deploy_tag`: **`0.6.4-r2`** for this update, or empty for testing only.
-   The previous 0.6.4 parent lacks bundled ops and is intentionally rejected.
+   - `deploy_tag`: a **new deployment revision**, or empty for a development test.
+   Do not overwrite the published `0.6.4-r2` image. The wrapper checks that its
+   parent contains bundled ops and the matching startup/cache implementation.
 3. Verify the published image is public and test a disposable Pod. Build-time
    import checks do not replace GPU inference validation.
-4. Once validated, update existing public RunPod template **`e9e19ozt9c`** to
-   **`ghcr.io/eole-nlp/eole-runpod:0.6.4-r2`**. The repository's `template.json`
-   already records this image. Keep the launcher,
-   Secret reference, ports and storage settings. Merging repository changes or
-   publishing an image does not update the live template automatically.
+4. Once validated, set the chosen image in `template.json` and update the existing
+   public RunPod template **`e9e19ozt9c`** to the newly published image. Keep the
+   launcher, Secret reference, ports and storage settings. The currently published
+   template uses **`ghcr.io/eole-nlp/eole-runpod:0.6.4-r2`**. Merging repository
+   changes or publishing an image does not update that live template automatically.
 5. Open the README's deploy button and verify the selected image. The template
    ID and deploy links stay unchanged; existing Pods keep their existing images.
 
@@ -322,3 +322,19 @@ Publish `0.6.4-r2` and update the public template to it after validation.
 The repository template already points to r2; do not overwrite older tags. No PyPI release is required for this
 Docker-only update. Test real inference on each claimed GPU family before
 advertising it as validated; the build only cross-compiles those targets.
+
+## Publish startup verifier preparation
+
+Build the **full Eole image** from the source revision containing
+`eole/utils/verifier_cache.py` and `Model.warmup`, then build the RunPod wrapper
+using that image as `eole_image`. Updating only the launcher against an older
+parent cannot implement startup preparation; the wrapper now checks this at build
+time. Publish under the next deployment revision and update the existing public
+template using the steps above. This PR does not change the published r2 tag or
+template and does not require a PyPI version bump.
+
+The wrapper starts the default Qwen model with `preload: true, warmup: true`.
+Confirm the preparation screen stays visible until logs report preparation complete,
+then check Chat, a restart reusing `/workspace/eole/verifiers`, and model switching.
+The first locally compiled verifier stays in memory. No verifier binaries need to be
+built into the image, downloaded or uploaded by maintainers.

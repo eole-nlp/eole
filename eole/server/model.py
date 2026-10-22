@@ -7,6 +7,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from threading import Event
 
 import torch
 import yaml
@@ -65,6 +66,7 @@ class Server(object):
                 model_type=model.get("model_type", "default"),
                 pre_config=model.get("config", {}),
                 translation_config=model.get("translation", {}),
+                warmup=model.get("warmup", False),
             )
             if model.get("preload", False):
                 self.models[model_id].load()
@@ -150,6 +152,7 @@ class Model(object):
         model_type=False,
         pre_config={},
         translation_config=None,
+        warmup=False,
     ):
         self.loaded = False
         self.engine = None
@@ -161,6 +164,7 @@ class Model(object):
         self.model_type = model_type
         self.pre_config = pre_config
         self.translation_config = translation_config or {}
+        self.warmup_on_load = warmup
         self.request_queue = asyncio.Queue()
         self.batch_size = pre_config.get("batch_size", 8)
         self.batch_timeout = pre_config.get("batch_timeout", 0.1)
@@ -307,8 +311,34 @@ class Model(object):
         self.maybe_retrieve_model()
         self.get_config()
         self.engine = InferenceEnginePY(self.config)
+        try:
+            if self.warmup_on_load:
+                self.warmup()
+        except Exception:
+            self.engine.terminate()
+            self.engine = None
+            raise
         self.loaded = True
         logger.info(f"Loaded model {self.model_id} from: {self.model_path}")
+
+    def warmup(self):
+        """Prepare a causal chat model in its inference worker before readiness.
+
+        Draining a short real request warms prefill/drafting as well as the
+        verifier. The cancellation token enables request-setting restoration;
+        it is never set here. Model loading must finish before exposing health.
+        """
+        if self.config.world_size > 1 or self.config.beam_size != 1:
+            raise ValueError("Server warmup currently requires a single-process, beam_size=1 chat model")
+        logger.info("Preparing %s before accepting requests…", self.model_id)
+        prompt = self.apply_chat_template(
+            [{"role": "user", "content": "Write a detailed paragraph describing a peaceful garden."}]
+        )
+        source = {"text": prompt, "images": {}} if self.config.data_type == "image" else prompt
+        settings = {"max_length": max(32, self.config.self_speculative_num_tokens + 2), "max_length_ratio": 0}
+        for _ in self.engine.infer_list_stream(source, settings=settings, cancel_event=Event()):
+            pass
+        logger.info("%s preparation complete; ready for requests.", self.model_id)
 
     def unload(self):
         """

@@ -127,6 +127,18 @@ curl http://127.0.0.1:5000/health
 curl http://127.0.0.1:5000/v1/models
 ```
 
+The Qwen server recipes use `preload: true` and `warmup: true`: preparation finishes
+before the HTTP server accepts requests. With single-GPU compile mode 0 and MTP,
+the first startup compiles only the full verifier chunk and retains it in memory;
+later startups can load the locally saved program. No compiled verifier is downloaded.
+Mount a persistent cache, for example `-v "$PWD/eole-cache:/root/.cache/eole"`, when
+creating the container. Optionally set `TORCHINDUCTOR_CACHE_DIR`, `TRITON_CACHE_DIR`
+and `CUDA_CACHE_PATH` to subdirectories of that mount to retain other kernel caches
+too. `EOLE_VERIFIER_CACHE_DIR` overrides the verifier directory. Cache compatibility
+is checked against the runtime, GPU, source and model layout; failures fall back
+to ordinary compilation. Input shapes not covered by preparation can still warm
+additional kernels. These features require an image built from the updated source.
+
 Open `http://127.0.0.1:5000/` for the bundled workspace. See the
 [UI recipes](../recipes/ui/README.md) for Chat, Translate, Documents (OCR),
 Knowledge (RAG) and the combined showcase; mount/configure their models too.
