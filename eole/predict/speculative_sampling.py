@@ -3,12 +3,13 @@
 import torch
 
 
-def apply_token_penalties(log_probs, history, presence_penalty=0.0, frequency_penalty=0.0):
-    """Penalize generated history only; prompt/BOS tokens are not counted."""
+def apply_token_penalties(log_probs, history, presence_penalty=0.0, frequency_penalty=0.0, history_mask=None):
+    """Penalize supplied history; callers exclude prompt/BOS and optionally mask padding."""
     if not presence_penalty and not frequency_penalty:
         return log_probs
     counts = torch.zeros_like(log_probs, dtype=torch.float32)
-    counts.scatter_add_(1, history, torch.ones_like(history, dtype=torch.float32))
+    weights = torch.ones_like(history, dtype=torch.float32) if history_mask is None else history_mask.float()
+    counts.scatter_add_(1, history, weights)
     return log_probs.float() - presence_penalty * counts.gt(0) - frequency_penalty * counts
 
 

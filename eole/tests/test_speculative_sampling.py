@@ -52,6 +52,50 @@ class TestSpeculativeSampling(unittest.TestCase):
             InferenceConfig(presence_penalty=1.0, beam_size=4)
         self.assertEqual(InferenceConfig(presence_penalty=1.0, beam_size=1).presence_penalty, 1.0)
 
+    def test_lm_penalties_exclude_unequal_prompt_tails_and_padding(self):
+        from eole.predict.greedy_search import GreedySearchLM
+        from eole.tests.test_greedy_search import GlobalScorerStub
+
+        strategy = GreedySearchLM(
+            0,
+            1,
+            2,
+            3,
+            1,
+            1,
+            2,
+            GlobalScorerStub(),
+            0,
+            0,
+            set(),
+            False,
+            30,
+            1.0,
+            1,
+            0.0,
+            1,
+            False,
+            presence_penalty=1.0,
+            frequency_penalty=0.5,
+        )
+        # The common prompt stays outside alive_seq. Only the longer prompt's
+        # tail is forced through decoding; BOS is removed by initialize().
+        strategy.initialize(
+            torch.tensor([[4, 5], [6, 7]]),
+            torch.tensor([2, 2]),
+            target_prefix=torch.tensor([[1, 4, 5], [1, 0, 0]]),
+        )
+        torch.testing.assert_close(strategy.alive_seq, torch.tensor([[1], [1]]))
+        strategy.alive_seq = torch.tensor([[1, 4, 5, 6, 6], [1, 7, 0, 7, 8]])
+        with patch("eole.predict.greedy_search.sample_with_temperature") as sampler:
+            sampler.return_value = (torch.tensor([[6], [7]]), torch.zeros(2, 1))
+            strategy._pick(torch.zeros(2, 10))
+        expected = torch.zeros(2, 10)
+        expected[0, 6] = -2.0
+        expected[1, 7] = -2.0
+        expected[1, 8] = -1.5
+        torch.testing.assert_close(sampler.call_args.args[0], expected)
+
     def test_zero_penalties_leave_scores_unchanged(self):
         scores = torch.randn(2, 5)
         self.assertIs(apply_token_penalties(scores, torch.zeros(2, 0, dtype=torch.long)), scores)

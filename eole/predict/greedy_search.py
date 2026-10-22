@@ -183,6 +183,13 @@ class GreedySearch(DecodeStrategy):
 
         self.eos_t = torch.tensor(self.eos).to(device)
         super(GreedySearch, self).initialize(device, target_prefix)
+        # Keep the original forced-prefix mask even after target_prefix stops
+        # being reordered: it is needed throughout generation for penalties.
+        self._penalty_forced_prefix = (
+            self.target_prefix.ne(self.pad) & ~torch.isin(self.target_prefix, self.eos_t)
+            if self.target_prefix is not None
+            else None
+        )
         self.select_indices = torch.arange(self.batch_size * self.beam_size, dtype=torch.long, device=device)
         self.original_batch_idx = fn_tile(torch.arange(self.batch_size, dtype=torch.long, device=device))
         self.beams_scores = torch.zeros((self.batch_size * self.beam_size, 1), dtype=torch.float, device=device)
@@ -210,8 +217,15 @@ class GreedySearch(DecodeStrategy):
             sequence_finished_expanded = self.sequence_finished.unsqueeze(1).expand_as(log_probs)
             log_probs = log_probs.masked_fill(sequence_finished_expanded, -65504)
 
+        history = self.alive_seq[:, 1:]
+        history_mask = None
+        if self.presence_penalty or self.frequency_penalty:
+            history_mask = history.ne(self.pad)
+            if self._penalty_forced_prefix is not None:
+                width = min(history.size(1), self._penalty_forced_prefix.size(1))
+                history_mask[:, :width] &= ~self._penalty_forced_prefix[:, :width]
         sampling_scores = apply_token_penalties(
-            log_probs, self.alive_seq[:, 1:], self.presence_penalty, self.frequency_penalty
+            log_probs, history, self.presence_penalty, self.frequency_penalty, history_mask
         )
         topk_ids, topk_scores = sample_with_temperature(sampling_scores, self.temperature, self.top_k, self.top_p)
 
@@ -329,6 +343,8 @@ class GreedySearch(DecodeStrategy):
         if not self.static_batch_size:
             self.select_indices = torch.tensor(non_finished_batch, device=self.alive_seq.device)
             self.alive_seq = self.alive_seq[self.select_indices]
+            if self._penalty_forced_prefix is not None:
+                self._penalty_forced_prefix = self._penalty_forced_prefix[self.select_indices]
             self.beams_scores = self.beams_scores[self.select_indices]
             self.src_len = self.src_len[self.select_indices]
             if self.alive_attn is not None:
