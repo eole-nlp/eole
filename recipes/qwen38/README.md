@@ -545,15 +545,21 @@ EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
 python recipes/qwen38/benchmark_draft_vocab.py \
   --model "$EOLE_MODEL_DIR/Qwen3.8-27B-INT4" \
   --draft-vocab /tmp/qwen38-draft-vocab.json \
-  --output /tmp/qwen38-draft-vocab-results.json
+  --output /tmp/qwen38-draft-vocab-results.json \
+  --runs 4 --context-length 64000 --tokens 512
 ```
 
 The harness keeps the same loaded target and extra-head allocation in both arms,
-warms both paths, and alternates order over prose, code and French prompts.
+warms every prompt in both arms, then performs four repetitions with alternating
+arm order over prose, code and French prompts.
 It records exact delivered decode-token counts, first-to-last-token timing,
 acceptance, per-phase GPU events and output text. Outputs are capped at 512 tokens
 with natural EOS enabled; a minimum-length constraint would disable MTP.
 Use `EOLE_COMPILE_MODE=2` to repeat with layer compilation. These are local
 comparisons, not a matched benchmark against another engine or GPU.
+
+This setting is independent of `speculative_verifier_cache`: the shortlist changes
+only proposal projection, while main's mode-0 cache still runs the full target
+verifier. Startup/cache loading is excluded from the paired decode measurements.
 
 See the [measured results and limitations](draft-vocab-results.md) before choosing a shortlist.
