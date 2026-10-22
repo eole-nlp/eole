@@ -149,8 +149,59 @@ curl --fail-with-body http://127.0.0.1:5000/v1/messages \
 
 Look for `MTP draft acceptance` in server logs. A fallback warning means the
 request used ordinary decoding; merely setting the flag does not demonstrate
-speculation. Image inputs, batches larger than one, beam search, sampling,
-forced prefixes, and unsupported decoding constraints currently fall back.
+speculation. Image inputs, batches larger than one, beam search, forced prefixes,
+and unsupported decoding constraints currently fall back.
+
+### Sample with MTP
+
+MTP also supports target sampling while keeping its draft proposals greedy. In
+an inference configuration (or a served model's `config`), use:
+
+```yaml
+beam_size: 1
+n_best: 1
+self_speculative_decoding: true
+self_speculative_num_tokens: 3
+temperature: 0.6
+top_k: 20
+top_p: 0.95
+presence_penalty: 1.0
+frequency_penalty: 0.0
+```
+
+The target samples each verification position conditional on the preceding
+proposals. Eole accepts matching proposals and emits the first differing target
+sample as the correction; if every draft matches, it emits a sampled bonus.
+This preserves the ordinary target sampling distribution. It does not promise
+identical text with MTP on/off for the same seed: speculative rounds draw and
+may discard additional random samples. Acceptance and speed depend on sampling
+settings and the generated text; greedy performance does not predict sampled
+performance.
+
+Presence/frequency penalties count generated tokens, not prompt or BOS tokens.
+They apply to ordinary decoding too and require `beam_size: 1`; `top_k: 1`
+selects penalized greedy decoding. Sampling retains Eole's existing filtering
+order (temperature, top-p, then top-k), which differs from NInfer's top-k-first
+profile. Defaults and the unpenalized greedy fast path are unchanged.
+
+A reproducible BF16-vocabulary-head benchmark is available:
+
+```bash
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+  python recipes/qwen38/benchmark_mtp_sampling.py \
+  --model "$QWEN38_MODEL" --output /tmp/mtp-sampling.json
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+  python recipes/qwen38/benchmark_mtp_sampling.py \
+  --model "$QWEN38_MODEL" --output /tmp/ordinary-sampling.json --no-mtp
+```
+
+This uses three text fixtures from NInfer revision
+`7f6aafedb5f20200def820cfe51ab81c09c20eeb`, distributed under
+[Apache-2.0](mtp-sampling-fixtures.LICENSE), with system messages retained and
+thinking disabled. The default is a 64K cache reservation, 4,096 output tokens
+and seeds 42/43. Compare actual output lengths and draft acceptance as well as
+speed. The decoder checkpoint may be INT4; the benchmark requires its original
+dense BF16 vocabulary head and does not quantize it.
 
 For a real coding client continue with [Claude Code](../claude-code/README.md).
 

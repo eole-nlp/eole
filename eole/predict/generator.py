@@ -38,7 +38,13 @@ class GeneratorLM(Inference):
         batch_size = batch["srclen"].size(0)
         max_length = 0 if scoring else self.max_length
         with torch.no_grad():
-            if self.top_k != 0 or self.top_p != 0 or self.self_speculative_decoding:
+            if (
+                self.top_k != 0
+                or self.top_p != 0
+                or self.self_speculative_decoding
+                or getattr(self, "presence_penalty", 0.0)
+                or getattr(self, "frequency_penalty", 0.0)
+            ):
                 decode_strategy = GreedySearchLM(
                     pad=self._tgt_pad_idx,
                     bos=self._tgt_bos_idx,
@@ -53,6 +59,8 @@ class GeneratorLM(Inference):
                     block_ngram_repeat=self.block_ngram_repeat,
                     exclusion_tokens=self._exclusion_idxs,
                     return_attention=attn_debug or self.replace_unk,
+                    presence_penalty=getattr(self, "presence_penalty", 0.0),
+                    frequency_penalty=getattr(self, "frequency_penalty", 0.0),
                     temperature=self.temperature,
                     top_k=self.top_k,
                     top_p=self.top_p,
@@ -251,7 +259,6 @@ class GeneratorLM(Inference):
             and self.beam_size == 1
             and self.n_best == 1
             and batch_size == 1
-            and (self.top_k == 1 or self.temperature == 0.0)
             and self.min_length == 0
             and not self.ban_unk_token
             and self.block_ngram_repeat == 0
@@ -270,7 +277,7 @@ class GeneratorLM(Inference):
         self.model.decoder._verify_graph_request_allowed = use_spec_decoding
         if self.self_speculative_decoding and not use_spec_decoding:
             self._log(
-                "self_speculative_decoding requires one sequence, one hypothesis, deterministic greedy selection, "
+                "self_speculative_decoding requires one sequence, one hypothesis, greedy or sampled selection, "
                 "no decode constraints, text-only inputs, no attention output, "
                 "and a model with loaded MTP heads; using normal decoding"
             )
@@ -629,10 +636,26 @@ class GeneratorLM(Inference):
             for layer in linear_layers:
                 layer.end_speculation()
 
-        predicted = verify_log_probs.argmax(dim=-1)
+        presence_penalty = getattr(decode_strategy, "presence_penalty", 0.0)
+        frequency_penalty = getattr(decode_strategy, "frequency_penalty", 0.0)
+        if (self.top_k == 1 or self.temperature == 0.0) and not presence_penalty and not frequency_penalty:
+            predicted = verify_log_probs.argmax(dim=-1)
+        else:
+            from eole.predict.speculative_sampling import sample_target_chunk
+
+            predicted = sample_target_chunk(
+                verify_log_probs,
+                draft_tensor,
+                decode_strategy.alive_seq[:, 1:],
+                self.temperature,
+                self.top_k,
+                self.top_p,
+                presence_penalty,
+                frequency_penalty,
+            )
         broadcast_from_rank_zero(predicted, getattr(self, "parallel_gpu", 1))
-        fast_greedy_advance = decode_strategy.target_prefix is None
-        if fast_greedy_advance:
+        fast_chunk_advance = decode_strategy.target_prefix is None
+        if fast_chunk_advance:
             # Determine the accepted draft prefix and any EOS truncation on
             # device. A per-position torch.equal() loop synchronizes once for
             # every proposed token; transfer the three scalar decisions only
@@ -656,6 +679,8 @@ class GeneratorLM(Inference):
             accepted = 0
             while accepted < num_draft and torch.equal(predicted[:, accepted], drafts[accepted].squeeze(1)):
                 accepted += 1
+        if fast_chunk_advance:
+            accepted = min(accepted, advance_count)
         self._speculative_drafted_tokens += num_draft
         self._speculative_accepted_tokens += accepted
         for index in range(num_draft):
@@ -666,20 +691,21 @@ class GeneratorLM(Inference):
         if self._mtp_profile_enabled:
             state_commit_events = (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
             state_commit_events[0].record()
-        self.model.commit_mtp_draft(accepted + 1)
+        committed_inputs = min(accepted + 1, advance_count) if fast_chunk_advance else accepted + 1
+        self.model.commit_mtp_draft(committed_inputs)
 
         # The verifier consumed seed plus all draft inputs. Commit only those
         # through the last accepted draft; attention cache writes after that
         # point are discarded by rewinding its position counter.
-        GatedDeltaNet.commit_speculation_group(linear_layers, accepted + 1)
-        rejected = num_draft - accepted
+        GatedDeltaNet.commit_speculation_group(linear_layers, committed_inputs)
+        rejected = verify_input.size(1) - committed_inputs
         if rejected and self.model.decoder.cache_seqlens is not None:
             self.model.decoder.cache_seqlens.sub_(rejected)
         if state_commit_events is not None:
             state_commit_events[1].record()
             self._mtp_profile_events["state_commit"].append(state_commit_events)
 
-        if fast_greedy_advance:
+        if fast_chunk_advance:
             emitted = decode_strategy.advance_speculative(predicted, verify_log_probs, advance_count, finished)
             step += advance_count
             last_advanced = advance_count - 1

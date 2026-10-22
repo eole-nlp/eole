@@ -1,5 +1,6 @@
 import torch
 from torch.nn.functional import softmax
+from eole.predict.speculative_sampling import apply_token_penalties
 from eole.predict.decode_strategy import DecodeStrategy
 from eole.utils.tensor_parallel import broadcast_from_rank_zero
 
@@ -139,6 +140,8 @@ class GreedySearch(DecodeStrategy):
         beam_size,
         ban_unk_token,
         add_estimator=False,
+        presence_penalty=0.0,
+        frequency_penalty=0.0,
     ):
         super(GreedySearch, self).__init__(
             pad,
@@ -157,6 +160,8 @@ class GreedySearch(DecodeStrategy):
             ban_unk_token,
             add_estimator,
         )
+        self.presence_penalty = presence_penalty
+        self.frequency_penalty = frequency_penalty
         self.temperature = temperature
         self.top_k = top_k
         self.top_p = top_p
@@ -205,7 +210,10 @@ class GreedySearch(DecodeStrategy):
             sequence_finished_expanded = self.sequence_finished.unsqueeze(1).expand_as(log_probs)
             log_probs = log_probs.masked_fill(sequence_finished_expanded, -65504)
 
-        topk_ids, topk_scores = sample_with_temperature(log_probs, self.temperature, self.top_k, self.top_p)
+        sampling_scores = apply_token_penalties(
+            log_probs, self.alive_seq[:, 1:], self.presence_penalty, self.frequency_penalty
+        )
+        topk_ids, topk_scores = sample_with_temperature(sampling_scores, self.temperature, self.top_k, self.top_p)
 
         broadcast_from_rank_zero(topk_ids, self.parallel_gpu)
         return topk_ids, topk_scores
@@ -334,10 +342,10 @@ class GreedySearchLM(GreedySearch):
         super(GreedySearchLM, self).update_finished()
 
     def advance_speculative(self, token_ids, log_probs, count, finished):
-        """Append an already-verified greedy token chunk in one state update.
+        """Append an already-verified greedy or sampled token chunk in one state update.
 
-        Speculative decoding is restricted to unconstrained greedy decoding,
-        where each output is simply the row argmax. Avoid calling ``advance``
+        Tokens have already been selected from the target distribution.
+        Avoid calling ``advance``
         once per token: that method materializes an EOS tensor as a Python
         list on every call, synchronizing the GPU repeatedly.
         """

@@ -270,7 +270,7 @@ class TestEffectiveSpeculationPolicy(unittest.TestCase):
 
         cases = (
             ("batch", 4, 1, 1, False, False, False, True, False),
-            ("sampling", 1, 1, 40, False, False, False, True, False),
+            ("sampling", 1, 1, 40, False, False, False, False, True),
             ("no_heads", 1, 1, 1, False, False, True, True, False),
             ("attention", 1, 1, 1, True, False, False, False, False),
             ("images", 1, 1, 1, False, True, False, False, False),
