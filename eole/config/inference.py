@@ -27,6 +27,11 @@ class DecodingConfig(Config):
         default=1.0,
         description="If doing random sampling, divide the logits by this " "before computing softmax during decoding.",
     )
+    vocabulary_quantization: Literal["none", "int8", "int4"] = Field(
+        default="none", description="Runtime symmetric RTN vocabulary head quantization (CUDA Marlin)."
+    )
+    vocabulary_quantization_group_size: Literal[32, 64, 128] = Field(default=128)
+
     presence_penalty: float = Field(
         default=0.0, ge=-2.0, le=2.0, description="Generated-token presence penalty for greedy/sampling decoding."
     )
