@@ -27,6 +27,19 @@ class DecodingConfig(Config):
         default=1.0,
         description="If doing random sampling, divide the logits by this " "before computing softmax during decoding.",
     )
+    presence_penalty: float = Field(
+        default=0.0, ge=-2.0, le=2.0, description="Generated-token presence penalty for greedy/sampling decoding."
+    )
+    frequency_penalty: float = Field(
+        default=0.0, ge=-2.0, le=2.0, description="Generated-token frequency penalty for greedy/sampling decoding."
+    )
+
+    @model_validator(mode="after")
+    def validate_token_penalty_search(self):
+        if (self.presence_penalty or self.frequency_penalty) and self.beam_size != 1:
+            raise ValueError("Presence/frequency penalties require beam_size=1; beam search is unsupported")
+        return self
+
     length_penalty: Literal["avg", "wu", "none"] = Field(default="avg", description="Length penalty to use.")
     alpha: float = Field(default=1.0, description="Length penalty parameter (higher = longer generation)")
     coverage_penalty: Literal["none", "wu", "summary"] = Field(
@@ -168,7 +181,7 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     report_time: bool = Field(default=False, description="Report some translation time metrics.")
     self_speculative_decoding: bool = Field(
         default=False,
-        description="Draft tokens with MTP heads during deterministic greedy inference and verify them in one pass.",
+        description="Draft greedy MTP tokens and verify them in one pass during greedy or sampled inference.",
     )
     self_speculative_num_tokens: int = Field(
         default=1,

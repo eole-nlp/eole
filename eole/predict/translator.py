@@ -84,7 +84,12 @@ class Translator(Inference):
         else:
             max_length = self.max_length
         with torch.no_grad():
-            if self.top_k != 0 or self.top_p != 0:
+            if (
+                self.top_k != 0
+                or self.top_p != 0
+                or getattr(self, "presence_penalty", 0.0)
+                or getattr(self, "frequency_penalty", 0.0)
+            ):
                 decode_strategy = GreedySearch(
                     pad=self._tgt_pad_idx,
                     bos=self._tgt_bos_idx,
@@ -99,6 +104,8 @@ class Translator(Inference):
                     block_ngram_repeat=self.block_ngram_repeat,
                     exclusion_tokens=self._exclusion_idxs,
                     return_attention=attn_debug or self.replace_unk,
+                    presence_penalty=getattr(self, "presence_penalty", 0.0),
+                    frequency_penalty=getattr(self, "frequency_penalty", 0.0),
                     temperature=self.temperature,
                     top_k=self.top_k,
                     top_p=self.top_p,

@@ -114,6 +114,8 @@ class Inference(object):
         self.context_length = config.context_length
 
         self.beam_size = config.beam_size
+        self.presence_penalty = getattr(config, "presence_penalty", 0.0)
+        self.frequency_penalty = getattr(config, "frequency_penalty", 0.0)
         self.temperature = config.temperature
         self.top_k = config.top_k
         self.top_p = config.top_p
