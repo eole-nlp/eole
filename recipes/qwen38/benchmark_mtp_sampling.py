@@ -1,4 +1,4 @@
-"""Measure ordinary or MTP sampling with unchanged BF16 vocabulary heads."""
+"""Measure ordinary or MTP sampling with optional vocabulary quantization."""
 
 import argparse
 import hashlib
@@ -11,6 +11,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--head", choices=["none", "int8", "int4"], default="none")
     parser.add_argument("--no-mtp", action="store_true")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43])
     parser.add_argument("--tokens", type=int, default=4096)
@@ -28,6 +29,7 @@ def main():
     bundle = json.loads(fixture_path.read_text())
     config = PredictConfig(
         model_path=args.model,
+        vocabulary_quantization=args.head,
         src="dummy",
         compute_dtype="bf16",
         gpu_ranks=[0],
@@ -74,7 +76,7 @@ def main():
     }
     engine = InferenceEnginePY(config)
     try:
-        if (
+        if args.head == "none" and (
             not isinstance(engine.predictor.model.generator, torch.nn.Linear)
             or engine.predictor.model.generator.weight.dtype != torch.bfloat16
         ):
