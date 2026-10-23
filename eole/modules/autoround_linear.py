@@ -235,3 +235,23 @@ def finalize_deferred_autoround_linear(model):
         if getattr(module, "_kvq_post_init_deferred", False):
             module.post_init()
             module._kvq_post_init_deferred = False
+
+
+def make_runtime_marlin_linear(head, bits, group_size):
+    """Construct an explicitly requested runtime head, with optional imports isolated here."""
+    if not _CPP_OPS_AVAILABLE:
+        raise ValueError("Vocabulary quantization requires the Eole CUDA extension")
+    from eole.modules.marlin_linear import MarlinQuantLinear
+
+    result = MarlinQuantLinear(
+        bits=bits,
+        group_size=group_size,
+        desc_act=False,
+        sym=True,
+        in_features=head.in_features,
+        out_features=head.out_features,
+        bias=head.bias is not None,
+    ).to(device=head.weight.device, dtype=head.weight.dtype)
+    if head.bias is not None:
+        result.bias.data.copy_(head.bias)
+    return result
