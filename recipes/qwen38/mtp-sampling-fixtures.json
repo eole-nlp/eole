@@ -1,18 +1,16 @@
 {
-  "source": "https://github.com/Neroued/ninfer",
-  "revision": "7f6aafedb5f20200def820cfe51ab81c09c20eeb",
-  "license": "Apache-2.0",
+  "revision": "eole-v1",
   "fixtures": [
     {
       "name": "scenario_code_python",
       "messages": [
         {
           "role": "system",
-          "content": "You are a senior software engineer. Produce complete, runnable code rather than sketches or omitted sections."
+          "content": "Write practical Python software with clear interfaces and executable examples."
         },
         {
           "role": "user",
-          "content": "Write a complete Python 3.11 package for a deterministic asynchronous job runner. It must read a JSON manifest, enforce one active GPU job, persist atomic state, resume completed work, stream structured JSONL events, handle SIGINT, redact configured secrets, and include pytest tests for success, failure, cancellation, and resume. Present every source file in a separate fenced block with its path and include pyproject.toml."
+          "content": "Build a Python 3.11 command-line tool that inventories a photo archive. Traverse subdirectories, compute SHA-256 checksums to identify duplicate files, and store paths, sizes, and modification timestamps in SQLite. Support incremental rescans, a dry-run cleanup report, and CSV export. Never delete files automatically. Include error handling for unreadable files and paths containing Unicode, a small test suite using temporary directories, and installation instructions. Show the full contents of each file in labeled code blocks."
         }
       ]
     },
@@ -21,11 +19,11 @@
       "messages": [
         {
           "role": "system",
-          "content": "You are a long-form fiction writer. Follow every structural constraint and output only the story."
+          "content": "Write immersive fiction with distinct characters, concrete details, and a coherent resolution. Return the story alone."
         },
         {
           "role": "user",
-          "content": "Write a locked-room mystery of at least 2,500 words in seven titled parts. The setting is a mountain observatory during a power failure. The detective is a calibration engineer, the apparent victim is alive, and the clues are a warm brass key, a star chart printed upside down, eleven seconds missing from a voice recorder, and a cup of unsweetened tea. Reveal a fair, physical solution without supernatural events and end with a quiet ethical dilemma."
+          "content": "Write a mystery of roughly 2,000 words in five named chapters. At a coastal museum the morning after a storm, a conservator discovers that a recently restored painting has been replaced by an unfinished copy. A ferry operator, a retired teacher, and the museum's night attendant each know part of what happened. Work a torn tide timetable, a smear of blue pigment, and a misplaced hearing aid into the investigation. Introduce the decisive evidence before the solution. Explain how the substitution occurred and why the person responsible believed it would help someone. End with the conservator deciding what to tell the museum board."
         }
       ]
     },
@@ -34,7 +32,7 @@
       "messages": [
         {
           "role": "user",
-          "content": "Translate the complete Chinese document below into precise, natural English. Preserve all six section headings and technical distinctions. After the translation, add a Chinese-English glossary of at least twenty terms.\n\n第一部分：运行边界。系统只服务一个活动请求，所有模型状态均由一个执行程序独占。这个限制不是临时缺陷，而是产品针对单卡本地推理做出的明确选择。它允许内存规划器提前确定工作区、缓存和图执行地址，也使取消、失败和恢复的状态转换更容易验证。\n\n第二部分：预填充。输入首先经过模板渲染和分词，然后以固定大小的块进入模型。每个块都读取之前已经提交的状态并原子地推进前沿。计时必须区分主机准备、视觉预处理、文本预填充和第一枚输出 token，不能把文件读取或模型加载混入吞吐量。\n\n第三部分：解码。普通解码每轮提交一枚 token，推测解码可以验证多个候选并提交一个连续前缀。无论接受多少候选，公开输出、KV 缓存、循环状态和计数器都必须对应同一个已提交位置，不能留下只更新一半的状态。\n\n第四部分：长上下文。上下文增长时，固定权重读取和不断增长的注意力缓存读取共同决定延迟。报告应同时给出绝对速度、相对保留率和实际 prompt token 数，并记录缓存格式、最大容量、采样器和图执行状态。\n\n第五部分：可复现性。稳定的输入必须保存为实际发送的消息文件，并记录来源和 token 数。正式运行不能临时下载网页、随机选择题目或删除较慢样本。每个数字都应能回到明确的模型、命令、输入和服务日志。\n\n第六部分：结果解释。一次孤立的最快运行不能证明稳定性能，单一高接受率文本也不能代表所有输出场景。代码、叙事、翻译和结构化内容具有不同的 token 分布，应该分别展示，而不是混成一个缺少含义的总平均值。"
+          "content": "Translate this Chinese project brief into fluent English for a municipal planning team. Retain the numbered headings, quantities, deadlines, and distinctions between proposals and commitments. Follow it with a bilingual glossary of twelve planning terms.\n\n一、项目背景。旧火车站旁的仓库已经闲置八年。市政府计划将其改造成社区图书馆和维修工坊，但尚未批准最终预算。居民希望保留砖墙和屋顶木梁，同时改善轮椅通行条件。附近学校提出，每周至少安排两个下午供学生参加免费活动。\n\n二、场地调查。初步检查发现东侧墙面渗水，地下排水管也需要更换。结构工程师将在六月十五日前提交报告。在报告完成之前，不得拆除承重构件。院内有三棵成熟的树，施工围挡应避开根系保护范围。\n\n三、空间安排。首层拟设置阅览区、儿童活动室和公共卫生间。维修工坊需要独立通风，以免噪声和粉尘影响阅读。二层是否开放取决于消防疏散评估；如果暂时关闭，可以先作为设备维护空间。设计团队应比较两种方案的建设成本与十年运行费用。\n\n四、公众参与。社区将在七月举行两场讨论会，并提供线上意见表。问卷结果需要按年龄组汇总，但不得公开个人联系方式。对于无法到场的居民，工作人员可以预约电话访谈。意见报告应明确区分多数建议、少数意见和法律要求。\n\n五、采购与实施。工程拟分为防水修缮、室内改造和设备安装三个阶段。招标文件应要求承包商说明材料来源及保修条件。若投标价格超过预算，应先调整非必要装修，不应削减无障碍设施。所有工期均为暂定，正式开工日期将在许可证批准后公布。\n\n六、验收与运营。开放前需要完成空气质量检测和消防检查。首年的使用人数、维修活动次数及能源消耗将按季度公布。运营团队还应记录居民提出的问题及处理进度，以便下一年度评估服务安排。"
         }
       ]
     }

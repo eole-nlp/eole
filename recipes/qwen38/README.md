@@ -181,8 +181,7 @@ performance.
 Presence/frequency penalties count generated tokens, not prompt or BOS tokens.
 They apply to ordinary decoding too and require `beam_size: 1`; `top_k: 1`
 selects penalized greedy decoding. Sampling retains Eole's existing filtering
-order (temperature, top-p, then top-k), which differs from NInfer's top-k-first
-profile. Defaults and the unpenalized greedy fast path are unchanged.
+order (temperature, top-p, then top-k). Defaults and the unpenalized greedy fast path are unchanged.
 
 A reproducible BF16-vocabulary-head benchmark is available:
 
@@ -195,14 +194,13 @@ EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
   --model "$QWEN38_MODEL" --output /tmp/ordinary-sampling.json --no-mtp
 ```
 
-This uses three text fixtures from NInfer revision
-`7f6aafedb5f20200def820cfe51ab81c09c20eeb`, distributed under
-[Apache-2.0](mtp-sampling-fixtures.LICENSE), with system messages retained and
-thinking disabled. The default is a 64K cache reservation, 4,096 output tokens
-and seeds 42/43. Compare actual output lengths and draft acceptance as well as
-speed. The decoder checkpoint may be INT4; the benchmark requires its original
-dense BF16 vocabulary head and does not quantize it. See the
-[measured sampling speed and acceptance](mtp-sampling-results.md).
+This uses three original Eole text fixtures covering Python code, an English
+mystery, and Chinese-to-English translation, with thinking disabled. The default
+is a 64K cache reservation, 4,096 output tokens and seeds 42/43. Compare actual
+output lengths and draft acceptance as well as speed. The decoder checkpoint
+may be INT4; the benchmark requires its original dense BF16 vocabulary head
+and does not quantize it. Output JSON records the fixture revision and SHA-256
+so measurements can be tied to the exact prompts used.
 
 For a real coding client continue with [Claude Code](../claude-code/README.md).
 
