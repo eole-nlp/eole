@@ -188,6 +188,7 @@ class TransformerDecoderLayer(nn.Module):
         return_attn = kwargs.pop("return_attn", False)
         self_attn.add_(layer_in)
 
+        cache_seqlens = kwargs.pop("cache_seqlens", None)
         if self.context_attn:
             ctx_attn, attns = self.context_attn(
                 enc_out,
@@ -195,6 +196,7 @@ class TransformerDecoderLayer(nn.Module):
                 norm_layer_in,
                 attn_mask=~src_pad_mask,
                 return_attn=return_attn,
+                cache_seqlens=cache_seqlens,
             )
             self_attn = self_attn + ctx_attn
         if not self.shared_layer_norm:
@@ -209,6 +211,7 @@ class TransformerDecoderLayer(nn.Module):
         enc_out = kwargs.pop("enc_out", None)
         src_pad_mask = kwargs.pop("src_pad_mask", None)
         return_attn = kwargs.pop("return_attn", False)
+        cache_seqlens = kwargs.pop("cache_seqlens", None)
         self_attn.add_(layer_in)
         norm_query = self.precontext_layernorm(self_attn)
         ctx_attn, attns = self.context_attn(
@@ -217,6 +220,7 @@ class TransformerDecoderLayer(nn.Module):
             norm_query,
             attn_mask=~src_pad_mask,
             return_attn=return_attn,
+            cache_seqlens=cache_seqlens,
         )
         if self.dropout_p > 0:
             ctx_attn = self.dropout(ctx_attn)
@@ -319,7 +323,15 @@ class TransformerDecoderLayer(nn.Module):
         if self.dropout_p > 0:
             self_attn = self.dropout(self_attn)
 
-        return self._forward(layer_in, norm_layer_in, self_attn, attns, return_attn=return_attn, **kwargs)
+        return self._forward(
+            layer_in,
+            norm_layer_in,
+            self_attn,
+            attns,
+            return_attn=return_attn,
+            cache_seqlens=cache_seqlens,
+            **kwargs,
+        )
 
     def get_attn_align(self, layer_in, **kwargs):
         """:cite:`garg2019jointly`."""
