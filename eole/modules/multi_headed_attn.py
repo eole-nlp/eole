@@ -324,6 +324,7 @@ class MultiHeadedAttention(torch.nn.Module):
         query: Tensor,
         attn_mask: Optional[Tensor] = None,
         return_attn: Optional[bool] = False,
+        cache_seqlens: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Tensor]:
         """
         Compute the context vector and the attention vectors.
@@ -337,6 +338,9 @@ class MultiHeadedAttention(torch.nn.Module):
                query vectors  ``(batch, query_len, head, dim)``
            attn_mask (bool Tensor): True = position needs attention
                    ``(batch, 1, query_len, key_len)``
+           cache_seqlens: Absolute position of the first query when a KV
+               cache is active. ``(batch,)``, uniform across the batch.
+               Kept as a tensor so compiled and CUDA-graph decode can read it.
         Returns:
            (Tensor, Tensor):
 
@@ -376,33 +380,42 @@ class MultiHeadedAttention(torch.nn.Module):
 
             scores = torch.matmul(query.transpose(1, 2), key.transpose(1, 2).transpose(2, 3)) * scale
 
+            # key.size(1) is the whole cache buffer once a cache exists, so query
+            # positions come from cache_seqlens rather than from that length.
+            query_offset = None if cache_seqlens is None else cache_seqlens[0]
             if self.relative_attention_bias is not None:
-                q_len = key.size(1) if self.kcache is not None else query.size(1)
                 relative_position_bucket = compute_bias(
-                    q_len,
+                    query.size(1),
                     key.size(1),
                     self.is_decoder,
                     self.n_positions,
                     self.relative_positions_buckets,
                     device=key.device,
+                    query_offset=query_offset,
                 )
                 values = self.relative_attention_bias(
                     relative_position_bucket
                 )  # shape (query_length, key_length, num_heads)
                 position_bias = values.permute([2, 0, 1]).unsqueeze(0)  # shape (1, num_heads, query_length, key_length)
-                if self.kcache is not None:
-                    position_bias = position_bias[:, :, -query.size(1) :, :]
                 scores.add_(position_bias)
 
             elif self.relative_positions_embeddings is not None:
                 key_len = key.size(1)
-                # 1 or key_len x key_len
-                relative_positions_matrix = gen_relative_positions(
-                    key_len,
-                    self.n_positions,
-                    cache=self.kcache is not None,
-                    device=key.device,
-                )
+                # 1 or key_len x key_len, or (query_len, key_len) when offset is set
+                if query_offset is None:
+                    relative_positions_matrix = gen_relative_positions(
+                        key_len,
+                        self.n_positions,
+                        device=key.device,
+                    )
+                else:
+                    relative_positions_matrix = gen_relative_positions(
+                        key_len,
+                        self.n_positions,
+                        device=key.device,
+                        query_len=query.size(1),
+                        query_offset=query_offset,
+                    )
                 #  1 or key_len x key_len x dim_per_head
                 relations_keys = self.relative_positions_embeddings(relative_positions_matrix)
                 scores.add_(relative_matmul(query.transpose(1, 2), relations_keys, True))
@@ -547,6 +560,7 @@ class SelfMHA(MultiHeadedAttention):
             query,
             attn_mask=attn_mask,
             return_attn=return_attn,
+            cache_seqlens=cache_seqlens,
         )
 
 
@@ -582,6 +596,7 @@ class ContextMHA(MultiHeadedAttention):
         query: Tensor,
         attn_mask: Optional[Tensor] = None,
         return_attn: Optional[bool] = False,
+        cache_seqlens: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Tensor]:
         if self.kcache is not None:
             key, value, query = self._prepare_inputs_w_cache(key, value, query)
@@ -594,4 +609,5 @@ class ContextMHA(MultiHeadedAttention):
             query,
             attn_mask=attn_mask,
             return_attn=return_attn,
+            cache_seqlens=cache_seqlens,
         )

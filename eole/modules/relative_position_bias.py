@@ -29,10 +29,25 @@ def gen_relative_positions(
     n_positions: int,
     cache: bool = False,
     device: Optional[torch.device] = None,
+    query_len: Optional[int] = None,
+    query_offset: Optional[Tensor] = None,
 ) -> Tensor:
-    """Generate the clipped relative positions matrix
-    for a given length and maximum relative positions"""
-    if cache:
+    """Generate the clipped relative positions matrix.
+
+    Distances are ``key_index - query_position``, clipped to ``±n_positions``
+    and shifted to be >= 0. ``query_offset`` is the absolute position of the
+    first query. Pass the decoder's ``cache_seqlens`` value so a preallocated
+    key buffer is not treated as the real sequence length. A 0-d tensor offset
+    stays on device.
+    """
+    if query_offset is not None:
+        q_len = 1 if query_len is None else query_len
+        if device is None:
+            device = query_offset.device
+        query_pos = query_offset.to(dtype=torch.long, device=device) + torch.arange(q_len, device=device)
+        key_pos = torch.arange(length, device=device)
+        distance_mat = key_pos.unsqueeze(0) - query_pos.unsqueeze(1)
+    elif cache:
         distance_mat = torch.arange(-length + 1, 1, 1, device=device).unsqueeze(0)
     else:
         range_vec = torch.arange(length, device=device)
@@ -104,9 +119,17 @@ def compute_bias(
     n_positions: int,
     relative_positions_buckets: int,
     device: Optional[torch.device] = None,
+    query_offset: Optional[Tensor] = None,
 ) -> Tensor:
-    """Compute binned relative position bias"""
-    context_position = torch.arange(query_length, dtype=torch.long, device=device)[:, None]
+    """Compute binned relative position bias."""
+    if query_offset is None:
+        context_position = torch.arange(query_length, dtype=torch.long, device=device)[:, None]
+    else:
+        if device is None:
+            device = query_offset.device
+        context_position = (
+            query_offset.to(dtype=torch.long, device=device) + torch.arange(query_length, device=device)
+        )[:, None]
     memory_position = torch.arange(key_length, dtype=torch.long, device=device)[None, :]
     relative_position = memory_position - context_position  # shape (query_length, key_length)
     relative_position_bucket = _relative_position_bucket(
