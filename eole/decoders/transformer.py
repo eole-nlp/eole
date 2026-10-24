@@ -1223,7 +1223,8 @@ class TransformerDecoder(DecoderBase):
 
         if not self.flash:
             cache_slice = pos_ids_1d  # tensor of position indices to update
-            if S > 1:
+            # A single token with no cache is a teacher-forced forward, not a decode step.
+            if self.cache_seqlens is None or S > 1:
                 # training or prefill decoding, combine pad and causal mask
                 image_locations = kwargs.pop("image_locations", None)
                 prefix_len = kwargs.pop("prefix_len", None)

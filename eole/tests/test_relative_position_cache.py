@@ -101,3 +101,13 @@ class TestRelativePositionCache(unittest.TestCase):
                             full = self._full_forward(decoder, emb)
                             cached = self._cached_forward(decoder, emb, prefill)
                         torch.testing.assert_close(cached, full, atol=1e-4, rtol=1e-4)
+
+    def test_single_token_forward_without_cache(self):
+        torch.manual_seed(0)
+        decoder = self._decoder(dynamic_shapes=False, buckets=0)
+        emb = torch.randn(1, 1, decoder.hidden_size)
+        with torch.no_grad():
+            out = self._full_forward(decoder, emb)
+
+        self.assertEqual(tuple(out.shape), (1, 1, decoder.hidden_size))
+        self.assertTrue(torch.isfinite(out).all())
