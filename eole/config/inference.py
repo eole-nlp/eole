@@ -194,6 +194,11 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
         "'auto' uses EOLE_VERIFIER_CACHE_DIR or ~/.cache/eole/verifiers; an empty string disables persistence. "
         "Only locally generated, trusted executable caches may be used.",
     )
+    self_speculative_draft_vocab: str | None = Field(
+        default=None,
+        description="Optional JSON list of token IDs for a restricted dense MTP draft head. "
+        "Target verification still uses the full vocabulary. IDs must match the checkpoint tokenizer.",
+    )
     fuse_kvq: bool = Field(default=False, description="Fuse K, V, Q Linear layers into a single KVQ in Self Attn.")
     fuse_gate: bool = Field(
         default=False, description="Fuse gate_up_proj and up_proj Linear layers into a single Linear."

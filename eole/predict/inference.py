@@ -53,6 +53,20 @@ class Inference(object):
 
             finalize_deferred_autoround_linear(self.model)
 
+        draft_vocab = getattr(config, "self_speculative_draft_vocab", None)
+        if draft_vocab is not None:
+            from eole.modules.draft_vocab import RestrictedDraftHead
+            from eole.utils.logging import logger
+
+            if not getattr(self.model, "mtp_heads", None):
+                raise ValueError("Restricted draft vocabulary requires a model with MTP heads")
+            self.model._mtp_draft_head = RestrictedDraftHead.from_file(self.model.generator, draft_vocab)
+            logger.info(
+                "MTP draft vocabulary: %d/%d tokens",
+                self.model._mtp_draft_head.token_ids.numel(),
+                self.model.generator.out_features,
+            )
+
     def __init__(
         self,
         model,
