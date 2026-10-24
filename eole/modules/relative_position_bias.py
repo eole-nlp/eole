@@ -121,8 +121,7 @@ def compute_bias(
     device: Optional[torch.device] = None,
     query_offset: Optional[Tensor] = None,
 ) -> Tensor:
-    """Compute binned relative position bias.
-    """
+    """Compute binned relative position bias."""
     if query_offset is None:
         context_position = torch.arange(query_length, dtype=torch.long, device=device)[:, None]
     else:
