@@ -46,3 +46,19 @@ These sampled workload timings are not same-token comparisons or equivalent-qual
 Run the [sampling benchmark](benchmark_mtp_sampling.py) three times, passing --head none, --head int8, and --head int4, with CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0. Keep other options at their defaults and use separate --output JSON paths. See the [recipe](README.md) for the full command.
 
 [Raw metadata and measurements](vocabulary-quantization-results.jsonl) include fixture hashes and output hashes. Full texts are retained locally in /tmp/eole-vocab-pr. No output-quality benchmark was performed.
+
+## RTX 4090: repeated 32K compatibility and speed checks
+
+Mode 0, MTP with three drafts, 32,768 reserved context, 512-token output cap, group 128. Same sampling configuration and original Eole prompts as above. Each fixture was warmed with a full 512-token request before three measured repeats using seed 42. This isolates timing variation on the same text within each head; the three repeats are not independent quality samples. The active desktop used approximately 1 GB of VRAM.
+
+| Workload | BF16 tok/s | INT8 tok/s | Gain | INT4 tok/s | Gain |
+|---|---:|---:|---:|---:|---:|
+| scenario_code_python | 82.58 | 95.67 | +15.9% | 108.41 | +31.3% |
+| scenario_story_en_mystery | 56.13 | 65.98 | +17.6% | 70.61 | +25.8% |
+| scenario_translation_zh_en | 76.63 | 88.50 | +15.5% | 95.23 | +24.3% |
+
+All three heads completed all repeated requests at 32K. INT8 and INT4 loaded successfully at 64,000 context but both ran out of memory during warmup generation. These short-prompt checks do not guarantee that every long-input request fits; prefill temporaries and other GPU users also affect available memory.
+
+All measured repeats produced identical output hashes within each head/workload. Between heads, outputs can differ. An earlier isolated INT4 code result of 55.9 tok/s was not reproduced: the three fully warmed repeats measured 108.2–108.6 tok/s. That earlier run is excluded from this table, as is the restarted run interrupted because a video was playing. No definitive cause is assigned to the earlier outlier.
+
+[Per-request 4090 metadata, timing, acceptance and output hashes](vocabulary-quantization-4090-results.jsonl). These 512-token results should not be directly compared with the 4096-token RTX 5090 campaign.
