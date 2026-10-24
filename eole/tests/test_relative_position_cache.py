@@ -1,6 +1,7 @@
 """Cached relative-position decode must match a teacher-forced full forward."""
 
 import unittest
+from unittest.mock import patch
 
 import torch
 import torch.nn as nn
@@ -9,7 +10,56 @@ from eole.config.inference import InferenceConfig
 from eole.config.models import TransformerDecoderConfig
 from eole.constants import PositionEncodingType
 from eole.decoders.transformer import TransformerDecoder
+from eole.modules import multi_headed_attn
 from eole.modules.relative_position_bias import compute_bias, gen_relative_positions
+
+# Shorter than the static cache (context_length=32) and the clip window (n_positions=8),
+# so a query at the end of the buffer is a different distance from any real position.
+SEQUENCE_LENGTH = 7
+
+
+def _gen_cache_end_positions(length, n_positions, cache=False, device=None, query_len=None, query_offset=None):
+    """Old cached decode: the query is the last slot of the key buffer."""
+    if query_offset is None:
+        return gen_relative_positions(
+            length,
+            n_positions,
+            cache=cache,
+            device=device,
+            query_len=query_len,
+            query_offset=query_offset,
+        )
+    return gen_relative_positions(length, n_positions, cache=True, device=device)
+
+
+def _compute_cache_end_bias(
+    query_length,
+    key_length,
+    is_decoder,
+    n_positions,
+    relative_positions_buckets,
+    device=None,
+    query_offset=None,
+):
+    """Old cached decode: take the last query rows of a key-length bias."""
+    if query_offset is None:
+        return compute_bias(
+            query_length,
+            key_length,
+            is_decoder,
+            n_positions,
+            relative_positions_buckets,
+            device=device,
+        )
+    full = compute_bias(
+        key_length,
+        key_length,
+        is_decoder,
+        n_positions,
+        relative_positions_buckets,
+        device=device,
+    )
+    return full[-query_length:]
 
 
 class TestRelativePositionMatrix(unittest.TestCase):
@@ -52,11 +102,14 @@ class TestRelativePositionCache(unittest.TestCase):
             context_length=32,
         )
         decoder = TransformerDecoder(config, running_config=running).eval()
-        for parameter in decoder.parameters():
+        for name, parameter in decoder.named_parameters():
             if parameter.dim() > 1:
                 nn.init.xavier_uniform_(parameter)
-            else:
+            elif name.endswith("bias"):
                 nn.init.zeros_(parameter)
+            else:
+                # LayerNorm and RMSNorm scales
+                nn.init.ones_(parameter)
         return decoder
 
     def _full_forward(self, decoder, emb):
@@ -89,18 +142,35 @@ class TestRelativePositionCache(unittest.TestCase):
         return torch.cat(outputs, dim=1)
 
     def test_cached_decode_matches_full_forward(self):
-        sequence = 7
         for buckets in (0, 8):
             for dynamic_shapes in (False, True):
                 for prefill in (1, 4):
                     with self.subTest(buckets=buckets, dynamic=dynamic_shapes, prefill=prefill):
                         torch.manual_seed(0)
                         decoder = self._decoder(dynamic_shapes, buckets)
-                        emb = torch.randn(1, sequence, decoder.hidden_size)
+                        emb = torch.randn(1, SEQUENCE_LENGTH, decoder.hidden_size)
                         with torch.no_grad():
                             full = self._full_forward(decoder, emb)
                             cached = self._cached_forward(decoder, emb, prefill)
+                        self.assertGreater(full.abs().max().item(), 0)
                         torch.testing.assert_close(cached, full, atol=1e-4, rtol=1e-4)
+
+    def test_cache_end_offset_disagrees_with_full_forward(self):
+        """The pre-fix formula places the query at the end of the KV buffer."""
+        for buckets in (0, 8):
+            with self.subTest(buckets=buckets):
+                torch.manual_seed(0)
+                decoder = self._decoder(dynamic_shapes=False, buckets=buckets)
+                emb = torch.randn(1, SEQUENCE_LENGTH, decoder.hidden_size)
+                with torch.no_grad():
+                    full = self._full_forward(decoder, emb)
+                    with (
+                        patch.object(multi_headed_attn, "gen_relative_positions", _gen_cache_end_positions),
+                        patch.object(multi_headed_attn, "compute_bias", _compute_cache_end_bias),
+                    ):
+                        cached = self._cached_forward(decoder, emb, prefill=1)
+                self.assertGreater(full.abs().max().item(), 0)
+                self.assertGreater((cached - full).abs().max().item(), 1e-2)
 
     def test_single_token_forward_without_cache(self):
         torch.manual_seed(0)
