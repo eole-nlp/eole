@@ -1,64 +1,88 @@
 # Vocabulary-head quantization benchmark
 
-RTX 5090, PyTorch 2.12.1+cu132, FlashAttention 2.8.3; RedHat Qwen3.8-27B INT4 decoder unchanged across arms. Original Eole prompts revision eole-v1. Only the shared vocabulary projection changes: BF16, symmetric RTN INT8, or symmetric RTN INT4 (group 128, BF16 scales). The same head serves draft selection and target verification.
+## Rerun after the Marlin changes
 
-Compile mode 0, 64,000 reserved context, prefill chunk 1024, batch/beam 1, MTP with three drafts, 4096 output cap. Temperature 0.6, top-k 20, top-p 0.95, presence penalty 1, frequency penalty 0. Seeds 42/43, one measured request per seed/workload/head after 128-token warmup. Decode timing excludes the first token and includes EOS; loading, quantization and compilation are excluded. Rates below are arithmetic means of two runs; acceptance sums accepted/drafted counts.
+Measured on 2026-10-25 after rebasing #481 onto main `3a386c4e` (#485). The installed extension was rebuilt for SM89/SM120 using CUDA 13.3; PyTorch is 2.12.1+cu132 with FlashAttention 2.8.3. RedHat Qwen3.8-27B INT4 decoder, tokenizer, prompts and normalization are unchanged across heads. Only the shared vocabulary projection changes: BF16, symmetric RTN INT8 or symmetric RTN INT4, group 128 with BF16 scales. The same head serves ordinary decoding, MTP draft selection and target verification.
 
-These sampled workload timings are not same-token comparisons or equivalent-quality claims. Quantization can change final text and acceptance.
+The tables below are the new campaign. [Previous measurements and their methodology](vocabulary-quantization-pre-marlin-results.md) are retained, along with the original JSONL files. Generated text can change with head quantization and the merged Marlin scheduling; neither comparisons between heads nor comparisons with historical results establish equivalent output quality or isolate a kernel-only speedup.
+
+## RTX 5090: MTP sampling
+
+Original Eole code/story/translation fixtures, revision `eole-v1`, seeds 42/43. Compile mode 0, 64,000 reserved context, batch/beam 1, three MTP drafts, 4,096-token output cap, 1,024-token prefill chunks, packed attention KVQ on, gate fusion off, prefill cache off. Sampling: temperature 0.6, top-k 20, top-p 0.95, presence penalty 1, frequency penalty 0. One 128-token code warmup precedes the measured requests, matching the original 5090 campaign. Per-phase MTP timing events remain enabled as in that campaign.
+
+Rates are arithmetic means of two measured decode rates. Timing excludes the first token and includes EOS, and excludes loading, head quantization, compilation and prefill. Acceptance sums accepted/drafted counts across both seeds. Outputs and lengths can differ between heads.
 
 | Workload | BF16 tok/s | INT8 tok/s | Gain | INT4 tok/s | Gain |
 |---|---:|---:|---:|---:|---:|
-| scenario_code_python | 135.63 | 154.68 | +14.0% | 162.33 | +19.7% |
-| scenario_story_en_mystery | 87.96 | 103.60 | +17.8% | 106.19 | +20.7% |
-| scenario_translation_zh_en | 124.22 | 142.33 | +14.6% | 149.51 | +20.4% |
+| Python code | 137.09 | 159.76 | +16.5% | 167.99 | +22.5% |
+| English story | 91.87 | 103.17 | +12.3% | 111.36 | +21.2% |
+| Chinese→English | 127.93 | 147.25 | +15.1% | 150.84 | +17.9% |
 
 | Workload | BF16 acceptance | INT8 acceptance | INT4 acceptance |
 |---|---:|---:|---:|
-| scenario_code_python | 83.6% | 82.5% | 82.6% |
-| scenario_story_en_mystery | 41.8% | 44.0% | 41.5% |
-| scenario_translation_zh_en | 70.5% | 69.9% | 68.8% |
+| Python code | 82.5% | 84.5% | 84.1% |
+| English story | 43.6% | 41.3% | 43.6% |
+| Chinese→English | 71.2% | 70.8% | 67.6% |
 
-## Per-request results
+### Per-request RTX 5090 results
 
 | Head | Workload | Seed | Decode tokens | tok/s | Accepted / drafted | Same text as BF16 |
 |---|---|---:|---:|---:|---:|---|
-| BF16 | scenario_code_python | 42 | 4095 | 133.88 | 2911 / 3552 | yes |
-| BF16 | scenario_story_en_mystery | 42 | 2680 | 87.20 | 1479 / 3606 | yes |
-| BF16 | scenario_translation_zh_en | 42 | 677 | 124.51 | 460 / 651 | yes |
-| BF16 | scenario_code_python | 43 | 4095 | 137.38 | 2943 / 3453 | yes |
-| BF16 | scenario_story_en_mystery | 43 | 2906 | 88.73 | 1631 / 3828 | yes |
-| BF16 | scenario_translation_zh_en | 43 | 634 | 123.92 | 431 / 612 | yes |
-| INT8 | scenario_code_python | 42 | 4095 | 152.38 | 2897 / 3593 | no |
-| INT8 | scenario_story_en_mystery | 42 | 3487 | 104.57 | 2003 / 4452 | no |
-| INT8 | scenario_translation_zh_en | 42 | 677 | 143.27 | 460 / 651 | yes |
-| INT8 | scenario_code_python | 43 | 4095 | 156.98 | 2935 / 3480 | no |
-| INT8 | scenario_story_en_mystery | 43 | 2658 | 102.64 | 1493 / 3498 | no |
-| INT8 | scenario_translation_zh_en | 43 | 692 | 141.38 | 467 / 675 | no |
-| INT4 | scenario_code_python | 42 | 4095 | 159.01 | 2892 / 3608 | no |
-| INT4 | scenario_story_en_mystery | 42 | 2912 | 108.17 | 1638 / 3822 | no |
-| INT4 | scenario_translation_zh_en | 42 | 646 | 152.98 | 441 / 618 | no |
-| INT4 | scenario_code_python | 43 | 4095 | 165.64 | 2943 / 3456 | no |
-| INT4 | scenario_story_en_mystery | 43 | 3077 | 104.20 | 1685 / 4179 | no |
-| INT4 | scenario_translation_zh_en | 43 | 725 | 146.04 | 484 / 726 | no |
+| BF16 | Python code | 42 | 4095 | 135.42 | 2895 / 3598 | yes |
+| BF16 | English story | 42 | 3093 | 91.65 | 1751 / 4026 | yes |
+| BF16 | Chinese→English | 42 | 675 | 128.40 | 461 / 645 | yes |
+| BF16 | Python code | 43 | 4095 | 138.76 | 2936 / 3474 | yes |
+| BF16 | English story | 43 | 2762 | 92.09 | 1568 / 3585 | yes |
+| BF16 | Chinese→English | 43 | 671 | 127.46 | 457 / 645 | yes |
+| INT8 | Python code | 42 | 4095 | 159.34 | 2927 / 3500 | no |
+| INT8 | English story | 42 | 2718 | 102.67 | 1496 / 3666 | no |
+| INT8 | Chinese→English | 42 | 648 | 147.67 | 441 / 621 | no |
+| INT8 | Python code | 43 | 4095 | 160.18 | 2945 / 3448 | no |
+| INT8 | English story | 43 | 2762 | 103.67 | 1538 / 3675 | no |
+| INT8 | Chinese→English | 43 | 635 | 146.83 | 432 / 612 | no |
+| INT4 | Python code | 42 | 4095 | 165.78 | 2912 / 3547 | no |
+| INT4 | English story | 42 | 3187 | 112.80 | 1828 / 4080 | no |
+| INT4 | Chinese→English | 42 | 672 | 156.42 | 460 / 636 | no |
+| INT4 | Python code | 43 | 4095 | 170.20 | 2952 / 3426 | no |
+| INT4 | English story | 43 | 2515 | 109.91 | 1403 / 3339 | no |
+| INT4 | Chinese→English | 43 | 908 | 145.27 | 599 / 930 | no |
 
-## Reproduce
+[Raw 5090 metadata, timings, token counts, acceptance and output hashes](vocabulary-quantization-post-marlin-results.jsonl). Full texts are retained locally under `/tmp/eole-vocab-post485`.
 
-Run the [sampling benchmark](benchmark_mtp_sampling.py) three times, passing --head none, --head int8, and --head int4, with CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0. Keep other options at their defaults and use separate --output JSON paths. See the [recipe](README.md) for the full command.
+## RTX 4090: repeated 32K checks
 
-[Raw metadata and measurements](vocabulary-quantization-results.jsonl) include fixture hashes and output hashes. Full texts are retained locally in /tmp/eole-vocab-pr. No output-quality benchmark was performed.
-
-## RTX 4090: repeated 32K compatibility and speed checks
-
-Mode 0, MTP with three drafts, 32,768 reserved context, 512-token output cap, group 128. Same sampling configuration and original Eole prompts as above. Each fixture was warmed with a full 512-token request before three measured repeats using seed 42. This isolates timing variation on the same text within each head; the three repeats are not independent quality samples. The active desktop used approximately 1 GB of VRAM.
+Same model, prompts, head group size and sampling configuration. Reserved context is 32,768 and output cap is 512. Each fixture receives a full 512-token warmup, then three measured repeats at seed 42, matching the previous 4090 campaign. Each head/workload repeated its own output hash in all three runs. These are timing repeats, not independent quality samples. Rates below are arithmetic means; the desktop occupies approximately 1 GB of VRAM.
 
 | Workload | BF16 tok/s | INT8 tok/s | Gain | INT4 tok/s | Gain |
 |---|---:|---:|---:|---:|---:|
-| scenario_code_python | 82.58 | 95.67 | +15.9% | 108.41 | +31.3% |
-| scenario_story_en_mystery | 56.13 | 65.98 | +17.6% | 70.61 | +25.8% |
-| scenario_translation_zh_en | 76.63 | 88.50 | +15.5% | 95.23 | +24.3% |
+| Python code | 83.91 | 97.57 | +16.3% | 109.57 | +30.6% |
+| English story | 54.31 | 68.06 | +25.3% | 70.63 | +30.0% |
+| Chinese→English | 79.17 | 91.70 | +15.8% | 95.04 | +20.1% |
 
-All three heads completed all repeated requests at 32K. INT8 and INT4 loaded successfully at 64,000 context but both ran out of memory during warmup generation. These short-prompt checks do not guarantee that every long-input request fits; prefill temporaries and other GPU users also affect available memory.
+| Workload | BF16 acceptance | INT8 acceptance | INT4 acceptance |
+|---|---:|---:|---:|
+| Python code | 76.7% | 76.7% | 81.7% |
+| English story | 38.3% | 43.9% | 40.3% |
+| Chinese→English | 71.5% | 71.5% | 67.3% |
 
-All measured repeats produced identical output hashes within each head/workload. Between heads, outputs can differ. An earlier isolated INT4 code result of 55.9 tok/s was not reproduced: the three fully warmed repeats measured 108.2–108.6 tok/s. That earlier run is excluded from this table, as is the restarted run interrupted because a video was playing. No definitive cause is assigned to the earlier outlier.
+All three head formats completed the repeated 32K tests. The historical 64K OOM checks were not repeated; these short-prompt results are not a long-context capacity guarantee. Do not directly compare the 512-token 4090 numbers with the 4,096-token 5090 campaign.
 
-[Per-request 4090 metadata, timing, acceptance and output hashes](vocabulary-quantization-4090-results.jsonl). These 512-token results should not be directly compared with the 4096-token RTX 5090 campaign.
+[Raw 4090 metadata and per-request measurements](vocabulary-quantization-4090-post-marlin-results.jsonl).
+
+## Reproduce
+
+Use the merged Marlin kernels and rebuild the extension if necessary. Run the same checkpoint once per head, with separate output paths:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+  python recipes/qwen38/benchmark_mtp_sampling.py \
+  --model "$QWEN38_MODEL" --head none --output /tmp/vocab-bf16.json
+```
+
+Repeat with `--head int8` and `--head int4`. Defaults reproduce the 5090 settings. For the 4090 campaign, select its CUDA device and add:
+
+```text
+--context-length 32768 --tokens 512 --seeds 42 42 42 --warmup-tokens 512 --warmup-all-prompts
+```
+
+The warmup options make the previous 4090 procedure reproducible without a separate script; default behavior remains the original 128-token first-prompt warmup. No output-quality benchmark was performed.

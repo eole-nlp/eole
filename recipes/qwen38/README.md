@@ -226,8 +226,8 @@ This uses three original Eole text fixtures covering Python code, an English
 mystery, and Chinese-to-English translation, with thinking disabled. The default
 is a 64K cache reservation, 4,096 output tokens and seeds 42/43. Compare actual
 output lengths and draft acceptance as well as speed. The decoder checkpoint
-may be INT4; the benchmark requires its original dense BF16 vocabulary head
-and does not quantize it. Output JSON records the fixture revision and SHA-256
+may be INT4; by default the benchmark uses its original dense BF16 vocabulary
+head. Optional head quantization is described below. Output JSON records the fixture revision and SHA-256
 so measurements can be tied to the exact prompts used.
 
 ### Optional vocabulary-head quantization
