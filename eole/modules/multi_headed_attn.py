@@ -378,7 +378,11 @@ class MultiHeadedAttention(torch.nn.Module):
             # Manual attention computation
             scale = self.dim_per_head**-0.5 if self.scale is None else self.scale
 
-            scores = torch.matmul(query.transpose(1, 2), key.transpose(1, 2).transpose(2, 3)) * scale
+            # Scale Q before Q·Kᵀ (to prevent fp16 overflow)
+            scores = torch.matmul(
+                query.transpose(1, 2) * scale,
+                key.transpose(1, 2).transpose(2, 3),
+            )
 
             # key.size(1) is the whole cache buffer once a cache exists, so query
             # positions come from cache_seqlens rather than from that length.
