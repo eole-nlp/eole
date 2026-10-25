@@ -224,7 +224,9 @@ template <const vllm::ScalarTypeId a_type_id,  // A ScalarType id
           const bool is_zp_float,  // is zero point of float16 type?
           const bool is_moe         // true=MoE routing, false=dense sequential
           >
-__global__ void Marlin(
+// Let ptxas choose the register budget for this GEMM instead of the build-wide
+// 64-register cap. Large M tiles otherwise spill their accumulators to local memory.
+__global__ void __launch_bounds__(threads, 1) Marlin(
     const int4* __restrict__ A,  // fp16 input matrix of shape mxk
     const int4* __restrict__ B,  // 4bit quantized weight matrix of shape kxn
     int4* __restrict__ C,        // fp16 output buffer of shape mxn
