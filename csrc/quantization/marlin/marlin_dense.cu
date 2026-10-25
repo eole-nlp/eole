@@ -14,9 +14,13 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <c10/cuda/CUDAException.h>
 #include <torch/extension.h>
 
 #include <cuda_fp16.h>
+#include <map>
+#include <mutex>
+#include <tuple>
 #include <optional>
 #include <type_traits>
 
@@ -44,6 +48,13 @@ thread_config_t small_batch_thread_configs[] = {
     {128,  64, 128},
 };
 
+// Narrow output tiles expose more independent work for decode/verification.
+thread_config_t decode_thread_configs[] = {
+    {128, 64, 128},
+    {128, 128, 256},
+    {64, 128, 128},
+};
+
 thread_config_t large_batch_thread_configs[] = {
     {64,  256, 256},
     {64,  128, 128},
@@ -53,6 +64,7 @@ thread_config_t large_batch_thread_configs[] = {
 typedef struct {
   int blocks_per_sm;
   thread_config_t tb_cfg;
+  int shared_mem;
 } exec_config_t;
 
 // ── Shared-memory size helpers ────────────────────────────────────────────────
@@ -97,7 +109,7 @@ int get_kernel_cache_size(thread_config_t const& th_config, int thread_m_blocks,
   int sh_s_size = get_scales_cache_size(th_config, prob_m, prob_n, prob_k,
                                         num_bits, group_size, has_act_order,
                                         is_k_full);
-  int sh_g_idx_size = (has_act_order && !is_k_full) ? pipe_stages * tb_k / 4 : 0;
+  int sh_g_idx_size = (has_act_order && !is_k_full) ? pipe_stages * tb_k * sizeof(int) : 0;
 
   int sh_zp_size = 0;
   if (has_zp) {
@@ -233,15 +245,34 @@ exec_config_t determine_exec_config(
     int prob_m, int prob_n, int prob_k,
     int thread_m_blocks, bool m_block_size_8,
     int num_bits, int group_size, bool has_act_order, bool is_k_full,
-    bool has_zp, bool is_zp_float, int max_shared_mem, int sms)
+    bool has_zp, bool is_zp_float, int max_shared_mem, int sms, int dev)
 {
-  exec_config_t best = {1, {-1, -1, -1}};
+  // Occupancy queries/opt-in attributes are host driver work: resolve once per
+  // device and specialization, including all layout and quantization options.
+  using CacheKey = std::tuple<vllm::ScalarTypeId, vllm::ScalarTypeId,
+      vllm::ScalarTypeId, vllm::ScalarTypeId, int, int, int, int, bool,
+      int, bool, bool, bool, bool, int>;
+  static std::map<CacheKey, exec_config_t> cache;
+  static std::mutex cache_mutex;
+  CacheKey key{a_id, b_id, c_id, s_id, prob_m, prob_n, prob_k,
+      thread_m_blocks, m_block_size_8, group_size, has_act_order,
+      is_k_full, has_zp, is_zp_float, dev};
+  std::lock_guard<std::mutex> lock(cache_mutex);
+  auto found = cache.find(key);
+  if (found != cache.end()) return found->second;
+
+  exec_config_t best = {1, {-1, -1, -1}, 0};
   thread_config_t* cfgs = (thread_m_blocks > 1)
                           ? large_batch_thread_configs
                           : small_batch_thread_configs;
   int n_cfgs = (thread_m_blocks > 1)
       ? (int)(sizeof(large_batch_thread_configs) / sizeof(thread_config_t))
       : (int)(sizeof(small_batch_thread_configs) / sizeof(thread_config_t));
+
+  if (m_block_size_8) {
+    cfgs = decode_thread_configs;
+    n_cfgs = sizeof(decode_thread_configs) / sizeof(thread_config_t);
+  }
 
   for (int i = 0; i < n_cfgs; i++) {
     auto& th = cfgs[i];
@@ -257,7 +288,27 @@ exec_config_t determine_exec_config(
                                     th.thread_n / 16, th.thread_k / 16,
                                     m_block_size_8, group_blocks, is_zp_float);
     if (kernel == nullptr) continue;
-    return {1, th};
+    int shared_mem = get_kernel_cache_size(th, thread_m_blocks,
+        prob_m, prob_n, prob_k, num_bits, group_size, has_act_order,
+        is_k_full, has_zp, is_zp_float);
+    C10_CUDA_CHECK(cudaFuncSetAttribute(kernel,
+        cudaFuncAttributeMaxDynamicSharedMemorySize, max_shared_mem));
+    int resident_blocks = 0;
+    C10_CUDA_CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &resident_blocks, kernel, th.num_threads, shared_mem));
+    if (resident_blocks == 0) continue;
+    int blocks_per_sm = 1;
+    if (m_block_size_8) {
+      int output_tiles = div_ceil(prob_m, 8) * (prob_n / th.thread_n);
+      // The FP32 reduction scratch reserves max_thread_n columns per SM;
+      // each additional CTA needs its own tile within that allocation.
+      int scratch_blocks = max_thread_n / th.thread_n;
+      blocks_per_sm = min(min(resident_blocks, scratch_blocks),
+                          max(1, div_ceil(output_tiles, sms)));
+    }
+    exec_config_t result{blocks_per_sm, th, shared_mem};
+    cache.emplace(key, result);
+    return result;
   }
   return best;
 }
@@ -318,7 +369,6 @@ void marlin_mm(const void* A, const void* B, void* C, void* C_tmp,
   TORCH_CHECK(max_shared_mem > 0);
 
   int max_par            = (prob_n <= 4096) ? 16 * 8 : 16;
-  int max_shared_mem_new = max_shared_mem;
   int rest_m             = prob_m;
   int max_thread_m_blocks = 4;
 
@@ -336,7 +386,7 @@ void marlin_mm(const void* A, const void* B, void* C, void* C_tmp,
         prob_m_split, prob_n, prob_k,
         thread_m_blocks, m_block_size_8,
         num_bits, group_size, has_act_order, is_k_full,
-        has_zp, is_zp_float, max_shared_mem, sms);
+        has_zp, is_zp_float, max_shared_mem, sms, dev);
 
     auto& thread_tfg = exec_cfg.tb_cfg;
     if (thread_tfg.thread_k == -1 && max_thread_m_blocks > 1) {
@@ -354,7 +404,7 @@ void marlin_mm(const void* A, const void* B, void* C, void* C_tmp,
     TORCH_CHECK(is_valid_config(thread_tfg, thread_m_blocks, prob_m_split,
                                 prob_n, prob_k, num_bits, group_size,
                                 has_act_order, is_k_full, has_zp, is_zp_float,
-                                max_shared_mem_new),
+                                max_shared_mem),
                 "No valid dense Marlin thread config for MNK=[", prob_m, ",",
                 prob_n, ",", prob_k, "] num_bits=", num_bits);
 
@@ -367,13 +417,10 @@ void marlin_mm(const void* A, const void* B, void* C, void* C_tmp,
                 "Unsupported dense Marlin shape MNK=[", prob_m, ",", prob_n,
                 ",", prob_k, "]");
 
-    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
-                         max_shared_mem_new);
-
     bool part_use_atomic_add =
         use_atomic_add && div_ceil(prob_m_split, 64) * prob_n <= 2048;
 
-    kernel<<<blocks, num_threads, max_shared_mem_new, stream>>>(
+    kernel<<<blocks, num_threads, exec_cfg.shared_mem, stream>>>(
         A_ptr, B_ptr, C_ptr, C_tmp_ptr, bias_ptr,
         /*a_scales_ptr=*/nullptr,
         s_ptr, /*global_scale_ptr=*/nullptr, zp_ptr, g_idx_ptr,
