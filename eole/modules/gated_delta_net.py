@@ -11,6 +11,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils import skip_init
 
+from eole.modules.gdn_ab import gdn_ab_projections
+
 
 # ---------------------------------------------------------------------------
 # Optional fast-path libraries (causal_conv1d and flash-linear-attention).
@@ -443,6 +445,7 @@ class GatedDeltaNet(nn.Module):
         self._speculating = False
         self._spec_buffers = None
         self._control_gemv_enabled = False
+        self.register_buffer("_ab_pair_weight", None, persistent=False)
 
     def begin_speculation(self, seq_len):
         if self.conv_state is None or self.recurrent_state is None:
@@ -479,9 +482,9 @@ class GatedDeltaNet(nn.Module):
                 ),
                 "final_recurrent_state": torch.empty_like(self.recurrent_state),
             }
-        # The four-row BF16 GEMM is unusually slow for Qwen's tiny control
-        # projections on SM120. Resolve hardware eligibility outside compilation
-        # and graph capture; keep unmeasured devices/shapes on the normal path.
+        # The legacy four-GEMV fallback was tuned for SM120 only. The paired
+        # Triton path resolves its broader hardware eligibility separately in
+        # prepare_ab_projections(), outside compilation and graph capture.
         self._control_gemv_enabled = (
             seq_len == 4
             and batch_size == 1
@@ -670,6 +673,31 @@ class GatedDeltaNet(nn.Module):
     # Forward
     # ------------------------------------------------------------------
 
+    def prepare_ab_projections(self):
+        """Pack BF16 A/B projections for NVIDIA Ampere+; other cases keep the existing path."""
+        import importlib.util
+
+        self._ab_pair_weight = None
+        if type(self.in_proj_a) is not nn.Linear or type(self.in_proj_b) is not nn.Linear:
+            return
+        a, b = self.in_proj_a, self.in_proj_b
+        if (
+            not self.training
+            and a.weight.is_cuda
+            and torch.version.cuda is not None
+            # BF16 tensor-core MMA is available on NVIDIA Ampere and newer.
+            # Triton lowers the same split-K algorithm for the target GPU.
+            and torch.cuda.get_device_capability(a.weight.device)[0] >= 8
+            and a.weight.shape == b.weight.shape == (48, 5120)
+            and a.weight.dtype == b.weight.dtype == torch.bfloat16
+            and a.weight.device == b.weight.device
+            and a.bias is None
+            and b.bias is None
+            and importlib.util.find_spec("triton") is not None
+        ):
+            with torch.no_grad():
+                self._ab_pair_weight = torch.cat((b.weight, a.weight), dim=0)
+
     def _should_split_control_rows(self, hidden_states):
         return (
             self._speculating
@@ -690,6 +718,28 @@ class GatedDeltaNet(nn.Module):
             return torch.stack([projection(hidden_states[:, i, :]) for i in range(4)], dim=1)
         return projection(hidden_states)
 
+    def _should_pair_ab_projections(self, hidden_states):
+        return (
+            self._ab_pair_weight is not None
+            and self._speculating
+            and not self.training
+            and hidden_states.shape == (1, 4, 5120)
+            and hidden_states.dtype == torch.bfloat16
+            and hidden_states.is_cuda
+            and hidden_states.is_contiguous()
+        )
+
+    def _project_ab(self, hidden_states):
+        """Return in_proj_b and in_proj_a outputs, in that order."""
+        if self._should_pair_ab_projections(hidden_states):
+            projections = gdn_ab_projections(hidden_states, self._ab_pair_weight)
+            b, a = projections.split(self.num_v_heads, dim=-1)
+        else:
+            split_control_rows = self._should_split_control_rows(hidden_states)
+            b = self._project_control(self.in_proj_b, hidden_states, split_control_rows)
+            a = self._project_control(self.in_proj_a, hidden_states, split_control_rows)
+        return b, a
+
     def forward(self, hidden_states, attn_mask=None, **kwargs):
         batch_size, seq_len, _ = hidden_states.shape
 
@@ -703,9 +753,7 @@ class GatedDeltaNet(nn.Module):
         mixed_qkv = self.in_proj_qkv(hidden_states).transpose(1, 2)  # (B, conv_dim, S)
         z = self.in_proj_z(hidden_states)  # (B, S, value_dim)
         z = z.reshape(batch_size, seq_len, self.num_v_heads, self.head_v_dim)
-        split_control_rows = self._should_split_control_rows(hidden_states)
-        b = self._project_control(self.in_proj_b, hidden_states, split_control_rows)
-        a = self._project_control(self.in_proj_a, hidden_states, split_control_rows)
+        b, a = self._project_ab(hidden_states)
 
         if use_precomputed:
             mixed_qkv = self._causal_conv1d_update(

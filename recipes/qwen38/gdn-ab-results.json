@@ -1,0 +1,244 @@
+{
+  "fixed-int4-orwell": {
+    "existing_tps": 209.51576486699574,
+    "paired_tps": 226.47785246235395,
+    "gain_percent": 8.095852646757184,
+    "identical_output": true,
+    "existing_acceptance": "383/383",
+    "paired_acceptance": "383/383",
+    "existing_range": [
+      208.37803266407855,
+      209.8059573107532
+    ],
+    "paired_range": [
+      224.70248542307158,
+      226.76875107155527
+    ]
+  },
+  "int4-code": {
+    "existing_tps": 180.05952306112493,
+    "paired_tps": 192.85950798338843,
+    "gain_percent": 7.108751986374129,
+    "identical_output": true,
+    "existing_acceptance": "363/442",
+    "paired_acceptance": "363/442",
+    "existing_range": [
+      178.8850701217256,
+      180.85850079409192
+    ],
+    "paired_range": [
+      192.72887430939267,
+      193.7365891861738
+    ]
+  },
+  "int4-orwell": {
+    "existing_tps": 136.57057425211363,
+    "paired_tps": 135.95509655867815,
+    "gain_percent": -0.45066640219239007,
+    "identical_output": false,
+    "existing_acceptance": "313/593",
+    "paired_acceptance": "299/634",
+    "existing_range": [
+      135.24938398855844,
+      136.62483080996734
+    ],
+    "paired_range": [
+      132.56688676574137,
+      136.1059480082219
+    ]
+  },
+  "int8-code": {
+    "existing_tps": 175.35348157254785,
+    "paired_tps": 184.46562212314163,
+    "gain_percent": 5.196441193455215,
+    "identical_output": false,
+    "existing_acceptance": "365/438",
+    "paired_acceptance": "366/434",
+    "existing_range": [
+      173.86025552170932,
+      175.3588391351203
+    ],
+    "paired_range": [
+      183.7652918296195,
+      185.09654189284583
+    ]
+  },
+  "int8-orwell": {
+    "existing_tps": 125.74008002828404,
+    "paired_tps": 126.22282215459282,
+    "gain_percent": 0.3839206450323429,
+    "identical_output": false,
+    "existing_acceptance": "307/612",
+    "paired_acceptance": "301/626",
+    "existing_range": [
+      125.62956039735515,
+      126.10715685886699
+    ],
+    "paired_range": [
+      124.37504212599309,
+      126.52337109929412
+    ]
+  },
+  "mode2-int4-code": {
+    "existing_tps": 171.87740893181615,
+    "paired_tps": 188.39175437355314,
+    "gain_percent": 9.608211773944198,
+    "identical_output": false,
+    "existing_acceptance": "362/444",
+    "paired_acceptance": "368/426",
+    "existing_range": [
+      171.38045310577562,
+      172.2570762445217
+    ],
+    "paired_range": [
+      187.4091851438605,
+      190.1562704041701
+    ]
+  },
+  "none-code": {
+    "existing_tps": 147.6687188815708,
+    "paired_tps": 153.2870064124174,
+    "gain_percent": 3.804656513172855,
+    "identical_output": true,
+    "existing_acceptance": "363/441",
+    "paired_acceptance": "363/441",
+    "existing_range": [
+      147.41524987120215,
+      147.89429135393027
+    ],
+    "paired_range": [
+      153.1439125395134,
+      154.08564515320123
+    ]
+  },
+  "none-orwell": {
+    "existing_tps": 101.2078976210127,
+    "paired_tps": 104.83898510528297,
+    "gain_percent": 3.5877511237980553,
+    "identical_output": false,
+    "existing_acceptance": "297/637",
+    "paired_acceptance": "293/652",
+    "existing_range": [
+      100.78247450066473,
+      101.65632467379588
+    ],
+    "paired_range": [
+      104.6978399609581,
+      104.92092261675664
+    ]
+  },
+  "sampling-int4-code": {
+    "existing_tps": 169.06959077910585,
+    "paired_tps": 180.46258948163575,
+    "gain_percent": 6.738644513202363,
+    "identical_output": false,
+    "existing_acceptance": "360/451",
+    "paired_acceptance": "361/448",
+    "existing_range": [
+      168.9303406694074,
+      170.15014764411558
+    ],
+    "paired_range": [
+      178.88941720041922,
+      180.96670036379118
+    ]
+  },
+  "user-script-full-orwell": {
+    "native": {
+      "median_tps": 102.03890231959072,
+      "range": [
+        101.89281135417357,
+        102.16306579355953
+      ],
+      "tokens": 827,
+      "accepted": 482,
+      "drafted": 1038,
+      "sha256": "83906e839cf95e50b26c9ed18e95860e76df5b682c85dc91c0c1123097e5541e",
+      "repeatable": true,
+      "packed_layers": 0
+    },
+    "paired": {
+      "median_tps": 111.61736217263903,
+      "range": [
+        111.49069721537231,
+        111.69981604426079
+      ],
+      "tokens": 756,
+      "accepted": 452,
+      "drafted": 915,
+      "sha256": "fe4d7309c57d26fd46f657860700f27aa480785e6ff7a0a2ee458f1c81acd251",
+      "repeatable": true,
+      "packed_layers": 48
+    },
+    "gain_percent": 9.387066731713878
+  },
+  "rtx4090-architecture-comparison": {
+    "context_length": 32768,
+    "max_length": 512,
+    "compute_dtype": "bf16",
+    "vocabulary_head": "bf16",
+    "compile_mode": 0,
+    "workloads": {
+      "orwell": {
+        "native": {
+          "median_tps": 63.241348478955025,
+          "range": [
+            62.90953143169267,
+            63.34264116676863
+          ],
+          "accepted": 301,
+          "drafted": 625,
+          "tokens": 511,
+          "hash": "0ca42c591363e302e508f34d9d509d7c2c68ecc6c8b92b13a848ef56e4b3d475",
+          "repeatable": true,
+          "packed_layers": 0
+        },
+        "paired": {
+          "median_tps": 68.12462307344097,
+          "range": [
+            68.096475271536,
+            68.16773027911134
+          ],
+          "accepted": 301,
+          "drafted": 626,
+          "tokens": 511,
+          "hash": "94e04ed8ef1031345f14bcd70b3c27997ec5f5977eb2ee7598b4b395e91c506d",
+          "repeatable": true,
+          "packed_layers": 48
+        },
+        "gain_percent": 7.721648434032002,
+        "same_output": false
+      },
+      "code": {
+        "native": {
+          "median_tps": 92.45011419833146,
+          "range": [
+            92.27961187880722,
+            92.77814835163764
+          ],
+          "accepted": 366,
+          "drafted": 434,
+          "tokens": 511,
+          "hash": "4b7db31751f8f276032c3b828194936ae36224f1a0dfa108cdcd7f4a8ecf0141",
+          "repeatable": true,
+          "packed_layers": 0
+        },
+        "paired": {
+          "median_tps": 93.61633088499296,
+          "range": [
+            93.48694301867448,
+            94.44084889650934
+          ],
+          "accepted": 366,
+          "drafted": 434,
+          "tokens": 511,
+          "hash": "4b7db31751f8f276032c3b828194936ae36224f1a0dfa108cdcd7f4a8ecf0141",
+          "repeatable": true,
+          "packed_layers": 48
+        },
+        "gain_percent": 1.2614551066531199,
+        "same_output": true
+      }
+    }
+  }
+}
