@@ -152,6 +152,34 @@ request used ordinary decoding; merely setting the flag does not demonstrate
 speculation. Image inputs, batches larger than one, beam search, forced prefixes,
 and unsupported decoding constraints currently fall back.
 
+### Pack inference projections
+
+For compatible Marlin INT4/INT8 checkpoints, these inference options reduce
+projection launches without requantizing the weights:
+
+```yaml
+fuse_kvq: true
+fuse_gate: true
+```
+
+`fuse_kvq` packs self-attention K/V/Q and GDN input QKV/Z projections.
+`fuse_gate` packs MLP gate/up projections. Both options default to false.
+Fusion runs during inference setup, before Marlin repacking; incompatible
+pairs keep their original projections and log a warning. Other quantization
+backends retain their existing behavior. MoE expert stacking is unchanged.
+
+For dense BF16 GDN A/B projections of shape 48×5120, supported NVIDIA Ampere+
+GPUs also use a paired kernel automatically for single-token decoding and
+four-token MTP verification. This requires single-GPU, batch/beam 1 inference;
+other shapes, dtypes, devices and batch/beam configurations keep the existing
+path. The packed A/B buffer adds about 47 MB for this 48-GDN-layer model and
+is not stored in checkpoints. This dispatch is independent of the fusion flags.
+
+Packing and parallel reductions can change floating-point rounding, generated
+continuations and MTP acceptance. FP32 normalization and the original BF16
+vocabulary head are unchanged. See the [projection benchmarks](packed-projections.md)
+for measured throughput, limitations and reproduction commands.
+
 ### Sample with MTP
 
 MTP also supports target sampling while keeping its draft proposals greedy. In

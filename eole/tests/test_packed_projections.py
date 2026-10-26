@@ -28,10 +28,10 @@ def config(**kwargs):
     )
 
 
-def projection(n, bias=False):
-    layer = MarlinQuantLinear(4, 128, False, True, 128, n, bias=bias)
+def projection(n, bias=False, bits=4):
+    layer = MarlinQuantLinear(bits, 128, False, True, 128, n, bias=bias)
     layer.qweight.data.random_(0, 2**31 - 1)
-    layer.scales.data.uniform_(0.01, 0.05)
+    layer.scales.data.uniform_(0.01, 0.05).mul_(7 / ((1 << (bits - 1)) - 1))
     layer.qzeros.data.zero_()
     layer.g_idx.data.zero_()
     if bias:
@@ -39,7 +39,7 @@ def projection(n, bias=False):
     return layer
 
 
-def block():
+def block(bits=4):
     decoder = TransformerDecoderConfig(
         hidden_size=128,
         heads=4,
@@ -53,11 +53,11 @@ def block():
     layer = nn.Module()
     layer.self_attn = None
     layer.linear_attn = GatedDeltaNet(decoder, 0).eval()
-    layer.linear_attn.in_proj_qkv = projection(192)
-    layer.linear_attn.in_proj_z = projection(64)
+    layer.linear_attn.in_proj_qkv = projection(192, bits=bits)
+    layer.linear_attn.in_proj_z = projection(64, bits=bits)
     layer.mlp = MLP(decoder).eval()
-    layer.mlp.gate_up_proj = projection(128, bias=True)
-    layer.mlp.up_proj = projection(128, bias=True)
+    layer.mlp.gate_up_proj = projection(128, bias=True, bits=bits)
+    layer.mlp.up_proj = projection(128, bias=True, bits=bits)
     layer.mlp.down_proj.reset_parameters()
     return layer
 
@@ -168,9 +168,9 @@ class TestPackedProjectionSetup(unittest.TestCase):
 @unittest.skipUnless(torch.cuda.is_available() and _CPP_OPS_AVAILABLE, "Eole CUDA extension required")
 class TestPackedProjectionCUDA(unittest.TestCase):
     def test_gate_and_qkvz_outputs_compile_and_replay(self):
-        for dtype in (torch.float16, torch.bfloat16):
-            with self.subTest(dtype=dtype), torch.inference_mode():
-                layer = block().cuda().to(dtype)
+        for bits, dtype in ((4, torch.float16), (4, torch.bfloat16), (8, torch.float16), (8, torch.bfloat16)):
+            with self.subTest(bits=bits, dtype=dtype), torch.inference_mode():
+                layer = block(bits=bits).cuda().to(dtype)
                 mlp, gdn = layer.mlp, layer.linear_attn
                 originals = [mlp.gate_up_proj, mlp.up_proj, gdn.in_proj_qkv, gdn.in_proj_z]
                 mlp._fuse_gate()
