@@ -367,6 +367,7 @@ class GatedDeltaNet(nn.Module):
         # The conv1d operates on the concatenated QKV stream
         self.conv_dim = self.key_dim * 2 + self.value_dim
 
+        self.fused_qkvz = False
         self.in_proj_qkv = skip_init(
             nn.Linear,
             in_features=hidden_size,
@@ -652,6 +653,30 @@ class GatedDeltaNet(nn.Module):
     # Forward
     # ------------------------------------------------------------------
 
+    def _fuse_QKVZ(self):
+        """Pack compatible Marlin QKV and output-gate weights before repacking."""
+        if self.fused_qkvz or getattr(self, "_qkvz_fusion_skipped", False):
+            return
+        from eole.modules.autoround_linear import fuse_autoround_projections
+
+        handled, fused = fuse_autoround_projections([self.in_proj_qkv, self.in_proj_z], name="GDN QKV/Z")
+        if handled:
+            if fused is None:
+                self._qkvz_fusion_skipped = True
+                return
+            self.in_proj_qkvz = fused
+            del self.in_proj_qkv, self.in_proj_z
+            self.fused_qkvz = True
+
+    def _project_qkvz(self, hidden_states):
+        if self.fused_qkvz:
+            qkvz = self.in_proj_qkvz(hidden_states)
+            mixed_qkv, z = qkvz.split((self.conv_dim, self.value_dim), dim=-1)
+        else:
+            mixed_qkv = self.in_proj_qkv(hidden_states)
+            z = self.in_proj_z(hidden_states)
+        return mixed_qkv.transpose(1, 2), z
+
     def prepare_ab_projections(self):
         """Pack BF16 A/B projections for NVIDIA Ampere+; other cases keep the existing path."""
         import importlib.util
@@ -700,9 +725,11 @@ class GatedDeltaNet(nn.Module):
     def _should_pair_ab_projections(self, hidden_states):
         return (
             self._ab_pair_weight is not None
-            and self._speculating
             and not self.training
-            and hidden_states.shape == (1, 4, 5120)
+            and hidden_states.ndim == 3
+            and hidden_states.shape[0] == 1
+            and hidden_states.shape[2] == 5120
+            and (hidden_states.shape[1] == 1 or (self._speculating and hidden_states.shape[1] == 4))
             and hidden_states.dtype == torch.bfloat16
             and hidden_states.is_cuda
             and hidden_states.is_contiguous()
@@ -729,8 +756,7 @@ class GatedDeltaNet(nn.Module):
         use_precomputed = self.conv_state is not None and self.recurrent_state is not None and seq_len == 1
         use_speculative = self._speculating and seq_len > 1
 
-        mixed_qkv = self.in_proj_qkv(hidden_states).transpose(1, 2)  # (B, conv_dim, S)
-        z = self.in_proj_z(hidden_states)  # (B, S, value_dim)
+        mixed_qkv, z = self._project_qkvz(hidden_states)
         z = z.reshape(batch_size, seq_len, self.num_v_heads, self.head_v_dim)
         b, a = self._project_ab(hidden_states)
 

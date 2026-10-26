@@ -31,35 +31,46 @@ class Inference(object):
     """
 
     def _prepare_inference_projections(self, config):
+        from eole.modules.autoround_linear import finalize_deferred_autoround_linear
+
         if hasattr(self.model, "decoder") and self.model.decoder is not None:
             if hasattr(self.model.decoder, "transformer_layers"):
                 for layer in self.model.decoder.transformer_layers:
                     linear_attn = getattr(layer, "linear_attn", None)
                     if (
                         linear_attn is not None
-                        and getattr(config, "self_speculative_decoding", False)
                         and getattr(config, "parallel_gpu", 1) == 1
                         and config.batch_size == 1
                         and config.beam_size == 1
                     ):
                         linear_attn.prepare_ab_projections()
+                    if linear_attn is not None and getattr(config, "fuse_kvq", False):
+                        linear_attn._fuse_QKVZ()
                     self_attn = getattr(layer, "self_attn", None)
                     if getattr(config, "fuse_kvq", False) and self_attn is not None:
                         self_attn._fuse_KVQ()
-                    if config.fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
+                    if getattr(config, "fuse_gate", False) and getattr(layer.mlp, "up_proj", None) is not None:
                         layer.mlp._fuse_gate()
+                    # Repack and release temporary fused layouts before the next layer.
+                    if finalize_deferred_autoround_linear(layer):
+                        # Return unused allocator blocks from concatenation/repacking.
+                        # This is setup only, never part of decoding.
+                        torch.cuda.empty_cache()
         if hasattr(self.model, "encoder") and self.model.encoder is not None:
             if hasattr(self.model.encoder, "transformer_layers"):
                 for layer in self.model.encoder.transformer_layers:
                     self_attn = getattr(layer, "self_attn", None)
                     if getattr(config, "fuse_kvq", False) and self_attn is not None:
                         self_attn._fuse_KVQ()
-                    if config.fuse_gate and getattr(layer.mlp, "up_proj", None) is not None:
+                    if getattr(config, "fuse_gate", False) and getattr(layer.mlp, "up_proj", None) is not None:
                         layer.mlp._fuse_gate()
+                    # Repack and release temporary fused layouts before the next layer.
+                    if finalize_deferred_autoround_linear(layer):
+                        # Return unused allocator blocks from concatenation/repacking.
+                        # This is setup only, never part of decoding.
+                        torch.cuda.empty_cache()
 
         if isinstance(self.model, torch.nn.Module):
-            from eole.modules.autoround_linear import finalize_deferred_autoround_linear
-
             finalize_deferred_autoround_linear(self.model)
 
     def __init__(

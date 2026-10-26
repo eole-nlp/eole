@@ -1,4 +1,4 @@
-"""Numerical and capture checks for the four-row GDN A/B inference operator."""
+"""Numerical and capture checks for the single-token and four-row GDN A/B inference operator."""
 
 import unittest
 import tempfile
@@ -36,11 +36,14 @@ class TestABPacking(unittest.TestCase):
                 torch.testing.assert_close(b, layer.in_proj_b(x))
                 torch.testing.assert_close(a, layer.in_proj_a(x))
 
-    def test_inference_setup_only_packs_single_gpu_mtp(self):
+    def test_inference_setup_packs_single_gpu_decode_with_or_without_mtp(self):
         from eole.predict.inference import Inference
 
         layer = projection_tests.TestGDNControlProjection().new_layer()
-        block = SimpleNamespace(linear_attn=layer, self_attn=None, mlp=SimpleNamespace())
+        block = nn.Module()
+        block.linear_attn = layer
+        block.self_attn = None
+        block.mlp = nn.Module()
         model = SimpleNamespace(decoder=SimpleNamespace(transformer_layers=[block]))
         config = SimpleNamespace(
             fuse_gate=False,
@@ -51,7 +54,6 @@ class TestABPacking(unittest.TestCase):
         )
         predictor = SimpleNamespace(model=model)
         for field, disabled in [
-            ("self_speculative_decoding", False),
             ("parallel_gpu", 2),
             ("batch_size", 4),
             ("beam_size", 4),
@@ -62,9 +64,11 @@ class TestABPacking(unittest.TestCase):
                 Inference._prepare_inference_projections(predictor, config)
                 prepare.assert_not_called()
             setattr(config, field, value)
-        with patch.object(layer, "prepare_ab_projections") as prepare:
-            Inference._prepare_inference_projections(predictor, config)
-            prepare.assert_called_once()
+        for speculative in (False, True):
+            config.self_speculative_decoding = speculative
+            with patch.object(layer, "prepare_ab_projections") as prepare:
+                Inference._prepare_inference_projections(predictor, config)
+                prepare.assert_called_once()
 
     def test_cpu_and_bias_fallback(self):
         layer = projection_tests.TestGDNControlProjection().new_layer()
@@ -79,8 +83,13 @@ class TestABPacking(unittest.TestCase):
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
 class TestABKernel(unittest.TestCase):
     def test_fp64_reference_compile_and_graph_replay(self):
+        for rows in (1, 4):
+            with self.subTest(rows=rows):
+                self.check_fp64_reference_compile_and_graph_replay(rows)
+
+    def check_fp64_reference_compile_and_graph_replay(self, rows):
         torch.manual_seed(109)
-        x = torch.randn(1, 4, 5120, device="cuda", dtype=torch.bfloat16)
+        x = torch.randn(1, rows, 5120, device="cuda", dtype=torch.bfloat16)
         w = torch.randn(96, 5120, device="cuda", dtype=torch.bfloat16) / 72
 
         # FP64 accumulation distinguishes real errors from BF16 rounding boundaries.
@@ -167,7 +176,7 @@ class TestABKernel(unittest.TestCase):
         # Pairing is independent of the legacy SM120-only GEMV fallback.
         layer._control_gemv_enabled = False
         self.assertTrue(layer._should_pair_ab_projections(x))
-        for shape in [(1, 1, 5120), (2, 4, 5120), (1, 3, 5120), (1, 4, 2560)]:
+        for shape in [(2, 1, 5120), (2, 4, 5120), (1, 3, 5120), (1, 4, 2560), (1, 5120)]:
             self.assertFalse(layer._should_pair_ab_projections(torch.zeros(shape, device="cuda", dtype=x.dtype)))
         self.assertFalse(layer._should_pair_ab_projections(x.float()))
         self.assertFalse(
@@ -178,6 +187,7 @@ class TestABKernel(unittest.TestCase):
         layer.eval()
         layer._speculating = False
         self.assertFalse(layer._should_pair_ab_projections(x))
+        self.assertTrue(layer._should_pair_ab_projections(x[:, :1].contiguous()))
 
     def test_pack_order_and_device_policy(self):
         layer = projection_tests.TestGDNControlProjection().new_layer(hidden_size=5120, heads=48).cuda().bfloat16()

@@ -115,24 +115,33 @@ def _get_module_device(module):
         return torch.device("cpu")
 
 
-def post_init_autoround_linear(model, defer_kvq=False):
+def post_init_autoround_linear(model, defer_kvq=False, defer_gate=False):
     """Call post_init() on all AutoRound QuantLinear modules in the model.
 
     Required for Marlin layers: repacks GPTQ-format weights into Marlin's optimized
     memory layout and pre-allocates the workspace buffer.  No-op for other backends.
     Must be called after weights have been loaded and the model moved to CUDA.
-    With defer_kvq, only fusion-capable self-attention projections wait for
-    inference setup; finalize_deferred_autoround_linear initializes them there.
+    Fusion-capable self-attention/GDN input projections and MLP gate/up
+    projections can wait for inference setup when their fusion flags are on.
+    finalize_deferred_autoround_linear initializes both fused and skipped pairs.
     """
     deferred_names = set()
     if defer_kvq:
+        from eole.modules.gated_delta_net import GatedDeltaNet
         from eole.modules.multi_headed_attn import SelfMHA
 
         if isinstance(model, SelfMHA):
             deferred_names = {"linear_keys", "linear_values", "linear_query"}
+        elif isinstance(model, GatedDeltaNet):
+            deferred_names = {"in_proj_qkv", "in_proj_z"}
+    if defer_gate:
+        from eole.modules.transformer_mlp import MLP
+
+        if isinstance(model, MLP):
+            deferred_names.update(("gate_up_proj", "up_proj"))
     for name, module in model.named_children():
-        if name in deferred_names and getattr(module, "supports_kvq_fusion", False):
-            module._kvq_post_init_deferred = True
+        if name in deferred_names and getattr(module, "supports_projection_fusion", False):
+            module._projection_post_init_deferred = True
             continue
         module_cls = type(module)
         module_pkg = getattr(module_cls, "__module__", "") or ""
@@ -156,7 +165,13 @@ def post_init_autoround_linear(model, defer_kvq=False):
                     )
         else:
             # Recurse into containers that are not themselves QuantLinear modules.
-            post_init_autoround_linear(module, defer_kvq=defer_kvq)
+            post_init_autoround_linear(
+                module,
+                defer_kvq=defer_kvq,
+                # MoE stacks already-repacked expert weights during loading.
+                # Keep that existing lifecycle separate from dense MLP fusion.
+                defer_gate=defer_gate and not hasattr(module, "experts"),
+            )
 
         # MoE: eagerly stack quantized expert weights before CUDAGraphs capture
         if hasattr(module, "_maybe_init_quant_weights") and hasattr(module, "experts"):
@@ -212,9 +227,9 @@ def _get_autoround_quant_linear_cls(use_gptq_zp: bool, sym: bool = True, force_p
         raise ImportError("Install auto-round to use autoround quantized models")
 
 
-def fuse_autoround_kvq(projections):
+def fuse_autoround_projections(projections, name="KVQ"):
     """Return (handled, fused) without importing Marlin for other backends."""
-    if not any(getattr(module, "supports_kvq_fusion", False) for module in projections):
+    if not any(getattr(module, "supports_projection_fusion", False) for module in projections):
         return False, None
     from eole.utils.logging import logger
 
@@ -223,15 +238,20 @@ def fuse_autoround_kvq(projections):
 
         fused = MarlinQuantLinear.fuse(projections)
     except (ImportError, ValueError) as error:
-        logger.warning("Skipping Marlin KVQ fusion: %s", error)
+        logger.warning("Skipping Marlin %s fusion: %s", name, error)
         return True, None
-    fused._kvq_post_init_deferred = any(getattr(module, "_kvq_post_init_deferred", False) for module in projections)
+    fused._projection_post_init_deferred = any(
+        getattr(module, "_projection_post_init_deferred", False) for module in projections
+    )
     return True, fused
 
 
 def finalize_deferred_autoround_linear(model):
-    """Initialize only projections deferred for inference-time KVQ fusion."""
+    """Initialize deferred projections; return whether any layouts were replaced."""
+    initialized = False
     for module in model.modules():
-        if getattr(module, "_kvq_post_init_deferred", False):
+        if getattr(module, "_projection_post_init_deferred", False):
             module.post_init()
-            module._kvq_post_init_deferred = False
+            module._projection_post_init_deferred = False
+            initialized = True
+    return initialized

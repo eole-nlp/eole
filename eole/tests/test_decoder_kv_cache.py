@@ -59,3 +59,53 @@ class TestDecoderKVCache(unittest.TestCase):
                         )
                         torch.testing.assert_close(attention.kcache[:, 3:4], next_key)
                         torch.testing.assert_close(attention.vcache[:, 3:4], next_value)
+
+    def test_reinitialization_reuses_and_clears_compatible_cache(self):
+        decoder = TransformerDecoder(
+            TransformerDecoderConfig(
+                layers=1,
+                hidden_size=64,
+                heads=4,
+                heads_kv=2,
+                transformer_ff=128,
+                with_cross_attn=False,
+                max_position_embeddings=8,
+            ),
+            running_config=InferenceConfig(self_attn_backend="pytorch"),
+        ).eval()
+        attention = decoder.transformer_layers[0].self_attn
+        inputs = torch.randn(1, 3, 64)
+        mask = torch.zeros(1, 1, 3, dtype=torch.bool)
+        decoder._init_cache(inputs, mask)
+        old = (attention.kcache, attention.vcache)
+        for cache in old:
+            cache.fill_(42)
+        decoder.cache_seqlens.fill_(3)
+        decoder._init_cache(inputs, mask)
+        self.assertIs(attention.kcache, old[0])
+        self.assertIs(attention.vcache, old[1])
+        self.assertEqual(attention.kcache.count_nonzero().item(), 0)
+        self.assertEqual(attention.vcache.count_nonzero().item(), 0)
+        self.assertEqual(decoder.cache_seqlens.item(), 0)
+        decoder._init_cache(inputs.expand(2, -1, -1), mask.expand(2, -1, -1))
+        self.assertIsNot(attention.kcache, old[0])
+        self.assertEqual(attention.kcache.shape[0], 2)
+        old = attention.kcache
+        decoder._init_cache(inputs.double(), mask)
+        self.assertIsNot(attention.kcache, old)
+        self.assertEqual(attention.kcache.dtype, torch.float64)
+
+    def test_single_path_tiling_does_not_duplicate_cache(self):
+        from types import SimpleNamespace
+        from eole.predict.decode_strategy import DecodeStrategy
+
+        state = torch.randn(1, 8, 2, 16)
+        for paths in (1, 2):
+            strategy = SimpleNamespace(beam_size=paths)
+            tile_fn, _, _ = DecodeStrategy.initialize_tile(strategy, None, torch.tensor([3]))
+            result = tile_fn(state)
+            if paths == 1:
+                self.assertIs(result, state)
+            else:
+                self.assertEqual(result.shape[0], 2)
+                torch.testing.assert_close(result, state.repeat_interleave(2, dim=0))

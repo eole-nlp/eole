@@ -59,7 +59,7 @@ class MarlinQuantLinear(nn.Module):
     bias:       whether to include a bias term
     """
 
-    supports_kvq_fusion = True
+    supports_projection_fusion = True
     checkpoint_weight_layout = "gptq"
 
     SUPPORTS_BITS = [4, 8]

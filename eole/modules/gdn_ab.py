@@ -6,7 +6,7 @@ import torch
 @torch.library.custom_op("eole::gdn_ab_projections", mutates_args=())
 def gdn_ab_projections(inputs: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
     if (
-        inputs.shape != (1, 4, 5120)
+        inputs.shape not in ((1, 1, 5120), (1, 4, 5120))
         or weight.shape != (96, 5120)
         or inputs.dtype != torch.bfloat16
         or weight.dtype != inputs.dtype
@@ -16,7 +16,7 @@ def gdn_ab_projections(inputs: torch.Tensor, weight: torch.Tensor) -> torch.Tens
         or not weight.is_contiguous()
     ):
         raise ValueError(
-            "GDN A/B projection kernel requires contiguous CUDA BF16 [1,4,5120] inputs and [96,5120] weights"
+            "GDN A/B projection kernel requires contiguous CUDA BF16 [1,1|4,5120] inputs and [96,5120] weights"
         )
     from eole.triton.gdn_ab import project_ab
 
@@ -25,4 +25,4 @@ def gdn_ab_projections(inputs: torch.Tensor, weight: torch.Tensor) -> torch.Tens
 
 @gdn_ab_projections.register_fake
 def _fake_ab_projections(inputs, weight):
-    return inputs.new_empty((1, 4, 96))
+    return inputs.new_empty((*inputs.shape[:2], 96))

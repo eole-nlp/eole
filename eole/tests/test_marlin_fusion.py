@@ -184,7 +184,7 @@ class TestMarlinFusionWiring(unittest.TestCase):
     def test_optional_marlin_import_not_needed_for_other_backends(self):
         import builtins
         from unittest.mock import patch
-        from eole.modules.autoround_linear import fuse_autoround_kvq
+        from eole.modules.autoround_linear import fuse_autoround_projections
 
         original_import = builtins.__import__
 
@@ -194,7 +194,7 @@ class TestMarlinFusionWiring(unittest.TestCase):
             return original_import(name, *args, **kwargs)
 
         with patch("builtins.__import__", side_effect=without_marlin):
-            self.assertEqual(fuse_autoround_kvq([torch.nn.Linear(128, 64)] * 3), (False, None))
+            self.assertEqual(fuse_autoround_projections([torch.nn.Linear(128, 64)] * 3), (False, None))
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA required for Marlin kernels")
     def test_inference_finalizes_deferred_weights(self):
@@ -263,9 +263,12 @@ class TestMarlinFusionWiring(unittest.TestCase):
                 stack.transformer_layers.append(layer)
             setattr(model, side, stack)
         config = SimpleNamespace(fuse_kvq=True, fuse_gate=False)
-        with patch("eole.modules.autoround_linear.finalize_deferred_autoround_linear") as finalize:
+        with patch("eole.modules.autoround_linear.finalize_deferred_autoround_linear", return_value=False) as finalize:
             Inference._prepare_inference_projections(SimpleNamespace(model=model), config)
-            finalize.assert_called_once_with(model)
+            self.assertEqual(
+                [args.args[0] for args in finalize.call_args_list],
+                list(model.decoder.transformer_layers) + list(model.encoder.transformer_layers) + [model],
+            )
         for attention in attentions:
             attention._fuse_KVQ.assert_called_once()
 
@@ -276,6 +279,6 @@ class TestMarlinFusionWiring(unittest.TestCase):
 
         predictor = SimpleNamespace(model=SimpleNamespace())
         config = SimpleNamespace(fuse_kvq=False, fuse_gate=False)
-        with patch("eole.modules.autoround_linear.finalize_deferred_autoround_linear") as finalize:
+        with patch("eole.modules.autoround_linear.finalize_deferred_autoround_linear", return_value=False) as finalize:
             Inference._prepare_inference_projections(predictor, config)
             finalize.assert_not_called()

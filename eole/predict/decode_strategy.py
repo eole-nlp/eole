@@ -129,7 +129,9 @@ class DecodeStrategy(object):
 
     def initialize_tile(self, enc_out, src_len, target_prefix=None):
         def fn_tile(state):
-            return tile(state, self.beam_size)
+            # One path needs no replication. In particular, avoid copying the
+            # full decoder KV cache after prefill for greedy/single sampling.
+            return state if self.beam_size == 1 else tile(state, self.beam_size)
 
         if isinstance(enc_out, tuple):
             enc_out = tuple(tile(x, self.beam_size) for x in enc_out)

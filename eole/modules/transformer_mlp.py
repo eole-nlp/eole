@@ -65,7 +65,16 @@ class MLP(nn.Module):
         self.maybe_ckpt = checkpoint if "ffn" in getattr(running_config, "use_ckpting", []) else lambda f, x: f(x)
 
     def _fuse_gate(self) -> None:
-        if hasattr(self.gate_up_proj, "weight"):
+        if getattr(self, "up_proj", None) is None or getattr(self, "_gate_fusion_skipped", False):
+            return
+        from eole.modules.autoround_linear import fuse_autoround_projections
+
+        handled, new_gate = fuse_autoround_projections([self.gate_up_proj, self.up_proj], name="gate/up")
+        if handled:
+            if new_gate is None:
+                self._gate_fusion_skipped = True
+                return
+        elif hasattr(self.gate_up_proj, "weight"):
             new_gate = skip_init(
                 nn.Linear,
                 in_features=self.model_config.hidden_size,
