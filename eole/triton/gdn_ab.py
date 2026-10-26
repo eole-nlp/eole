@@ -1,4 +1,4 @@
-"""Four-row, paired BF16 GDN control projections with split-K accumulation."""
+"""Four-row, paired BF16 GDN A/B projections with split-K accumulation."""
 
 import torch
 import triton
@@ -25,7 +25,7 @@ def _reduce(P, Y):
     tl.store(Y + i, tl.sum(values, axis=0))
 
 
-def control_pair(inputs, weight):
+def project_ab(inputs, weight):
     output = torch.empty((1, 4, 96), device=inputs.device, dtype=inputs.dtype)
     partials = torch.empty((40, 4, 96), device=inputs.device, dtype=torch.float32)
     _partial[(3, 40)](inputs, weight, partials, num_warps=4)

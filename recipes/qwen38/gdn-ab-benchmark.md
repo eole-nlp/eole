@@ -1,4 +1,4 @@
-# Paired GDN control projections: RTX 5090 measurements
+# Paired GDN A/B projections: RTX 5090 measurements
 
 The experimental implementation packs the dense B/A control weights once during inference setup and replaces eight small GEMVs per GDN layer with two Triton kernels for four-token MTP verification. FP32 accumulation and BF16 outputs are retained; FP32 normalization and the FLA recurrence are unchanged.
 
@@ -6,7 +6,7 @@ The experimental implementation packs the dense B/A control weights once during 
 
 Qwen3.8-27B RedHat INT4 decoder, BF16 compute, batch/beam 1, three drafts, context 64000, output cap 512, fused KVQ, prefill chunk 1024, no prefill cache. Torch 2.12.1+cu132, RTX 5090. Two complete warm requests then three measured requests per case. Rates exclude the first prefill token and compilation, using Eole decode timing. Native means the existing eight-GEMV specialization, not a generic four-row GEMM. Vocabulary heads are BF16 unless INT8/INT4 is specified.
 
-This PR is based directly on main 69c3b92d and contains only the control-kernel change. The earlier benchmark matrix below was measured with the existing quantized-head implementation (c6c1ebc1) layered on that base; those head changes are not included here. The full-length user-script comparison was rerun on this kernel-only branch.
+This PR is based directly on main 69c3b92d and contains only the A/B-projection kernel change. The earlier benchmark matrix below was measured with the existing quantized-head implementation (c6c1ebc1) layered on that base; those head changes are not included here. The full-length user-script comparison was rerun on this kernel-only branch.
 
 ## Full-length Orwell script comparison
 
@@ -41,7 +41,7 @@ The fixed-token diagnostic runs real model computations but forces the same cont
 
 The kernel is numerically close, not bit-identical to cuBLAS GEMVs. Small BF16 rounding differences can change continuation and acceptance. In particular, INT4 Orwell loses enough acceptance to cancel its execution-speed benefit. Do not advertise the code-generation gain as a universal speedup or assume quality equivalence from these tests alone.
 
-Dispatch requires an evaluated model, NVIDIA compute capability 8.0 or newer (Ampere+), dense unbiased BF16 48×5120 controls, contiguous [1,4,5120] inputs, single GPU, batch/beam 1 and MTP. Unsupported cases retain the prior implementation. Only supported MTP configurations allocate packed weights (~47 MB decimal across 48 layers); these are nonpersistent buffers. No extension rebuild is needed.
+Dispatch requires an evaluated model, NVIDIA compute capability 8.0 or newer (Ampere+), dense unbiased BF16 48×5120 A/B projections, contiguous [1,4,5120] inputs, single GPU, batch/beam 1 and MTP. Unsupported cases retain the prior implementation. Only supported MTP configurations allocate packed weights (~47 MB decimal across 48 layers); these are nonpersistent buffers. No extension rebuild is needed.
 
 ## Validation
 
@@ -63,7 +63,7 @@ Validation: 55 CPU integration tests passed (9 CUDA-specific skips, with optiona
 
 The paired kernel uses BF16 tensor-core dot products, FP32 accumulation and ordinary Triton reductions. It contains no Blackwell-specific instructions. Dispatch uses NVIDIA compute capability >= 8.0, covering Ampere, Ada, Hopper and Blackwell; pre-Ampere, non-CUDA, unavailable Triton and unsupported shapes retain the prior implementation. The old four-GEMV fallback remains SM120-only and is independent of paired-kernel dispatch.
 
-Hardware measurements and correctness/capture/reload tests have been run on SM89 (RTX 4090) and SM120 (RTX 5090). SM80/86/90/100/103 eligibility is covered by policy tests, not measurements on those GPUs. Performance on those other architectures is not established by these results. The projection shape remains specialized to four-token verification with dense 48×5120 BF16 controls.
+Hardware measurements and correctness/capture/reload tests have been run on SM89 (RTX 4090) and SM120 (RTX 5090). SM80/86/90/100/103 eligibility is covered by policy tests, not measurements on those GPUs. Performance on those other architectures is not established by these results. The projection shape remains specialized to four-token verification with dense 48×5120 BF16 A/B projections.
 
 RTX 4090 comparison: same user-script configuration except context 32768 and output cap 512 to fit VRAM; BF16 heads, mode 0, two warm requests and three measured requests. Baseline on SM89 is the existing generic four-row GEMM path (the legacy eight-GEMV specialization is SM120-only).
 

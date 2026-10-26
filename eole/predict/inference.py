@@ -42,7 +42,7 @@ class Inference(object):
                         and config.batch_size == 1
                         and config.beam_size == 1
                     ):
-                        linear_attn.prepare_control_projections()
+                        linear_attn.prepare_ab_projections()
                     self_attn = getattr(layer, "self_attn", None)
                     if getattr(config, "fuse_kvq", False) and self_attn is not None:
                         self_attn._fuse_KVQ()

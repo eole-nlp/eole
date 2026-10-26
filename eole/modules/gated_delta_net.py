@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils import skip_init
 
-from eole.modules.gdn_control import gdn_control_pair
+from eole.modules.gdn_ab import gdn_ab_projections
 
 
 # ---------------------------------------------------------------------------
@@ -445,7 +445,7 @@ class GatedDeltaNet(nn.Module):
         self._speculating = False
         self._spec_buffers = None
         self._control_gemv_enabled = False
-        self.register_buffer("_control_pair_weight", None, persistent=False)
+        self.register_buffer("_ab_pair_weight", None, persistent=False)
 
     def begin_speculation(self, seq_len):
         if self.conv_state is None or self.recurrent_state is None:
@@ -484,7 +484,7 @@ class GatedDeltaNet(nn.Module):
             }
         # The legacy four-GEMV fallback was tuned for SM120 only. The paired
         # Triton path resolves its broader hardware eligibility separately in
-        # prepare_control_projections(), outside compilation and graph capture.
+        # prepare_ab_projections(), outside compilation and graph capture.
         self._control_gemv_enabled = (
             seq_len == 4
             and batch_size == 1
@@ -673,11 +673,11 @@ class GatedDeltaNet(nn.Module):
     # Forward
     # ------------------------------------------------------------------
 
-    def prepare_control_projections(self):
-        """Pack BF16 controls for NVIDIA Ampere+; other cases keep the existing path."""
+    def prepare_ab_projections(self):
+        """Pack BF16 A/B projections for NVIDIA Ampere+; other cases keep the existing path."""
         import importlib.util
 
-        self._control_pair_weight = None
+        self._ab_pair_weight = None
         if type(self.in_proj_a) is not nn.Linear or type(self.in_proj_b) is not nn.Linear:
             return
         a, b = self.in_proj_a, self.in_proj_b
@@ -696,7 +696,7 @@ class GatedDeltaNet(nn.Module):
             and importlib.util.find_spec("triton") is not None
         ):
             with torch.no_grad():
-                self._control_pair_weight = torch.cat((b.weight, a.weight), dim=0)
+                self._ab_pair_weight = torch.cat((b.weight, a.weight), dim=0)
 
     def _should_split_control_rows(self, hidden_states):
         return (
@@ -718,9 +718,9 @@ class GatedDeltaNet(nn.Module):
             return torch.stack([projection(hidden_states[:, i, :]) for i in range(4)], dim=1)
         return projection(hidden_states)
 
-    def _should_pair_controls(self, hidden_states):
+    def _should_pair_ab_projections(self, hidden_states):
         return (
-            self._control_pair_weight is not None
+            self._ab_pair_weight is not None
             and self._speculating
             and not self.training
             and hidden_states.shape == (1, 4, 5120)
@@ -729,10 +729,11 @@ class GatedDeltaNet(nn.Module):
             and hidden_states.is_contiguous()
         )
 
-    def _project_controls(self, hidden_states):
-        if self._should_pair_controls(hidden_states):
-            controls = gdn_control_pair(hidden_states, self._control_pair_weight)
-            b, a = controls.split(self.num_v_heads, dim=-1)
+    def _project_ab(self, hidden_states):
+        """Return in_proj_b and in_proj_a outputs, in that order."""
+        if self._should_pair_ab_projections(hidden_states):
+            projections = gdn_ab_projections(hidden_states, self._ab_pair_weight)
+            b, a = projections.split(self.num_v_heads, dim=-1)
         else:
             split_control_rows = self._should_split_control_rows(hidden_states)
             b = self._project_control(self.in_proj_b, hidden_states, split_control_rows)
@@ -752,7 +753,7 @@ class GatedDeltaNet(nn.Module):
         mixed_qkv = self.in_proj_qkv(hidden_states).transpose(1, 2)  # (B, conv_dim, S)
         z = self.in_proj_z(hidden_states)  # (B, S, value_dim)
         z = z.reshape(batch_size, seq_len, self.num_v_heads, self.head_v_dim)
-        b, a = self._project_controls(hidden_states)
+        b, a = self._project_ab(hidden_states)
 
         if use_precomputed:
             mixed_qkv = self._causal_conv1d_update(
