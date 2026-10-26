@@ -88,6 +88,38 @@ try:
     from fla.ops.gated_delta_rule import chunk_gated_delta_rule
     from fla.ops.gated_delta_rule import fused_recurrent_gated_delta_rule as _fla_fused_recurrent_gated_delta_rule
 
+    @torch.library.custom_op("eole::_fla_recurrent_gated_delta_rule", mutates_args=())
+    def _compiled_fla_recurrent_gated_delta_rule(
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        g: torch.Tensor,
+        beta: torch.Tensor,
+        initial_state: torch.Tensor,
+        use_qk_l2norm_in_kernel: bool,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        # Inductor lowers FLA's Python `scale` argument to FP64, promoting the
+        # query/output reduction to double precision. Keep the native launch
+        # opaque so it uses FP32 scalars, as in eager FLA. Normalization and
+        # recurrent state accumulation remain FP32 in the original FLA kernel.
+        return _fla_fused_recurrent_gated_delta_rule(
+            q,
+            k,
+            v,
+            g=g,
+            beta=beta,
+            initial_state=initial_state,
+            output_final_state=True,
+            use_qk_l2norm_in_kernel=use_qk_l2norm_in_kernel,
+        )
+
+    @_compiled_fla_recurrent_gated_delta_rule.register_fake
+    def _fake_fla_recurrent_gated_delta_rule(q, k, v, g, beta, initial_state, use_qk_l2norm_in_kernel):
+        return (
+            torch.empty_like(v, memory_format=torch.contiguous_format),
+            torch.empty_like(initial_state, dtype=torch.float32, memory_format=torch.contiguous_format),
+        )
+
     # FLA's fused_recurrent_gated_delta_rule has signature (q, k, v, g, gk, gv, beta, ...).
     # The extra gk/gv args sit between g and beta, so a positional call with (q,k,v,g,beta)
     # would silently pass beta to gk and leave the real beta=None — producing NaN during decode.
@@ -102,6 +134,25 @@ try:
         output_final_state=False,
         use_qk_l2norm_in_kernel=False,
     ):
+        if (
+            torch.compiler.is_compiling()
+            and not torch.is_grad_enabled()
+            and initial_state is not None
+            and g is not None
+            and beta is not None
+            and output_final_state
+        ):
+            # Materialize outside the opaque operator so surrounding compiled
+            # operations can still fuse their stores into these input buffers.
+            return _compiled_fla_recurrent_gated_delta_rule(
+                q.contiguous(),
+                k.contiguous(),
+                v.contiguous(),
+                g.contiguous(),
+                beta.contiguous(),
+                initial_state.contiguous(),
+                use_qk_l2norm_in_kernel,
+            )
         return _fla_fused_recurrent_gated_delta_rule(
             q,
             k,
