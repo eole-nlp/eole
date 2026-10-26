@@ -6,6 +6,7 @@ from unittest.mock import patch
 import torch
 
 from eole.modules import gated_delta_net as gdn
+from eole.ops import fla as fla_ops
 
 
 @unittest.skipUnless(hasattr(gdn, "_compiled_fla_causal_conv1d_update"), "FLA convolution adapter unavailable")
@@ -31,7 +32,10 @@ class TestFLACompile(unittest.TestCase):
         initial = torch.randn(2, 4, 3)
         eager_cache = initial.clone()
         compiled_cache = initial.clone()
-        with patch.object(gdn, "_fla_causal_conv1d_update", fake_fla):
+        with (
+            patch.object(gdn, "_fla_causal_conv1d_update", fake_fla),
+            patch.object(fla_ops, "_fla_causal_conv1d_update", fake_fla),
+        ):
             eager = gdn.causal_conv1d_update(x, eager_cache, weight, bias, "silu")
             compiled = torch.compile(gdn.causal_conv1d_update, backend="aot_eager", fullgraph=True)
             actual = compiled(x, compiled_cache, weight, bias, "silu")
@@ -60,7 +64,7 @@ class TestFLANormCompile(unittest.TestCase):
             return (output * torch.nn.functional.silu(gate.float())).to(x.dtype)
 
         norm = gdn.RMSNormGated(4, eps=1e-5)
-        with torch.no_grad(), patch.object(gdn, "_fla_rms_norm_gated", fake_norm):
+        with torch.no_grad(), patch.object(fla_ops, "_fla_rms_norm_gated", fake_norm):
             compiled = torch.compile(norm, backend="aot_eager", fullgraph=True)
             for dtype in (torch.float32, torch.bfloat16):
                 x = torch.randn(2, 3, 4, dtype=dtype)
