@@ -156,6 +156,7 @@ class TestEffectiveSpeculationPolicy(unittest.TestCase):
             pass
 
         class Strategy(GreedySearchLM):
+            max_length = 128
             parallel_paths = 1
             return_attention = False
             target_prefix = None
@@ -260,6 +261,8 @@ class TestEffectiveSpeculationPolicy(unittest.TestCase):
             pass
 
         class Strategy(GreedySearchLM):
+            max_length = 128
+
             def __init__(self, paths, attention):
                 self.parallel_paths = paths
                 self.return_attention = attention
@@ -289,7 +292,7 @@ class TestEffectiveSpeculationPolicy(unittest.TestCase):
             verify,
         ) in cases:
             with self.subTest(name=name):
-                decoder = SimpleNamespace(init_state=Mock())
+                decoder = SimpleNamespace(init_state=Mock(), set_kv_cache_view_bound=Mock())
                 predictor = SimpleNamespace(
                     dynamic_shapes=False,
                     self_speculative_decoding=True,
@@ -319,6 +322,10 @@ class TestEffectiveSpeculationPolicy(unittest.TestCase):
                     batch["images"] = torch.ones(1)
                 with patch("eole.predict.generator.EOLE_TORCH_COMPILE", False), self.assertRaises(StopBeforeInference):
                     GeneratorLM._predict_batch_with_strategy_impl(predictor, batch, Strategy(paths, attention))
+                if images:
+                    decoder.set_kv_cache_view_bound.assert_called_once_with()
+                else:
+                    self.assertEqual(decoder.set_kv_cache_view_bound.call_args.args, (8 + 128 + (4 if verify else 1),))
                 self.assertEqual(decoder._decode_graph_request_allowed, normal)
                 self.assertEqual(decoder._verify_graph_request_allowed, verify)
                 predictor._log_inference_backends.assert_called_once_with(speculative=verify)
