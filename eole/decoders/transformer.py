@@ -1436,8 +1436,20 @@ class TransformerDecoder(DecoderBase):
                 # KV projections are sharded across tensor-parallel ranks.
                 heads_kv = layer.self_attn.heads_kv // layer.self_attn.parallel_gpu
                 dph = layer.self_attn.dim_per_head
-                layer.self_attn.kcache = torch.zeros((b, self.cache_len_tgt, heads_kv, dph), dtype=dtype, device=device)
-                layer.self_attn.vcache = torch.zeros((b, self.cache_len_tgt, heads_kv, dph), dtype=dtype, device=device)
+                shape = (b, self.cache_len_tgt, heads_kv, dph)
+                for name in ("kcache", "vcache"):
+                    cache = getattr(layer.self_attn, name, None)
+                    if (
+                        isinstance(cache, torch.Tensor)
+                        and cache.shape == shape
+                        and cache.dtype == dtype
+                        and cache.device == device
+                    ):
+                        # Graph bindings were reset above. Reuse compatible storage
+                        # so warmup and real prefill do not overlap two full caches.
+                        cache.zero_()
+                    else:
+                        setattr(layer.self_attn, name, torch.zeros(shape, dtype=dtype, device=device))
                 layer.self_attn.cache_leftpad = cache_leftpad
                 if layer.context_attn:
                     # prefill context KV with encoder out

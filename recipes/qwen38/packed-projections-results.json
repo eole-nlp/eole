@@ -6378,5 +6378,35 @@
       }
     },
     "scope": "Projection setup only; excludes later request KV caches and compilation/graphs"
+  },
+  "full_request_memory_MiB": {
+    "settings": "User test_inference3 configuration, MTP disabled, context 64000, max_length 4096, compile mode 0, both fusion flags",
+    "before": {
+      "allocated": 22828.49,
+      "reserved": 23188.0,
+      "peak_allocated": 27107.88,
+      "peak_reserved": 27344.0
+    },
+    "after": {
+      "allocated": 22828.49,
+      "reserved": 23188.0,
+      "peak_allocated": 22959.34,
+      "peak_reserved": 23208.0
+    },
+    "mtp_repeated_requests": [
+      {
+        "allocated": 18992.37,
+        "reserved": 19260.0,
+        "peak_allocated": 23375.01,
+        "peak_reserved": 23528.0
+      },
+      {
+        "allocated": 18992.37,
+        "reserved": 19260.0,
+        "peak_allocated": 23375.01,
+        "peak_reserved": 23528.0
+      }
+    ],
+    "mtp_repeated_greedy_output_identical": true
   }
 }

@@ -103,3 +103,25 @@ initialized before the next layer is fused.
 After the memory follow-up, the CPU suite passed 753 tests (39 skipped), the
 focused suite passed 33 tests on each GPU, and a real compiled MTP-sampling
 request passed with both flags enabled.
+
+## Full-request cache memory
+
+A follow-up using `recipes/qwen35/test_inference3.py` settings (64k context,
+4096 output cap, MTP disabled, compile mode 0, both fusion flags enabled) found
+two avoidable full-cache allocations: reinitializing caches after warmup, and
+replicating them once for a single decoding path. Compatible K/V buffers now
+reset in place after graph bindings are invalidated; single-path tiling returns
+the existing tensor. Changed batch shape/dtype/device still allocates suitable
+storage, and multiple decoding paths still replicate their state.
+
+With these changes the full-run peak reserved memory fell from 27344 MiB to
+23208 MiB; peak allocated memory fell from 27107.88 MiB to 22959.34 MiB.
+These settings reserve 2000 MiB each for keys and values, even for the short
+Orwell prompt. Delivered decode throughput remained 81.2 tok/s in the follow-up
+run. This is a memory comparison, not a new multi-repeat throughput campaign.
+
+Validation of the cache follow-up: 755 CPU tests passed (39 skipped), 12 focused
+cache/graph tests passed with CUDA available, and two consecutive real compiled
+MTP requests produced identical greedy output. The two-request MTP run peaked
+at 23528 MiB reserved with the same 64k context. Those MTP figures are an
+execution/memory check, not a throughput benchmark.
