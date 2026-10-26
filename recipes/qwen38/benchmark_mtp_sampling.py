@@ -13,6 +13,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--head", choices=["none", "int8", "int4"], default="none")
     parser.add_argument("--no-mtp", action="store_true")
+    parser.add_argument("--fuse-gate", action="store_true")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43])
     parser.add_argument("--tokens", type=int, default=4096)
     parser.add_argument("--context-length", type=int, default=64000)
@@ -55,7 +56,7 @@ def main():
         self_speculative_decoding=not args.no_mtp,
         self_speculative_num_tokens=3,
         fuse_kvq=True,
-        fuse_gate=False,
+        fuse_gate=args.fuse_gate,
         report_time=True,
     )
     report = {
