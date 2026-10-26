@@ -228,7 +228,9 @@ class GeneratorLM(Inference):
         # (0) Prep the components of the search.
         parallel_paths = decode_strategy.parallel_paths  # beam_size
         # Clear previous-request policy before optional gold scoring.
-        self.model.decoder.set_kv_cache_view_bound()
+        set_cache_bound = getattr(self.model.decoder, "set_kv_cache_view_bound", None)
+        if set_cache_bound is not None:
+            set_cache_bound()
         self.model.decoder._decode_graph_request_allowed = False
         self.model.decoder._verify_graph_request_allowed = False
         batch_size = len(batch["srclen"])
@@ -276,11 +278,11 @@ class GeneratorLM(Inference):
             and batch.get("images") is None
         )
         self.model.decoder._verify_graph_request_allowed = use_spec_decoding
-        if batch.get("images") is None:
+        if set_cache_bound is not None and batch.get("images") is None:
             # Include physical left padding/forced prefixes, and speculative
             # lookahead beyond the final accepted output token.
             margin = self.self_speculative_num_tokens + 1 if use_spec_decoding else 1
-            self.model.decoder.set_kv_cache_view_bound(batch["src"].size(1) + decode_strategy.max_length + margin)
+            set_cache_bound(batch["src"].size(1) + decode_strategy.max_length + margin)
         if self.self_speculative_decoding and not use_spec_decoding:
             self._log(
                 "self_speculative_decoding requires one sequence, one hypothesis, greedy or sampled selection, "

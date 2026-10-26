@@ -113,6 +113,8 @@ class TestKVCacheViewCUDA(unittest.TestCase):
                 for capacity in (512, 2048, 1024):
                     runner.reset()
                     bound.fill_(capacity)
+                    # Include writes at the last slot of the bounded view.
+                    lengths.fill_(capacity - rows)
                     for _ in range(4):
                         q.normal_()
                         expected = flash_attn_kvcache(
