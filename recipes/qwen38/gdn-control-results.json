@@ -171,5 +171,74 @@
       "packed_layers": 48
     },
     "gain_percent": 9.387066731713878
+  },
+  "rtx4090-architecture-comparison": {
+    "context_length": 32768,
+    "max_length": 512,
+    "compute_dtype": "bf16",
+    "vocabulary_head": "bf16",
+    "compile_mode": 0,
+    "workloads": {
+      "orwell": {
+        "native": {
+          "median_tps": 63.241348478955025,
+          "range": [
+            62.90953143169267,
+            63.34264116676863
+          ],
+          "accepted": 301,
+          "drafted": 625,
+          "tokens": 511,
+          "hash": "0ca42c591363e302e508f34d9d509d7c2c68ecc6c8b92b13a848ef56e4b3d475",
+          "repeatable": true,
+          "packed_layers": 0
+        },
+        "paired": {
+          "median_tps": 68.12462307344097,
+          "range": [
+            68.096475271536,
+            68.16773027911134
+          ],
+          "accepted": 301,
+          "drafted": 626,
+          "tokens": 511,
+          "hash": "94e04ed8ef1031345f14bcd70b3c27997ec5f5977eb2ee7598b4b395e91c506d",
+          "repeatable": true,
+          "packed_layers": 48
+        },
+        "gain_percent": 7.721648434032002,
+        "same_output": false
+      },
+      "code": {
+        "native": {
+          "median_tps": 92.45011419833146,
+          "range": [
+            92.27961187880722,
+            92.77814835163764
+          ],
+          "accepted": 366,
+          "drafted": 434,
+          "tokens": 511,
+          "hash": "4b7db31751f8f276032c3b828194936ae36224f1a0dfa108cdcd7f4a8ecf0141",
+          "repeatable": true,
+          "packed_layers": 0
+        },
+        "paired": {
+          "median_tps": 93.61633088499296,
+          "range": [
+            93.48694301867448,
+            94.44084889650934
+          ],
+          "accepted": 366,
+          "drafted": 434,
+          "tokens": 511,
+          "hash": "4b7db31751f8f276032c3b828194936ae36224f1a0dfa108cdcd7f4a8ecf0141",
+          "repeatable": true,
+          "packed_layers": 48
+        },
+        "gain_percent": 1.2614551066531199,
+        "same_output": true
+      }
+    }
   }
 }

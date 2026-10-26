@@ -482,9 +482,9 @@ class GatedDeltaNet(nn.Module):
                 ),
                 "final_recurrent_state": torch.empty_like(self.recurrent_state),
             }
-        # The four-row BF16 GEMM is unusually slow for Qwen's tiny control
-        # projections on SM120. Resolve hardware eligibility outside compilation
-        # and graph capture; keep unmeasured devices/shapes on the normal path.
+        # The legacy four-GEMV fallback was tuned for SM120 only. The paired
+        # Triton path resolves its broader hardware eligibility separately in
+        # prepare_control_projections(), outside compilation and graph capture.
         self._control_gemv_enabled = (
             seq_len == 4
             and batch_size == 1
@@ -674,7 +674,7 @@ class GatedDeltaNet(nn.Module):
     # ------------------------------------------------------------------
 
     def prepare_control_projections(self):
-        """Pack inference-only controls; unsupported devices keep the existing path."""
+        """Pack BF16 controls for NVIDIA Ampere+; other cases keep the existing path."""
         import importlib.util
 
         self._control_pair_weight = None
@@ -684,7 +684,10 @@ class GatedDeltaNet(nn.Module):
         if (
             not self.training
             and a.weight.is_cuda
-            and torch.cuda.get_device_capability(a.weight.device) == (12, 0)
+            and torch.version.cuda is not None
+            # BF16 tensor-core MMA is available on NVIDIA Ampere and newer.
+            # Triton lowers the same split-K algorithm for the target GPU.
+            and torch.cuda.get_device_capability(a.weight.device)[0] >= 8
             and a.weight.shape == b.weight.shape == (48, 5120)
             and a.weight.dtype == b.weight.dtype == torch.bfloat16
             and a.weight.device == b.weight.device
@@ -715,12 +718,23 @@ class GatedDeltaNet(nn.Module):
             return torch.stack([projection(hidden_states[:, i, :]) for i in range(4)], dim=1)
         return projection(hidden_states)
 
+    def _should_pair_controls(self, hidden_states):
+        return (
+            self._control_pair_weight is not None
+            and self._speculating
+            and not self.training
+            and hidden_states.shape == (1, 4, 5120)
+            and hidden_states.dtype == torch.bfloat16
+            and hidden_states.is_cuda
+            and hidden_states.is_contiguous()
+        )
+
     def _project_controls(self, hidden_states):
-        split_control_rows = self._should_split_control_rows(hidden_states)
-        if split_control_rows and self._control_pair_weight is not None and hidden_states.is_contiguous():
+        if self._should_pair_controls(hidden_states):
             controls = gdn_control_pair(hidden_states, self._control_pair_weight)
             b, a = controls.split(self.num_v_heads, dim=-1)
         else:
+            split_control_rows = self._should_split_control_rows(hidden_states)
             b = self._project_control(self.in_proj_b, hidden_states, split_control_rows)
             a = self._project_control(self.in_proj_a, hidden_states, split_control_rows)
         return b, a

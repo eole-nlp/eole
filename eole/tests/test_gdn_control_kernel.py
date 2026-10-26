@@ -20,8 +20,11 @@ class TestControlPacking(unittest.TestCase):
         layer.in_proj_b.reset_parameters()
         x = torch.randn(1, 4, 16)
         layer._control_pair_weight = torch.cat((layer.in_proj_b.weight, layer.in_proj_a.weight)).detach()
-        with patch.object(layer, "_should_split_control_rows", return_value=True):
-            with patch("eole.modules.gated_delta_net.gdn_control_pair", side_effect=torch.nn.functional.linear) as pair:
+        with patch.object(layer, "_should_pair_controls", side_effect=lambda x: x.is_contiguous()):
+            with patch(
+                "eole.modules.gated_delta_net.gdn_control_pair",
+                side_effect=torch.nn.functional.linear,
+            ) as pair:
                 b, a = layer._project_controls(x)
                 pair.assert_called_once()
                 torch.testing.assert_close(b, layer.in_proj_b(x))
@@ -40,7 +43,11 @@ class TestControlPacking(unittest.TestCase):
         block = SimpleNamespace(linear_attn=layer, self_attn=None, mlp=SimpleNamespace())
         model = SimpleNamespace(decoder=SimpleNamespace(transformer_layers=[block]))
         config = SimpleNamespace(
-            fuse_gate=False, self_speculative_decoding=True, parallel_gpu=1, batch_size=1, beam_size=1
+            fuse_gate=False,
+            self_speculative_decoding=True,
+            parallel_gpu=1,
+            batch_size=1,
+            beam_size=1,
         )
         predictor = SimpleNamespace(model=model)
         for field, disabled in [
@@ -122,7 +129,8 @@ class TestControlKernel(unittest.TestCase):
             self.assertEqual(len(list(Path(directory).glob("*/verifier.aot"))), 1)
             second = CachedVerifier(Verifier(other_weight), directory)
             with patch("torch.compile", wraps=torch.compile) as compile_call, patch(
-                "torch.compiler.load_compiled_function", wraps=torch.compiler.load_compiled_function
+                "torch.compiler.load_compiled_function",
+                wraps=torch.compiler.load_compiled_function,
             ) as load:
                 torch.testing.assert_close(second(x, tgt_pad_mask=mask), x.new_zeros((1, 4, 96)))
                 load.assert_called_once()
@@ -136,13 +144,46 @@ class TestControlKernel(unittest.TestCase):
                 torch.zeros(96, 5120, device="cuda", dtype=torch.bfloat16),
             )
 
+    def test_pair_guards_and_pre_ampere_or_missing_triton_fallback(self):
+        layer = control_tests.TestGDNControlProjection().new_layer(hidden_size=5120, heads=48).cuda().bfloat16()
+        with patch("torch.cuda.get_device_capability", return_value=(7, 5)):
+            layer.prepare_control_projections()
+            self.assertIsNone(layer._control_pair_weight)
+        with patch("importlib.util.find_spec", return_value=None):
+            layer.prepare_control_projections()
+            self.assertIsNone(layer._control_pair_weight)
+        for capability in [(8, 0), (8, 6), (8, 9), (9, 0), (10, 0), (10, 3), (12, 0)]:
+            with self.subTest(capability=capability), patch(
+                "torch.cuda.get_device_capability", return_value=capability
+            ):
+                layer.prepare_control_projections()
+                self.assertIsNotNone(layer._control_pair_weight)
+        layer.prepare_control_projections()
+        if torch.cuda.get_device_capability()[0] < 8:
+            return
+        layer._speculating = True
+        x = torch.zeros(1, 4, 5120, device="cuda", dtype=torch.bfloat16)
+        self.assertTrue(layer._should_pair_controls(x))
+        # Pairing is independent of the legacy SM120-only GEMV fallback.
+        layer._control_gemv_enabled = False
+        self.assertTrue(layer._should_pair_controls(x))
+        for shape in [(1, 1, 5120), (2, 4, 5120), (1, 3, 5120), (1, 4, 2560)]:
+            self.assertFalse(layer._should_pair_controls(torch.zeros(shape, device="cuda", dtype=x.dtype)))
+        self.assertFalse(layer._should_pair_controls(x.float()))
+        self.assertFalse(layer._should_pair_controls(torch.zeros(1, 4, 10240, device="cuda", dtype=x.dtype)[:, :, ::2]))
+        layer.train()
+        self.assertFalse(layer._should_pair_controls(x))
+        layer.eval()
+        layer._speculating = False
+        self.assertFalse(layer._should_pair_controls(x))
+
     def test_pack_order_and_device_policy(self):
         layer = control_tests.TestGDNControlProjection().new_layer(hidden_size=5120, heads=48).cuda().bfloat16()
         with torch.no_grad():
             layer.in_proj_a.weight.fill_(2)
             layer.in_proj_b.weight.fill_(1)
         layer.prepare_control_projections()
-        if torch.cuda.get_device_capability() == (12, 0):
+        if torch.cuda.get_device_capability()[0] >= 8:
             self.assertIsNotNone(layer._control_pair_weight)
             torch.testing.assert_close(layer._control_pair_weight[:48], layer.in_proj_b.weight)
             torch.testing.assert_close(layer._control_pair_weight[48:], layer.in_proj_a.weight)

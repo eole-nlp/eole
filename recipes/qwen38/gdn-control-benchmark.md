@@ -41,11 +41,11 @@ The fixed-token diagnostic runs real model computations but forces the same cont
 
 The kernel is numerically close, not bit-identical to cuBLAS GEMVs. Small BF16 rounding differences can change continuation and acceptance. In particular, INT4 Orwell loses enough acceptance to cancel its execution-speed benefit. Do not advertise the code-generation gain as a universal speedup or assume quality equivalence from these tests alone.
 
-Dispatch requires an evaluated model, SM120, dense unbiased BF16 48×5120 controls, contiguous [1,4,5120] inputs, single GPU, batch/beam 1 and MTP. Unsupported cases retain the prior implementation. Only supported MTP configurations allocate packed weights (~47 MB decimal across 48 layers); these are nonpersistent buffers. No extension rebuild is needed.
+Dispatch requires an evaluated model, NVIDIA compute capability 8.0 or newer (Ampere+), dense unbiased BF16 48×5120 controls, contiguous [1,4,5120] inputs, single GPU, batch/beam 1 and MTP. Unsupported cases retain the prior implementation. Only supported MTP configurations allocate packed weights (~47 MB decimal across 48 layers); these are nonpersistent buffers. No extension rebuild is needed.
 
 ## Validation
 
-CPU tests cover setup policy, B/A ordering, fallback behavior and existing MTP/Marlin/head integration. CUDA tests cover FP64-reference tolerances, eager execution, fullgraph compilation and changing-input CUDA graph replay. Both RTX 5090 and RTX 4090 are tested; automatic dispatch remains disabled on the 4090.
+CPU tests cover setup policy, B/A ordering, fallback behavior and existing MTP/Marlin and verifier-cache integration. CUDA tests cover FP64-reference tolerances, eager execution, fullgraph compilation and changing-input CUDA graph replay. Both RTX 5090 and RTX 4090 are tested and automatic dispatch is enabled on both.
 
 Raw configurations, individual timing repetitions, hashes, outputs and test logs are retained in `/tmp/eole-gdn-control-hardened`; the harness is `run.py` and the paired benchmark command lists are `bench.sh` and `extra.sh`. Earlier profiling and exploratory data are in `/tmp/eole-mtp-deep-20261026`.
 
@@ -57,4 +57,19 @@ For the INT4 code case, total measured request latency including prefill fell fr
 
 In the fixed 512-position continuation, target top-1 predictions differ at two positions: one is an exact tie in the native path, the other in the paired path. This confirms that identical forced outputs do not establish identical model logits.
 
-Validation: 54 CPU integration tests passed (8 CUDA-specific skips, with optional FLA disabled on CPU), 12 CUDA tests passed on each of RTX 5090 and RTX 4090, and Black checks passed. CUDA tests include saving/reloading the verifier and binding a different nonpersistent packed buffer without retracing.
+Validation: 55 CPU integration tests passed (9 CUDA-specific skips, with optional FLA disabled on CPU), 13 CUDA tests passed on each of RTX 5090 and RTX 4090, and Black checks passed. CUDA tests include saving/reloading the verifier and binding a different nonpersistent packed buffer without retracing.
+
+## NVIDIA architecture portability
+
+The paired kernel uses BF16 tensor-core dot products, FP32 accumulation and ordinary Triton reductions. It contains no Blackwell-specific instructions. Dispatch uses NVIDIA compute capability >= 8.0, covering Ampere, Ada, Hopper and Blackwell; pre-Ampere, non-CUDA, unavailable Triton and unsupported shapes retain the prior implementation. The old four-GEMV fallback remains SM120-only and is independent of paired-kernel dispatch.
+
+Hardware measurements and correctness/capture/reload tests have been run on SM89 (RTX 4090) and SM120 (RTX 5090). SM80/86/90/100/103 eligibility is covered by policy tests, not measurements on those GPUs. Performance on those other architectures is not established by these results. The projection shape remains specialized to four-token verification with dense 48×5120 BF16 controls.
+
+RTX 4090 comparison: same user-script configuration except context 32768 and output cap 512 to fit VRAM; BF16 heads, mode 0, two warm requests and three measured requests. Baseline on SM89 is the existing generic four-row GEMM path (the legacy eight-GEMV specialization is SM120-only).
+
+| RTX 4090 workload | Existing tok/s | Paired tok/s | Change | Identical output |
+|---|---:|---:|---:|---|
+| orwell | 63.24 | 68.12 | +7.72% | no |
+| code | 92.45 | 93.62 | +1.26% | yes |
+
+Orwell has 301 accepted drafts in both paths (625 versus 626 drafted); code has identical output and 366/434 acceptance in both paths. All measured repeats within each path have identical output. The 4090 rates use a different context/output cap from the full-length 5090 script comparison and should not be used as a direct GPU-to-GPU comparison. Raw configurations and logs are in `/tmp/eole-gdn-control-arch` on the test host.
