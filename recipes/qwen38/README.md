@@ -180,6 +180,15 @@ continuations and MTP acceptance. FP32 normalization and the original BF16
 vocabulary head are unchanged. See the [projection benchmarks](packed-projections.md)
 for measured throughput, limitations and reproduction commands.
 
+### Request-bounded attention cache views
+
+Static text generation automatically gives FlashAttention a request-sized
+prefix view of the reserved KV cache. The bound includes the padded prompt,
+maximum output length and speculative margin. This retains the configured
+allocation while allowing automatic attention splits to match the request.
+It applies to eager inference and bound CUDA graphs in compile modes 0/2;
+other paths retain the full view. See [measurements and details](bounded-kv-cache.md).
+
 ### Sample with MTP
 
 MTP also supports target sampling while keeping its draft proposals greedy. In
