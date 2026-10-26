@@ -247,8 +247,11 @@ def fuse_autoround_projections(projections, name="KVQ"):
 
 
 def finalize_deferred_autoround_linear(model):
-    """Initialize only projections deferred for inference-time fusion."""
+    """Initialize deferred projections; return whether any layouts were replaced."""
+    initialized = False
     for module in model.modules():
         if getattr(module, "_projection_post_init_deferred", False):
             module.post_init()
             module._projection_post_init_deferred = False
+            initialized = True
+    return initialized

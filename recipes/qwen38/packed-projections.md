@@ -76,3 +76,30 @@ Full-model compiled smoke runs passed for batch four, beam four, worker-thread
 streaming, MTP sampling, and two-GPU tensor parallel (RTX 5090 + RTX 4090), with
 both fusion flags enabled. These smoke checks establish execution compatibility,
 not throughput gains for those configurations.
+
+## Fusion setup memory
+
+Fusion now finalizes deferred Marlin weights layer by layer and returns unused
+CUDA allocator blocks after each affected layer. Original projection modules
+are deleted when replaced; this also avoids accumulating cached temporary
+concatenation/repacking allocations. Cache release occurs only during setup,
+not during inference.
+
+On the same RTX 5090 checkpoint with both flags enabled, a fresh-process setup
+comparison measured the following (MiB, PyTorch allocator counters):
+
+| Setup | Peak allocated during fusion | Peak reserved during fusion | Reserved after fusion |
+|---|---:|---:|---:|
+| Finalize all layers at end | 18908.84 | 24520 | 24520 |
+| Finalize and release per layer | 18902.21 | 19370 | 19190 |
+
+Live weights after fusion remain about 18756 MiB. Model build/load took 5.86 s
+before and 5.73 s after in this check; these single measurements are not a
+startup-speed benchmark. These figures cover projection preparation, not later
+KV caches or compilation/CUDA-graph memory. A regression test checks that the
+first layer's original modules have been freed and its packed projections
+initialized before the next layer is fused.
+
+After the memory follow-up, the CPU suite passed 753 tests (39 skipped), the
+focused suite passed 33 tests on each GPU, and a real compiled MTP-sampling
+request passed with both flags enabled.

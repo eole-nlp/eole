@@ -6333,5 +6333,50 @@
       "ordinary decoding",
       "MTP"
     ]
+  },
+  "fusion_setup_memory_MiB": {
+    "global_finalization": {
+      "before": {
+        "allocated": 18812.7,
+        "reserved": 18928.0,
+        "peak_allocated": 18887.79,
+        "peak_reserved": 18928.0
+      },
+      "after": {
+        "allocated": 18756.25,
+        "reserved": 24520.0,
+        "peak_allocated": 18908.84,
+        "peak_reserved": 24520.0
+      }
+    },
+    "per_layer_finalization_only": {
+      "before": {
+        "allocated": 18812.7,
+        "reserved": 18928.0,
+        "peak_allocated": 18887.79,
+        "peak_reserved": 18928.0
+      },
+      "after": {
+        "allocated": 18756.12,
+        "reserved": 24520.0,
+        "peak_allocated": 18902.21,
+        "peak_reserved": 24520.0
+      }
+    },
+    "per_layer_finalization_and_cache_release": {
+      "before": {
+        "allocated": 18812.7,
+        "reserved": 18928.0,
+        "peak_allocated": 18887.79,
+        "peak_reserved": 18928.0
+      },
+      "after": {
+        "allocated": 18756.12,
+        "reserved": 19190.0,
+        "peak_allocated": 18902.21,
+        "peak_reserved": 19370.0
+      }
+    },
+    "scope": "Projection setup only; excludes later request KV caches and compilation/graphs"
   }
 }

@@ -3,6 +3,7 @@
 import builtins
 from types import SimpleNamespace
 import unittest
+import weakref
 from unittest.mock import patch
 
 import torch
@@ -90,6 +91,34 @@ class TestPackedProjectionSetup(unittest.TestCase):
                     self.assertTrue(
                         all(not getattr(m, "_projection_post_init_deferred", False) for m in root.modules())
                     )
+
+    def test_release_originals_and_finalize_before_next_layer(self):
+        first, second = block(), block()
+        root = model(first)
+        root.decoder.transformer_layers.append(second)
+        cfg = config(fuse_kvq=True, fuse_gate=True)
+        originals = [
+            weakref.ref(p)
+            for p in (
+                first.linear_attn.in_proj_qkv,
+                first.linear_attn.in_proj_z,
+                first.mlp.gate_up_proj,
+                first.mlp.up_proj,
+            )
+        ]
+        fuse_second = second.linear_attn._fuse_QKVZ
+
+        def check_then_fuse():
+            self.assertTrue(all(ref() is None for ref in originals))
+            self.assertFalse(first.linear_attn.in_proj_qkvz._projection_post_init_deferred)
+            self.assertFalse(first.mlp.gate_up_proj._projection_post_init_deferred)
+            fuse_second()
+
+        with patch.object(MarlinQuantLinear, "post_init", autospec=True), patch("torch.cuda.empty_cache") as release:
+            BaseModel._prepare_for_inference(root, cfg)
+            with patch.object(second.linear_attn, "_fuse_QKVZ", side_effect=check_then_fuse):
+                Inference._prepare_inference_projections(SimpleNamespace(model=root), cfg)
+            self.assertEqual(release.call_count, 2)
 
     def test_missing_flags_and_non_marlin_gdn_are_unchanged(self):
         layer = block()

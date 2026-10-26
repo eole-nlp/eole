@@ -40,7 +40,10 @@ class TestABPacking(unittest.TestCase):
         from eole.predict.inference import Inference
 
         layer = projection_tests.TestGDNControlProjection().new_layer()
-        block = SimpleNamespace(linear_attn=layer, self_attn=None, mlp=SimpleNamespace())
+        block = nn.Module()
+        block.linear_attn = layer
+        block.self_attn = None
+        block.mlp = nn.Module()
         model = SimpleNamespace(decoder=SimpleNamespace(transformer_layers=[block]))
         config = SimpleNamespace(
             fuse_gate=False,

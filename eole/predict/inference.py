@@ -31,6 +31,8 @@ class Inference(object):
     """
 
     def _prepare_inference_projections(self, config):
+        from eole.modules.autoround_linear import finalize_deferred_autoround_linear
+
         if hasattr(self.model, "decoder") and self.model.decoder is not None:
             if hasattr(self.model.decoder, "transformer_layers"):
                 for layer in self.model.decoder.transformer_layers:
@@ -49,6 +51,11 @@ class Inference(object):
                         self_attn._fuse_KVQ()
                     if getattr(config, "fuse_gate", False) and getattr(layer.mlp, "up_proj", None) is not None:
                         layer.mlp._fuse_gate()
+                    # Repack and release temporary fused layouts before the next layer.
+                    if finalize_deferred_autoround_linear(layer):
+                        # Return unused allocator blocks from concatenation/repacking.
+                        # This is setup only, never part of decoding.
+                        torch.cuda.empty_cache()
         if hasattr(self.model, "encoder") and self.model.encoder is not None:
             if hasattr(self.model.encoder, "transformer_layers"):
                 for layer in self.model.encoder.transformer_layers:
@@ -57,10 +64,13 @@ class Inference(object):
                         self_attn._fuse_KVQ()
                     if getattr(config, "fuse_gate", False) and getattr(layer.mlp, "up_proj", None) is not None:
                         layer.mlp._fuse_gate()
+                    # Repack and release temporary fused layouts before the next layer.
+                    if finalize_deferred_autoround_linear(layer):
+                        # Return unused allocator blocks from concatenation/repacking.
+                        # This is setup only, never part of decoding.
+                        torch.cuda.empty_cache()
 
         if isinstance(self.model, torch.nn.Module):
-            from eole.modules.autoround_linear import finalize_deferred_autoround_linear
-
             finalize_deferred_autoround_linear(self.model)
 
     def __init__(
