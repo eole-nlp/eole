@@ -1465,11 +1465,16 @@ class TransformerDecoder(DecoderBase):
                     else:
                         setattr(layer.self_attn, name, torch.zeros(shape, dtype=dtype, device=device))
                 layer.self_attn.cache_leftpad = cache_leftpad
-                # Legacy Inductor graph trees reject CPU tensor inputs. Keep
-                # their original path; bound replay in modes 0/2 supports it.
-                layer.self_attn._cache_view_bound = (
-                    None if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE not in ("0", "2") else self._kv_cache_view_bound
+                # Legacy Inductor graph trees reject CPU tensor inputs. Only
+                # pass the bound to eager execution or supported bound graphs.
+                bound_graph = self._decode_graph_enabled and (
+                    getattr(self, "_decode_graph_request_allowed", False)
+                    or getattr(self, "_verify_graph_request_allowed", False)
                 )
+                use_view = (
+                    not self.dynamic_shapes and not self.with_cross_attn and (not EOLE_TORCH_COMPILE or bound_graph)
+                )
+                layer.self_attn._cache_view_bound = self._kv_cache_view_bound if use_view else None
                 if layer.context_attn:
                     # prefill context KV with encoder out
                     layer.context_attn._prefill_cache(enc_out)

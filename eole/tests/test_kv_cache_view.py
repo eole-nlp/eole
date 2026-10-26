@@ -65,6 +65,29 @@ class TestKVCacheView(unittest.TestCase):
         model.set_kv_cache_view_bound(100)
         self.assertEqual(identity.item(), 16384)
 
+    def test_legacy_or_unsupported_capture_does_not_receive_cpu_input(self):
+        model = decoder(dynamic_shapes=False)
+        inputs = torch.zeros(1, 2, 64)
+        mask = torch.zeros(1, 1, 2, dtype=torch.bool)
+        with patch("eole.decoders.transformer.EOLE_TORCH_COMPILE", True):
+            for enabled, request, dynamic, cross in (
+                (True, True, False, False),
+                (False, True, False, False),
+                (True, False, False, False),
+                (True, True, True, False),
+                (True, True, False, True),
+            ):
+                model._decode_graph_enabled = enabled
+                model._decode_graph_request_allowed = request
+                model.dynamic_shapes = dynamic
+                model.with_cross_attn = cross
+                model._init_cache(inputs, mask)
+                bound = model.transformer_layers[0].self_attn._cache_view_bound
+                if enabled and request and not dynamic and not cross:
+                    self.assertIs(bound, model._kv_cache_view_bound)
+                else:
+                    self.assertIsNone(bound)
+
 
 @unittest.skipUnless(torch.cuda.is_available() and _FLASH_ATTN_AVAILABLE, "CUDA FlashAttention required")
 class TestKVCacheViewCUDA(unittest.TestCase):
