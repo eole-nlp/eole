@@ -1,0 +1,49 @@
+# Paired GDN control projections: RTX 5090 measurements
+
+The experimental implementation packs the dense B/A control weights once during inference setup and replaces eight small GEMVs per GDN layer with two Triton kernels for four-token MTP verification. FP32 accumulation and BF16 outputs are retained; FP32 normalization and the FLA recurrence are unchanged.
+
+## Conditions
+
+Qwen3.8-27B RedHat INT4 decoder, BF16 compute, batch/beam 1, three drafts, context 64000, output cap 512, fused KVQ, prefill chunk 1024, no prefill cache. Torch 2.12.1+cu132, RTX 5090. Two complete warm requests then three measured requests per case. Rates exclude the first prefill token and compilation, using Eole decode timing. Native means the existing eight-GEMV specialization, not a generic four-row GEMM. Vocabulary heads are BF16 unless INT8/INT4 is specified.
+
+The analysis branch is based on main 69c3b92d plus the existing quantized-head implementation (c6c1ebc1); quantized heads are not introduced by this kernel change.
+
+## Warmed decoding throughput
+
+| Workload / heads | Existing tok/s | Paired tok/s | Change | Identical output | Acceptance: existing → paired |
+|---|---:|---:|---:|---|---|
+| fixed-int4-orwell | 209.52 | 226.48 | +8.10% | yes | 383/383 → 383/383 |
+| int4-code | 180.06 | 192.86 | +7.11% | yes | 363/442 → 363/442 |
+| int4-orwell | 136.57 | 135.96 | -0.45% | no | 313/593 → 299/634 |
+| int8-code | 175.35 | 184.47 | +5.20% | no | 365/438 → 366/434 |
+| int8-orwell | 125.74 | 126.22 | +0.38% | no | 307/612 → 301/626 |
+| mode2-int4-code | 171.88 | 188.39 | +9.61% | no | 362/444 → 368/426 |
+| none-code | 147.67 | 153.29 | +3.80% | yes | 363/441 → 363/441 |
+| none-orwell | 101.21 | 104.84 | +3.59% | no | 297/637 → 293/652 |
+| sampling-int4-code | 169.07 | 180.46 | +6.74% | no | 360/451 → 361/448 |
+
+Each request uses seed 42. Greedy code/Orwell cases use top-k 1. Sampling uses top-k 20, top-p 0.95, temperature 0.6, presence penalty 1.0. Mode 2 is explicitly labeled. Sampling outputs need not match because acceptance affects the random sampling schedule.
+
+The fixed-token diagnostic runs real model computations but forces the same continuation and accepts all drafts. Its absolute throughput is not representative of ordinary generation; its purpose is to isolate execution cost from continuation/acceptance changes.
+
+## Numerical behavior and scope
+
+The kernel is numerically close, not bit-identical to cuBLAS GEMVs. Small BF16 rounding differences can change continuation and acceptance. In particular, INT4 Orwell loses enough acceptance to cancel its execution-speed benefit. Do not advertise the code-generation gain as a universal speedup or assume quality equivalence from these tests alone.
+
+Dispatch requires an evaluated model, SM120, dense unbiased BF16 48×5120 controls, contiguous [1,4,5120] inputs, single GPU, batch/beam 1 and MTP. Unsupported cases retain the prior implementation. Only supported MTP configurations allocate packed weights (~47 MB decimal across 48 layers); these are nonpersistent buffers. No extension rebuild is needed.
+
+## Validation
+
+CPU tests cover setup policy, B/A ordering, fallback behavior and existing MTP/Marlin/head integration. CUDA tests cover FP64-reference tolerances, eager execution, fullgraph compilation and changing-input CUDA graph replay. Both RTX 5090 and RTX 4090 are tested; automatic dispatch remains disabled on the 4090.
+
+Raw configurations, individual timing repetitions, hashes, outputs and test logs are retained in `/tmp/eole-gdn-control-hardened`; the harness is `run.py` and the paired benchmark command lists are `bench.sh` and `extra.sh`. Earlier profiling and exploratory data are in `/tmp/eole-mtp-deep-20261026`.
+
+All-layer real-weight check against FP64: 48 layers, 384 cases, 147456 outputs. Existing versus paired differs at 29 values, maximum absolute difference 0.001953125; maximum relative RMSE 0.000207342. Against the FP64 result rounded to BF16, existing differs at 20 values and paired at 28. These are arithmetic checks, not a downstream quality benchmark.
+
+## Additional results and checks
+
+For the INT4 code case, total measured request latency including prefill fell from a median 3.149 s to 2.957 s (6.1% lower), versus the 7.1% increase in decode-only throughput. Sampling total request latency fell 6.1% as well. Compilation is excluded from these warmed-request measurements.
+
+In the fixed 512-position continuation, target top-1 predictions differ at two positions: one is an exact tie in the native path, the other in the paired path. This confirms that identical forced outputs do not establish identical model logits.
+
+Validation: 59 CPU integration tests passed (9 CUDA-specific skips, with optional FLA disabled on CPU), 12 CUDA tests passed on each of RTX 5090 and RTX 4090, and Black checks passed. CUDA tests include saving/reloading the verifier and binding a different nonpersistent packed buffer without retracing.

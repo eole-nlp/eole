@@ -34,6 +34,15 @@ class Inference(object):
         if hasattr(self.model, "decoder") and self.model.decoder is not None:
             if hasattr(self.model.decoder, "transformer_layers"):
                 for layer in self.model.decoder.transformer_layers:
+                    linear_attn = getattr(layer, "linear_attn", None)
+                    if (
+                        linear_attn is not None
+                        and getattr(config, "self_speculative_decoding", False)
+                        and getattr(config, "parallel_gpu", 1) == 1
+                        and config.batch_size == 1
+                        and config.beam_size == 1
+                    ):
+                        linear_attn.prepare_control_projections()
                     self_attn = getattr(layer, "self_attn", None)
                     if getattr(config, "fuse_kvq", False) and self_attn is not None:
                         self_attn._fuse_KVQ()
