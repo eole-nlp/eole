@@ -142,5 +142,34 @@
       178.88941720041922,
       180.96670036379118
     ]
+  },
+  "user-script-full-orwell": {
+    "native": {
+      "median_tps": 102.03890231959072,
+      "range": [
+        101.89281135417357,
+        102.16306579355953
+      ],
+      "tokens": 827,
+      "accepted": 482,
+      "drafted": 1038,
+      "sha256": "83906e839cf95e50b26c9ed18e95860e76df5b682c85dc91c0c1123097e5541e",
+      "repeatable": true,
+      "packed_layers": 0
+    },
+    "paired": {
+      "median_tps": 111.61736217263903,
+      "range": [
+        111.49069721537231,
+        111.69981604426079
+      ],
+      "tokens": 756,
+      "accepted": 452,
+      "drafted": 915,
+      "sha256": "fe4d7309c57d26fd46f657860700f27aa480785e6ff7a0a2ee458f1c81acd251",
+      "repeatable": true,
+      "packed_layers": 48
+    },
+    "gain_percent": 9.387066731713878
   }
 }

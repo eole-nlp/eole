@@ -6,7 +6,18 @@ The experimental implementation packs the dense B/A control weights once during 
 
 Qwen3.8-27B RedHat INT4 decoder, BF16 compute, batch/beam 1, three drafts, context 64000, output cap 512, fused KVQ, prefill chunk 1024, no prefill cache. Torch 2.12.1+cu132, RTX 5090. Two complete warm requests then three measured requests per case. Rates exclude the first prefill token and compilation, using Eole decode timing. Native means the existing eight-GEMV specialization, not a generic four-row GEMM. Vocabulary heads are BF16 unless INT8/INT4 is specified.
 
-The analysis branch is based on main 69c3b92d plus the existing quantized-head implementation (c6c1ebc1); quantized heads are not introduced by this kernel change.
+This PR is based directly on main 69c3b92d and contains only the control-kernel change. The earlier benchmark matrix below was measured with the existing quantized-head implementation (c6c1ebc1) layered on that base; those head changes are not included here. The full-length user-script comparison was rerun on this kernel-only branch.
+
+## Full-length Orwell script comparison
+
+The unchanged settings and prompt from `recipes/qwen35/test_inference3.py` were imported directly: BF16 heads, three drafts, mode 0, `max_length=4096`, context 64000, top-k 1, top-p 0.95, temperature 0.6, seed 1, and the script's default prefill/cache settings. The script itself was not edited. The baseline only disables preparation of the paired weights; both paths otherwise use the same branch. Two full warm requests preceded three measured requests.
+
+| Path | Median decode tok/s | Decode tokens | Accepted/drafted |
+|---|---:|---:|---:|
+| Existing | 102.04 | 827 | 482/1038 |
+| Paired | 111.62 | 756 | 452/915 |
+
+The observed throughput gain is **9.39%**. The continuation, output length and acceptance change, so this is a user-workload result, not an isolated kernel comparison. Output is repeatable across the three measured requests within each path. Raw logs, configuration, outputs and the harness are in `/tmp/eole-gdn-control-script-ab` on the test host. This is the relevant comparison for the user's ~111.3 tok/s observation; the 147.7/153.3 figures below are for code generation.
 
 ## Warmed decoding throughput
 
@@ -46,4 +57,4 @@ For the INT4 code case, total measured request latency including prefill fell fr
 
 In the fixed 512-position continuation, target top-1 predictions differ at two positions: one is an exact tie in the native path, the other in the paired path. This confirms that identical forced outputs do not establish identical model logits.
 
-Validation: 59 CPU integration tests passed (9 CUDA-specific skips, with optional FLA disabled on CPU), 12 CUDA tests passed on each of RTX 5090 and RTX 4090, and Black checks passed. CUDA tests include saving/reloading the verifier and binding a different nonpersistent packed buffer without retracing.
+Validation: 54 CPU integration tests passed (8 CUDA-specific skips, with optional FLA disabled on CPU), 12 CUDA tests passed on each of RTX 5090 and RTX 4090, and Black checks passed. CUDA tests include saving/reloading the verifier and binding a different nonpersistent packed buffer without retracing.
