@@ -249,7 +249,11 @@ class BaseModel(nn.Module):
         if getattr(running_config, "quant_type", "") == "autoround":
             from eole.modules.autoround_linear import post_init_autoround_linear
 
-            post_init_autoround_linear(self, defer_kvq=getattr(running_config, "fuse_kvq", False))
+            post_init_autoround_linear(
+                self,
+                defer_kvq=getattr(running_config, "fuse_kvq", False),
+                defer_gate=getattr(running_config, "fuse_gate", False),
+            )
 
         self.eval()
         for name, module in self.named_modules():

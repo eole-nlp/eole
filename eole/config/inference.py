@@ -194,7 +194,9 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
         "'auto' uses EOLE_VERIFIER_CACHE_DIR or ~/.cache/eole/verifiers; an empty string disables persistence. "
         "Only locally generated, trusted executable caches may be used.",
     )
-    fuse_kvq: bool = Field(default=False, description="Fuse K, V, Q Linear layers into a single KVQ in Self Attn.")
+    fuse_kvq: bool = Field(
+        default=False, description="Fuse self-attention K/V/Q projections and compatible Marlin GDN QKV/Z projections."
+    )
     fuse_gate: bool = Field(
         default=False, description="Fuse gate_up_proj and up_proj Linear layers into a single Linear."
     )

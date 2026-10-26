@@ -1,4 +1,4 @@
-"""Four-row, paired BF16 GDN A/B projections with split-K accumulation."""
+"""Paired BF16 GDN A/B projections for single-token decode and verification."""
 
 import torch
 import triton
@@ -25,7 +25,22 @@ def _reduce(P, Y):
     tl.store(Y + i, tl.sum(values, axis=0))
 
 
+@triton.jit
+def _single_row(X, W, Y):
+    n = tl.program_id(0)
+    k = tl.arange(0, 8192)
+    x = tl.load(X + k, k < 5120, other=0).to(tl.float32)
+    w = tl.load(W + n * 5120 + k, k < 5120, other=0).to(tl.float32)
+    tl.store(Y + n, tl.sum(x * w, axis=0))
+
+
 def project_ab(inputs, weight):
+    if inputs.shape[1] == 1:
+        output = torch.empty((1, 1, 96), device=inputs.device, dtype=inputs.dtype)
+        # One CTA per output exposes more parallelism than two skinny GEMVs,
+        # without a second launch or a split-K scratch buffer.
+        _single_row[(96,)](inputs, weight, output, num_warps=4)
+        return output
     output = torch.empty((1, 4, 96), device=inputs.device, dtype=inputs.dtype)
     partials = torch.empty((40, 4, 96), device=inputs.device, dtype=torch.float32)
     _partial[(3, 40)](inputs, weight, partials, num_warps=4)

@@ -14,6 +14,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--head", choices=("none", "int8", "int4"), default="none")
     parser.add_argument("--mtp", action="store_true")
+    parser.add_argument("--fuse-gate", action="store_true", help="Pack gate/up projections before Marlin repacking")
+    parser.add_argument("--no-fuse-kvq", action="store_true", help="Disable self-attention KVQ and GDN QKV/Z packing")
     parser.add_argument("--tokens", type=int, default=512)
     parser.add_argument("--prompt-repeat", type=int, default=0, help="Repeat a paragraph to measure longer prefill")
     parser.add_argument("--runs", type=int, default=3)
@@ -53,8 +55,8 @@ def main():
         prefill_cache_size=0,
         self_speculative_decoding=args.mtp,
         self_speculative_num_tokens=3,
-        fuse_kvq=True,
-        fuse_gate=False,
+        fuse_kvq=not args.no_fuse_kvq,
+        fuse_gate=args.fuse_gate,
         report_time=True,
         seed=42,
         **options,
@@ -72,6 +74,8 @@ def main():
         "compile": os.environ.get("EOLE_TORCH_COMPILE", "0"),
         "compile_mode": os.environ.get("EOLE_COMPILE_MODE", "0"),
         "head": args.head,
+        "fuse_kvq": not args.no_fuse_kvq,
+        "fuse_gate": args.fuse_gate,
         "prompt": prompt,
         "config": config.model_dump(mode="python"),
         "results": [],
