@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from torch.nn.utils import skip_init
 
 from eole.modules.gdn_ab import gdn_ab_projections
+from eole.modules.gdn_state import commit_speculation_states
 
 
 # ---------------------------------------------------------------------------
@@ -522,10 +523,10 @@ class GatedDeltaNet(nn.Module):
 
         Partial acceptance needs the recurrent state at an intermediate token
         boundary. The FLA recurrent operator returns only the final state, so
-        replay that short accepted prefix. Running one operator per layer
-        caused a long chain of tiny launches for hybrid models; concatenate
-        same-shaped layer states along the batch dimension and replay them in
-        one call instead.
+        replay that short accepted prefix. Eligible BF16 layouts replay only
+        the state updates directly into per-layer buffers. Other layouts
+        concatenate same-shaped states along the batch dimension and replay
+        them in one FLA call, avoiding a tiny launch for every layer.
         """
         if not layers:
             return
@@ -534,6 +535,11 @@ class GatedDeltaNet(nn.Module):
         seq_len = specs[0]["query"].size(1)
         if not 1 <= n_kept <= seq_len:
             raise ValueError(f"n_kept must be in [1, {seq_len}], got {n_kept}")
+
+        # The state-only path validates its complete input contract itself;
+        # avoid repeating the general replay's packing-layout checks here.
+        if n_kept < seq_len and commit_speculation_states(layers, n_kept):
+            return
 
         # Fall back for uncommon heterogeneous GDN layouts. Qwen3.5 layers
         # share shapes, so their replay can be batched as independent rows.

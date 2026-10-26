@@ -27,7 +27,7 @@ class TestInferenceBackends(unittest.TestCase):
         output = "\n".join(inference_backend_summary(self._model(), False, "0"))
         self.assertIn("FlashAttention KV-cache selected=False", output)
         self.assertIn("fla-core=test-version", output)
-        self.assertIn("GDN decode/verify/replay: PyTorch", output)
+        self.assertIn("GDN decode/verify: PyTorch", output)
         self.assertIn("decoder path=eager", output)
 
     def test_compile_configuration_and_speculative_convolution(self):
