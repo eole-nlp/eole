@@ -120,7 +120,7 @@ setup(
         "subword-nmt>=0.3.7",
         "tensorboard>=2.18.0",
         "tokenizers",
-        "torch>=2.10,<2.15",
+        "torch>=2.14.1,<2.15",
         "torchcodec",
         "torch-optimi",
         "uvicorn",

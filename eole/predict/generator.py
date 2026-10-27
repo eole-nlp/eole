@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from eole.predict.inference import Inference
@@ -152,6 +154,51 @@ class GeneratorLM(Inference):
                     )
             finally:
                 decoder._disable_cache()
+
+    def _warmup_prefill(self, src, src_len, *, speculative, decode_strategy=None, fn_tile=None):
+        """Prepare lazy prefill kernels without retaining prompt or MTP state.
+
+        Decode/verifier warmup uses different sequence shapes and does not
+        initialize prefill Triton kernels or the MTP prefix projection. Keep
+        that first-use cost in warmup, rather than in the step-0 measurement.
+        """
+        # Do not double prefill on every growing chat turn. These lazy native
+        # kernels need first-use preparation, not a full prompt-shape cache.
+        return_attn = getattr(decode_strategy, "return_attention", False)
+        key = (src.size(0), src.device, speculative, self.beam_size, return_attn)
+        warmed = getattr(self, "_warmed_prefill_layouts", set())
+        if key in warmed:
+            return
+        decoder = self.model.decoder
+        prefix_cache = getattr(decoder, "_prefill_cache", None)
+        decoder._prefill_cache = None
+        try:
+            # Preparation must not change sampling's random-number stream.
+            with torch.random.fork_rng(devices=[src.device] if src.is_cuda else []):
+                decoded = self._decode_and_generate(
+                    src,
+                    None,
+                    src_len=src_len,
+                    step=0,
+                    return_attn=return_attn,
+                    return_hidden=speculative,
+                    return_all_hidden=speculative,
+                )
+                if speculative and getattr(self.model.mtp_heads[0], "emb_norm", None) is not None:
+                    self.model.init_mtp_cache(decoded[3], src, self.max_length)
+                if decode_strategy is not None:
+                    # Selection also initializes lazy CUDA code on first use.
+                    # A private copy leaves the real strategy unadvanced.
+                    strategy = deepcopy(decode_strategy)
+                    log_probs = fn_tile(decoded[0]) if fn_tile is not None else decoded[0]
+                    strategy.advance(log_probs, decoded[1])
+        finally:
+            if speculative:
+                self.model.clear_mtp_cache()
+            decoder._disable_cache()
+            decoder._prefill_cache = prefix_cache
+        warmed.add(key)
+        self._warmed_prefill_layouts = warmed
 
     def _warmup_speculative_decoder(self, emb, verify_len):
         """Prepare the full verifier; mode-0 single-GPU tails remain eager.
@@ -331,6 +378,16 @@ class GeneratorLM(Inference):
                 and (not full_chunk_only or self.max_length >= verify_len)
             ):
                 self._warmup_speculative_decoder(emb, verify_len)
+            if images is None:
+                # Prepare the verifier before prefill creates prompt-sized
+                # activations that would otherwise enter its cache identity.
+                self._warmup_prefill(
+                    src,
+                    src_len,
+                    speculative=use_spec_decoding,
+                    decode_strategy=decode_strategy,
+                    fn_tile=fn_tile,
+                )
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
             self.warmup_time.append(time() - start_wu)

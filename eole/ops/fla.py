@@ -17,7 +17,7 @@ try:
         bias: torch.Tensor | None = None,
         activation: str | None = None,
     ) -> torch.Tensor:
-        # FLA 0.5.2 dispatch marks this entry point compiler.disable.
+        # FLA dispatch marks this entry point compiler.disable.
         # Keep it opaque to Dynamo while declaring the cache mutation,
         # so the surrounding decoder remains one compilable graph.
         out, _ = _fla_causal_conv1d_update(
@@ -87,7 +87,7 @@ try:
         eps: float,
         activation: str,
     ) -> torch.Tensor:
-        # FLA 0.5.2 dispatches to a compiler-disabled forward kernel inside
+        # FLA dispatches to a compiler-disabled forward kernel inside
         # its autograd Function. The inference graph only needs its output.
         return _fla_rms_norm_gated(x, gate, weight, bias, activation, eps=eps)
 

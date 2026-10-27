@@ -14,7 +14,7 @@ WORKDIR /eole
 COPY docker/install-vision.sh /usr/local/bin/eole-install-vision
 RUN bash /usr/local/bin/eole-install-vision && \
     python -m pip install -r requirements.opt.txt && \
-    python -m pip install 'fla-core==0.5.2' 'transformers>=5.20,<6' && \
+    python -m pip install 'triton==3.8.0' 'fla-core==0.6.0' 'transformers>=5.20,<6' && \
     EOLE_SKIP_CUDA_BUILD=1 python -m pip install -e '.[ui,translation,ocr,rag]' --no-build-isolation && \
     python -m pip check && eole --help
 COPY docker/build-kernels.sh /usr/local/bin/eole-build-kernels

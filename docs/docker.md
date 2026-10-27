@@ -7,7 +7,7 @@ Configure the NVIDIA Docker runtime before starting a GPU container.
 ## Build or choose an image
 
 The tested default is Ubuntu 24.04 / Python 3.12, PyTorch **2.14.1+cu132**,
-CUDA **13.2.1**, FlashAttention **2.8.3**, and FLA **0.5.2**. The base upgrades
+CUDA **13.2.1**, FlashAttention **2.8.3**, Triton **3.8.0**, and FLA **0.6.0**. The base upgrades
 nvcc to **13.2.86**: the original CUDA 13.2.1 image has an older compiler.
 PyTorch wheels, CUDA toolkit and FlashAttention wheels must be compatible; do not
 substitute the newest CUDA toolkit independently of the PyTorch wheel index.
