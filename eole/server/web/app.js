@@ -162,6 +162,7 @@ function setBusy(value) {
   $("stop").hidden = !value;
   $("benchmark-run").disabled = value;
   $("model").disabled = value;
+  $("head-quantization").disabled = value;
   $("max-tokens").disabled = value;
   $("preset").disabled = value;
   $("thinking").disabled = value;
@@ -171,6 +172,7 @@ function setBusy(value) {
     : "Ready when you are";
   if (!value) activeRequest = null;
 }
+const headPreferences = new Map();
 function selectedModel() {
   return state?.models.find((m) => m.id === $("model").value);
 }
@@ -188,6 +190,7 @@ function requestPayload(messages, maxTokens = Number($("max-tokens").value)) {
     max_tokens: maxTokens,
     preset: $("preset").value,
     thinking: $("thinking").checked,
+    vocabulary_quantization: $("head-quantization").value,
     temperature: Number($("temperature").value),
   };
 }
@@ -301,7 +304,8 @@ function updateContext() {
   const model = selectedModel();
   if (!model) return;
   $("model-caption").textContent =
-    `${model.weight_bits ? "INT" + model.weight_bits + " · " : ""}${model.dtype.replace("torch.", "")} compute · ${model.context_length ? Number(model.context_length).toLocaleString() + " context" : "context automatic"} · ${state.compile_enabled ? "compiled mode " + state.compile_mode : "eager"}`;
+    `${model.weight_bits ? "INT" + model.weight_bits + " · " : ""}${model.dtype.replace("torch.", "")} compute · ${model.vocabulary_quantization === "none" ? "native" : model.vocabulary_quantization?.toUpperCase() ?? "native"} head · ${model.context_length ? Number(model.context_length).toLocaleString() + " context" : "context automatic"} · ${state.compile_enabled ? "compiled mode " + state.compile_mode : "eager"}`;
+  $("head-quantization").value = headPreferences.get(model.id) ?? model.vocabulary_quantization ?? "int4";
   const max = Number(model.max_tokens) || 4096;
   $("max-tokens").max = max;
   if (Number($("max-tokens").value) > max) $("max-tokens").value = max;
@@ -670,6 +674,9 @@ $("model").onchange = () => {
   EoleUI.rememberModel("chat", $("model").value);
   updateContext();
   updateImageInput();
+};
+$("head-quantization").onchange = () => {
+  headPreferences.set($("model").value, $("head-quantization").value);
 };
 $("preset").onchange = () => {
   $("temperature").disabled = $("preset").value === "fast";

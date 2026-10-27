@@ -3,6 +3,7 @@
 import asyncio
 from pathlib import Path
 import threading
+from typing import Literal
 from time import perf_counter
 
 from fastapi import HTTPException
@@ -33,6 +34,7 @@ class UIChat(BaseModel):
     messages: list[UIMessage] = Field(min_length=1, max_length=200)
     max_tokens: int = Field(default=4096, ge=1, le=32768)
     preset: str = Field(default="fast", pattern="^(fast|creative)$")
+    vocabulary_quantization: Literal["none", "int8", "int4"] | None = None
     thinking: bool = False
     temperature: float = Field(default=0.7, ge=0, le=2)
 
@@ -146,6 +148,9 @@ def register_ui(app, server):
                         if getattr(config, "quant_type", "") not in ("", "gguf")
                         else None
                     ),
+                    "vocabulary_quantization": getattr(
+                        config, "vocabulary_quantization", settings.get("vocabulary_quantization", "none")
+                    ),
                     "context_length": getattr(config, "context_length", settings.get("context_length")),
                     "max_tokens": getattr(config, "max_length", settings.get("max_length", 4096)),
                     "mtp_configured": bool(
@@ -195,7 +200,9 @@ def register_ui(app, server):
                             yield event("done", stats={"cancelled": True, "output_tokens": 0})
                             return
                         row["status"] = "preparing"
-                        await workspace.prepare(request.model, model, row)
+                        await workspace.prepare(
+                            request.model, model, row, vocabulary_quantization=request.vocabulary_quantization
+                        )
                         if not isinstance(model.engine.predictor, GeneratorLM):
                             raise ValueError("Chat requires a decoder-only model; use Translate for translation models")
                         prompt, budget_text = await asyncio.to_thread(

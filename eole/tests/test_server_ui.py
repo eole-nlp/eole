@@ -3,7 +3,7 @@
 import json
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, AsyncMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -81,6 +81,10 @@ class TestServerUI(unittest.TestCase):
         self.assertEqual(self.model.engine.settings["top_k"], 40)
         self.assertFalse(self.model.engine.settings["self_speculative_decoding"])
 
+    def test_invalid_head_precision(self):
+        response = self.client.post("/ui/chat", json={**self.payload, "vocabulary_quantization": "bf16"})
+        self.assertEqual(response.status_code, 422)
+
     def test_unknown_model_invalid_limits_and_context(self):
         self.assertEqual(self.client.post("/ui/chat", json={**self.payload, "model": "missing"}).status_code, 404)
         self.assertEqual(self.client.post("/ui/chat", json={**self.payload, "max_tokens": 0}).status_code, 422)
@@ -88,6 +92,52 @@ class TestServerUI(unittest.TestCase):
         self.model.count_tokens = lambda prompt: 120
         self.assertEqual(self.events()[-1]["type"], "error")
         self.assertEqual(self.client.post("/ui/cancel/missing").status_code, 404)
+
+
+class TestHeadQuantization(unittest.IsolatedAsyncioTestCase):
+    async def test_precision_change_unloads_before_loading_and_preserves_defaults(self):
+        from eole.server.ui_runtime import Workspace
+
+        for source, target in (("none", "int4"), ("int4", "int8"), ("int8", "none")):
+            model = Model()
+            model.pre_config = {"vocabulary_quantization": source, "compute_dtype": "bf16"}
+            model.engine.config = SimpleNamespace(vocabulary_quantization=source)
+            calls = []
+
+            async def unload(model_id):
+                calls.append(("unload", model_id))
+                model.loaded = False
+
+            async def prepare(model_id, row):
+                calls.append(("load", model.pre_config["vocabulary_quantization"]))
+                model.loaded = True
+
+            server = SimpleNamespace(unload_model=unload, prepare_model=prepare)
+            await Workspace(server).prepare("test", model, {}, vocabulary_quantization=target)
+            self.assertEqual(calls, [("unload", "test"), ("load", target)])
+            self.assertEqual(model.pre_config["compute_dtype"], "bf16")
+
+    async def test_matching_precision_does_not_reload(self):
+        from eole.server.ui_runtime import Workspace
+
+        model = Model()
+        model.pre_config = {"vocabulary_quantization": "int4"}
+        model.engine.config = SimpleNamespace(vocabulary_quantization="int4")
+        server = SimpleNamespace(unload_model=AsyncMock(), prepare_model=AsyncMock())
+        await Workspace(server).prepare("test", model, {}, vocabulary_quantization="int4")
+        server.unload_model.assert_not_awaited()
+        server.prepare_model.assert_awaited_once()
+
+    async def test_unloaded_model_updates_before_load(self):
+        from eole.server.ui_runtime import Workspace
+
+        model = Model()
+        model.loaded = False
+        model.pre_config = {}
+        server = SimpleNamespace(unload_model=AsyncMock(), prepare_model=AsyncMock())
+        await Workspace(server).prepare("test", model, {}, vocabulary_quantization="int4")
+        server.unload_model.assert_not_awaited()
+        self.assertEqual(model.pre_config["vocabulary_quantization"], "int4")
 
 
 class TestUICancellation(unittest.IsolatedAsyncioTestCase):

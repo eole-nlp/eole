@@ -20,6 +20,7 @@ models:
   config:
     data_type: image
     compute_dtype: bf16
+    vocabulary_quantization: int4
     self_attn_backend: flash
     beam_size: 1
     n_best: 1

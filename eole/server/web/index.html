@@ -260,6 +260,12 @@
                 <option value="creative">Creative · sampling / MTP off</option>
               </select></label
             ><label
+              >LM head<select id="head-quantization">
+                <option value="none">Native · original dtype</option>
+                <option value="int8">INT8</option>
+                <option value="int4" selected>INT4 · fastest</option>
+              </select></label
+            ><label
               >Output limit<input
                 id="max-tokens"
                 type="number"
@@ -280,6 +286,9 @@
             <p>
               Fast mode uses deterministic selection. MTP status is confirmed
               after generation. Output must fit the remaining context.
+              Changing LM head precision reloads the model on the next request
+              and may repeat warmup. INT8/INT4 require single-GPU CUDA, FP16/BF16
+              and an unquantized, bias-free head. Quantization can change output.
             </p>
           </div>
           <div id="messages" class="messages" aria-live="polite">

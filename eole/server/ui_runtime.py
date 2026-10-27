@@ -24,7 +24,19 @@ class Workspace:
         self.server = server
         self.lock = server.model_lock if getattr(server, "model_policy", None) == "single" else asyncio.Lock()
 
-    async def prepare(self, model_id, model, row):
+    async def prepare(self, model_id, model, row, vocabulary_quantization=None):
+        # Head packing happens at engine construction, never as a token-loop setting.
+        # Reload from the checkpoint to restore Native or change packing precision.
+        if vocabulary_quantization is not None:
+            configured = model.pre_config.get("vocabulary_quantization", "none")
+            current = (
+                getattr(model.engine.config, "vocabulary_quantization", configured) if model.loaded else configured
+            )
+            if current != vocabulary_quantization:
+                row["status"] = "loading"
+                if model.loaded:
+                    await self.server.unload_model(model_id)
+                model.pre_config = {**model.pre_config, "vocabulary_quantization": vocabulary_quantization}
         if self.server is not None and hasattr(self.server, "prepare_model"):
             await self.server.prepare_model(model_id, row)
         elif not model.loaded:
