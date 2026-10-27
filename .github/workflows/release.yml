@@ -16,6 +16,8 @@ jobs:
     permissions: write-all
     steps:
     - uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.release.tag_name }}
     - name: Set up Python 3.11
       uses: actions/setup-python@v7
       with:
@@ -24,9 +26,51 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         python -m pip install "setuptools<69" wheel build twine
+    - name: Check release version
+      env:
+        RELEASE_TAG: ${{ github.event.release.tag_name }}
+      run: |
+        python - <<'PY'
+        import ast
+        import os
+        from pathlib import Path
+        import runpy
+
+        version = runpy.run_path("eole/__init__.py")["__version__"]
+        setup = ast.parse(Path("setup.py").read_text())
+        call = next(node for node in ast.walk(setup)
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "setup")
+        package_version = next(ast.literal_eval(kw.value) for kw in call.keywords if kw.arg == "version")
+        if package_version != version:
+            raise SystemExit("setup.py and eole.__version__ must match")
+        if os.environ["RELEASE_TAG"] != version:
+            raise SystemExit(f"Release tag must match package version {version}")
+        PY
     - name: Build a binary wheel and a source tarball
+      env:
+        EOLE_SKIP_CUDA_BUILD: "1"
       run: |
         python -m build
+    - name: Check release artifacts
+      run: |
+        python -m twine check dist/*
+        python - <<'PY'
+        from pathlib import Path
+        import tarfile
+        import zipfile
+
+        with zipfile.ZipFile(next(Path("dist").glob("*.whl"))) as wheel:
+            names = set(wheel.namelist())
+            for asset in Path("eole/server/web").iterdir():
+                if asset.is_file() and asset.as_posix() not in names:
+                    raise SystemExit(f"Missing workspace asset in wheel: {asset}")
+        with tarfile.open(next(Path("dist").glob("*.tar.gz"))) as source:
+            names = {name.split("/", 1)[1] for name in source.getnames() if "/" in name}
+            for path in Path("csrc").rglob("*"):
+                if path.is_file() and path.as_posix() not in names:
+                    raise SystemExit(f"Missing CUDA build source: {path}")
+        PY
     - name: Publish release to PyPi
       uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
       with:

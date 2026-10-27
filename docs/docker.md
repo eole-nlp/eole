@@ -151,8 +151,7 @@ Stop and remove the container with `docker stop eole-dev` and `docker rm eole-de
 
 ## Publish with GitHub Actions
 
-After merging this Docker refresh, open **Actions → Build Docker Images → Run
-workflow**. Select the updated workflow branch (normally `main`), then:
+Open **Actions → Build Docker Images → Run workflow**. Select the updated workflow branch (normally `main`), then:
 
 - `source_ref`: `main` for a development image, or a release tag that includes
   these Docker scripts. Older releases without these scripts are rejected.
@@ -168,12 +167,12 @@ No unrelated release number is assigned to current main. Publishing requires
 GHCR package write permission; the workflow uses its repository `GITHUB_TOKEN`.
 **Build Base Docker Image** publishes just the base when needed.
 
-For the **0.6.4 release image**, after the version-bump PR is merged and the
-`0.6.4` tag is created on the release commit, select `source_ref=0.6.4` (keep the
+For the **0.6.5 release image**, after the version-bump PR is merged and the
+`0.6.5` tag is created on the release commit, select `source_ref=0.6.5` (keep the
 workflow branch on `main`). The workflow then publishes:
 
 ```text
-ghcr.io/eole-nlp/eole:0.6.4-torch2.14.1-ubuntu24.04-cuda13.2.1
+ghcr.io/eole-nlp/eole:0.6.5-torch2.14.1-ubuntu24.04-cuda13.2.1
 ```
 
 The release tag must include the refreshed Docker tooling. Publishing a GitHub
@@ -197,23 +196,33 @@ hardware before claiming a new combination is supported.
 
 ### RunPod deployment images
 
-Build/publish the full Eole image from a commit containing the precompiled-ops
-change first. A compatible parent already built from #473 can be reused; the
-pre-converted-model changes only require rebuilding the RunPod wrapper from
-the newly merged source commit. Both image builds install a matching Torchvision
-wheel for the RAG processor, constrained to the selected PyTorch/CUDA runtime.
-Then run **Build RunPod Image** with `eole_image` set to that newly published tag
-(or digest), and `deploy_tag=0.6.4-r2`. The RunPod build rejects parent images that
-lack importable Eole ops, rather than silently publishing an image that compiles
-on every first deployment. Existing 0.6.4/0.6.4-r1 images are not changed by this PR.
+Build the full Eole image from the **`0.6.5` tag** first. The image includes the
+current source, bundled CUDA ops, Torch 2.14.1, Triton 3.8.0 and fla-core 0.6.0.
+The full-image workflow builds its matching base too; a separate base workflow
+run is unnecessary. Its **Summary** shows the full image tag for the next step.
 
-The repository template targets `0.6.4-r2`. Update the public template's
-`imageName` to that tag after publishing and validation, using
-[the template publishing instructions](../recipes/runpod/MAINTAINERS.md).
-Changing Git source alone does not update an existing template or running Pod.
-The r2 launcher downloads pre-converted public `eole-nlp` checkpoints pinned in
-`recipes/runpod/models.json`, then verifies file SHA256 checksums. It does not
-download original HF weights or run model conversion on the Pod.
+Run **Build RunPod Image** with:
+
+| Input | Value |
+|---|---|
+| `source_ref` | `0.6.5` |
+| `deploy_tag` | `0.6.5` |
+| `eole_image` | `ghcr.io/eole-nlp/eole:0.6.5-torch2.14.1-ubuntu24.04-cuda13.2.1` or its digest |
+
+The wrapper requires importable bundled ops and startup/cache support. A plain
+release tag additionally requires a parent with the same Eole version and source
+revision as the tagged checkout. Older images do not gain new Eole code when
+only the wrapper is rebuilt. Both builds install matching Torchvision while
+constraining the selected PyTorch/CUDA runtime.
+
+After GPU validation, update the existing public template's `imageName` to
+**`ghcr.io/eole-nlp/eole-runpod:0.6.5`**, following the
+[release publishing checklist](../recipes/runpod/MAINTAINERS.md#publish-065).
+The repository template targets 0.6.5, but Git merges and image publication do not
+change the live template or existing Pods. The deploy button keeps its current
+template ID. Preserve earlier release/revision images rather than overwriting them.
+The launcher downloads pinned pre-converted public `eole-nlp` checkpoints and
+verifies their SHA256 checksums; it does not convert original HF weights.
 On startup the launcher probes the bundled extension on each visible GPU, then
 uses source compilation only if the binary is absent or incompatible. A matching
 volume cache is used when no bundled binary exists. The fallback result is cached.

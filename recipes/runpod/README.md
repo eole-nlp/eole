@@ -12,11 +12,11 @@ that volume; it does not attach it automatically. The 60 GB container disk alone
 is not sufficient. Private cloud validation has passed INT4/BF16 Chat,
 translation, PDF OCR and automatic model switching with an attached volume.
 
-This recipe targets **`eole-runpod:0.6.4-r2`**, with prebuilt Eole CUDA ops and
+This recipe targets **`eole-runpod:0.6.5`**, with prebuilt Eole CUDA ops and
 pre-converted models from the public [eole-nlp organization](https://huggingface.co/eole-nlp).
 No HF token is required for these four checkpoints; no model conversion runs on the Pod.
 Maintainers must first build a full Eole image containing those ops, publish the
-RunPod wrapper, and update the existing public template before the button uses it; see the [publishing steps](MAINTAINERS.md#publish-an-update-with-bundled-cuda-ops).
+RunPod wrapper, and update the existing public template before the button uses it; see the [publishing steps](MAINTAINERS.md#publish-065).
 
 ## Get started
 
@@ -83,8 +83,8 @@ and non-MTP paths retain their existing policy. New prompt/image shapes can stil
 need additional kernel warmup.
 
 **Publishing:** these startup changes require a full Eole image and RunPod wrapper
-built from this revision. The existing public `0.6.4-r2` image/template is unchanged
-by editing this recipe. Publish the next deployment image and update the template
+built from this revision. Publishing the `0.6.5` image and updating the public template are separate steps;
+merging this recipe leaves existing images and Pods unchanged. Update the template
 using [MAINTAINERS.md](MAINTAINERS.md). The wrapper build rejects parent images
 that lack the matching server/cache implementation.
 
@@ -157,4 +157,4 @@ of compiling it on the rented GPU. A source-build fallback handles incompatible
 binaries. Model downloads, checksum verification and Triton/torch.compile warmup still take time.
 Older published images retain their original startup behavior. Maintainers must
 publish a new image and update the deployment template to enable this change;
-see [publishing instructions](MAINTAINERS.md#publishing-images-with-bundled-cuda-ops).
+see [publishing instructions](MAINTAINERS.md#publish-065).

@@ -2,6 +2,24 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.6.5
+
+* Add target sampling with greedy MTP proposals, presence/frequency penalties and reproducible sampling fixtures ([#479](https://github.com/eole-nlp/eole/pull/479)).
+* Add opt-in INT8/INT4 vocabulary-head quantization and a native/INT8/INT4 selector in the workspace; Qwen showcase templates default to INT4 heads ([#481](https://github.com/eole-nlp/eole/pull/481), [#492](https://github.com/eole-nlp/eole/pull/492)).
+* Improve Marlin register budgets and launch scheduling, packed MLP/GDN projections, and GDN A/B inference kernels ([#485](https://github.com/eole-nlp/eole/pull/485), [#487](https://github.com/eole-nlp/eole/pull/487), [#490](https://github.com/eole-nlp/eole/pull/490)).
+* Avoid unintended FP64 arithmetic in compiled FLA recurrence, fix FP16 attention overflow, pass the requested autocast dtype, and correct relative-position KV-cache handling ([#488](https://github.com/eole-nlp/eole/pull/488), [#486](https://github.com/eole-nlp/eole/pull/486), [#480](https://github.com/eole-nlp/eole/pull/480), [#483](https://github.com/eole-nlp/eole/pull/483)).
+* Prepare Qwen inference at server startup and persist compatible locally compiled MTP verifiers. Separate lazy prefill initialization from step-0 timing while preserving sampling RNG ([#475](https://github.com/eole-nlp/eole/pull/475), [#493](https://github.com/eole-nlp/eole/pull/493)).
+* Bundle Ampere–Blackwell Eole CUDA ops in Docker/RunPod, download pinned pre-converted showcase checkpoints, and validate persistent storage before preparation ([#470](https://github.com/eole-nlp/eole/pull/470), [#473](https://github.com/eole-nlp/eole/pull/473), [#474](https://github.com/eole-nlp/eole/pull/474)).
+* Require PyTorch >= 2.14.1 and < 2.15; Docker uses CUDA 13.2.1, Triton 3.8.0 and fla-core 0.6.0. Remove deprecated TorchScript activation decoration ([#493](https://github.com/eole-nlp/eole/pull/493)).
+* Include CUDA build sources in source distributions, verify workspace assets before PyPI publication, and check that numbered RunPod releases use the matching Eole source and image.
+
+Publish the Eole and RunPod images from the **same `0.6.5` release commit**, then
+update the existing public deployment template to `eole-runpod:0.6.5` after GPU
+validation. A GitHub release publishes the Python package/docs; Docker builds
+are separate manual workflows. See the [publishing checklist](recipes/runpod/MAINTAINERS.md#publish-065).
+
+**Full Changelog**: https://github.com/eole-nlp/eole/compare/0.6.4...0.6.5
+
 ## 0.6.4
 
 * Add an authenticated RunPod workspace with automatic preparation of Qwen3.8-27B, Hy-MT2-7B and DeepSeek-OCR, single-model GPU switching, persistent caches, and INT4/BF16 Qwen selection ([#469](https://github.com/eole-nlp/eole/pull/469)).
