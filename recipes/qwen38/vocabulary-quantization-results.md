@@ -1,100 +1,139 @@
 # Vocabulary-head quantization benchmark
 
-## Current main after the GDN fixes
+## Current main after packed projections
 
-Measured on 2026-10-26 after rebasing #481 onto main `84f99d40`, including #487 (paired GDN A/B projections) and #488 (native FP32 FLA launch boundary), as well as #485 (Marlin register/CTA changes). **The unmerged direct accepted-state commit PR #489 is excluded.**
+Measured on 2026-10-26 after rebasing #481 onto main `8f60c58d` (#490).
+Both `fuse_kvq` and `fuse_gate` are enabled for every head format. This includes
+Marlin GDN QKV/Z and MLP gate/up packing, single-token paired A/B dispatch and
+the cache/fusion allocation fixes. Unmerged #489 (accepted-state commit),
+#491 (bounded cache views), and restricted draft-vocabulary work are excluded.
 
-PyTorch 2.12.1+cu132, FLA 0.5.2, Triton 3.7.1, FlashAttention 2.8.3. The existing extension was built with CUDA 13.3 for SM89/SM120; its SHA256 matches the previous campaign. Model, decoder weights, tokenizer, normalization and fixtures remain unchanged between head formats. Only the shared vocabulary projection changes: BF16, symmetric RTN INT8 or symmetric RTN INT4, group 128 with BF16 scales. The same head serves ordinary decoding, MTP drafting and target verification.
+PyTorch 2.12.1+cu132, FLA 0.5.2, Triton 3.7.1, FlashAttention 2.8.3. The same
+existing extension (CUDA 13.3, SM89/SM120) is used without rebuilding it. Model,
+decoder weights, tokenizer, normalization and fixtures are unchanged between
+head formats. Only the shared vocabulary projection changes: original BF16,
+symmetric RTN INT8 or symmetric RTN INT4, group 128 with BF16 scales. The same
+head serves ordinary decoding, MTP drafting and target verification.
 
-[Previous post-Marlin campaign](vocabulary-quantization-post-marlin-results.md), its JSONL files, and [pre-Marlin measurements](vocabulary-quantization-pre-marlin-results.md) are retained. Comparisons across heads or campaigns do not establish equivalent output quality or isolate a kernel-only speedup: quantization and floating-point changes can alter continuations, lengths and acceptance.
+[Post-GDN results](vocabulary-quantization-post-gdn-results.md),
+[post-Marlin results](vocabulary-quantization-post-marlin-results.md),
+[pre-Marlin results](vocabulary-quantization-pre-marlin-results.md) and their
+raw files are retained. The previous post-GDN campaign kept gate fusion off;
+this campaign enables it equally in all arms. Cross-campaign differences
+therefore do not isolate any single optimization. Quantization can change
+continuations, lengths and acceptance: these are sampled workload timings,
+not same-token comparisons or equivalent-quality claims.
 
 ## RTX 5090: MTP sampling
 
-Original Eole code/story/translation fixtures (`eole-v1`), seeds 42/43. Compile mode 0, reserved context 64,000, batch/beam 1, three MTP drafts, output cap 4096, prefill chunks 1024, packed attention KVQ enabled, gate fusion disabled, prefill cache disabled. Sampling: temperature 0.6, top-k 20, top-p 0.95, presence penalty 1, frequency penalty 0. One 128-token code warmup precedes the measured requests, preserving the original procedure. MTP phase-timing instrumentation remains enabled.
+Original Eole code/story/translation fixtures (`eole-v1`), seeds 42/43. Compile
+mode 0, 64,000 reserved context, batch/beam one, three MTP drafts, output cap
+4096, prefill chunks 1024, both fusion flags enabled, prefill cache disabled.
+Sampling: temperature 0.6, top-k 20, top-p 0.95, presence penalty 1, frequency
+penalty 0. One 128-token code warmup precedes the measured requests, preserving
+the earlier procedure. MTP phase-timing instrumentation remains enabled.
 
-Rates are arithmetic means of the two measured decode rates. Timing excludes loading, head quantization, compilation, prefill and the first generated token; EOS is included. Acceptance pools accepted/drafted counts across both seeds.
+Rates are arithmetic means of two measured decode rates. Timing excludes
+loading, head quantization, compilation, prefill and the first generated token;
+EOS is included. Acceptance pools accepted/drafted counts across both seeds.
 
 | Workload | BF16 tok/s | INT8 tok/s | Gain | INT4 tok/s | Gain |
 |---|---:|---:|---:|---:|---:|
-| Python code | 149.82 | 173.50 | +15.8% | 183.98 | +22.8% |
-| English story | 99.06 | 115.98 | +17.1% | 121.08 | +22.2% |
-| Chinese→English | 140.20 | 160.17 | +14.2% | 160.87 | +14.7% |
+| Python code | 151.82 | 178.70 | +17.7% | 188.31 | +24.0% |
+| English story | 100.14 | 114.06 | +13.9% | 122.24 | +22.1% |
+| Chinese→English | 140.52 | 165.71 | +17.9% | 179.32 | +27.6% |
 
 MTP acceptance:
 
 | Workload | BF16 | INT8 | INT4 |
 |---|---:|---:|---:|
-| Python code | 83.3% | 83.2% | 84.0% |
-| English story | 43.1% | 43.2% | 43.4% |
-| Chinese→English | 72.6% | 70.3% | 65.5% |
+| Python code | 83.1% | 84.4% | 83.0% |
+| English story | 42.7% | 41.3% | 42.4% |
+| Chinese→English | 71.1% | 71.8% | 73.1% |
 
 ### Per-request RTX 5090 results
 
 | Head | Workload | Seed | Decode tokens | tok/s | Accepted / drafted | Same text as BF16 |
 |---|---|---:|---:|---:|---:|---|
-| BF16 | Python code | 42 | 4095 | 147.35 | 2906 / 3564 | yes |
-| BF16 | English story | 42 | 2855 | 98.02 | 1606 / 3750 | yes |
-| BF16 | Chinese→English | 42 | 669 | 141.91 | 462 / 624 | yes |
-| BF16 | Python code | 43 | 4095 | 152.29 | 2942 / 3456 | yes |
-| BF16 | English story | 43 | 2404 | 100.10 | 1360 / 3135 | yes |
-| BF16 | Chinese→English | 43 | 670 | 138.49 | 457 / 642 | yes |
-| INT8 | Python code | 42 | 4095 | 171.14 | 2903 / 3573 | no |
-| INT8 | English story | 42 | 2599 | 117.07 | 1476 / 3372 | no |
-| INT8 | Chinese→English | 42 | 861 | 160.74 | 585 / 831 | no |
-| INT8 | Python code | 43 | 4095 | 175.85 | 2944 / 3453 | no |
-| INT8 | English story | 43 | 2713 | 114.89 | 1525 / 3567 | no |
-| INT8 | Chinese→English | 43 | 635 | 159.59 | 431 / 615 | no |
-| INT4 | Python code | 42 | 4095 | 185.12 | 2930 / 3492 | no |
-| INT4 | English story | 42 | 2826 | 120.91 | 1585 / 3726 | no |
-| INT4 | Chinese→English | 42 | 1058 | 159.22 | 702 / 1071 | no |
-| INT4 | Python code | 43 | 4095 | 182.84 | 2932 / 3488 | no |
-| INT4 | English story | 43 | 3361 | 121.25 | 1915 / 4341 | no |
-| INT4 | Chinese→English | 43 | 899 | 162.52 | 596 / 912 | no |
+| BF16 | Python code | 42 | 4095 | 149.34 | 2901 / 3582 | yes |
+| BF16 | English story | 42 | 2934 | 99.26 | 1638 / 3888 | yes |
+| BF16 | Chinese→English | 42 | 672 | 139.47 | 456 / 651 | yes |
+| BF16 | Python code | 43 | 4095 | 154.30 | 2944 / 3450 | yes |
+| BF16 | English story | 43 | 2583 | 101.02 | 1460 / 3372 | yes |
+| BF16 | Chinese→English | 43 | 651 | 141.58 | 446 / 618 | yes |
+| INT8 | Python code | 42 | 4095 | 174.65 | 2908 / 3558 | no |
+| INT8 | English story | 42 | 2934 | 113.97 | 1623 / 3936 | no |
+| INT8 | Chinese→English | 42 | 643 | 164.87 | 439 / 615 | no |
+| INT8 | Python code | 43 | 4095 | 182.75 | 2961 / 3399 | no |
+| INT8 | English story | 43 | 2708 | 114.15 | 1498 / 3630 | no |
+| INT8 | Chinese→English | 43 | 651 | 166.55 | 446 / 618 | yes |
+| INT4 | Python code | 42 | 4095 | 190.13 | 2936 / 3474 | no |
+| INT4 | English story | 42 | 3004 | 121.97 | 1675 / 3990 | no |
+| INT4 | Chinese→English | 42 | 660 | 178.01 | 451 / 627 | no |
+| INT4 | Python code | 43 | 4095 | 186.48 | 2907 / 3564 | no |
+| INT4 | English story | 43 | 2656 | 122.51 | 1496 / 3480 | no |
+| INT4 | Chinese→English | 43 | 661 | 180.63 | 457 / 615 | no |
 
-[Raw 5090 metadata and measurements](vocabulary-quantization-post-gdn-results.jsonl). Full generated texts and logs are retained locally under `/tmp/eole-vocab-post488`.
+[Raw 5090 metadata and measurements](vocabulary-quantization-post-packing-results.jsonl). Full texts and logs are
+retained locally under `/tmp/eole-vocab-post490`.
 
 ## RTX 4090: repeated 32K checks
 
-Same model, fixtures, head group size and sampling settings. Reserved context 32,768, output cap 512. Every fixture receives a full 512-token warmup, then three measured repeats at seed 42, preserving the previous 4090 procedure. Rates are arithmetic means of three decode rates. Each head/workload repeats its own output hash across all three requests; this is a repeatability check, not a quality evaluation.
+Same model, fixtures, head group size and sampling settings. Reserved context
+32,768, output cap 512. Each fixture receives a full 512-token warmup, then
+three measured repeats at seed 42, preserving the previous 4090 procedure.
+Rates are arithmetic means of three decode rates. Each head/workload repeats
+its output hash across the three requests; this checks repeatability, not quality.
 
 | Workload | BF16 tok/s | INT8 tok/s | Gain | INT4 tok/s | Gain |
 |---|---:|---:|---:|---:|---:|
-| Python code | 90.83 | 107.58 | +18.4% | 124.20 | +36.7% |
-| English story | 64.72 | 72.46 | +12.0% | 80.03 | +23.6% |
-| Chinese→English | 87.18 | 99.90 | +14.6% | 109.43 | +25.5% |
+| Python code | 92.89 | 106.30 | +14.4% | 127.96 | +37.8% |
+| English story | 61.62 | 72.62 | +17.8% | 81.98 | +33.0% |
+| Chinese→English | 86.87 | 105.64 | +21.6% | 114.05 | +31.3% |
 
 MTP acceptance:
 
 | Workload | BF16 | INT8 | INT4 |
 |---|---:|---:|---:|
-| Python code | 75.5% | 74.5% | 81.7% |
-| English story | 44.2% | 40.6% | 40.1% |
-| Chinese→English | 71.5% | 68.8% | 66.9% |
+| Python code | 75.5% | 72.1% | 81.7% |
+| English story | 40.1% | 39.1% | 40.6% |
+| Chinese→English | 70.2% | 72.3% | 68.7% |
 
-All three head formats complete these 32K checks. The desktop uses approximately 1 GB of VRAM. Historical 64K OOM checks were not repeated; short-prompt success does not guarantee long-context capacity. The 4090 output cap differs from the 5090 campaign, so their absolute rates are not directly comparable.
+All three head formats completed these 32K short-prompt checks without OOM.
+The desktop uses about 1 GB of VRAM. Historical 64K OOM checks were not repeated;
+these runs do not guarantee full-context capacity. The output caps differ
+between GPUs, so their absolute rates are not directly comparable.
 
-[Raw 4090 metadata and measurements](vocabulary-quantization-4090-post-gdn-results.jsonl). All GPU campaigns run serially, including between GPUs. No other model process or GPU test runs concurrently with measured requests.
+[Raw 4090 metadata and measurements](vocabulary-quantization-4090-post-packing-results.jsonl). GPU workloads were
+serialized, including across GPUs, with no concurrent model or GPU-test process
+during measured requests.
 
-## Validation after rebasing
+## Validation
 
-- 751 CPU tests passed, 39 skipped, with optional FLA disabled in the CPU test process; recipe integration tests are excluded as in the previous campaign.
-- 29 CUDA checks passed on each GPU, covering vocabulary packing/dequantized-head agreement and source-weight preservation, Marlin launches/fusion, and the current FLA compile/recurrent adapters.
-- Black with the repository configuration, flake8, and whitespace checks passed.
+- CPU suite: 760 tests run, 40 skipped; all executed tests passed, with optional FLA disabled and recipe integration excluded.
+- 50 focused checks passed on each GPU, covering head packing/dequantized-head agreement and source-weight preservation, inference wiring, packed projections, GDN kernels, KV caches and CUDA graphs.
+- Black with repository configuration, flake8 and whitespace checks passed.
 
 ## Reproduce
 
-Use the branch with vocabulary quantization rebased onto the current main and the matching Eole extension. Run each head with a separate output path:
+Use the refreshed #481 branch and the existing matching Eole extension. Run
+each head with a separate output path:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
   python recipes/qwen38/benchmark_mtp_sampling.py \
-  --model "$QWEN38_MODEL" --head none --output /tmp/vocab-bf16.json
+  --model "$QWEN38_MODEL" --head none --fuse-gate --output /tmp/vocab-bf16.json
 ```
 
-Repeat with `--head int8` and `--head int4`. Defaults reproduce the 5090 procedure. For the 4090, select its CUDA device and add:
+Repeat with `--head int8` and `--head int4`. The `--fuse-gate` option is needed
+to reproduce this campaign; omitting it retains the earlier harness setting.
+For RTX 4090, select its CUDA device and add:
 
 ```text
 --context-length 32768 --tokens 512 --seeds 42 42 42 --warmup-tokens 512 --warmup-all-prompts
 ```
 
 No output-quality benchmark or new 64K capacity test was performed.
+
+Real non-MTP compiled model checks also passed for INT8 batch four, INT4
+worker-thread streaming and INT4 beam four.
