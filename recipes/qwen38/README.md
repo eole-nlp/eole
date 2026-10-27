@@ -255,7 +255,6 @@ and normalization are unchanged.
 Use the sampling benchmark above with `--head int8` or `--head int4`; omit
 the option (or use `--head none`) for the original BF16 head. The benchmark
 retains the same prompts, sampling configuration, context reservation and seeds.
-See [vocabulary-head benchmark results](vocabulary-quantization-results.md).
 For the current packed-projection comparison, also pass `--fuse-gate`;
 KVQ/GDN input fusion is already enabled by the harness.
 
