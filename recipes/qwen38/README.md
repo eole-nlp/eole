@@ -22,7 +22,7 @@ install FlashAttention and the hybrid-attention kernels used by Qwen:
 ```bash
 MAX_JOBS=2 python -m pip install -e . --no-build-isolation
 MAX_JOBS=2 python -m pip install flash-attn --no-build-isolation
-python -m pip install fla-core
+python -m pip install "fla-core==0.6.0"
 MAX_JOBS=2 python -m pip install causal-conv1d --no-build-isolation
 ```
 
@@ -325,6 +325,13 @@ requests. In single-GPU compile mode 0 with MTP, only the full verification chun
 is compiled; shorter final chunks execute eagerly. The first compilation is saved
 locally, and the same in-memory program serves requests immediately. Restarts
 reload the compatible program without tracing the whole decoder again.
+
+Compiled text inference also prepares the prefill kernels, MTP prefix cache and
+first-token selection before the step-0 timer starts. This preparation runs once
+per batch layout, preserves the sampling RNG, and clears temporary model state;
+it does not repeat for every new chat length. Its time appears under warmup,
+and remains part of the total request latency. Vision requests retain their
+existing warmup behavior.
 
 This also applies to ordinary local Python inference with `InferenceEnginePY`:
 

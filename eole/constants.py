@@ -108,7 +108,6 @@ def fused_gated_gelu_tanh(x):
     return F.gelu(x[..., :d], approximate="tanh") * x[..., d:]
 
 
-@torch.jit.script
 def quick_gelu(x):
     return x * torch.sigmoid(1.702 * x)
 
