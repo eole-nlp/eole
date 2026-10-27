@@ -1484,5 +1484,9 @@ class TransformerDecoder(DecoderBase):
             else:
                 layer.self_attn.kcache, layer.self_attn.vcache = None, None
                 layer.self_attn.cache_leftpad = None
+                # The gate is recomputed on every forward. Retaining a warmup
+                # prompt's gate also makes the verifier cache key prompt-sized.
+                if hasattr(layer.self_attn, "_attn_gate"):
+                    del layer.self_attn._attn_gate
                 if layer.context_attn:
                     layer.context_attn.kcache, layer.context_attn.vcache = None, None
