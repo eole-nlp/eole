@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
+from unittest.mock import patch
 import unittest
 
 import torch
@@ -65,15 +66,69 @@ class RestrictedDraftHeadTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "dense"):
             RestrictedDraftHead(nn.Identity(), [0])
 
-    def test_quantized_head_combination_is_rejected_before_conversion(self):
+    def test_quantized_heads_are_built_from_the_original_dense_rows(self):
         for quantization in ("int8", "int4"):
-            with self.subTest(quantization=quantization):
+            with self.subTest(quantization=quantization), tempfile.TemporaryDirectory() as directory:
                 model = DraftModel()
-                original = model.generator
-                config = SimpleNamespace(vocabulary_quantization=quantization, self_speculative_draft_vocab="ids.json")
-                with self.assertRaisesRegex(ValueError, "vocabulary_quantization='none'"):
+                original = model.generator.weight.detach().clone()
+                path = Path(directory) / "ids.json"
+                path.write_text(json.dumps([2, 1]))
+                config = SimpleNamespace(
+                    vocabulary_quantization=quantization,
+                    vocabulary_quantization_group_size=64,
+                    self_speculative_draft_vocab=str(path),
+                )
+                with patch(
+                    "eole.modules.vocabulary_quantization.quantize_vocabulary_head",
+                    side_effect=lambda head, bits, group: head,
+                ) as quantize:
                     Inference._prepare_inference_projections(SimpleNamespace(model=model), config)
-                self.assertIs(model.generator, original)
+                self.assertEqual(quantize.call_count, 2)
+                self.assertEqual([call.args[1:] for call in quantize.call_args_list], [(int(quantization[3:]), 64)] * 2)
+                draft = model._mtp_draft_head
+                torch.testing.assert_close(draft.projection.weight[:2], original[[1, 2]])
+                torch.testing.assert_close(model.generator.weight, original)
+                self.assertIsNone(draft.weight)
+                self.assertEqual(draft(torch.tensor([[1.0, 0.0]])).item(), 1)
+                self.assertIn("generator.weight", model.state_dict())
+                self.assertFalse(any("_mtp_draft_head" in key for key in model.state_dict()))
+
+    def test_padded_rows_cannot_win_over_negative_real_logits(self):
+        generator = nn.Linear(128, 10, bias=False)
+        generator.weight.data.fill_(-1)
+        head = RestrictedDraftHead(generator, [8, 2, 5])
+        with patch(
+            "eole.modules.vocabulary_quantization.quantize_vocabulary_head",
+            side_effect=lambda dense, bits, group: dense,
+        ):
+            head.quantize(4)
+        self.assertEqual(head.projection.out_features, 64)
+        self.assertEqual(head(torch.ones(1, 128)).item(), 2)
+        self.assertEqual(head.state_dict(), {})
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
+    def test_quantized_shortlist_matches_selected_dequantized_rows(self):
+        from eole.modules.vocabulary_quantization import quantize_rows
+        from eole.tests.test_vocabulary_quantization import dequantize
+
+        for bits in (4, 8):
+            generator = nn.Linear(256, 128, bias=False, device="cuda", dtype=torch.bfloat16)
+            generator.weight.data.fill_(-0.25)
+            generator.weight.data[17].fill_(0.5)
+            original = generator.weight.detach().clone()
+            head = RestrictedDraftHead(generator, list(reversed(range(67))))
+            selected = head.weight.detach().cpu()
+            packed, scales = quantize_rows(selected, bits, 128)
+            reference = dequantize(packed, scales, bits, 128).cuda().to(torch.bfloat16)
+            head.quantize(bits)
+            x = torch.ones(2, 256, device="cuda", dtype=torch.bfloat16)
+            torch.testing.assert_close(
+                head.projection(x)[..., :67], torch.nn.functional.linear(x, reference), atol=0.02, rtol=0.02
+            )
+            self.assertTrue(head(x).eq(17).all())
+            torch.testing.assert_close(generator.weight, original)
+            self.assertIsNone(head.weight)
+            self.assertEqual(head.state_dict(), {})
 
     def test_inference_wiring_changes_drafts_but_preserves_target(self):
         model = DraftModel()

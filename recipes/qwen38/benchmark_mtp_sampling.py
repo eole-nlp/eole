@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--draft-vocab", type=Path, help="Optional restricted MTP draft token-ID JSON")
     parser.add_argument("--paired-draft-vocab", action="store_true", help="Alternate full/restricted draft arms")
     parser.add_argument("--no-mtp", action="store_true")
+    parser.add_argument("--fuse-kvq", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--fuse-gate", action="store_true")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43])
     parser.add_argument("--tokens", type=int, default=4096)
@@ -24,8 +25,8 @@ def main():
     args = parser.parse_args()
     if args.paired_draft_vocab and not args.draft_vocab:
         parser.error("--paired-draft-vocab requires --draft-vocab")
-    if args.draft_vocab and (args.no_mtp or args.head != "none"):
-        parser.error("--draft-vocab requires MTP and a dense (--head none) vocabulary head")
+    if args.draft_vocab and args.no_mtp:
+        parser.error("--draft-vocab requires MTP")
     if args.warmup_tokens < 1:
         parser.error("--warmup-tokens must be positive")
     if args.tokens < 2:
@@ -62,7 +63,7 @@ def main():
         self_speculative_decoding=not args.no_mtp,
         self_speculative_num_tokens=3,
         self_speculative_draft_vocab=str(args.draft_vocab) if args.draft_vocab else None,
-        fuse_kvq=True,
+        fuse_kvq=args.fuse_kvq,
         fuse_gate=args.fuse_gate,
         report_time=True,
     )

@@ -34,11 +34,20 @@ class Inference(object):
         from eole.modules.autoround_linear import finalize_deferred_autoround_linear
 
         vocabulary_quantization = getattr(config, "vocabulary_quantization", "none")
-        if vocabulary_quantization != "none" and getattr(config, "self_speculative_draft_vocab", None) is not None:
-            raise ValueError(
-                "Restricted draft vocabulary requires a dense generator; "
-                "use vocabulary_quantization='none' or disable self_speculative_draft_vocab"
+        draft_vocab = getattr(config, "self_speculative_draft_vocab", None)
+        if draft_vocab is not None:
+            from eole.modules.draft_vocab import RestrictedDraftHead
+            from eole.utils.logging import logger
+
+            if not getattr(self.model, "mtp_heads", None):
+                raise ValueError("Restricted draft vocabulary requires a model with MTP heads")
+            self.model._mtp_draft_head = RestrictedDraftHead.from_file(self.model.generator, draft_vocab)
+            logger.info(
+                "MTP draft vocabulary: %d/%d tokens",
+                self.model._mtp_draft_head.token_ids.numel(),
+                self.model.generator.out_features,
             )
+
         if vocabulary_quantization != "none":
             from eole.modules.vocabulary_quantization import quantize_vocabulary_head
 
@@ -49,6 +58,10 @@ class Inference(object):
                 int(vocabulary_quantization[3:]),
                 config.vocabulary_quantization_group_size,
             )
+            if draft_vocab is not None:
+                self.model._mtp_draft_head.quantize(
+                    int(vocabulary_quantization[3:]), config.vocabulary_quantization_group_size
+                )
 
         if hasattr(self.model, "decoder") and self.model.decoder is not None:
             if hasattr(self.model.decoder, "transformer_layers"):
@@ -89,20 +102,6 @@ class Inference(object):
 
         if isinstance(self.model, torch.nn.Module):
             finalize_deferred_autoround_linear(self.model)
-
-        draft_vocab = getattr(config, "self_speculative_draft_vocab", None)
-        if draft_vocab is not None:
-            from eole.modules.draft_vocab import RestrictedDraftHead
-            from eole.utils.logging import logger
-
-            if not getattr(self.model, "mtp_heads", None):
-                raise ValueError("Restricted draft vocabulary requires a model with MTP heads")
-            self.model._mtp_draft_head = RestrictedDraftHead.from_file(self.model.generator, draft_vocab)
-            logger.info(
-                "MTP draft vocabulary: %d/%d tokens",
-                self.model._mtp_draft_head.token_ids.numel(),
-                self.model.generator.out_features,
-            )
 
     def __init__(
         self,

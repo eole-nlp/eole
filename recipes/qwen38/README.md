@@ -521,18 +521,27 @@ self_speculative_draft_vocab: /absolute/path/to/draft_vocab_ids.json
 
 The file must be a nonempty JSON list of unique integer token IDs matching the
 checkpoint's tokenizer. Drafts are mapped back to original token IDs. The target
-generator, full-vocabulary verification, scoring and normalization are unchanged;
-tokens outside the shortlist can still be emitted by the target. The extra head
-is built once after loading and is not saved in model checkpoints. Only a dense
-`torch.nn.Linear` generator is supported; quantized/custom output heads are
-rejected rather than silently dequantized. Runtime `vocabulary_quantization: int8` or `int4` cannot be combined with this
-dense-only shortlist; choose one optimization. The current MTP eligibility rules
+generator still verifies and samples over the full vocabulary, so tokens outside
+the shortlist can still be emitted. Scoring and normalization are unchanged.
+The extra head is built once after loading and is not saved in model checkpoints.
+It is copied from the original dense `torch.nn.Linear` generator **before** optional
+runtime vocabulary quantization. Already-packed checkpoint generators and custom
+head types cannot be used to construct the shortlist.
+
+`vocabulary_quantization: int8` or `int4` now quantizes **both** the full target
+head and the restricted draft head, using `vocabulary_quantization_group_size`
+(default 128). The temporary dense shortlist is released after packing. Arbitrary
+shortlist lengths are padded internally to Marlin's output alignment; padded rows
+are excluded from proposal selection. Original token IDs and tie ordering are
+preserved. Runtime quantization retains #481's single-GPU CUDA, FP16/BF16 and
+bias-free head requirements. The current MTP eligibility rules
 (single-sequence text decoding, greedy or target sampling) still apply.
 Sampling uses the target distribution and retains the same greedy draft proposals.
 
 For Qwen3.8-27B with BF16 weights, a 40,960-token head uses an additional
-400 MiB. This can reduce draft projection traffic substantially, but excluding
-likely tokens reduces acceptance and can make decoding slower. Keep the default
+400 MiB of weights, or about 203 MiB with INT8 / 103 MiB with INT4 (group 128,
+plus token IDs and kernel workspace). This can reduce draft projection traffic,
+but excluding likely tokens reduces acceptance and can make decoding slower. Keep the default
 full head unless a shortlist is measured on the intended language and workload.
 Changing draft acceptance also changes verification chunk boundaries; as with
 MTP itself, floating-point differences near tied target logits can affect output.
@@ -570,10 +579,15 @@ To compare the same sampling fixtures as the vocabulary-quantization recipe:
 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
 python recipes/qwen38/benchmark_mtp_sampling.py \
   --model "$EOLE_MODEL_DIR/Qwen3.8-27B-INT4" \
-  --head none --fuse-gate \
+  --head int4 --fuse-kvq --fuse-gate \
   --draft-vocab /tmp/qwen38-draft-vocab.json --paired-draft-vocab \
   --output /tmp/qwen38-paired-draft-vocab.json
 ```
+
+Use `--head none` for native BF16 heads or `--head int8` for INT8; the selected
+precision applies to both target and restricted draft projections. KVQ fusion
+is enabled by default in this harness; `--fuse-kvq` makes it explicit and
+`--no-fuse-kvq` disables it.
 
 This uses the Python, English-story and Chinese-to-English fixtures with seeds
 42/43, temperature 0.6, top-k 20, top-p 0.95, presence penalty 1.0, three MTP
