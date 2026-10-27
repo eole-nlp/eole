@@ -326,3 +326,20 @@ Image requests use normal decoding: Eole currently limits MTP speculation to
 text-only inputs. Text-only requests to the same model retain MTP when configured.
 The context check includes expanded image tokens. Generation metrics describe
 output decoding; time to first token also includes image processing and prefill.
+
+### LM head precision
+
+Chat generation settings offer **Native**, **INT8**, and **INT4** vocabulary
+projections. The Qwen workspace templates default to INT4, including the RunPod
+showcase generated from `serve-showcase.yaml`. Native preserves the original
+head dtype (for example BF16 or FP16); it does not force BF16.
+Changing precision reloads the selected model on the next Chat request and can
+repeat warmup. The reloaded engine is also used by Knowledge (RAG) when it selects
+the same model. Other workspace models retain their own server configuration.
+
+INT8/INT4 use runtime round-to-nearest quantization with group size 128 and can
+change generated output and MTP acceptance. They require a single CUDA GPU and
+an unquantized, bias-free FP16/BF16 vocabulary head; use Native for unsupported
+models, CPU inference, FP32, or tensor parallelism. Checkpoint files and input
+embeddings remain unchanged. For custom server YAML files, set
+`config.vocabulary_quantization` to `none`, `int8`, or `int4`.

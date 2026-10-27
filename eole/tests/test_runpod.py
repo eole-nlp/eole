@@ -427,6 +427,9 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual([m["id"] for m in settings["models"] if m["preload"]], [ids[0]])
             self.assertTrue(all(m["warmup"] for m in settings["models"][: len(ids)]))
+            self.assertTrue(
+                all(m["config"]["vocabulary_quantization"] == "int4" for m in settings["models"][: len(ids)])
+            )
             self.assertEqual(settings["workspace"]["models"]["chat"], ids[0])
             self.assertEqual(settings["workspace"]["models"]["ocr"], "deepseek-ocr")
             self.assertEqual(settings["workspace"]["models"]["translate"], "hy-mt2-7b")
