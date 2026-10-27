@@ -1,4 +1,4 @@
-"""Measure ordinary or MTP sampling with unchanged BF16 vocabulary heads."""
+"""Measure ordinary or MTP sampling with optional vocabulary quantization."""
 
 import argparse
 import hashlib
@@ -11,11 +11,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--head", choices=["none", "int8", "int4"], default="none")
     parser.add_argument("--no-mtp", action="store_true")
+    parser.add_argument("--fuse-gate", action="store_true")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43])
     parser.add_argument("--tokens", type=int, default=4096)
     parser.add_argument("--context-length", type=int, default=64000)
+    parser.add_argument("--warmup-tokens", type=int, default=128)
+    parser.add_argument("--warmup-all-prompts", action="store_true")
     args = parser.parse_args()
+    if args.warmup_tokens < 1:
+        parser.error("--warmup-tokens must be positive")
     if args.tokens < 2:
         parser.error("--tokens must be at least 2")
 
@@ -28,6 +34,7 @@ def main():
     bundle = json.loads(fixture_path.read_text())
     config = PredictConfig(
         model_path=args.model,
+        vocabulary_quantization=args.head,
         src="dummy",
         compute_dtype="bf16",
         gpu_ranks=[0],
@@ -49,11 +56,13 @@ def main():
         self_speculative_decoding=not args.no_mtp,
         self_speculative_num_tokens=3,
         fuse_kvq=True,
-        fuse_gate=False,
+        fuse_gate=args.fuse_gate,
         report_time=True,
     )
     report = {
         "mtp": not args.no_mtp,
+        "warmup_tokens": min(args.warmup_tokens, args.tokens),
+        "warmup_all_prompts": args.warmup_all_prompts,
         "torch": torch.__version__,
         "gpu": torch.cuda.get_device_name(),
         "compile_mode": EOLE_COMPILE_MODE,
@@ -74,13 +83,18 @@ def main():
     }
     engine = InferenceEnginePY(config)
     try:
-        if (
+        if args.head == "none" and (
             not isinstance(engine.predictor.model.generator, torch.nn.Linear)
             or engine.predictor.model.generator.weight.dtype != torch.bfloat16
         ):
             raise ValueError("This benchmark requires the original dense BF16 vocabulary head")
-        engine.predictor.max_length = min(128, args.tokens)
-        engine.infer_list([next(iter(prompts.values()))])
+        engine.predictor.max_length = min(args.warmup_tokens, args.tokens)
+        warmup_prompts = list(prompts.values()) if args.warmup_all_prompts else [next(iter(prompts.values()))]
+        for prompt in warmup_prompts:
+            if args.warmup_all_prompts:
+                torch.manual_seed(args.seeds[0])
+                torch.cuda.manual_seed_all(args.seeds[0])
+            engine.infer_list([prompt])
         engine.predictor.max_length = args.tokens
         for seed in args.seeds:
             for name, prompt in prompts.items():

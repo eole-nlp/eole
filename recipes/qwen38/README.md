@@ -226,9 +226,37 @@ This uses three original Eole text fixtures covering Python code, an English
 mystery, and Chinese-to-English translation, with thinking disabled. The default
 is a 64K cache reservation, 4,096 output tokens and seeds 42/43. Compare actual
 output lengths and draft acceptance as well as speed. The decoder checkpoint
-may be INT4; the benchmark requires its original dense BF16 vocabulary head
-and does not quantize it. Output JSON records the fixture revision and SHA-256
+may be INT4; by default the benchmark uses its original dense BF16 vocabulary
+head. Optional head quantization is described below. Output JSON records the fixture revision and SHA-256
 so measurements can be tied to the exact prompts used.
+
+### Optional vocabulary-head quantization
+
+Inference can quantize the dense vocabulary projection at load time:
+
+```yaml
+vocabulary_quantization: int8  # none (default), int8, or int4
+vocabulary_quantization_group_size: 128  # 32, 64, or 128
+```
+
+This uses symmetric, group-wise round-to-nearest quantization and the existing
+Marlin CUDA kernel. It requires a bias-free dense FP16/BF16 generator with
+Marlin-compatible dimensions, the Eole CUDA extension, and single-GPU inference.
+The checkpoint and any tied input embeddings remain unchanged. Quantization
+is performed again when loading the model; it is not a calibrated checkpoint
+conversion or an on-disk quantization cache.
+
+The same projection serves ordinary decoding, MTP target verification, and
+MTP draft token selection. Therefore this setting can change the final output,
+including with greedy decoding. INT4 is more aggressive than INT8; speed
+measurements do not establish equivalent output quality. Decoder quantization
+and normalization are unchanged.
+
+Use the sampling benchmark above with `--head int8` or `--head int4`; omit
+the option (or use `--head none`) for the original BF16 head. The benchmark
+retains the same prompts, sampling configuration, context reservation and seeds.
+For the current packed-projection comparison, also pass `--fuse-gate`;
+KVQ/GDN input fusion is already enabled by the harness.
 
 For a real coding client continue with [Claude Code](../claude-code/README.md).
 

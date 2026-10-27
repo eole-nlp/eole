@@ -33,6 +33,18 @@ class Inference(object):
     def _prepare_inference_projections(self, config):
         from eole.modules.autoround_linear import finalize_deferred_autoround_linear
 
+        vocabulary_quantization = getattr(config, "vocabulary_quantization", "none")
+        if vocabulary_quantization != "none":
+            from eole.modules.vocabulary_quantization import quantize_vocabulary_head
+
+            if getattr(config, "parallel_gpu", 1) > 1:
+                raise ValueError("Runtime vocabulary quantization currently requires single-GPU inference")
+            self.model.generator = quantize_vocabulary_head(
+                self.model.generator,
+                int(vocabulary_quantization[3:]),
+                config.vocabulary_quantization_group_size,
+            )
+
         if hasattr(self.model, "decoder") and self.model.decoder is not None:
             if hasattr(self.model.decoder, "transformer_layers"):
                 for layer in self.model.decoder.transformer_layers:
