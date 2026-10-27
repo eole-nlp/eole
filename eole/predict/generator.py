@@ -342,14 +342,6 @@ class GeneratorLM(Inference):
         if EOLE_TORCH_COMPILE:
             start_wu = time()
             images = batch.get("images", None)
-            if images is None:
-                self._warmup_prefill(
-                    src,
-                    src_len,
-                    speculative=use_spec_decoding,
-                    decode_strategy=decode_strategy,
-                    fn_tile=fn_tile,
-                )
             if images is not None:
                 emb, _ = self.model.embed_vision_language_features(src, images=images)
             else:
@@ -386,6 +378,16 @@ class GeneratorLM(Inference):
                 and (not full_chunk_only or self.max_length >= verify_len)
             ):
                 self._warmup_speculative_decoder(emb, verify_len)
+            if images is None:
+                # Prepare the verifier before prefill creates prompt-sized
+                # activations that would otherwise enter its cache identity.
+                self._warmup_prefill(
+                    src,
+                    src_len,
+                    speculative=use_spec_decoding,
+                    decode_strategy=decode_strategy,
+                    fn_tile=fn_tile,
+                )
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
             self.warmup_time.append(time() - start_wu)

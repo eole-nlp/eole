@@ -90,22 +90,6 @@ class TestPrefillWarmup(unittest.TestCase):
         self.assertEqual(gen.model.decoder._disable_cache.call_count, 2)
         self.assertIs(gen.model.decoder._prefill_cache, prefix_cache)
 
-    def test_cache_cleanup_releases_prompt_sized_attention_gates(self):
-        from eole.tests.test_speculative_decoding import _build_model
-
-        model, _ = _build_model(12, qwen_mtp=True)
-        attention = model.decoder.transformer_layers[0].self_attn
-        attention._attn_gate = torch.ones(1, 19, 16)
-        model.decoder._disable_cache()
-        self.assertFalse(hasattr(attention, "_attn_gate"))
-
-        attention = model.mtp_heads[0].layer.self_attn
-        model._mtp_cache_attention = attention
-        model._mtp_cache_old = None, None, None
-        attention._attn_gate = torch.ones(1, 19, 16)
-        model.clear_mtp_cache()
-        self.assertFalse(hasattr(attention, "_attn_gate"))
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -228,7 +228,10 @@ class TestEffectiveSpeculationPolicy(unittest.TestCase):
                         decoder._replay_decoder.assert_called_once()
                         self.assertFalse(decoder._replay_decoder.call_args.kwargs["capture"])
                     self.assertFalse(decoder._speculative_forward)
-                    predictor._warmup_prefill.assert_called_once()
+                    if fails:
+                        predictor._warmup_prefill.assert_not_called()
+                    else:
+                        predictor._warmup_prefill.assert_called_once()
                     self.assertFalse(decoder._decode_graph_request_allowed)
                     self.assertTrue(decoder._verify_graph_request_allowed)
                     self.assertEqual(len(predictor.warmup_time), 0 if fails else 1)

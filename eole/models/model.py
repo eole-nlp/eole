@@ -1376,8 +1376,6 @@ class MTPDraftingMixin:
         attention = getattr(self, "_mtp_cache_attention", None)
         if attention is not None:
             attention.kcache, attention.vcache, attention.cache_leftpad = self._mtp_cache_old
-            if hasattr(attention, "_attn_gate"):
-                del attention._attn_gate
         self._mtp_cache_attention = None
         self._mtp_cache_old = None
         self._mtp_cache_len = 0
