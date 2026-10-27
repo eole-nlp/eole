@@ -1390,7 +1390,11 @@ class MTPDraftingMixin:
 
         parallel_gpu = self.mtp_heads[0].layer.self_attn.parallel_gpu if self.mtp_heads else 1
 
-        def select_token(logits):
+        def select_token(hidden_states):
+            draft_head = getattr(self, "_mtp_draft_head", None)
+            if draft_head is not None:
+                return broadcast_from_rank_zero(draft_head(hidden_states), parallel_gpu)
+            logits = self.generator(hidden_states)
             selected = logits.argmax(dim=-1, keepdim=True)
             return broadcast_from_rank_zero(selected, parallel_gpu)
 
@@ -1432,7 +1436,7 @@ class MTPDraftingMixin:
                     self.tgt_emb.embeddings(seed_token),
                     position_embeddings=position_embeddings,
                 )
-                return [select_token(self.generator(output[:, -1, :]))]
+                return [select_token(output[:, -1, :])]
             start_cache_len = self._mtp_cache_len
             refresh = getattr(self, "_mtp_refresh", None)
             if refresh is not None:
@@ -1483,7 +1487,7 @@ class MTPDraftingMixin:
                     record_end(profile_events.setdefault("mtp_head", []), head_start)
                 hidden_states = output[:, -1:, :]
                 vocab_start = record_start()
-                token = select_token(self.generator(hidden_states[:, 0, :]))
+                token = select_token(hidden_states[:, 0, :])
                 if profile_events is not None:
                     record_end(profile_events.setdefault("draft_vocab", []), vocab_start)
                 drafts.append(token)
@@ -1502,7 +1506,7 @@ class MTPDraftingMixin:
             if profile_events is not None:
                 record_end(profile_events.setdefault("mtp_head", []), head_start)
             vocab_start = record_start()
-            token = select_token(self.generator(output[:, -1, :]))
+            token = select_token(output[:, -1, :])
             if profile_events is not None:
                 record_end(profile_events.setdefault("draft_vocab", []), vocab_start)
             drafts.append(token)

@@ -507,3 +507,104 @@ Beam search and other ineligible configurations retain their existing decoder
 path. The legacy compiled tensor-parallel beam path can still hang at worker
 shutdown; bound greedy/MTP decoding does not fix that separate path. Streaming
 inference remains limited to single-process mode.
+
+## Experimental restricted MTP draft vocabulary
+
+An optional inference setting copies selected rows of a dense generator into a
+smaller draft-only head:
+
+```yaml
+self_speculative_decoding: true
+self_speculative_num_tokens: 3
+self_speculative_draft_vocab: /absolute/path/to/draft_vocab_ids.json
+```
+
+The file must be a nonempty JSON list of unique integer token IDs matching the
+checkpoint's tokenizer. Drafts are mapped back to original token IDs. The target
+generator still verifies and samples over the full vocabulary, so tokens outside
+the shortlist can still be emitted. Scoring and normalization are unchanged.
+The extra head is built once after loading and is not saved in model checkpoints.
+It is copied from the original dense `torch.nn.Linear` generator **before** optional
+runtime vocabulary quantization. Already-packed checkpoint generators and custom
+head types cannot be used to construct the shortlist.
+
+`vocabulary_quantization: int8` or `int4` now quantizes **both** the full target
+head and the restricted draft head, using `vocabulary_quantization_group_size`
+(default 128). The temporary dense shortlist is released after packing. Arbitrary
+shortlist lengths are padded internally to Marlin's output alignment; padded rows
+are excluded from proposal selection. Original token IDs and tie ordering are
+preserved. Runtime quantization retains #481's single-GPU CUDA, FP16/BF16 and
+bias-free head requirements. The current MTP eligibility rules
+(single-sequence text decoding, greedy or target sampling) still apply.
+Sampling uses the target distribution and retains the same greedy draft proposals.
+
+For Qwen3.8-27B with BF16 weights, a 40,960-token head uses an additional
+400 MiB of weights, or about 203 MiB with INT8 / 103 MiB with INT4 (group 128,
+plus token IDs and kernel workspace). This can reduce draft projection traffic,
+but excluding likely tokens reduces acceptance and can make decoding slower. Keep the default
+full head unless a shortlist is measured on the intended language and workload.
+Changing draft acceptance also changes verification chunk boundaries; as with
+MTP itself, floating-point differences near tied target logits can affect output.
+
+To reproduce the paired experiment with the external 40,960-token shortlist
+from [xvus/syv-ai-qwen38-27b-rtx3090](https://github.com/xvus/syv-ai-qwen38-27b-rtx3090):
+
+```bash
+curl -fL https://raw.githubusercontent.com/xvus/syv-ai-qwen38-27b-rtx3090/18349177b7962ef1d699dc154844f9c04317a474/prepare/draft_vocab_ids.json \
+  -o /tmp/qwen38-draft-vocab.json
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+python recipes/qwen38/benchmark_draft_vocab.py \
+  --model "$EOLE_MODEL_DIR/Qwen3.8-27B-INT4" \
+  --draft-vocab /tmp/qwen38-draft-vocab.json \
+  --output /tmp/qwen38-draft-vocab-results.json \
+  --runs 4 --context-length 64000 --tokens 512
+```
+
+The harness keeps the same loaded target and extra-head allocation in both arms,
+warms every prompt in both arms, then performs four repetitions with alternating
+arm order over prose, code and French prompts.
+It records exact delivered decode-token counts, first-to-last-token timing,
+acceptance, per-phase GPU events and output text. Outputs are capped at 512 tokens
+with natural EOS enabled; a minimum-length constraint would disable MTP.
+Use `EOLE_COMPILE_MODE=2` to repeat with layer compilation. These are local
+comparisons, not a matched benchmark against another engine or GPU.
+
+This setting is independent of `speculative_verifier_cache`: the shortlist changes
+only proposal projection, while main's mode-0 cache still runs the full target
+verifier. Startup/cache loading is excluded from the paired decode measurements.
+
+To compare the same sampling fixtures as the vocabulary-quantization recipe:
+
+```bash
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+python recipes/qwen38/benchmark_mtp_sampling.py \
+  --model "$EOLE_MODEL_DIR/Qwen3.8-27B-INT4" \
+  --head int4 --fuse-kvq --fuse-gate \
+  --draft-vocab /tmp/qwen38-draft-vocab.json --paired-draft-vocab \
+  --output /tmp/qwen38-paired-draft-vocab.json
+```
+
+Use `--head none` for native BF16 heads or `--head int8` for INT8; the selected
+precision applies to both target and restricted draft projections. KVQ fusion
+is enabled by default in this harness; `--fuse-kvq` makes it explicit and
+`--no-fuse-kvq` disables it.
+
+For a greedy control on the same Python fixture, add
+`--greedy --fixtures scenario_code_python`. This changes target selection to
+greedy while retaining presence penalty 1.0 and the other benchmark settings;
+it does not reproduce the older unpenalized, 512-token LRU-cache prompt.
+
+This uses the Python, English-story and Chinese-to-English fixtures with seeds
+42/43, temperature 0.6, top-k 20, top-p 0.95, presence penalty 1.0, three MTP
+drafts, a 64,000-token context allocation and a 4,096-token output cap.
+Both arms retain the same extra draft-head allocation and target weights; each
+receives a 128-token code warmup. Each seed resets before each arm, and arm order
+alternates between seeds. Full-vocabulary target sampling is retained. Different
+proposal prefixes change RNG consumption and generated text, so matched seeds
+are not an output-equivalence or translation-quality guarantee.
+
+Choose a shortlist based on acceptance and measured speed on the intended
+workload. In particular, an English/code shortlist can hurt multilingual
+acceptance enough to outweigh cheaper projections. Current measurements are
+reported in [PR #472](https://github.com/eole-nlp/eole/pull/472); raw output belongs
+in local benchmark files rather than the repository.
