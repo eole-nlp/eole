@@ -65,6 +65,16 @@ class RestrictedDraftHeadTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "dense"):
             RestrictedDraftHead(nn.Identity(), [0])
 
+    def test_quantized_head_combination_is_rejected_before_conversion(self):
+        for quantization in ("int8", "int4"):
+            with self.subTest(quantization=quantization):
+                model = DraftModel()
+                original = model.generator
+                config = SimpleNamespace(vocabulary_quantization=quantization, self_speculative_draft_vocab="ids.json")
+                with self.assertRaisesRegex(ValueError, "vocabulary_quantization='none'"):
+                    Inference._prepare_inference_projections(SimpleNamespace(model=model), config)
+                self.assertIs(model.generator, original)
+
     def test_inference_wiring_changes_drafts_but_preserves_target(self):
         model = DraftModel()
         hidden, seed = torch.tensor([[[1.0, 0.0]]]), torch.tensor([[0]])

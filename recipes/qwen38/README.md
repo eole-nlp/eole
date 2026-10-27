@@ -525,8 +525,10 @@ generator, full-vocabulary verification, scoring and normalization are unchanged
 tokens outside the shortlist can still be emitted by the target. The extra head
 is built once after loading and is not saved in model checkpoints. Only a dense
 `torch.nn.Linear` generator is supported; quantized/custom output heads are
-rejected rather than silently dequantized. The current MTP eligibility rules
-(single-sequence deterministic greedy text decoding) still apply.
+rejected rather than silently dequantized. Runtime `vocabulary_quantization: int8` or `int4` cannot be combined with this
+dense-only shortlist; choose one optimization. The current MTP eligibility rules
+(single-sequence text decoding, greedy or target sampling) still apply.
+Sampling uses the target distribution and retains the same greedy draft proposals.
 
 For Qwen3.8-27B with BF16 weights, a 40,960-token head uses an additional
 400 MiB. This can reduce draft projection traffic substantially, but excluding
@@ -562,4 +564,28 @@ This setting is independent of `speculative_verifier_cache`: the shortlist chang
 only proposal projection, while main's mode-0 cache still runs the full target
 verifier. Startup/cache loading is excluded from the paired decode measurements.
 
-See the [measured results and limitations](draft-vocab-results.md) before choosing a shortlist.
+To compare the same sampling fixtures as the vocabulary-quantization recipe:
+
+```bash
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+python recipes/qwen38/benchmark_mtp_sampling.py \
+  --model "$EOLE_MODEL_DIR/Qwen3.8-27B-INT4" \
+  --head none --fuse-gate \
+  --draft-vocab /tmp/qwen38-draft-vocab.json --paired-draft-vocab \
+  --output /tmp/qwen38-paired-draft-vocab.json
+```
+
+This uses the Python, English-story and Chinese-to-English fixtures with seeds
+42/43, temperature 0.6, top-k 20, top-p 0.95, presence penalty 1.0, three MTP
+drafts, a 64,000-token context allocation and a 4,096-token output cap.
+Both arms retain the same extra draft-head allocation and target weights; each
+receives a 128-token code warmup. Each seed resets before each arm, and arm order
+alternates between seeds. Full-vocabulary target sampling is retained. Different
+proposal prefixes change RNG consumption and generated text, so matched seeds
+are not an output-equivalence or translation-quality guarantee.
+
+Choose a shortlist based on acceptance and measured speed on the intended
+workload. In particular, an English/code shortlist can hurt multilingual
+acceptance enough to outweigh cheaper projections. Current measurements are
+reported in [PR #472](https://github.com/eole-nlp/eole/pull/472); raw output belongs
+in local benchmark files rather than the repository.

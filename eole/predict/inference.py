@@ -34,6 +34,11 @@ class Inference(object):
         from eole.modules.autoround_linear import finalize_deferred_autoround_linear
 
         vocabulary_quantization = getattr(config, "vocabulary_quantization", "none")
+        if vocabulary_quantization != "none" and getattr(config, "self_speculative_draft_vocab", None) is not None:
+            raise ValueError(
+                "Restricted draft vocabulary requires a dense generator; "
+                "use vocabulary_quantization='none' or disable self_speculative_draft_vocab"
+            )
         if vocabulary_quantization != "none":
             from eole.modules.vocabulary_quantization import quantize_vocabulary_head
 
