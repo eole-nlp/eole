@@ -589,6 +589,11 @@ precision applies to both target and restricted draft projections. KVQ fusion
 is enabled by default in this harness; `--fuse-kvq` makes it explicit and
 `--no-fuse-kvq` disables it.
 
+For a greedy control on the same Python fixture, add
+`--greedy --fixtures scenario_code_python`. This changes target selection to
+greedy while retaining presence penalty 1.0 and the other benchmark settings;
+it does not reproduce the older unpenalized, 512-token LRU-cache prompt.
+
 This uses the Python, English-story and Chinese-to-English fixtures with seeds
 42/43, temperature 0.6, top-k 20, top-p 0.95, presence penalty 1.0, three MTP
 drafts, a 64,000-token context allocation and a 4,096-token output cap.

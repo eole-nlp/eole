@@ -11,6 +11,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--greedy", action="store_true", help="Use greedy target selection, retaining presence penalty")
+    parser.add_argument("--fixtures", nargs="+", help="Run only the named fixtures")
     parser.add_argument("--head", choices=["none", "int8", "int4"], default="none")
     parser.add_argument("--draft-vocab", type=Path, help="Optional restricted MTP draft token-ID JSON")
     parser.add_argument("--paired-draft-vocab", action="store_true", help="Alternate full/restricted draft arms")
@@ -48,9 +50,9 @@ def main():
         self_attn_backend="flash",
         batch_size=1,
         beam_size=1,
-        top_k=20,
-        top_p=0.95,
-        temperature=0.6,
+        top_k=1 if args.greedy else 20,
+        top_p=0.0 if args.greedy else 0.95,
+        temperature=1.0 if args.greedy else 0.6,
         presence_penalty=1.0,
         frequency_penalty=0.0,
         seed=args.seeds[0],
@@ -91,6 +93,11 @@ def main():
         + "<|im_start|>assistant\n<think>\n\n</think>\n\n"
         for fixture in bundle["fixtures"]
     }
+    if args.fixtures:
+        unknown = set(args.fixtures) - prompts.keys()
+        if unknown:
+            parser.error(f"Unknown fixtures: {sorted(unknown)}")
+        prompts = {name: prompt for name, prompt in prompts.items() if name in args.fixtures}
     engine = InferenceEnginePY(config)
     try:
         if args.head == "none" and (
