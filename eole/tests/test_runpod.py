@@ -460,7 +460,7 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(set(checkpoints)), 4)
             self.assertEqual(len(calls), 8)
 
-    def test_catalog_pins_all_models_and_r2_template_packages_them(self):
+    def test_catalog_pins_all_models_and_release_template_packages_them(self):
         self.assertEqual(set(MODEL_CATALOG), {"int4", "bf16", "translate", "ocr"})
         for model in MODEL_CATALOG.values():
             self.assertTrue(model["repo"].startswith("eole-nlp/"))
@@ -468,7 +468,7 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(model["size_bytes"], 1024**3)
         recipe = Path(__file__).resolve().parents[2] / "recipes/runpod"
         template = json.loads((recipe / "template.json").read_text())
-        self.assertEqual(template["imageName"], "ghcr.io/eole-nlp/eole-runpod:0.6.4-r2")
+        self.assertEqual(template["imageName"], "ghcr.io/eole-nlp/eole-runpod:0.6.5")
         self.assertIn('data-stage="verify"', (recipe / "preparing.html").read_text())
         self.assertNotIn('data-stage="convert"', (recipe / "preparing.html").read_text())
 

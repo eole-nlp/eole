@@ -78,6 +78,20 @@ jobs:
       - name: Build and publish Eole
         run: docker/build.sh "$EOLE_VERSION" "$TORCH_VERSION" "$CUDA_VERSION" --push
 
+      - name: Summarize published image
+        run: |
+          IMAGE="ghcr.io/eole-nlp/eole:${EOLE_VERSION}-torch${TORCH_VERSION}-ubuntu24.04-cuda${CUDA_VERSION}"
+          {
+            echo "### Published Eole image"
+            echo "\`$IMAGE\`"
+            echo ""
+            echo "Use this image reference as **eole_image** in **Build RunPod Image**."
+            echo "The eole-cuda-ops artifact below is a binary download, not an image."
+            echo ""
+            echo "Source: \`$(git rev-parse HEAD)\`"
+            echo "The matching base was built by this workflow; no separate base build is needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Export matching CUDA binary and compatibility manifest
         run: |
           mkdir -p cuda-ops
