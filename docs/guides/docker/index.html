@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">Using Eole with Docker | Eole</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/guides/docker"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Using Eole with Docker | Eole"><meta data-rh="true" name="description" content="The host needs Docker, a compatible NVIDIA driver and the"><meta data-rh="true" property="og:description" content="The host needs Docker, a compatible NVIDIA driver and the"><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/guides/docker"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/guides/docker" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/guides/docker" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Using Eole with Docker","item":"https://eole-nlp.github.io/eole/docs/guides/docker"}]}</script><link rel="stylesheet" href="/eole/assets/css/styles.209cbda3.css">
-<script src="/eole/assets/js/runtime~main.dd43aa22.js" defer="defer"></script>
-<script src="/eole/assets/js/main.5e3d89b1.js" defer="defer"></script>
+<script src="/eole/assets/js/runtime~main.e66528e9.js" defer="defer"></script>
+<script src="/eole/assets/js/main.415a60cb.js" defer="defer"></script>
 </head>
 <body>
 <svg style="display: none;"><defs>
@@ -17,7 +17,7 @@
 Configure the NVIDIA Docker runtime before starting a GPU container.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="build-or-choose-an-image">Build or choose an image<a href="#build-or-choose-an-image" class="hash-link" aria-label="Direct link to Build or choose an image" title="Direct link to Build or choose an image" translate="no">​</a></h2>
 <p>The tested default is Ubuntu 24.04 / Python 3.12, PyTorch <strong>2.14.1+cu132</strong>,
-CUDA <strong>13.2.1</strong>, FlashAttention <strong>2.8.3</strong>, and FLA <strong>0.5.2</strong>. The base upgrades
+CUDA <strong>13.2.1</strong>, FlashAttention <strong>2.8.3</strong>, Triton <strong>3.8.0</strong>, and FLA <strong>0.6.0</strong>. The base upgrades
 nvcc to <strong>13.2.86</strong>: the original CUDA 13.2.1 image has an older compiler.
 PyTorch wheels, CUDA toolkit and FlashAttention wheels must be compatible; do not
 substitute the newest CUDA toolkit independently of the PyTorch wheel index.
@@ -40,22 +40,37 @@ The full image includes <code>requirements.opt.txt</code>, Transformers, FLA and
 TorchCodec audio/video decoding. <code>.dockerignore</code> excludes weights, build caches
 and host CUDA binaries. Use a clean checkout to avoid copying unrelated local
 files into your image.</p>
-<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="start-a-gpu-container-and-build-eole-kernels">Start a GPU container and build Eole kernels<a href="#start-a-gpu-container-and-build-eole-kernels" class="hash-link" aria-label="Direct link to Start a GPU container and build Eole kernels" title="Direct link to Start a GPU container and build Eole kernels" translate="no">​</a></h2>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="start-a-gpu-container">Start a GPU container<a href="#start-a-gpu-container" class="hash-link" aria-label="Direct link to Start a GPU container" title="Direct link to Start a GPU container" translate="no">​</a></h2>
 <div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">export EOLE_MODEL_DIR=/absolute/path/to/models</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">docker run --name eole-dev -it --gpus all --shm-size=8g \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  -v &quot;$EOLE_MODEL_DIR:/models&quot; \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  -v &quot;$PWD/outputs:/outputs&quot; \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  -p 127.0.0.1:5000:5000 &quot;$EOLE_IMAGE&quot;</span><br></div></code></pre></div></div>
 <p>The default shell starts in <code>/eole</code>, the image&#x27;s own source tree. Inside it:</p>
-<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">nvidia-smi</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python -c &#x27;import torch; print(torch.__version__, torch.cuda.is_available())&#x27;</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">eole-build-kernels</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python -c &#x27;from flash_attn import flash_attn_func, flash_attn_with_kvcache&#x27;</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python -c &#x27;from fla.ops.gated_delta_rule import chunk_gated_delta_rule, fused_recurrent_gated_delta_rule&#x27;</span><br></div></code></pre></div></div>
-<p>A normal Docker image build and GitHub-hosted runner have no visible GPU.
-Eole&#x27;s setup skips its CUDA extension in that case. <code>eole-build-kernels</code> installs
-Eole without build isolation <strong>inside the running GPU container</strong>, targeting all
-visible GPU architectures. This enables Marlin INT4 and Eole&#x27;s CUDA kernels.
-Rebuild after changing GPU architectures, PyTorch or CUDA. Imports alone do not
-prove every kernel executes on your hardware.</p>
-<p>The helper operates on <code>/eole</code>, not a mounted host checkout: it does not overwrite
-native host CUDA binaries. Compilation may take several minutes. The artifacts
-persist in this container across <code>docker stop</code> / <code>docker start -ai eole-dev</code>.
-A fresh container needs the build again. To save a locally reusable GPU-specific
-image, stop the container and run <code>docker commit eole-dev eole:local-kernels</code>.
-Do not publish such an image as supporting architectures you did not build/test.</p>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">nvidia-smi</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python -c &#x27;import torch; print(torch.__version__, torch.cuda.is_available())&#x27;</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python -c &#x27;import torch; from eole import _ops; print(_ops.__file__)&#x27;</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python -c &#x27;from flash_attn import flash_attn_func, flash_attn_with_kvcache&#x27;</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python -c &#x27;from fla.ops.gated_delta_rule import chunk_gated_delta_rule, fused_recurrent_gated_delta_rule&#x27;</span><br></div></code></pre></div></div>
+<p>New full images compile Eole ops during the image build, against that image&#x27;s
+Python/PyTorch/CUDA environment. No physical GPU is required on the builder.
+The default <code>TORCH_CUDA_ARCH_LIST</code> is:</p>
+<div class="language-text codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-text codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">8.0 8.6 8.9 9.0 10.0 10.3 12.0</span><br></div></code></pre></div></div>
+<p>This includes Ampere (A100, RTX 3090), Ada (RTX 4090, L40S), Hopper
+(H100/H200), and Blackwell (B200/GB200, B300/GB300, RTX 5090/RTX PRO 6000).
+These are compilation targets, not a claim of GPU testing on every family.
+The selected CUDA toolkit must support every requested architecture; older
+combinations may require a smaller list. Jetson and DGX Spark ARM64 deployments
+are outside these x86_64 images&#x27; scope. Native code is built for each listed
+architecture; future unlisted architectures may need rebuilding.</p>
+<p><code>docker/Dockerfile</code> accepts <code>TORCH_CUDA_ARCH_LIST</code> and <code>MAX_JOBS</code> build arguments.
+For example, <code>--build-arg TORCH_CUDA_ARCH_LIST=&quot;8.9 12.0&quot; --build-arg MAX_JOBS=2</code>.
+The local <code>docker/build.sh</code> and publishing workflow expose the same controls.
+<code>MAX_JOBS</code> defaults to 2 to limit compiler memory use. Multi-architecture builds
+cost more CI time and image space but avoid doing that work on a rented GPU.
+The image label <code>io.eole.cuda.architectures</code> records the requested targets.
+Changing PyTorch/CUDA or kernel sources requires a matching rebuilt extension.</p>
+<p>For older images or a changed environment, <code>eole-build-kernels</code> remains a manual
+fallback inside a running GPU container. With no explicit architecture list it
+targets all visible GPUs and forcibly recompiles the extension. It only builds
+the extension; the image already contains Eole&#x27;s dependencies. It operates on
+<code>/eole</code>, not a mounted native host checkout. To cross-compile without a GPU, pass
+<code>TORCH_CUDA_ARCH_LIST</code> explicitly. Never reuse a host <code>.so</code> blindly across images.</p>
+<p>Triton JIT, <code>torch.compile</code> and graph warmup are separate from this extension and
+still run as needed. GPU-less image builds check import/ABI compatibility; real
+GPU execution must be tested separately.</p>
 <p>Use container model/data/output paths in YAML. Some converted checkpoints store
 absolute tokenizer paths in <code>config.json</code>; update those paths in a copy of the
 config, or mount the models at the same absolute path inside the container.
@@ -72,6 +87,17 @@ native Python checkout for this purpose.</p>
 <p>The server must bind to <code>0.0.0.0</code> inside Docker for forwarding. The example only
 publishes to the host&#x27;s loopback interface. From the host:</p>
 <div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">curl http://127.0.0.1:5000/health</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">curl http://127.0.0.1:5000/v1/models</span><br></div></code></pre></div></div>
+<p>The Qwen server recipes use <code>preload: true</code> and <code>warmup: true</code>: preparation finishes
+before the HTTP server accepts requests. With single-GPU compile mode 0 and MTP,
+the first startup compiles only the full verifier chunk and retains it in memory;
+later startups can load the locally saved program. No compiled verifier is downloaded.
+Mount a persistent cache, for example <code>-v &quot;$PWD/eole-cache:/root/.cache/eole&quot;</code>, when
+creating the container. Optionally set <code>TORCHINDUCTOR_CACHE_DIR</code>, <code>TRITON_CACHE_DIR</code>
+and <code>CUDA_CACHE_PATH</code> to subdirectories of that mount to retain other kernel caches
+too. <code>EOLE_VERIFIER_CACHE_DIR</code> overrides the verifier directory. Cache compatibility
+is checked against the runtime, GPU, source and model layout; failures fall back
+to ordinary compilation. Input shapes not covered by preparation can still warm
+additional kernels. These features require an image built from the updated source.</p>
 <p>Open <code>http://127.0.0.1:5000/</code> for the bundled workspace. See the
 <a class="" href="/eole/docs/recipes/ui/">UI recipes</a> for Chat, Translate, Documents (OCR),
 Knowledge (RAG) and the combined showcase; mount/configure their models too.
@@ -82,13 +108,14 @@ Training uses the same YAML interface:
 <code>python -m eole.bin.main train -c /path/to/train.yaml</code>; mount datasets and outputs.
 Stop and remove the container with <code>docker stop eole-dev</code> and <code>docker rm eole-dev</code>.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="publish-with-github-actions">Publish with GitHub Actions<a href="#publish-with-github-actions" class="hash-link" aria-label="Direct link to Publish with GitHub Actions" title="Direct link to Publish with GitHub Actions" translate="no">​</a></h2>
-<p>After merging this Docker refresh, open <strong>Actions → Build Docker Images → Run
-workflow</strong>. Select the updated workflow branch (normally <code>main</code>), then:</p>
+<p>Open <strong>Actions → Build Docker Images → Run workflow</strong>. Select the updated workflow branch (normally <code>main</code>), then:</p>
 <ul>
 <li class=""><code>source_ref</code>: <code>main</code> for a development image, or a release tag that includes
 these Docker scripts. Older releases without these scripts are rejected.</li>
 <li class=""><code>torch_version</code>: <code>2.14.1</code>.</li>
 <li class=""><code>cuda_version</code>: <code>13.2.1</code>.</li>
+<li class=""><code>cuda_arch_list</code>: <code>8.0 8.6 8.9 9.0 10.0 10.3 12.0</code>.</li>
+<li class=""><code>max_jobs</code>: <code>2</code>.</li>
 </ul>
 <p>The workflow checks out that source, builds/pushes its matching base, then
 builds/pushes Eole. A release checkout gets its exact release tag; a non-release
@@ -96,10 +123,10 @@ checkout gets <code>dev-&lt;12-character-commit&gt;</code>. OCI labels record th
 No unrelated release number is assigned to current main. Publishing requires
 GHCR package write permission; the workflow uses its repository <code>GITHUB_TOKEN</code>.
 <strong>Build Base Docker Image</strong> publishes just the base when needed.</p>
-<p>For the <strong>0.6.4 release image</strong>, after the version-bump PR is merged and the
-<code>0.6.4</code> tag is created on the release commit, select <code>source_ref=0.6.4</code> (keep the
+<p>For the <strong>0.6.5 release image</strong>, after the version-bump PR is merged and the
+<code>0.6.5</code> tag is created on the release commit, select <code>source_ref=0.6.5</code> (keep the
 workflow branch on <code>main</code>). The workflow then publishes:</p>
-<div class="language-text codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-text codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">ghcr.io/eole-nlp/eole:0.6.4-torch2.14.1-ubuntu24.04-cuda13.2.1</span><br></div></code></pre></div></div>
+<div class="language-text codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-text codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">ghcr.io/eole-nlp/eole:0.6.5-torch2.14.1-ubuntu24.04-cuda13.2.1</span><br></div></code></pre></div></div>
 <p>The release tag must include the refreshed Docker tooling. Publishing a GitHub
 release triggers the Python package/docs workflow; Docker publication still
 requires the separate manual workflow above.</p>
@@ -110,6 +137,57 @@ uncommitted changes. Use a clean checkout, since untracked source files may also
 be included. Builds retain Docker layer caching; add <code>--no-cache</code> to a manual
 <code>docker build</code> when deliberately rebuilding all layers. GitHub-hosted builds
 verify packaging and CLI/dependencies, but GPU inference must be tested on GPU
-hardware before claiming a new combination is supported.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/edit/main/docs/docker.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/eole/docs/guides/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Build and maintain the documentation</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/guides/mtp-inference-review"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">MTP inference: review and commit structure</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#build-or-choose-an-image" class="table-of-contents__link toc-highlight">Build or choose an image</a></li><li><a href="#start-a-gpu-container-and-build-eole-kernels" class="table-of-contents__link toc-highlight">Start a GPU container and build Eole kernels</a></li><li><a href="#run-inference-or-serve-with-yaml" class="table-of-contents__link toc-highlight">Run inference or serve with YAML</a></li><li><a href="#publish-with-github-actions" class="table-of-contents__link toc-highlight">Publish with GitHub Actions</a></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
+hardware before claiming a new combination is supported.</p>
+<h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="runpod-deployment-images">RunPod deployment images<a href="#runpod-deployment-images" class="hash-link" aria-label="Direct link to RunPod deployment images" title="Direct link to RunPod deployment images" translate="no">​</a></h3>
+<p>Build the full Eole image from the <strong><code>0.6.5</code> tag</strong> first. The image includes the
+current source, bundled CUDA ops, Torch 2.14.1, Triton 3.8.0 and fla-core 0.6.0.
+The full-image workflow builds its matching base too; a separate base workflow
+run is unnecessary. Its <strong>Summary</strong> shows the full image tag for the next step.</p>
+<p>Run <strong>Build RunPod Image</strong> with:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Input</th><th>Value</th></tr></thead><tbody><tr><td><code>source_ref</code></td><td><code>0.6.5</code></td></tr><tr><td><code>deploy_tag</code></td><td><code>0.6.5</code></td></tr><tr><td><code>eole_image</code></td><td><code>ghcr.io/eole-nlp/eole:0.6.5-torch2.14.1-ubuntu24.04-cuda13.2.1</code> or its digest</td></tr></tbody></table>
+<p>The wrapper requires importable bundled ops and startup/cache support. A plain
+release tag additionally requires a parent with the same Eole version and source
+revision as the tagged checkout. Older images do not gain new Eole code when
+only the wrapper is rebuilt. Both builds install matching Torchvision while
+constraining the selected PyTorch/CUDA runtime.</p>
+<p>After GPU validation, update the existing public template&#x27;s <code>imageName</code> to
+<strong><code>ghcr.io/eole-nlp/eole-runpod:0.6.5</code></strong>, following the
+<a class="" href="/eole/docs/recipes/runpod/MAINTAINERS#publish-065">release publishing checklist</a>.
+The repository template targets 0.6.5, but Git merges and image publication do not
+change the live template or existing Pods. The deploy button keeps its current
+template ID. Preserve earlier release/revision images rather than overwriting them.
+The launcher downloads pinned pre-converted public <code>eole-nlp</code> checkpoints and
+verifies their SHA256 checksums; it does not convert original HF weights.
+On startup the launcher probes the bundled extension on each visible GPU, then
+uses source compilation only if the binary is absent or incompatible. A matching
+volume cache is used when no bundled binary exists. The fallback result is cached.</p>
+<p>The full-image workflow also uploads a downloadable <code>eole-cuda-ops-*</code> Actions
+artifact containing the <code>.so</code> and a SHA256/compatibility manifest (source commit,
+Python ABI, PyTorch, CUDA, CPU architecture, glibc, C++ ABI and GPU targets).
+This is an advanced exact-environment artifact, not a universal wheel or an
+automatic installer. Normal Docker/RunPod users get the binary through the image
+layers. Installing an exported <code>.so</code> elsewhere requires matching its manifest;
+rebuild from source when any compatibility requirement is uncertain.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/edit/main/docs/docker.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/eole/docs/guides/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Build and maintain the documentation</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/guides/mtp-inference-review"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">MTP inference: review and commit structure</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#build-or-choose-an-image" class="table-of-contents__link toc-highlight">Build or choose an image</a></li><li><a href="#start-a-gpu-container" class="table-of-contents__link toc-highlight">Start a GPU container</a></li><li><a href="#run-inference-or-serve-with-yaml" class="table-of-contents__link toc-highlight">Run inference or serve with YAML</a></li><li><a href="#publish-with-github-actions" class="table-of-contents__link toc-highlight">Publish with GitHub Actions</a><ul><li><a href="#runpod-deployment-images" class="table-of-contents__link toc-highlight">RunPod deployment images</a></li></ul></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
 </body>
 </html>

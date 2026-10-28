@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en" dir="ltr" class="docs-wrapper plugin-docs plugin-id-default docs-version-current docs-doc-page docs-doc-id-recipes/qwen38/packed-projections" data-has-hydrated="false">
+<head>
+<meta charset="UTF-8">
+<meta name="generator" content="Docusaurus v3.10.2">
+<title data-rh="true">Packed Marlin projections | Eole</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/recipes/qwen38/packed-projections"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Packed Marlin projections | Eole"><meta data-rh="true" name="description" content="fusegate true"><meta data-rh="true" property="og:description" content="fusegate true"><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/recipes/qwen38/packed-projections"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/recipes/qwen38/packed-projections" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/recipes/qwen38/packed-projections" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Recipes","item":"https://eole-nlp.github.io/eole/docs/category/recipes"},{"@type":"ListItem","position":2,"name":"Qwen3.8-27B and native MTP speculative decoding","item":"https://eole-nlp.github.io/eole/docs/recipes/qwen38/"},{"@type":"ListItem","position":3,"name":"Packed Marlin projections","item":"https://eole-nlp.github.io/eole/docs/recipes/qwen38/packed-projections"}]}</script><link rel="stylesheet" href="/eole/assets/css/styles.209cbda3.css">
+<script src="/eole/assets/js/runtime~main.e66528e9.js" defer="defer"></script>
+<script src="/eole/assets/js/main.415a60cb.js" defer="defer"></script>
+</head>
+<body>
+<svg style="display: none;"><defs>
+<symbol id="theme-svg-external-link" viewBox="0 0 24 24"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"/></symbol>
+</defs></svg>
+<script>!function(){var t=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();document.documentElement.setAttribute("data-theme",t||"dark"),document.documentElement.setAttribute("data-theme-choice",t||"dark")}(),function(){try{const c=new URLSearchParams(window.location.search).entries();for(var[t,e]of c)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script><div id="__docusaurus"><link rel="preload" as="image" href="/eole/img/eole-logo.png"><div role="region" aria-label="Skip to main content"><a class="skipToContent_fXgn" href="#__docusaurus_skipToContent_fallback">Skip to main content</a></div><nav aria-label="Main" class="theme-layout-navbar navbar navbar--fixed-top"><div class="navbar__inner"><div class="theme-layout-navbar-left navbar__items"><button aria-label="Toggle navigation bar" aria-expanded="false" class="navbar__toggle clean-btn" type="button"><svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path stroke="currentColor" stroke-linecap="round" stroke-miterlimit="10" stroke-width="2" d="M4 7h22M4 15h22M4 23h22"></path></svg></button><a class="navbar__brand" href="/eole/"><div class="navbar__logo"><img src="/eole/img/eole-logo.png" alt="Eole Logo" class="themedComponent_mlkZ themedComponent--light_NVdE"><img src="/eole/img/eole-logo.png" alt="Eole Logo" class="themedComponent_mlkZ themedComponent--dark_xIcU"></div><b class="navbar__title text--truncate"></b></a><a aria-current="page" class="navbar__item navbar__link navbar__link--active" href="/eole/docs/">Docs</a><a class="navbar__item navbar__link" href="/eole/docs/reference/index">Reference</a></div><div class="theme-layout-navbar-right navbar__items navbar__items--right"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="navbar__item navbar__link">GitHub<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a><div class="toggle_vylO colorModeToggle_DEke"><button class="clean-btn toggleButton_gllP toggleButtonDisabled_aARS" type="button" disabled="" title="system mode" aria-label="Switch between dark and light mode (currently system mode)"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="toggleIcon_g3eP lightToggleIcon_pyhR"><path fill="currentColor" d="M12,9c1.65,0,3,1.35,3,3s-1.35,3-3,3s-3-1.35-3-3S10.35,9,12,9 M12,7c-2.76,0-5,2.24-5,5s2.24,5,5,5s5-2.24,5-5 S14.76,7,12,7L12,7z M2,13l2,0c0.55,0,1-0.45,1-1s-0.45-1-1-1l-2,0c-0.55,0-1,0.45-1,1S1.45,13,2,13z M20,13l2,0c0.55,0,1-0.45,1-1 s-0.45-1-1-1l-2,0c-0.55,0-1,0.45-1,1S19.45,13,20,13z M11,2v2c0,0.55,0.45,1,1,1s1-0.45,1-1V2c0-0.55-0.45-1-1-1S11,1.45,11,2z M11,20v2c0,0.55,0.45,1,1,1s1-0.45,1-1v-2c0-0.55-0.45-1-1-1C11.45,19,11,19.45,11,20z M5.99,4.58c-0.39-0.39-1.03-0.39-1.41,0 c-0.39,0.39-0.39,1.03,0,1.41l1.06,1.06c0.39,0.39,1.03,0.39,1.41,0s0.39-1.03,0-1.41L5.99,4.58z M18.36,16.95 c-0.39-0.39-1.03-0.39-1.41,0c-0.39,0.39-0.39,1.03,0,1.41l1.06,1.06c0.39,0.39,1.03,0.39,1.41,0c0.39-0.39,0.39-1.03,0-1.41 L18.36,16.95z M19.42,5.99c0.39-0.39,0.39-1.03,0-1.41c-0.39-0.39-1.03-0.39-1.41,0l-1.06,1.06c-0.39,0.39-0.39,1.03,0,1.41 s1.03,0.39,1.41,0L19.42,5.99z M7.05,18.36c0.39-0.39,0.39-1.03,0-1.41c-0.39-0.39-1.03-0.39-1.41,0l-1.06,1.06 c-0.39,0.39-0.39,1.03,0,1.41s1.03,0.39,1.41,0L7.05,18.36z"></path></svg><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="toggleIcon_g3eP darkToggleIcon_wfgR"><path fill="currentColor" d="M9.37,5.51C9.19,6.15,9.1,6.82,9.1,7.5c0,4.08,3.32,7.4,7.4,7.4c0.68,0,1.35-0.09,1.99-0.27C17.45,17.19,14.93,19,12,19 c-3.86,0-7-3.14-7-7C5,9.07,6.81,6.55,9.37,5.51z M12,3c-4.97,0-9,4.03-9,9s4.03,9,9,9s9-4.03,9-9c0-0.46-0.04-0.92-0.1-1.36 c-0.98,1.37-2.58,2.26-4.4,2.26c-2.98,0-5.4-2.42-5.4-5.4c0-1.81,0.89-3.42,2.26-4.4C12.92,3.04,12.46,3,12,3L12,3z"></path></svg><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="toggleIcon_g3eP systemToggleIcon_QzmC"><path fill="currentColor" d="m12 21c4.971 0 9-4.029 9-9s-4.029-9-9-9-9 4.029-9 9 4.029 9 9 9zm4.95-13.95c1.313 1.313 2.05 3.093 2.05 4.95s-0.738 3.637-2.05 4.95c-1.313 1.313-3.093 2.05-4.95 2.05v-14c1.857 0 3.637 0.737 4.95 2.05z"></path></svg></button></div><div class="navbarSearchContainer_Bca1"><div class="navbar__search"><span aria-label="expand searchbar" role="button" class="search-icon" tabindex="0"></span><input id="search_input_react" type="search" placeholder="Loading..." aria-label="Search" class="navbar__search-input search-bar" disabled=""></div></div></div></div><div role="presentation" class="navbar-sidebar__backdrop"></div></nav><div id="__docusaurus_skipToContent_fallback" class="theme-layout-main main-wrapper mainWrapper_z2l0"><div class="docsWrapper_hBAB"><button aria-label="Scroll back to top" class="clean-btn theme-back-to-top-button backToTopButton_sjWU" type="button"></button><div class="docRoot_UBD9"><aside class="theme-doc-sidebar-container docSidebarContainer_YfHR"><div class="sidebarViewport_aRkj"><div class="sidebar_njMd"><nav aria-label="Docs sidebar" class="menu thin-scrollbar menu_SIkG"><ul class="theme-doc-sidebar-menu menu__list"><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/"><span class="linkLabel_WmDU">EOLE</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/main"><span class="linkLabel_WmDU">Toolkit overview</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/quickstart"><span class="linkLabel_WmDU">Quickstart</span></a></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist menu__link--sublist-caret" role="button" aria-expanded="false" href="/eole/docs/guides/"><span class="categoryLinkLabel_W154">Guides and validation</span></a></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" href="/eole/docs/category/key-concepts"><span class="categoryLinkLabel_W154">Key Concepts</span></a><button aria-label="Expand sidebar category &#x27;Key Concepts&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" href="/eole/docs/category/frequently-asked-questions"><span class="categoryLinkLabel_W154">Frequently Asked Questions</span></a><button aria-label="Expand sidebar category &#x27;Frequently Asked Questions&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist menu__link--active" href="/eole/docs/category/recipes"><span class="categoryLinkLabel_W154">Recipes</span></a><button aria-label="Collapse sidebar category &#x27;Recipes&#x27;" aria-expanded="true" type="button" class="clean-btn menu__caret"></button></div><ul class="menu__list"><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/NewsPalm-synthetic/"><span class="linkLabel_WmDU">Example of using Hugging Face streaming dataset</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/"><span class="linkLabel_WmDU">Recipes</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/claude-code/"><span class="linkLabel_WmDU">Use Claude Code with local Qwen3.8 served by Eole</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/codex/"><span class="linkLabel_WmDU">Use Codex with local Qwen served by Eole</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/deepseekocr/"><span class="linkLabel_WmDU">DeepSeek-OCR</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/eurollm/"><span class="linkLabel_WmDU">EuroLLM model and legacy Gradio example</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/fineweb10B/"><span class="linkLabel_WmDU">Train a language model on FineWeb 10BT</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/gpt2/"><span class="linkLabel_WmDU">OpenAI GPT2</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/hf/"><span class="linkLabel_WmDU">Run a supported Hugging Face model directly</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/hunyuanocr/"><span class="linkLabel_WmDU">HunyuanOCR</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/livecodebench/"><span class="linkLabel_WmDU">Coding correctness with LiveCodeBench</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/llama2/"><span class="linkLabel_WmDU">Llama2</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/llama3/"><span class="linkLabel_WmDU">Llama3</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/mistral/"><span class="linkLabel_WmDU">Mistral inference</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/mixtral/"><span class="linkLabel_WmDU">Mixtral</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/mmlu/"><span class="linkLabel_WmDU">Evaluation with MMLU dataset</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/model-validator/"><span class="linkLabel_WmDU">Model conversion smoke tests</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/nllb/"><span class="linkLabel_WmDU">NLLB conversion and translation</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/pixtral/"><span class="linkLabel_WmDU">Pixtral</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/qwen35/"><span class="linkLabel_WmDU">Qwen3.5: text, vision, streaming, and serving</span></a></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist menu__link--active" tabindex="0" href="/eole/docs/recipes/qwen38/"><span class="categoryLinkLabel_W154">Qwen3.8-27B and native MTP speculative decoding</span></a><button aria-label="Collapse sidebar category &#x27;Qwen3.8-27B and native MTP speculative decoding&#x27;" aria-expanded="true" type="button" class="clean-btn menu__caret"></button></div><ul class="menu__list"><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-3 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/qwen38/gdn-ab-benchmark"><span class="linkLabel_WmDU">Paired GDN A/B projections: RTX 5090 measurements</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-3 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/qwen38/marlin-benchmark"><span class="linkLabel_WmDU">Marlin register and launch scheduling benchmark</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-3 menu__list-item"><a class="menu__link menu__link--active" aria-current="page" tabindex="0" href="/eole/docs/recipes/qwen38/packed-projections"><span class="linkLabel_WmDU">Packed Marlin projections</span></a></li></ul></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" tabindex="0" href="/eole/docs/recipes/rag/"><span class="categoryLinkLabel_W154">Local Knowledge (RAG) workspace</span></a><button aria-label="Expand sidebar category &#x27;Local Knowledge (RAG) workspace&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/rl/"><span class="linkLabel_WmDU">RL fine-tuning recipes</span></a></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" tabindex="0" href="/eole/docs/recipes/runpod/"><span class="categoryLinkLabel_W154">Eole on RunPod</span></a><button aria-label="Expand sidebar category &#x27;Eole on RunPod&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" tabindex="0" href="/eole/docs/recipes/scoring/"><span class="categoryLinkLabel_W154">Scoring Recipes</span></a><button aria-label="Expand sidebar category &#x27;Scoring Recipes&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/server/"><span class="linkLabel_WmDU">Serve a model with Eole</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/translation/"><span class="linkLabel_WmDU">Translate in the Eole workspace</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/ui/"><span class="linkLabel_WmDU">Eole local workspace</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/whisper/"><span class="linkLabel_WmDU">Whisper</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/wiki_103/"><span class="linkLabel_WmDU">Train a language model on WikiText-103</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/wmt17/"><span class="linkLabel_WmDU">Translation WMT17 en-de</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/wmt22_with_TowerInstruct-Mistral/"><span class="linkLabel_WmDU">TowerInstruct (Mistral)</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/wmt22_with_TowerInstruct-llama2/"><span class="linkLabel_WmDU">TowerInstruct-(Llama2)</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/wmt22_with_llama3.1/"><span class="linkLabel_WmDU">Llama3</span></a></li></ul></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/contributing"><span class="linkLabel_WmDU">Contributors</span></a></li></ul></nav></div></div></aside><main class="docMainContainer_TBSr"><div class="container padding-top--md padding-bottom--lg"><div class="row"><div class="col docItemCol_VOVn"><div class="docItemContainer_Djhp"><article><nav class="theme-doc-breadcrumbs breadcrumbsContainer_Z_bl" aria-label="Breadcrumbs"><ul class="breadcrumbs"><li class="breadcrumbs__item"><a aria-label="Home page" class="breadcrumbs__link" href="/eole/"><svg viewBox="0 0 24 24" class="breadcrumbHomeIcon_YNFT"><path d="M10 19v-5h4v5c0 .55.45 1 1 1h3c.55 0 1-.45 1-1v-7h1.7c.46 0 .68-.57.33-.87L12.67 3.6c-.38-.34-.96-.34-1.34 0l-8.36 7.53c-.34.3-.13.87.33.87H5v7c0 .55.45 1 1 1h3c.55 0 1-.45 1-1z" fill="currentColor"></path></svg></a></li><li class="breadcrumbs__item"><a class="breadcrumbs__link" href="/eole/docs/category/recipes"><span>Recipes</span></a></li><li class="breadcrumbs__item"><a class="breadcrumbs__link" href="/eole/docs/recipes/qwen38/"><span>Qwen3.8-27B and native MTP speculative decoding</span></a></li><li class="breadcrumbs__item breadcrumbs__item--active"><span class="breadcrumbs__link">Packed Marlin projections</span></li></ul></nav><div class="tocCollapsible_ETCw theme-doc-toc-mobile tocMobile_ITEo"><button type="button" class="clean-btn tocCollapsibleButton_TO0P">On this page</button></div><div class="theme-doc-markdown markdown"><header><h1>Packed Marlin projections</h1></header>
+<p><code>fuse_gate: true</code> packs compatible Marlin MLP gate/up projections. <code>fuse_kvq: true</code>
+also packs compatible GDN QKV/Z projections, in addition to attention KVQ.
+Both options default to false. Packing happens during inference preparation,
+before Marlin weight repacking; incompatible pairs retain separate projections
+with a warning. MoE expert stacking keeps its existing initialization path.</p>
+<p>The paired BF16 GDN A/B kernel now handles one-token decoding automatically,
+as well as four-token MTP verification. Its specialized path requires a single
+GPU, batch/beam size one, BF16 inputs, and the supported 5120-to-96 shape on
+Ampere or newer. Other configurations retain their existing projection path.
+The prepared A/B buffers use about 47 MB across 48 GDN layers.</p>
+<p>No checkpoint conversion or native-extension rebuild is required. The feature
+uses existing Marlin kernels and a lazily compiled Triton one-token kernel.
+FP32 normalization and BF16 vocabulary heads remain unchanged. This change does
+not include cache-view, recurrent-state commit, or vocabulary quantization work.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="rtx-5090-measurements">RTX 5090 measurements<a href="#rtx-5090-measurements" class="hash-link" aria-label="Direct link to RTX 5090 measurements" title="Direct link to RTX 5090 measurements" translate="no">​</a></h2>
+<p>Baseline: main <code>84f99d405ab6e560f880256a64a812b7ee2308f0</code>.
+Implementation: <code>077e1ae4</code>. RedHat Qwen3.8-27B INT4, BF16 compute and vocabulary
+heads, PyTorch 2.12.1+cu132, compile mode 0, FlashAttention, batch/beam one,
+64k reserved context and 1024-token prefill chunks. Each process ran two warm
+requests followed by three measured requests, with seed 42 and greedy decoding.
+The Orwell prompt contains 25 tokens; the output cap is 512 tokens.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Implementation</th><th>MTP</th><th>fuse_kvq</th><th>fuse_gate</th><th style="text-align:right">Decode tok/s</th><th style="text-align:right">Change vs main</th><th style="text-align:right">Draft acceptance</th></tr></thead><tbody><tr><td>main</td><td>off</td><td>true</td><td>false</td><td style="text-align:right">76.85</td><td style="text-align:right">—</td><td style="text-align:right">—</td></tr><tr><td>PR</td><td>off</td><td>true</td><td>false</td><td style="text-align:right">80.58</td><td style="text-align:right">+4.8%</td><td style="text-align:right">—</td></tr><tr><td>PR</td><td>off</td><td>true</td><td>true</td><td style="text-align:right">81.64</td><td style="text-align:right">+6.2%</td><td style="text-align:right">—</td></tr><tr><td>main</td><td>3 drafts</td><td>true</td><td>false</td><td style="text-align:right">107.61</td><td style="text-align:right">—</td><td style="text-align:right">44.6%</td></tr><tr><td>PR</td><td>3 drafts</td><td>true</td><td>false</td><td style="text-align:right">112.94</td><td style="text-align:right">+5.0%</td><td style="text-align:right">47.7%</td></tr><tr><td>PR</td><td>3 drafts</td><td>true</td><td>true</td><td style="text-align:right">112.79</td><td style="text-align:right">+4.8%</td><td style="text-align:right">46.0%</td></tr></tbody></table>
+<p>The baseline uses <code>fuse_gate: false</code> because its Marlin gate/up fusion is not
+supported. Each measurement counts 511 delivered decode tokens, excluding the
+first token and prefill/startup time. MTP timing includes drafting, verification
+and state commit. Phase-specific CUDA events were disabled for both versions.</p>
+<p>Outputs repeat within each configuration but differ between configurations:
+packing and the paired reduction can change floating-point rounding and greedy
+continuations. MTP acceptance changes as well, so these are observed end-to-end
+results, not an isolated estimate of kernel savings. Gate packing adds about
+1.3% beyond the other changes without MTP in this run; it gives no additional
+MTP gain here. No task-quality benchmark or other-architecture throughput claim
+is made. Full configurations, outputs, hashes and individual timings are in
+<a href="https://github.com/eole-nlp/eole/blob/main/recipes/qwen38/packed-projections-results.json" target="_blank" rel="noopener noreferrer" class="">the results file</a>.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="reproduce">Reproduce<a href="#reproduce" class="hash-link" aria-label="Direct link to Reproduce" title="Direct link to Reproduce" translate="no">​</a></h2>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  python recipes/qwen38/benchmark_marlin.py \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --model &quot;$QWEN38_MODEL&quot; --fuse-gate --output /tmp/packed-no-mtp.json</span><br></div></code></pre></div></div>
+<p>Add <code>--mtp</code> for three-draft MTP. Omit <code>--fuse-gate</code> to keep gate/up separate.
+<code>--no-fuse-kvq</code> disables attention KVQ and GDN QKV/Z packing; the automatic
+paired A/B dispatch is independent of that flag.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="validation">Validation<a href="#validation" class="hash-link" aria-label="Direct link to Validation" title="Direct link to Validation" translate="no">​</a></h2>
+<p>CPU coverage includes inference wiring, incompatible-pair fallback, missing
+configuration fields, dense fusion and MoE initialization. CUDA coverage checks
+packed projection outputs, compiled execution, changing-input graph replay,
+and the paired A/B kernel against FP64 references on RTX 5090 and RTX 4090.
+Short compile-mode-2 runs cover ordinary decoding and MTP; these are compatibility
+checks rather than throughput comparisons with the mode-0 measurements above.</p>
+<p>The CPU suite passed 752 tests (39 skipped). The focused CUDA suite passed 32
+tests on each GPU, including INT4/INT8 packed projections in FP16 and BF16.
+Full-model compiled smoke runs passed for batch four, beam four, worker-thread
+streaming, MTP sampling, and two-GPU tensor parallel (RTX 5090 + RTX 4090), with
+both fusion flags enabled. These smoke checks establish execution compatibility,
+not throughput gains for those configurations.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="fusion-setup-memory">Fusion setup memory<a href="#fusion-setup-memory" class="hash-link" aria-label="Direct link to Fusion setup memory" title="Direct link to Fusion setup memory" translate="no">​</a></h2>
+<p>Fusion now finalizes deferred Marlin weights layer by layer and returns unused
+CUDA allocator blocks after each affected layer. Original projection modules
+are deleted when replaced; this also avoids accumulating cached temporary
+concatenation/repacking allocations. Cache release occurs only during setup,
+not during inference.</p>
+<p>On the same RTX 5090 checkpoint with both flags enabled, a fresh-process setup
+comparison measured the following (MiB, PyTorch allocator counters):</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Setup</th><th style="text-align:right">Peak allocated during fusion</th><th style="text-align:right">Peak reserved during fusion</th><th style="text-align:right">Reserved after fusion</th></tr></thead><tbody><tr><td>Finalize all layers at end</td><td style="text-align:right">18908.84</td><td style="text-align:right">24520</td><td style="text-align:right">24520</td></tr><tr><td>Finalize and release per layer</td><td style="text-align:right">18902.21</td><td style="text-align:right">19370</td><td style="text-align:right">19190</td></tr></tbody></table>
+<p>Live weights after fusion remain about 18756 MiB. Model build/load took 5.86 s
+before and 5.73 s after in this check; these single measurements are not a
+startup-speed benchmark. These figures cover projection preparation, not later
+KV caches or compilation/CUDA-graph memory. A regression test checks that the
+first layer&#x27;s original modules have been freed and its packed projections
+initialized before the next layer is fused.</p>
+<p>After the memory follow-up, the CPU suite passed 753 tests (39 skipped), the
+focused suite passed 33 tests on each GPU, and a real compiled MTP-sampling
+request passed with both flags enabled.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="full-request-cache-memory">Full-request cache memory<a href="#full-request-cache-memory" class="hash-link" aria-label="Direct link to Full-request cache memory" title="Direct link to Full-request cache memory" translate="no">​</a></h2>
+<p>A follow-up using <code>recipes/qwen35/test_inference3.py</code> settings (64k context,
+4096 output cap, MTP disabled, compile mode 0, both fusion flags enabled) found
+two avoidable full-cache allocations: reinitializing caches after warmup, and
+replicating them once for a single decoding path. Compatible K/V buffers now
+reset in place after graph bindings are invalidated; single-path tiling returns
+the existing tensor. Changed batch shape/dtype/device still allocates suitable
+storage, and multiple decoding paths still replicate their state.</p>
+<p>With these changes the full-run peak reserved memory fell from 27344 MiB to
+23208 MiB; peak allocated memory fell from 27107.88 MiB to 22959.34 MiB.
+These settings reserve 2000 MiB each for keys and values, even for the short
+Orwell prompt. Delivered decode throughput remained 81.2 tok/s in the follow-up
+run. This is a memory comparison, not a new multi-repeat throughput campaign.</p>
+<p>Validation of the cache follow-up: 755 CPU tests passed (39 skipped), 12 focused
+cache/graph tests passed with CUDA available, and two consecutive real compiled
+MTP requests produced identical greedy output. The two-request MTP run peaked
+at 23528 MiB reserved with the same 64k context. Those MTP figures are an
+execution/memory check, not a throughput benchmark.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/edit/main/recipes/qwen38/packed-projections.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/eole/docs/recipes/qwen38/marlin-benchmark"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Marlin register and launch scheduling benchmark</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/recipes/rag/"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Local Knowledge (RAG) workspace</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#rtx-5090-measurements" class="table-of-contents__link toc-highlight">RTX 5090 measurements</a></li><li><a href="#reproduce" class="table-of-contents__link toc-highlight">Reproduce</a></li><li><a href="#validation" class="table-of-contents__link toc-highlight">Validation</a></li><li><a href="#fusion-setup-memory" class="table-of-contents__link toc-highlight">Fusion setup memory</a></li><li><a href="#full-request-cache-memory" class="table-of-contents__link toc-highlight">Full-request cache memory</a></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
+</body>
+</html>
