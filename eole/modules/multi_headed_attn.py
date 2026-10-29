@@ -135,6 +135,7 @@ class MultiHeadedAttention(torch.nn.Module):
         self.scale = self.attn_scaling**-0.5 if self.attn_scaling is not None else None
         self.relative_positions_buckets = model_config.relative_positions_buckets
         self.kcache, self.vcache, self.cache_leftpad = None, None, None
+        self._cache_view_bound = None
         self.sliding_window = model_config.sliding_window
         self.window_size = (self.sliding_window, 0) if self.sliding_window > 0 else (-1, -1)
         # TODO find a cleaner way to initialize?
@@ -539,6 +540,7 @@ class SelfMHA(MultiHeadedAttention):
                     rotary_sin=None,
                     cache_seqlens=cache_seqlens,
                     cache_leftpad=self.cache_leftpad,
+                    cache_view_bound=self._cache_view_bound,
                     softmax_scale=self.scale,
                     causal=query.size(1) > 1,
                     rotary_interleaved=self.rotary_interleave,

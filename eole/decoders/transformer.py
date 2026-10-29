@@ -389,6 +389,7 @@ class TransformerDecoder(DecoderBase):
                 "Reduce context_length to be within the model's capacity."
             )
         self.kvcache_maxsize = context_length if context_length > 0 else _model_max_pos
+        self._kv_cache_view_bound = torch.tensor(self.kvcache_maxsize, dtype=torch.int64, device="cpu")
         self.rope = build_rope(decoder_config, ctx_len=self.kvcache_maxsize)
         if hasattr(decoder_config, "rope_config") and getattr(decoder_config.rope_config, "interleave_local", 0) > 0:
             self.rope_local = build_rope(decoder_config, variant="local", ctx_len=self.kvcache_maxsize)
@@ -1381,6 +1382,19 @@ class TransformerDecoder(DecoderBase):
 
         return emb, attns
 
+    def set_kv_cache_view_bound(self, max_tokens=None):
+        """Bind a safe request capacity while preserving the full cache allocation.
+
+        The CPU scalar is read only inside the opaque FlashAttention operation,
+        so different request bounds do not specialize the compiled decoder.
+        Round up to powers of two to avoid excessive split-policy variation.
+        """
+        self._reset_decode_graph()
+        bound = self.kvcache_maxsize
+        if max_tokens is not None and not self.dynamic_shapes and not self.with_cross_attn:
+            bound = min(bound, max(512, 1 << (max(1, int(max_tokens)) - 1).bit_length()))
+        self._kv_cache_view_bound.fill_(bound)
+
     def _init_cache(self, emb, pad_mask, enc_out=None):
         self._reset_decode_graph()
         b, l, d = emb.size()
@@ -1451,6 +1465,16 @@ class TransformerDecoder(DecoderBase):
                     else:
                         setattr(layer.self_attn, name, torch.zeros(shape, dtype=dtype, device=device))
                 layer.self_attn.cache_leftpad = cache_leftpad
+                # Legacy Inductor graph trees reject CPU tensor inputs. Only
+                # pass the bound to eager execution or supported bound graphs.
+                bound_graph = self._decode_graph_enabled and (
+                    getattr(self, "_decode_graph_request_allowed", False)
+                    or getattr(self, "_verify_graph_request_allowed", False)
+                )
+                use_view = (
+                    not self.dynamic_shapes and not self.with_cross_attn and (not EOLE_TORCH_COMPILE or bound_graph)
+                )
+                layer.self_attn._cache_view_bound = self._kv_cache_view_bound if use_view else None
                 if layer.context_attn:
                     # prefill context KV with encoder out
                     layer.context_attn._prefill_cache(enc_out)
