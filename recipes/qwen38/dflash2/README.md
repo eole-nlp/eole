@@ -94,7 +94,7 @@ phase-event profiling is disabled. Median decode tok/s:
 
 All nine Eole before/after pairs have exactly identical token IDs and acceptance
 counts. The Ninfer column is the earlier reference run, with different mixed
-quantized weights, an optimized Q8 proposal head and FP8 dynamic KV cache;
+quantized weights, an optimized INT4 proposal head and FP8 dynamic KV cache;
 physical cache behavior and generated sequences differ. Eole translation emits
 1,189 tokens, versus 654 in that Ninfer run. These figures therefore establish
 the Eole optimization's benefit, while the remaining cross-engine gap needs
@@ -121,9 +121,9 @@ All nine before/after pairs have exactly identical token IDs and acceptance
 counts. Dedicated tests exercise real GPU capture/replay, eager tails and
 training/gradient fallbacks. The drafter backbone remains BF16 by default;
 experimental INT8 and packed-projection trials changed output trajectories and
-were not a consistent improvement across these workloads. The historical native
-MTP INT8-head results remain faster on English and translation, and Ninfer remains
-ahead on all three workloads.
+were not a consistent improvement at that stage, before full-drafter replay.
+The historical native MTP INT8-head results were faster on English and translation,
+and Ninfer was ahead on all three workloads. Updated results follow below.
 
 ## Correctness status
 
@@ -142,8 +142,72 @@ for this particular prompt. The prototype therefore does **not** establish
 bit-identical output to single-token decoding. Broader teacher-forced numerical
 and quality checks remain necessary before production use.
 
-Sampling, tensor parallelism, vision inputs, other compile modes, and drafter
-quantization remain future work. FP32 normalization in the target is unchanged.
+Sampling, tensor parallelism, vision inputs and other compile modes remain future work. FP32 normalization in the target is unchanged.
 
 The adapted drafter implementation retains the upstream MIT notice in
 [`licenses/dflash-MIT.txt`](../../../licenses/dflash-MIT.txt).
+
+
+## Full-drafter replay and INT8 projections
+
+Compile mode 0 now prepares one CUDA graph for the complete eight-position
+proposal block. Committed context uses fixed ring buffers, reset in place between
+requests; prompt K/V is populated once outside replay. A valid-count mask prevents
+padded updates from overwriting older context. Short final requests use only the
+required prefix of the seven proposals. This does not compile new whole-decoder
+programs or change the target model's FP32 normalization.
+
+Drafter Q/K normalization and split-half RoPE use a fused Triton kernel. The
+normalization reduction remains FP32 and preserves intermediate BF16 casts.
+Different FP32 reduction association can nevertheless move rare values across a
+BF16 rounding boundary. Fixed-size masked attention also changes reduction
+ordering; outputs need not match the previous drafter path bit for bit.
+
+The optional `dflash2_quantization: int8` setting quantizes the feature projection,
+attention projections and MLP projections using group-32 runtime RTN Marlin
+weights. It leaves normalization, convolution controls and the selector native.
+It is independent of `vocabulary_quantization`, which controls the shared output
+head. BF16 drafter projections remain the default. In the example script, use
+`--drafter-quantization int8` to try it.
+
+Sequential RTX 5090 measurements use the same code, English and translation
+fixtures above, context 64,000, output cap 2,048, batch one, greedy decoding,
+shared INT8 group-128 vocabulary heads, three measured requests per fixture and
+no phase profiling. Medians are decode tokens/s, excluding the first token:
+
+| Stage | Code | English | Translation |
+| --- | ---: | ---: | ---: |
+| Previous MLP graph baseline | 191.2 | 115.0 | 158.2 |
+| Fused Q/K normalization and RoPE | 211.3 | 120.1 | 168.4 |
+| Fixed-cache full-drafter graph, BF16 (integrated rerun) | 223.0 | 139.7 | 212.6 |
+| Full graph with INT8 drafter projections | 229.2 | 134.7 | 220.7 |
+| INT8 plus packed QKV/context KV and gate/up (integrated rerun) | 240.7 | 140.2 | 222.3 |
+
+These are end-to-end observed gains, not isolated kernel speedups: acceptance
+and generated trajectories change. Acceptance is respectively 55.3% / 29.7% /
+51.6% for full-graph BF16 and 53.9% / 25.9% / 50.4% for INT8. Translation emits
+719 and 720 tokens, versus 1,189 in the earlier baseline. No translation quality
+claim follows from these timing results. Repeated requests are deterministic
+within each tested configuration. The historical Ninfer reference remains
+243.4 / 156.9 / 245.3 tokens/s with different mixed weights, proposal head and
+FP8 KV cache, so this is not a controlled engine-only comparison.
+
+
+With INT8 drafter projections, `fuse_kvq` packs the noise Q/K/V and context
+K/V projections; `fuse_gate` packs MLP gate/up. Original projections are released
+after packing. Context K/V needs separate Marlin packing, adding about 55 MB
+versus the unpacked INT8 drafter. Packed acceptance is 56.2% / 27.0% / 50.4%.
+BF16 is still the default: drafter quantization changes proposals and acceptance,
+and should be chosen explicitly rather than inferred from target quantization.
+
+GPU regressions cover real graph capture/replay, updating control values, ring
+wraparound, partially valid appends, shortened proposal counts, deterministic
+request resets with stable buffer pointers, and packed projection equivalence.
+
+
+The final integrated BF16 and packed-INT8 reruns reproduced every experimental
+output token ID across all nine requests per configuration. Full-drafter graph
+preparation took 0.95 s (BF16) and 0.91 s (INT8); target verifier compilation is
+separate. The integrated packed result is 25.9% / 21.9% / 40.5% faster than the
+previous MLP-graph baseline, including the acceptance/trajectory differences
+noted above.

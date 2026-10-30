@@ -7,7 +7,18 @@ from unittest.mock import Mock, patch
 
 import torch
 
-from eole.modules.dflash2 import Attention, DFlash2Adapter, Selector, convolve, prepare_attention, rotate, rotary_tables
+from eole.modules.dflash2 import (
+    Attention,
+    DFlash2Adapter,
+    Norm,
+    Selector,
+    apply_rotary,
+    convolve,
+    normalize_rotary,
+    prepare_attention,
+    rotate,
+    rotary_tables,
+)
 from eole.tests.test_speculative_decoding import _build_model, _generator
 
 
@@ -34,6 +45,35 @@ class TestDFlash2(unittest.TestCase):
         angle = torch.tensor([1.0, 0.01, 1.0, 0.01])
         expected = x * angle.cos() + torch.tensor([[[[-3.0, -4.0, 1.0, 2.0]]]]) * angle.sin()
         torch.testing.assert_close(rotate(x, torch.tensor([1]), 10000.0), expected)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "Fused Q/K normalization requires CUDA")
+    def test_fused_normalization_rope_preserves_fp32_math_and_rounding(self):
+        for dtype in (torch.bfloat16, torch.float16):
+            for length in (1, 8, 131, 2048):
+                with self.subTest(dtype=dtype, length=length):
+                    torch.manual_seed(length)
+                    x = torch.randn(1, length, 8, 128, device="cuda", dtype=dtype).transpose(1, 2)
+                    norm = Norm(128, 1e-6).to(device="cuda", dtype=dtype)
+                    norm.weight.data.normal_(1, 0.15)
+                    tables = rotary_tables(torch.arange(123, 123 + length, device="cuda"), 128, 1e7, dtype)
+                    with torch.no_grad():
+                        actual = normalize_rotary(x, norm, tables)
+                        expected = apply_rotary(norm(x), tables)
+                    # FP32 reduction association may move a value across a
+                    # BF16/FP16 rounding boundary; no reduction in BF16/FP16.
+                    torch.testing.assert_close(
+                        actual, expected, atol=2 * torch.finfo(dtype).eps, rtol=torch.finfo(dtype).eps
+                    )
+
+    def test_normalization_rope_gradient_path_stays_eager(self):
+        x = torch.randn(1, 2, 3, 128, requires_grad=True)
+        norm = Norm(128, 1e-6)
+        tables = rotary_tables(torch.arange(3), 128, 1e7, torch.float32)
+        actual = normalize_rotary(x, norm, tables)
+        torch.testing.assert_close(actual, apply_rotary(norm(x), tables), rtol=0, atol=0)
+        actual.square().mean().backward()
+        self.assertIsNotNone(x.grad)
+        self.assertIsNotNone(norm.weight.grad)
 
     def test_shared_mask_uses_retained_absolute_positions(self):
         cfg = config()
@@ -135,6 +175,92 @@ class TestDFlash2(unittest.TestCase):
                     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
                     self.assertIsNone(layer.self_attn.cache)
             self.assertIsNone(model.pending)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "Fixed-buffer replay requires CUDA")
+    def test_draft_graph_wraparound_partial_append_and_request_reset(self):
+        import weakref
+
+        from eole.modules.dflash2_graph import DFlash2GraphAdapter
+
+        torch.manual_seed(8)
+        reference = self._tiny_drafter().to(device="cuda", dtype=torch.bfloat16)
+        model = DFlash2GraphAdapter(reference.cfg).to(device="cuda", dtype=torch.bfloat16).eval()
+        model.load_state_dict(reference.state_dict())
+        target = torch.nn.Module()
+        target.tgt_emb = torch.nn.Embedding(12, 16, device="cuda", dtype=torch.bfloat16)
+        target.generator = torch.nn.Linear(16, 12, bias=False, device="cuda", dtype=torch.bfloat16)
+        object.__setattr__(model, "_target_ref", weakref.ref(target))
+        with torch.no_grad():
+            self.assertTrue(model.prepare_draft_graph())
+            graph = model._graph.graph
+            pointers = [buffer.data_ptr() for pair in model._fixed for buffer in pair]
+            self.assertTrue(model.prepare_draft_graph())
+            first_request = []
+            for request in range(2):
+                torch.manual_seed(123)
+                reference.reset()
+                model.reset()
+                self.assertTrue((model._positions == -1).all())
+                with self.assertRaisesRegex(RuntimeError, "not initialized"):
+                    model.draft(target, torch.tensor([[4]], device="cuda"), 5, 7)
+                for start, length in ((5, 5), (8, 3), (10, 2), (14, 4), (15, 1)):
+                    features = torch.randn(1, length, 32, device="cuda", dtype=torch.bfloat16)
+                    anchor = torch.tensor([[4]], device="cuda")
+                    reference.set_context(features, start - length)
+                    model.set_context(features, start - length)
+                    # The reference needs the usual target embedding step argument.
+                    wrapper = SimpleNamespace(tgt_emb=lambda ids, step: target.tgt_emb(ids), generator=target.generator)
+                    reference.draft(wrapper, anchor, start, 7)
+                    proposals = model.draft(target, anchor, start, 2 if start == 15 else 7)
+                    self.assertEqual(len(proposals), 2 if start == 15 else 7)
+                    self.assertIsNone(model.pending)
+                    result = torch.cat(proposals, dim=1).clone()
+                    if request == 0:
+                        first_request.append(result)
+                    else:
+                        torch.testing.assert_close(result, first_request.pop(0), atol=0, rtol=0)
+                    for layer, (key, value) in zip(reference.layers, model._fixed):
+                        expected_key, expected_value, positions = layer.self_attn.cache
+                        indices = positions.remainder(reference.cfg.sliding_window)
+                        torch.testing.assert_close(model._positions[indices], positions)
+                        torch.testing.assert_close(key.index_select(2, indices), expected_key, atol=0.03, rtol=0.02)
+                        torch.testing.assert_close(value.index_select(2, indices), expected_value, atol=0.03, rtol=0.02)
+                self.assertIs(model._graph.graph, graph)
+                self.assertEqual(pointers, [buffer.data_ptr() for pair in model._fixed for buffer in pair])
+
+    def test_drafter_quantization_rejects_biases_and_prepared_graphs(self):
+        model = self._tiny_drafter()
+        model.layers[0]._mlp_graph = Mock()
+        with self.assertRaisesRegex(ValueError, "before preparing"):
+            model.quantize_projections()
+        model.layers[0]._mlp_graph = None
+        model.layers[0].self_attn.q_proj.bias = torch.nn.Parameter(torch.zeros(16))
+        with self.assertRaisesRegex(ValueError, "bias-free"):
+            model.quantize_projections(fuse_kvq=True, fuse_gate=True)
+        self.assertTrue(all(isinstance(layer.self_attn.k_proj, torch.nn.Linear) for layer in model.layers))
+
+    def test_packed_drafter_projections_match_separate_projections(self):
+        model = self._tiny_drafter()
+        attention = copy.deepcopy(model.layers[0].self_attn)
+        mlp = copy.deepcopy(model.layers[0].mlp)
+
+        def joined(*modules):
+            result = torch.nn.Linear(modules[0].in_features, sum(m.out_features for m in modules), bias=False)
+            result.weight = torch.nn.Parameter(torch.cat([m.weight for m in modules]))
+            return result
+
+        attention.noise_qkv = joined(attention.q_proj, attention.k_proj, attention.v_proj)
+        attention.context_kv = joined(attention.k_proj, attention.v_proj)
+        mlp.gate_up = joined(mlp.gate_proj, mlp.up_proj)
+        del attention.q_proj, attention.k_proj, attention.v_proj
+        del mlp.gate_proj, mlp.up_proj
+        hidden = torch.randn(1, 8, 16)
+        reference = model.layers[0]
+        for actual, expected in zip(attention.project_noise(hidden), reference.self_attn.project_noise(hidden)):
+            torch.testing.assert_close(actual, expected)
+        for actual, expected in zip(attention.project_context(hidden), reference.self_attn.project_context(hidden)):
+            torch.testing.assert_close(actual, expected)
+        torch.testing.assert_close(mlp(hidden), reference.mlp(hidden))
 
     def test_dynamic_convolution_does_not_read_future(self):
         torch.manual_seed(8)

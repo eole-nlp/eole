@@ -213,13 +213,21 @@ class Inference(object):
                 raise ValueError("DFlash2 prototype requires one GPU, batch_size=1 and beam_size=1")
             if config.top_k != 1 and config.temperature != 0:
                 raise ValueError("DFlash2 prototype supports greedy decoding only")
-            self.dflash2 = DFlash2Adapter.load(config.dflash2_model, self.model)
             from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
+
+            adapter = DFlash2Adapter
+            if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "0":
+                from eole.modules.dflash2_graph import DFlash2GraphAdapter
+
+                adapter = DFlash2GraphAdapter
+            self.dflash2 = adapter.load(config.dflash2_model, self.model)
+            if config.dflash2_quantization == "int8":
+                self.dflash2.quantize_projections(fuse_kvq=config.fuse_kvq, fuse_gate=config.fuse_gate)
 
             if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "0":
                 start = time()
-                captured = self.dflash2.prepare_mlp_graphs()
-                self._log(f"Prepared {captured} DFlash2 MLP CUDA graphs in {time() - start:.2f} s")
+                captured = self.dflash2.prepare_draft_graph()
+                self._log(f"Prepared DFlash2 drafter CUDA graph (captured={captured}) in {time() - start:.2f} s")
             self.model.decoder._dflash2_layer_ids = tuple(self.dflash2.target_layer_ids)
             self.model.decoder._dflash2_window = self.dflash2.cfg.sliding_window
             self.model.decoder._verifier_cache_config["dflash2"] = {

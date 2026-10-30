@@ -197,6 +197,10 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
         default=None,
         description="Experimental local HF-format DFlash2 drafter. Requires single-GPU batch-one greedy decoding.",
     )
+    dflash2_quantization: Literal["none", "int8"] = Field(
+        default="none",
+        description="Experimental runtime INT8 group-32 DFlash2 projections; independent of vocabulary head quantization.",
+    )
     speculative_verifier_cache: str = Field(
         default="auto",
         description="Local compiled MTP verifier cache for single-GPU compile mode 0. "

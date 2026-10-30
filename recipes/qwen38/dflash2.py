@@ -11,6 +11,7 @@ def main():
     parser.add_argument("--model", required=True, help="Converted Eole target checkpoint")
     parser.add_argument("--drafter", help="Local incoai/Qwen3.8-27B-DFlash2 HF checkpoint")
     parser.add_argument("--mode", choices=["none", "mtp", "dflash2"], default="dflash2")
+    parser.add_argument("--drafter-quantization", choices=["none", "int8"], default="none")
     parser.add_argument("--max-tokens", type=int, default=512)
     parser.add_argument("--context-length", type=int, default=4096)
     parser.add_argument("--repeats", type=int, default=2)
@@ -40,6 +41,7 @@ def main():
         self_speculative_decoding=args.mode != "none",
         self_speculative_num_tokens=3,
         dflash2_model=args.drafter if args.mode == "dflash2" else None,
+        dflash2_quantization=args.drafter_quantization,
         fuse_kvq=True,
         fuse_gate=True,
         report_time=True,

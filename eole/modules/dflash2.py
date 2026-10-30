@@ -1,4 +1,4 @@
-"""Experimental BF16 DFlash2 drafter; target verification remains in Eole.
+"""Experimental DFlash2 drafter; target verification remains in Eole.
 
 Adapted from https://github.com/z-lab/dflash/blob/main/dflash/model.py.
 Copyright (c) 2026 Z Lab. MIT license; see licenses/dflash-MIT.txt.
@@ -41,6 +41,14 @@ def apply_rotary(x, tables):
     cos, sin = tables
     a, b = x.chunk(2, -1)
     return x * cos + torch.cat((-b, a), -1) * sin
+
+
+def normalize_rotary(x, norm, tables):
+    if x.is_cuda and x.dtype in (torch.bfloat16, torch.float16) and x.shape[-1] == 128 and not torch.is_grad_enabled():
+        from eole.triton.dflash2 import norm_rope
+
+        return norm_rope(x, norm.weight, norm.eps, tables)
+    return apply_rotary(norm(x), tables)
 
 
 def rotate(x, positions, theta):
@@ -111,6 +119,18 @@ class Attention(nn.Module):
         self.k_norm = Norm(cfg.head_dim, cfg.rms_norm_eps)
         self.cache = None
 
+    def project_noise(self, hidden):
+        if hasattr(self, "noise_qkv"):
+            q = self.cfg.num_attention_heads * self.cfg.head_dim
+            kv = self.cfg.num_key_value_heads * self.cfg.head_dim
+            return self.noise_qkv(hidden).split((q, kv, kv), dim=-1)
+        return self.q_proj(hidden), self.k_proj(hidden), self.v_proj(hidden)
+
+    def project_context(self, context):
+        if hasattr(self, "context_kv"):
+            return self.context_kv(context).chunk(2, dim=-1)
+        return self.k_proj(context), self.v_proj(context)
+
     def forward(self, hidden, context, context_positions, positions, shared_attention=None):
         cfg = self.cfg
         if shared_attention is None:
@@ -121,11 +141,13 @@ class Attention(nn.Module):
         def heads(x):
             return x.reshape(x.shape[0], x.shape[1], -1, cfg.head_dim).transpose(1, 2)
 
-        q = apply_rotary(self.q_norm(heads(self.q_proj(hidden))), noise_rotary)
+        q, kn, vn = self.project_noise(hidden)
+        kc, vc = self.project_context(context)
+        q = normalize_rotary(heads(q), self.q_norm, noise_rotary)
         # Context is identical across draft layers and contains only committed
         # target states. No hidden noise tokens enter this persistent cache.
-        kc = apply_rotary(self.k_norm(heads(self.k_proj(context))), context_rotary)
-        vc = heads(self.v_proj(context))
+        kc = normalize_rotary(heads(kc), self.k_norm, context_rotary)
+        vc = heads(vc)
         if self.cache is not None:
             kc = torch.cat((self.cache[0], kc), 2)
             vc = torch.cat((self.cache[1], vc), 2)
@@ -134,8 +156,8 @@ class Attention(nn.Module):
         keep = cfg.sliding_window - 1
         kc, vc = kc[:, :, -keep:], vc[:, :, -keep:]
         self.cache = kc, vc, retained_positions
-        kn = apply_rotary(self.k_norm(heads(self.k_proj(hidden))), noise_rotary)
-        vn = heads(self.v_proj(hidden))
+        kn = normalize_rotary(heads(kn), self.k_norm, noise_rotary)
+        vn = heads(vn)
         k, v = torch.cat((kc, kn), 2), torch.cat((vc, vn), 2)
         attended = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, enable_gqa=True)
         return self.o_proj(attended.transpose(1, 2).reshape(hidden.shape[0], hidden.shape[1], -1))
@@ -149,7 +171,11 @@ class MLP(nn.Module):
         self.down_proj = nn.Linear(cfg.intermediate_size, cfg.hidden_size, bias=False)
 
     def forward(self, x):
-        return self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))
+        if hasattr(self, "gate_up"):
+            gate, up = self.gate_up(x).chunk(2, dim=-1)
+        else:
+            gate, up = self.gate_proj(x), self.up_proj(x)
+        return self.down_proj(F.silu(gate) * up)
 
 
 class Layer(nn.Module):
@@ -256,6 +282,56 @@ class DFlash2Adapter(nn.Module):
         return model.eval()
 
     @torch.no_grad()
+    def quantize_projections(self, *, fuse_kvq=False, fuse_gate=False):
+        """Quantize only large bias-free projections, before graph preparation.
+
+        The shared output head, norms, convolution controls and selector remain
+        untouched. Reuse the runtime linear quantizer's groupwise RTN packing.
+        """
+        from eole.modules.vocabulary_quantization import quantize_vocabulary_head
+
+        if hasattr(self, "_graph") or any(layer._mlp_graph is not None for layer in self.layers):
+            raise ValueError("Quantize DFlash2 projections before preparing CUDA graphs")
+        projections = [self.fc]
+        for layer in self.layers:
+            projections.extend(getattr(layer.self_attn, name) for name in ("q_proj", "k_proj", "v_proj", "o_proj"))
+            projections.extend(getattr(layer.mlp, name) for name in ("gate_proj", "up_proj", "down_proj"))
+        if any(module.bias is not None for module in projections):
+            raise ValueError("DFlash2 INT8 projections must be bias-free")
+        del projections  # Release each original module as soon as its replacement is ready.
+
+        def quantize(linear):
+            return quantize_vocabulary_head(linear, 8, 32)
+
+        def joined(linears):
+            with torch.device("meta"):
+                linear = nn.Linear(linears[0].in_features, sum(m.out_features for m in linears), bias=False)
+            linear.weight = nn.Parameter(torch.cat([m.weight for m in linears], dim=0), requires_grad=False)
+            return quantize(linear)
+
+        self.fc = quantize(self.fc)
+        for layer in self.layers:
+            attention = layer.self_attn
+            if fuse_kvq:
+                attention.noise_qkv = joined([attention.q_proj, attention.k_proj, attention.v_proj])
+                # Packed Marlin output rows cannot be sliced into a second kernel
+                # module. Keep a separately packed context K/V projection.
+                attention.context_kv = joined([attention.k_proj, attention.v_proj])
+                del attention.q_proj, attention.k_proj, attention.v_proj
+            else:
+                for name in ("q_proj", "k_proj", "v_proj"):
+                    setattr(attention, name, quantize(getattr(attention, name)))
+            attention.o_proj = quantize(attention.o_proj)
+            mlp = layer.mlp
+            if fuse_gate:
+                mlp.gate_up = joined([mlp.gate_proj, mlp.up_proj])
+                del mlp.gate_proj, mlp.up_proj
+            else:
+                mlp.gate_proj = quantize(mlp.gate_proj)
+                mlp.up_proj = quantize(mlp.up_proj)
+            mlp.down_proj = quantize(mlp.down_proj)
+
+    @torch.no_grad()
     def prepare_mlp_graphs(self):
         """Prepare full-block MLP replay at load time; shortened tails stay eager.
 
@@ -265,7 +341,7 @@ class DFlash2Adapter(nn.Module):
         """
         from eole.utils.decoder_graph import DecoderGraph
 
-        parameter = next(self.parameters())
+        parameter = self.hidden_norm.weight
         if parameter.device.type != "cuda":
             raise ValueError("DFlash2 MLP graphs require a CUDA drafter")
         dummy = torch.zeros(1, self.block_size, self.cfg.hidden_size, device=parameter.device, dtype=parameter.dtype)
