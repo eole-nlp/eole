@@ -69,6 +69,34 @@ These are short code-prompt prototype measurements, not a general benchmark or
 a comparison with another engine. First-request graph capture still affects
 throughput; use repeated requests when evaluating steady-state performance.
 
+## Shared-position optimization on the longer fixtures
+
+The drafter now computes RoPE tables and its attention mask once per proposal
+block and shares them across all layers. This replaces 15 rotary-table
+calculations and five equivalent masks in the five-layer drafter.
+
+A before/after comparison uses the original
+[`mtp-sampling-fixtures.json`](../mtp-sampling-fixtures.json) code, English and
+translation tasks also used in the local Ninfer comparison: 64,000 context
+limit, 2,048 output cap, greedy decoding, thinking disabled, shared INT8 heads
+(group size 128), BF16 KV cache, fused projections and compile mode 0. Each
+fixture receives a 128-token warmup before three measured repetitions; optional
+phase-event profiling is disabled. Median decode tok/s:
+
+| Workload | Before | Shared RoPE/mask | Gain | Earlier Ninfer DFlash2 |
+| --- | ---: | ---: | ---: | ---: |
+| Code | 165.9 | 176.9 | +6.6% | 243.4 |
+| English | 99.7 | 106.7 | +7.0% | 156.9 |
+| Translation | 137.1 | 147.2 | +7.3% | 245.3 |
+
+All nine Eole before/after pairs have exactly identical token IDs and acceptance
+counts. The Ninfer column is the earlier reference run, with different mixed
+quantized weights, an optimized Q8 proposal head and FP8 dynamic KV cache;
+physical cache behavior and generated sequences differ. Eole translation emits
+1,189 tokens, versus 654 in that Ninfer run. These figures therefore establish
+the Eole optimization's benefit, while the remaining cross-engine gap needs
+further investigation.
+
 ## Correctness status
 
 The small-model drafter calculation was compared with the upstream reference

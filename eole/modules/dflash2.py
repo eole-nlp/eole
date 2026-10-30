@@ -30,14 +30,37 @@ class Norm(nn.Module):
         return rms_norm(x, self.weight, self.eps)
 
 
-def rotate(x, positions, theta):
-    dim = x.shape[-1]
-    inv = 1.0 / theta ** (torch.arange(0, dim, 2, device=x.device, dtype=torch.float32) / dim)
+def rotary_tables(positions, dim, theta, dtype):
+    inv = 1.0 / theta ** (torch.arange(0, dim, 2, device=positions.device, dtype=torch.float32) / dim)
     phase = positions.float()[:, None] * inv[None, :]
     phase = torch.cat((phase, phase), -1)[None, None]
-    cos, sin = phase.cos().to(x.dtype), phase.sin().to(x.dtype)
+    return phase.cos().to(dtype), phase.sin().to(dtype)
+
+
+def apply_rotary(x, tables):
+    cos, sin = tables
     a, b = x.chunk(2, -1)
     return x * cos + torch.cat((-b, a), -1) * sin
+
+
+def rotate(x, positions, theta):
+    return apply_rotary(x, rotary_tables(positions, x.shape[-1], theta, x.dtype))
+
+
+def prepare_attention(cfg, context_positions, positions, previous_positions, dtype):
+    """Position-only work shared by every drafter layer in this block."""
+    tables = rotary_tables(
+        torch.cat((context_positions, positions)), cfg.head_dim, cfg.rope_parameters["rope_theta"], dtype
+    )
+    context_length = context_positions.numel()
+    context_rotary = tuple(t[..., :context_length, :] for t in tables)
+    noise_rotary = tuple(t[..., context_length:, :] for t in tables)
+    if previous_positions is not None:
+        context_positions = torch.cat((previous_positions, context_positions))
+    context_positions = context_positions[-(cfg.sliding_window - 1) :]
+    key_positions = torch.cat((context_positions, positions))
+    mask = (positions[:, None] - key_positions[None, :]).abs() < cfg.sliding_window
+    return context_rotary, noise_rotary, context_positions, mask[None, None]
 
 
 def convolve(hidden, dynamic, base, group_size):
@@ -88,33 +111,33 @@ class Attention(nn.Module):
         self.k_norm = Norm(cfg.head_dim, cfg.rms_norm_eps)
         self.cache = None
 
-    def forward(self, hidden, context, context_positions, positions):
+    def forward(self, hidden, context, context_positions, positions, shared_attention=None):
         cfg = self.cfg
-        theta = cfg.rope_parameters["rope_theta"]
+        if shared_attention is None:
+            previous_positions = self.cache[2] if self.cache is not None else None
+            shared_attention = prepare_attention(cfg, context_positions, positions, previous_positions, hidden.dtype)
+        context_rotary, noise_rotary, retained_positions, mask = shared_attention
 
         def heads(x):
             return x.reshape(x.shape[0], x.shape[1], -1, cfg.head_dim).transpose(1, 2)
 
-        q = rotate(self.q_norm(heads(self.q_proj(hidden))), positions, theta)
+        q = apply_rotary(self.q_norm(heads(self.q_proj(hidden))), noise_rotary)
         # Context is identical across draft layers and contains only committed
         # target states. No hidden noise tokens enter this persistent cache.
-        kc = rotate(self.k_norm(heads(self.k_proj(context))), context_positions, theta)
+        kc = apply_rotary(self.k_norm(heads(self.k_proj(context))), context_rotary)
         vc = heads(self.v_proj(context))
         if self.cache is not None:
             kc = torch.cat((self.cache[0], kc), 2)
             vc = torch.cat((self.cache[1], vc), 2)
-            context_positions = torch.cat((self.cache[2], context_positions))
         # Committed context is contiguous and ends immediately before the
         # anchor. Slice by known shape, avoiding a GPU boolean-index sync.
         keep = cfg.sliding_window - 1
-        kc, vc, context_positions = kc[:, :, -keep:], vc[:, :, -keep:], context_positions[-keep:]
-        self.cache = kc, vc, context_positions
-        kn = rotate(self.k_norm(heads(self.k_proj(hidden))), positions, theta)
+        kc, vc = kc[:, :, -keep:], vc[:, :, -keep:]
+        self.cache = kc, vc, retained_positions
+        kn = apply_rotary(self.k_norm(heads(self.k_proj(hidden))), noise_rotary)
         vn = heads(self.v_proj(hidden))
         k, v = torch.cat((kc, kn), 2), torch.cat((vc, vn), 2)
-        key_positions = torch.cat((context_positions, positions))
-        mask = (positions[:, None] - key_positions[None, :]).abs() < cfg.sliding_window
-        attended = F.scaled_dot_product_attention(q, k, v, attn_mask=mask[None, None], enable_gqa=True)
+        attended = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, enable_gqa=True)
         return self.o_proj(attended.transpose(1, 2).reshape(hidden.shape[0], hidden.shape[1], -1))
 
 
@@ -138,9 +161,11 @@ class Layer(nn.Module):
         self.post_attention_layernorm = Norm(cfg.hidden_size, cfg.rms_norm_eps)
         self.attention_conv, self.mlp_conv = DynamicConv(cfg), DynamicConv(cfg)
 
-    def forward(self, hidden, context, context_positions, positions):
+    def forward(self, hidden, context, context_positions, positions, shared_attention=None):
         x, dynamic = self.attention_conv.prepare(self.input_layernorm(hidden))
-        hidden = hidden + self.attention_conv.finish(self.self_attn(x, context, context_positions, positions), dynamic)
+        hidden = hidden + self.attention_conv.finish(
+            self.self_attn(x, context, context_positions, positions, shared_attention), dynamic
+        )
         x, dynamic = self.mlp_conv.prepare(self.post_attention_layernorm(hidden))
         return hidden + self.mlp_conv.finish(self.mlp(x), dynamic)
 
@@ -237,8 +262,16 @@ class DFlash2Adapter(nn.Module):
         ids = anchor.new_full((1, count + 1), self.cfg.dflash_config["mask_token_id"])
         ids[:, :1] = anchor
         hidden = target.tgt_emb(ids, step=start)
+        previous_cache = self.layers[0].self_attn.cache
+        shared_attention = prepare_attention(
+            self.cfg,
+            context_positions,
+            positions,
+            previous_cache[2] if previous_cache is not None else None,
+            hidden.dtype,
+        )
         for layer in self.layers:
-            hidden = layer(hidden, context, context_positions, positions)
+            hidden = layer(hidden, context, context_positions, positions, shared_attention)
         hidden = self.norm(hidden)[:, 1:]
         logits = target.generator(hidden)
         return self.candidate_selector(hidden, logits, anchor)

@@ -3,10 +3,11 @@
 import copy
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import torch
 
-from eole.modules.dflash2 import Attention, Selector, convolve, rotate
+from eole.modules.dflash2 import Attention, DFlash2Adapter, Selector, convolve, prepare_attention, rotate, rotary_tables
 from eole.tests.test_speculative_decoding import _build_model, _generator
 
 
@@ -33,6 +34,55 @@ class TestDFlash2(unittest.TestCase):
         angle = torch.tensor([1.0, 0.01, 1.0, 0.01])
         expected = x * angle.cos() + torch.tensor([[[[-3.0, -4.0, 1.0, 2.0]]]]) * angle.sin()
         torch.testing.assert_close(rotate(x, torch.tensor([1]), 10000.0), expected)
+
+    def test_shared_mask_uses_retained_absolute_positions(self):
+        cfg = config()
+        previous = torch.arange(6)
+        context = torch.arange(6, 15)
+        positions = torch.arange(15, 19)
+        _, _, retained, mask = prepare_attention(cfg, context, positions, previous, torch.float32)
+        torch.testing.assert_close(retained, torch.arange(8, 15))
+        expected = torch.tensor([[abs(q - k) < 8 for k in range(8, 19)] for q in range(15, 19)])[None, None]
+        torch.testing.assert_close(mask, expected)
+
+    def test_shared_attention_matches_independent_cache_updates(self):
+        torch.manual_seed(19)
+        independent = Attention(config()).eval()
+        shared = copy.deepcopy(independent)
+        with torch.no_grad():
+            for start, length in [(5, 5), (8, 3), (10, 2), (14, 4)]:
+                context = torch.randn(1, length, 16)
+                hidden = torch.randn(1, 4, 16)
+                cp, qp = torch.arange(start - length, start), torch.arange(start, start + 4)
+                previous = shared.cache[2] if shared.cache is not None else None
+                state = prepare_attention(shared.cfg, cp, qp, previous, hidden.dtype)
+                actual = shared(hidden, context, cp, qp, state)
+                expected = independent(hidden, context, cp, qp)
+                torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+                for a, b in zip(shared.cache, independent.cache):
+                    torch.testing.assert_close(a, b, rtol=0, atol=0)
+
+    def test_drafter_builds_rotary_tables_once_per_block(self):
+        cfg = config()
+        cfg.num_hidden_layers, cfg.intermediate_size = 3, 32
+        cfg.dflash_config.update(
+            target_layer_ids=[0, 1], block_size=8, conv_group_size=4, conv_kernel_size=2, mask_token_id=11
+        )
+        model = DFlash2Adapter(cfg).eval()
+        for name, p in model.named_parameters():
+            if "base_kernel" in name:
+                torch.nn.init.normal_(p, std=0.05)
+        embedding = torch.nn.Embedding(12, 16)
+        target = SimpleNamespace(
+            tgt_emb=lambda ids, step: embedding(ids), generator=torch.nn.Linear(16, 12, bias=False)
+        )
+        with torch.no_grad(), patch("eole.modules.dflash2.rotary_tables", wraps=rotary_tables) as tables:
+            model.set_context(torch.randn(1, 5, 32), 0)
+            self.assertEqual(len(model.draft(target, torch.tensor([[4]]), 5, 7)), 7)
+            self.assertEqual(tables.call_count, 1)
+            model.set_context(torch.randn(1, 3, 32), 5)
+            model.draft(target, torch.tensor([[4]]), 8, 7)
+            self.assertEqual(tables.call_count, 2)
 
     def test_dynamic_convolution_does_not_read_future(self):
         torch.manual_seed(8)
