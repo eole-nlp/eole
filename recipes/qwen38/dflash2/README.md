@@ -6,8 +6,11 @@ greedy inference. The seven-token proposal is verified in one eight-token
 target pass, using Eole's existing attention/GDN state commit and rollback.
 
 The drafter shares the target's embeddings and vocabulary projection. Its
-five-layer backbone, dynamic convolutions and candidate selector run eagerly
-in PyTorch; target verification can use compile mode 0 and CUDA graphs.
+five-layer backbone uses PyTorch SDPA. In compile mode 0, each pure MLP
+branch (normalization, dynamic convolutions and MLP) replays through a CUDA
+graph. The graphs are prepared during model loading, using the same eager
+kernels. Attention/cache handling and the candidate selector stay eager;
+target verification also uses the existing compile/CUDA graph path.
 Intermediate target features and drafter context are bounded by its 2,048-token
 sliding window. Chunked prefill is supported; persistent prefix reuse is disabled
 for this path because existing prefix entries do not contain intermediate features.
@@ -96,6 +99,31 @@ physical cache behavior and generated sequences differ. Eole translation emits
 1,189 tokens, versus 654 in that Ninfer run. These figures therefore establish
 the Eole optimization's benefit, while the remaining cross-engine gap needs
 further investigation.
+
+## MLP-branch CUDA graphs
+
+Compile mode 0 also records the cache-independent MLP branches and replays them
+for full eight-token draft blocks. Shortened tails, training and gradient-enabled
+calls use the eager branch. Preparation happens during loading (about 0.30 s on
+the test 5090), avoiding capture work in the first request. This adds graph
+recording without additional `torch.compile` programs or changes to normalization.
+
+The same longer-workload benchmark above, shared INT8 vocabulary heads and
+native BF16 drafter, gives these medians:
+
+| Workload | Shared-position baseline | MLP graphs | Gain |
+| --- | ---: | ---: | ---: |
+| Code | 176.9 | 191.2 | +8.1% |
+| English | 106.7 | 115.0 | +7.8% |
+| Translation | 147.2 | 158.2 | +7.5% |
+
+All nine before/after pairs have exactly identical token IDs and acceptance
+counts. Dedicated tests exercise real GPU capture/replay, eager tails and
+training/gradient fallbacks. The drafter backbone remains BF16 by default;
+experimental INT8 and packed-projection trials changed output trajectories and
+were not a consistent improvement across these workloads. The historical native
+MTP INT8-head results remain faster on English and translation, and Ninfer remains
+ahead on all three workloads.
 
 ## Correctness status
 

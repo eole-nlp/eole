@@ -3,7 +3,7 @@
 import copy
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import torch
 
@@ -83,6 +83,58 @@ class TestDFlash2(unittest.TestCase):
             model.set_context(torch.randn(1, 3, 32), 5)
             model.draft(target, torch.tensor([[4]]), 8, 7)
             self.assertEqual(tables.call_count, 2)
+
+    def _tiny_drafter(self):
+        cfg = config()
+        cfg.num_hidden_layers, cfg.intermediate_size = 2, 32
+        cfg.dflash_config.update(
+            target_layer_ids=[0, 1], block_size=8, conv_group_size=4, conv_kernel_size=2, mask_token_id=11
+        )
+        model = DFlash2Adapter(cfg).eval()
+        for name, parameter in model.named_parameters():
+            if "base_kernel" in name:
+                torch.nn.init.normal_(parameter, std=0.05)
+        return model
+
+    def test_mlp_graph_replays_full_block_and_leaves_tail_eager(self):
+        layer = self._tiny_drafter().layers[0]
+        reference = copy.deepcopy(layer)
+        # Isolate branch dispatch from attention's persistent cache.
+        layer.self_attn.forward = lambda hidden, *args: torch.zeros_like(hidden)
+        reference.self_attn.forward = layer.self_attn.forward
+        layer._mlp_graph_mask = torch.zeros(1, 1, 8, dtype=torch.bool)
+        layer._mlp_graph = Mock(side_effect=layer._forward_mlp_branch)
+        with torch.no_grad():
+            for length in (8, 3, 8):
+                hidden = torch.randn(1, length, 16)
+                expected = reference(hidden, None, None, None)
+                actual = layer(hidden, None, None, None)
+                torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+        self.assertEqual(layer._mlp_graph.call_count, 2)
+        with torch.enable_grad():
+            layer(torch.randn(1, 8, 16), None, None, None)
+        layer.train()
+        with torch.no_grad():
+            layer(torch.randn(1, 8, 16), None, None, None)
+        self.assertEqual(layer._mlp_graph.call_count, 2)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA graph replay requires a GPU")
+    def test_mlp_cuda_graph_matches_eager_without_attention_state(self):
+        torch.manual_seed(91)
+        model = self._tiny_drafter().to(device="cuda", dtype=torch.bfloat16)
+        with torch.no_grad():
+            self.assertEqual(model.prepare_mlp_graphs(), 2)
+            runners = [layer._mlp_graph for layer in model.layers]
+            self.assertEqual(model.prepare_mlp_graphs(), 2)
+            self.assertEqual(runners, [layer._mlp_graph for layer in model.layers])
+            for _ in range(2):
+                hidden = torch.randn(1, 8, 16, device="cuda", dtype=torch.bfloat16)
+                for layer in model.layers:
+                    actual = layer._mlp_graph(hidden, tgt_pad_mask=layer._mlp_graph_mask).clone()
+                    expected = layer._forward_mlp_branch(hidden)
+                    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+                    self.assertIsNone(layer.self_attn.cache)
+            self.assertIsNone(model.pending)
 
     def test_dynamic_convolution_does_not_read_future(self):
         torch.manual_seed(8)

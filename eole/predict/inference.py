@@ -214,6 +214,12 @@ class Inference(object):
             if config.top_k != 1 and config.temperature != 0:
                 raise ValueError("DFlash2 prototype supports greedy decoding only")
             self.dflash2 = DFlash2Adapter.load(config.dflash2_model, self.model)
+            from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
+
+            if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "0":
+                start = time()
+                captured = self.dflash2.prepare_mlp_graphs()
+                self._log(f"Prepared {captured} DFlash2 MLP CUDA graphs in {time() - start:.2f} s")
             self.model.decoder._dflash2_layer_ids = tuple(self.dflash2.target_layer_ids)
             self.model.decoder._dflash2_window = self.dflash2.cfg.sliding_window
             self.model.decoder._verifier_cache_config["dflash2"] = {
