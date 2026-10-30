@@ -794,6 +794,11 @@ class TransformerDecoder(DecoderBase):
             self._prefill_cache is not None and src_ids is not None and image_locations is None and not return_attn
         )
 
+        dflash2_features = []
+        dflash2_window = getattr(self, "_dflash2_window", 0)
+        if dflash2_window:
+            # Prefix-cache entries contain final hidden states, not feature taps.
+            use_cache = False
         all_emb_chunks = []
         all_std_attns = []
         all_align_attns = []
@@ -876,6 +881,9 @@ class TransformerDecoder(DecoderBase):
 
             emb_chunk_out, chunk_attns = self._forward_eager(emb_chunk, **chunk_kwargs)
             all_emb_chunks.append(emb_chunk_out)
+            if dflash2_window:
+                dflash2_features.append(chunk_attns["dflash2_features"])
+                dflash2_features = [torch.cat(dflash2_features, dim=1)[:, -dflash2_window:].clone()]
 
             # ----------------------------------------------------------
             # Store each sequence's result in the prefill KV cache.
@@ -920,6 +928,8 @@ class TransformerDecoder(DecoderBase):
         if all_cross_attns_layers is not None:
             attns["cross_attns"] = [torch.cat(layer_chunks, dim=2) for layer_chunks in all_cross_attns_layers]
 
+        if dflash2_features:
+            attns["dflash2_features"] = dflash2_features[0]
         return torch.cat(all_emb_chunks, dim=1), attns
 
     def _reset_decode_graph(self):
@@ -1330,7 +1340,9 @@ class TransformerDecoder(DecoderBase):
         pos_ids_2d = kwargs.pop("pos_ids_2d", None)
         attn_aligns = []
 
-        for layer, pos_emb in zip(self.transformer_layers, pos_emb_list):
+        dflash2_layer_ids = getattr(self, "_dflash2_layer_ids", ())
+        dflash2_features = []
+        for layer_index, (layer, pos_emb) in enumerate(zip(self.transformer_layers, pos_emb_list)):
             if lin_attn_mask is not None and layer.layer_type == "linear_attention":
                 layer_attn_mask = lin_attn_mask
             elif self.has_sliding_attn and layer.layer_type == "full_attention":
@@ -1349,6 +1361,9 @@ class TransformerDecoder(DecoderBase):
                 cache_slice=cache_slice,
                 pos_ids_2d=pos_ids_2d,
             )
+            if layer_index in dflash2_layer_ids:
+                window = getattr(self, "_dflash2_window", S)
+                dflash2_features.append(emb[:, -window:])
             if all_cross_attns is not None and attn is not None:
                 all_cross_attns.append(attn)
             if with_align:
@@ -1374,6 +1389,8 @@ class TransformerDecoder(DecoderBase):
         # we take the first head
         top_attn = None if attn is None else attn[:, 0, :, :].contiguous()
         attns = {"std": top_attn}
+        if dflash2_layer_ids:
+            attns["dflash2_features"] = torch.cat(dflash2_features, dim=-1)
         if with_align and self.alignment_layer < len(attn_aligns):
             attns["align"] = attn_aligns[self.alignment_layer]  # `(B, Q, K)`
         if all_cross_attns is not None:
