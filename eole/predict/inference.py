@@ -205,8 +205,43 @@ class Inference(object):
         self.image_token_id_list = image_token_id_list
 
         self.self_attn_backend = config.self_attn_backend
-        self.self_speculative_decoding = bool(getattr(config, "self_speculative_decoding", False))
-        self.self_speculative_num_tokens = max(1, int(getattr(config, "self_speculative_num_tokens", 1)))
+        self.dflash2 = None
+        if getattr(config, "dflash2_model", None):
+            from eole.modules.dflash2 import DFlash2Adapter
+
+            if config.beam_size != 1 or config.batch_size != 1 or len(config.gpu_ranks) != 1:
+                raise ValueError("DFlash2 requires one GPU, batch_size=1 and beam_size=1")
+            if config.top_k != 1 and config.temperature != 0:
+                raise ValueError("DFlash2 supports greedy decoding only")
+            from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
+
+            adapter = DFlash2Adapter
+            if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "0":
+                from eole.modules.dflash2_graph import DFlash2GraphAdapter
+
+                adapter = DFlash2GraphAdapter
+            self.dflash2 = adapter.load(config.dflash2_model, self.model)
+            if config.dflash2_quantization == "int8":
+                self.dflash2.quantize_projections(fuse_kvq=config.fuse_kvq, fuse_gate=config.fuse_gate)
+
+            if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "0":
+                start = time()
+                captured = self.dflash2.prepare_draft_graph()
+                self._log(f"Prepared DFlash2 drafter CUDA graph (captured={captured}) in {time() - start:.2f} s")
+            self.model.decoder._dflash2_layer_ids = tuple(self.dflash2.target_layer_ids)
+            self.model.decoder._dflash2_window = self.dflash2.cfg.sliding_window
+            self.model.decoder._verifier_cache_config["dflash2"] = {
+                "layers": self.dflash2.target_layer_ids,
+                "window": self.dflash2.cfg.sliding_window,
+            }
+        self.self_speculative_decoding = bool(
+            getattr(config, "self_speculative_decoding", False) or self.dflash2 is not None
+        )
+        self.self_speculative_num_tokens = (
+            self.dflash2.block_size - 1
+            if self.dflash2 is not None
+            else max(1, int(getattr(config, "self_speculative_num_tokens", 1)))
+        )
 
     def _log_inference_backends(self, speculative=False):
         from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
@@ -703,6 +738,9 @@ class Inference(object):
         if decoder_events is not None:
             decoder_events[1].record()
             profile_events.setdefault("verify_decoder", []).append(decoder_events)
+
+        if self.dflash2 is not None:
+            self._dflash2_features = dec_attn["dflash2_features"]
 
         # Generator forward.
         all_hidden = dec_out if return_all_hidden else None

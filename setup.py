@@ -92,6 +92,7 @@ setup(
     long_description_content_type="text/markdown",
     version="0.6.5",
     packages=find_packages(),
+    license_files=["LICENSE.md", "licenses/dflash-MIT.txt"],
     package_data={"eole.server": ["web/*"]},
     ext_modules=ext_modules,
     cmdclass=cmdclass,

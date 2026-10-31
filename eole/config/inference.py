@@ -193,6 +193,14 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
         ge=1,
         description="Maximum tokens to draft per self-speculative verification pass.",
     )
+    dflash2_model: str | None = Field(
+        default=None,
+        description="Local HF-format DFlash2 drafter. Requires single-GPU batch-one greedy decoding.",
+    )
+    dflash2_quantization: Literal["none", "int8"] = Field(
+        default="none",
+        description="Runtime INT8 group-32 DFlash2 projections; independent of vocabulary head quantization.",
+    )
     speculative_verifier_cache: str = Field(
         default="auto",
         description="Local compiled MTP verifier cache for single-GPU compile mode 0. "
