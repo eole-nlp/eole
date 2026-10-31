@@ -38,7 +38,7 @@ class Workspace:
             updates["dflash2_model"] = defaults(model)["path"] if mode == "dflash2" else None
             if mode == "dflash2":
                 updates["dflash2_quantization"] = dflash2_quantization or defaults(model)["quantization"]
-        current = model.engine.config if model.loaded else None
+        current = model.engine.config if updates and model.loaded else None
         changed = any(getattr(current, key, pre_config.get(key)) != value for key, value in updates.items())
         if changed:
             row["status"] = "loading"
