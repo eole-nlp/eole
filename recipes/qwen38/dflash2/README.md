@@ -83,58 +83,19 @@ first token, prefill and warmup.
 | Variant | Code | English | Translation |
 | --- | ---: | ---: | ---: |
 | BF16, current graph | 223.6 | 140.1 | 212.5 |
-| BF16, compilation | 230.5 | 135.8 | 213.1 |
-| BF16, CUDA RMSNorm + SiLU | 226.4 | 132.0 | 213.5 |
-| BF16, compilation + packed gate/up | 231.7 | 136.6 | 214.7 |
-| BF16, CUDA kernels + packed gate/up | 227.0 | 132.4 | 214.6 |
 | INT8 drafter, packed attention + MLP | 239.8 | 139.6 | 221.0 |
 
 The current BF16 graph baseline reproduces all nine original output token
 sequences. Its original measurement was 223.0 / 139.7 / 212.6 tokens/s; the small
 rerun difference is measurement variation, not an implementation improvement.
 
-Only the current graph path and optional packed INT8 drafter are implemented by
-this PR. Drafter `torch.compile`, extra CUDA RMSNorm/SiLU substitutions, and BF16
-gate/up packing are benchmark-only experiments. Target verification is compiled
-and graph-replayed in every row. The current drafter graph records eager kernels;
-it does not itself use `torch.compile`.
+Both rows are implemented by this PR. Target verification is compiled and
+graph-replayed in both cases. The drafter graph records eager kernels; it does
+not itself use `torch.compile`.
 
 Compilation and kernel substitutions can change rounding, proposal acceptance
 and generated sequences. These are observed end-to-end results, not isolated
 kernel speedups. No quality evaluation was performed.
-
-## INT4 vocabulary-head benchmark, block size 8
-
-This separate comparison keeps the same RedHat INT4 target, **BF16 drafter**,
-block size 8 and benchmark protocol above, but uses **INT4 group-128 shared
-vocabulary heads**. The current implementation reaches **272.4 code tokens/s**
-in this configuration:
-
-| BF16 drafter variant | Code | English | Translation |
-| --- | ---: | ---: | ---: |
-| Current graph (implemented in this PR) | **272.4** | 132.7 | 193.1 |
-| Compilation (experiment) | 278.1 | 143.1 | 192.1 |
-| CUDA RMSNorm + SiLU (experiment) | 274.6 | 145.2 | 192.7 |
-| Compilation + packed gate/up (experiment) | 279.5 | 143.7 | 193.2 |
-| CUDA kernels + packed gate/up (experiment) | 275.5 | 146.0 | 193.5 |
-
-For the implemented baseline row, configure the shared head independently of
-DFlash2 projection quantization:
-
-```yaml
-dflash2_model: /path/to/Qwen3.8-27B-INT4/dflash2
-dflash2_quantization: none
-vocabulary_quantization: int4
-vocabulary_quantization_group_size: 128
-fuse_kvq: true
-fuse_gate: true
-```
-
-The drafter checkpoint's `dflash_config.block_size` must be 8 for this table.
-Use the same batch-one greedy settings, 64,000-token context and 2,048-token
-output cap described above. Changing the head affects target logits and
-acceptance, so 272.4 versus the INT8-head baseline's 223.6 is a configuration
-comparison, not an implementation-only speedup.
 
 ## Why the other tables had different numbers
 
@@ -177,21 +138,16 @@ BF16 heads and a 4,096-token context, so they are omitted from this comparison.
 Earlier Ninfer results used different mixed weights, proposal heads and FP8 KV
 cache; they do not isolate an engine-only difference and are not included here.
 
-## Fusion and startup conclusions
+## Packing and startup
 
-Packing BF16 gate/up replaces two projections with one concatenated-weight
-projection. The existing CUDA SiLU kernel can consume the packed result directly.
-It saves launches and an intermediate concatenation, but does not reduce weight
-bytes read. The down projection remains after the nonlinear activation. In these
-runs packing adds less than 1% to the compiled path; it is not a large remaining
-speedup by itself.
+With INT8 drafter projections, `fuse_kvq` packs noise Q/K/V and context K/V;
+`fuse_gate` packs MLP gate/up. Original projections are released after replacement.
+Context K/V needs separate Marlin packing, adding about 55 MB compared with the
+unpacked INT8 drafter. BF16 drafter projection packing is not enabled.
 
-Graph-only drafter preparation is about one second. The first compile-before-
-capture experiments took about 8-10 seconds, while a cached matching case took
-about two seconds. This is startup work, separate from target-verifier compilation
-(about a minute cold in these tests, or a few seconds to load a saved verifier).
-Warmup is excluded from the throughput tables. Whole-drafter compilation is not
-currently enabled in the PR.
+Drafter graph preparation is about one second. This is startup work, separate
+from target-verifier compilation (about a minute cold in these tests, or a few
+seconds to load a saved verifier). Warmup is excluded from the throughput tables.
 
 ## Correctness and scope
 

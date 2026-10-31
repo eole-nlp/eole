@@ -10,6 +10,23 @@ Use it for language generation, machine translation, neural translation scoring,
 vision and OCR, and speech recognition. Bring supported Hugging Face checkpoints
 or train your own architecture.
 
+| New support | Try it |
+| --- | --- |
+| **DFlash2 speculative decoding for Qwen3.8-27B** | [DFlash2 recipe and benchmarks](recipes/qwen38/dflash2/README.md) |
+
+Measured on one **RTX 5090** with the RedHat Qwen3.8-27B INT4 target, shared
+INT8 vocabulary heads and eight-position verification (seven draft tokens):
+
+| DFlash2 drafter projections | Code tok/s | English tok/s | Translation tok/s |
+| --- | ---: | ---: | ---: |
+| BF16 | 223.6 | 140.1 | 212.5 |
+| INT8, packed attention and MLP | **239.8** | 139.6 | **221.0** |
+
+Median warmed decode throughput over three runs per fixture; batch-one greedy,
+64,000-token context capacity, 2,048-token output cap. Speed depends on proposal
+acceptance and workload. See the [recipe](recipes/qwen38/dflash2/README.md) for
+settings and the prototype's numerical and feature limitations.
+
 ## A local workspace, included
 
 Chat with text and images, translate documents, extract OCR Markdown, and ask
@@ -61,6 +78,7 @@ this release.
 | Chat with a local LLM in your browser | [Local workspace UI](recipes/ui/README.md) |
 | Translate through a web interface: text, terminology, subtitles, and documents | [Hy-MT2 translation workspace](recipes/translation/README.md) |
 | Try Qwen3.8-27B with MTP speculative decoding | [Qwen3.8 and MTP](recipes/qwen38/README.md) |
+| Try DFlash2 speculative decoding with Qwen3.8-27B | [DFlash2 recipe](recipes/qwen38/dflash2/README.md) |
 | Use Codex with a locally served Qwen model | [Codex Responses API](recipes/codex/README.md) |
 | Use Claude Code with a locally served Qwen model | [Claude Code endpoint](recipes/claude-code/README.md) |
 | Ask questions about your documents with sources | [Local Knowledge / RAG workspace](recipes/rag/README.md) |
