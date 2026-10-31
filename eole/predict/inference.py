@@ -210,9 +210,9 @@ class Inference(object):
             from eole.modules.dflash2 import DFlash2Adapter
 
             if config.beam_size != 1 or config.batch_size != 1 or len(config.gpu_ranks) != 1:
-                raise ValueError("DFlash2 prototype requires one GPU, batch_size=1 and beam_size=1")
+                raise ValueError("DFlash2 requires one GPU, batch_size=1 and beam_size=1")
             if config.top_k != 1 and config.temperature != 0:
-                raise ValueError("DFlash2 prototype supports greedy decoding only")
+                raise ValueError("DFlash2 supports greedy decoding only")
             from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
 
             adapter = DFlash2Adapter

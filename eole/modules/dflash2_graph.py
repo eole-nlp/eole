@@ -1,4 +1,4 @@
-"""Fixed-buffer CUDA graph execution for the experimental DFlash2 drafter."""
+"""Fixed-buffer CUDA graph execution for the DFlash2 drafter."""
 
 import weakref
 
@@ -23,8 +23,15 @@ class DFlash2GraphAdapter(DFlash2Adapter):
         object.__setattr__(model, "_target_ref", weakref.ref(target))
         return model
 
+    def _require_target(self):
+        target = self._target_ref()
+        if target is None:
+            raise RuntimeError("DFlash2 target is no longer available; reload the drafter with its target model")
+        return target
+
     @torch.no_grad()
     def prepare_draft_graph(self):
+        self._require_target()
         if hasattr(self, "_graph"):
             return self._graph.graph is not None
         if self.hidden_norm.weight.device.type != "cuda":
@@ -86,7 +93,7 @@ class DFlash2GraphAdapter(DFlash2Adapter):
         # here rather than a padding mask: anchor, block start, context start, count.
         control = tgt_pad_mask
         cfg = self.cfg
-        target = self._target_ref()
+        target = self._require_target()
         count = self.block_size
         cp = control[2] + torch.arange(count, device=features.device)
         qp = control[1] + torch.arange(count, device=features.device)
@@ -141,6 +148,8 @@ class DFlash2GraphAdapter(DFlash2Adapter):
             raise RuntimeError("DFlash2 target context was not initialized")
         if not 1 <= count < self.block_size:
             raise ValueError("Invalid DFlash2 proposal count")
+        if self._require_target() is not target:
+            raise ValueError("DFlash2 was prepared for a different target; reload the drafter")
         features, context_start = self.pending
         if not self._has_prefix:
             self._append_prefix(features, context_start)
@@ -152,6 +161,9 @@ class DFlash2GraphAdapter(DFlash2Adapter):
             raise ValueError("DFlash2 committed context exceeds the replay block")
         self._feature_buffer.zero_()
         self._feature_buffer[:, :n].copy_(features)
+        # Verification reads acceptance back to the CPU before the next draft,
+        # completing the previous H2D copy before this pinned buffer is rewritten.
+        # Pipelined callers must wait for that copy or use separate host buffers.
         self._host_metadata[1:] = torch.tensor([start, context_start, n], device="cpu")
         self._metadata[1:].copy_(self._host_metadata[1:], non_blocking=True)
         self._metadata[:1].copy_(anchor.reshape(1))

@@ -1,6 +1,6 @@
-# Experimental DFlash2 decoding
+# DFlash2 decoding
 
-This prototype runs the BF16 `incoai/Qwen3.8-27B-DFlash2` drafter with a
+DFlash2 runs the BF16 `incoai/Qwen3.8-27B-DFlash2` drafter with a
 converted Qwen3.8-27B target. It supports single-GPU, batch-one, text-only
 greedy inference. The seven-token proposal is verified in one eight-token
 target pass, using Eole's existing attention/GDN state commit and rollback.
@@ -49,7 +49,7 @@ gpu_ranks: [0]
 
 `dflash2_model` enables the external drafter and derives the proposal length from
 its checkpoint. `self_speculative_num_tokens` continues to control native MTP.
-The prototype has no workspace selector or deployment-template integration yet.
+This implementation has no workspace selector or deployment-template integration yet.
 
 There are two independent quantization settings:
 
@@ -65,11 +65,12 @@ The default HF checkpoint block size is 8, giving seven proposals. The graph pat
 uses the checkpoint block size; `self_speculative_num_tokens` does not override it.
 
 
-## Matched benchmark: INT8 vocabulary heads, block size 8
+## Matched benchmark: INT8 vocabulary heads
 
 All rows below use the same converted RedHat Qwen3.8-27B INT4 target and shared
 INT8 group-128 vocabulary head. This is the configuration of the original
 optimization table, not the INT4-head configuration used in the local Orwell script.
+DFlash2 uses block size 8 (seven proposals); native MTP uses three proposals.
 
 RTX 5090; Torch 2.14.1/CUDA 13.2; Triton 3.8.0; FLA 0.6.0; FlashAttention 2.8.3.
 The code, English mystery and Chinese-to-English prompts are the same
@@ -82,15 +83,18 @@ first token, prefill and warmup.
 
 | Variant | Code | English | Translation |
 | --- | ---: | ---: | ---: |
-| BF16, current graph | 223.6 | 140.1 | 212.5 |
-| INT8 drafter, packed attention + MLP | 239.8 | 139.6 | 221.0 |
+| Ordinary greedy | 85.8 | 85.9 | 85.4 |
+| Native MTP, 3 drafts | 188.7 | 140.7 | 181.5 |
+| DFlash2 BF16, current graph | 223.6 | 140.1 | 212.5 |
+| DFlash2 INT8 drafter, packed attention + MLP | 239.8 | 139.6 | 221.0 |
 
 The current BF16 graph baseline reproduces all nine original output token
 sequences. Its original measurement was 223.0 / 139.7 / 212.6 tokens/s; the small
 rerun difference is measurement variation, not an implementation improvement.
 
-Both rows are implemented by this PR. Target verification is compiled and
-graph-replayed in both cases. The drafter graph records eager kernels; it does
+Both DFlash2 rows are implemented by this PR; ordinary decoding and native MTP
+are matched controls. Target verification is compiled and graph-replayed in the
+speculative cases. The drafter graph records eager kernels; it does
 not itself use `torch.compile`.
 
 Compilation and kernel substitutions can change rounding, proposal acceptance
@@ -149,7 +153,7 @@ Drafter graph preparation is about one second. This is startup work, separate
 from target-verifier compilation (about a minute cold in these tests, or a few
 seconds to load a saved verifier). Warmup is excluded from the throughput tables.
 
-## Correctness and scope
+## Supported scope and numerical behaviour
 
 The small-model drafter calculation was compared with the upstream reference
 across cache updates and sliding-window eviction (maximum FP32 difference 3e-8).
@@ -162,12 +166,17 @@ Target FP32 normalization is unchanged. Drafter Q/K normalization remains FP32
 and preserves intermediate BF16 casts. Reduction ordering can still affect
 rounding, acceptance and later trajectories. Repeated runs are deterministic
 within each tested configuration, but bit-identical output to single-token
-ordinary decoding has not been established. Broader numerical and quality
-checks remain necessary before production use.
+ordinary decoding has not been established. The tables measure throughput,
+not task quality; they do not establish a quality gain or loss.
 
-The prototype supports single-GPU, batch-one, beam-one, text-only greedy
+DFlash2 supports single-GPU, batch-one, beam-one, text-only greedy
 inference. Sampling, tensor parallelism, vision inputs and other compile modes
 remain outside its tested scope.
 
 The adapted drafter implementation retains the upstream MIT notice in
 [`licenses/dflash-MIT.txt`](../../../licenses/dflash-MIT.txt).
+
+Unsupported requests are rejected explicitly rather than falling back with the
+external drafter still loaded. Disable `dflash2_model` for sampling, multiple
+sequences/hypotheses, image inputs, attention output, target prefixes or decode
+constraints. The normal native-MTP fallback behaviour is unchanged.

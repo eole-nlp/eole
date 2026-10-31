@@ -1,4 +1,4 @@
-"""Small CPU regressions for the experimental external drafter path."""
+"""Small CPU regressions for the external drafter path."""
 
 import copy
 import unittest
@@ -16,7 +16,6 @@ from eole.modules.dflash2 import (
     convolve,
     normalize_rotary,
     prepare_attention,
-    rotate,
     rotary_tables,
 )
 from eole.tests.test_speculative_decoding import _build_model, _generator
@@ -41,10 +40,10 @@ class TestDFlash2(unittest.TestCase):
     def test_split_half_rope(self):
         x = torch.tensor([[[[1.0, 2.0, 3.0, 4.0]]]])
         # At position zero RoPE must be the identity.
-        torch.testing.assert_close(rotate(x, torch.tensor([0]), 10000.0), x)
+        torch.testing.assert_close(apply_rotary(x, rotary_tables(torch.tensor([0]), 4, 10000.0, x.dtype)), x)
         angle = torch.tensor([1.0, 0.01, 1.0, 0.01])
         expected = x * angle.cos() + torch.tensor([[[[-3.0, -4.0, 1.0, 2.0]]]]) * angle.sin()
-        torch.testing.assert_close(rotate(x, torch.tensor([1]), 10000.0), expected)
+        torch.testing.assert_close(apply_rotary(x, rotary_tables(torch.tensor([1]), 4, 10000.0, x.dtype)), expected)
 
     @unittest.skipUnless(torch.cuda.is_available(), "Fused Q/K normalization requires CUDA")
     def test_fused_normalization_rope_preserves_fp32_math_and_rounding(self):
@@ -135,6 +134,51 @@ class TestDFlash2(unittest.TestCase):
             if "base_kernel" in name:
                 torch.nn.init.normal_(parameter, std=0.05)
         return model
+
+    def test_eager_draft_consumes_pending_context_once(self):
+        model = self._tiny_drafter()
+        embedding = torch.nn.Embedding(12, 16)
+        target = SimpleNamespace(
+            tgt_emb=lambda ids, step: embedding(ids), generator=torch.nn.Linear(16, 12, bias=False)
+        )
+        anchor = torch.tensor([[4]])
+        with torch.no_grad():
+            model.set_context(torch.randn(1, 5, 32), 0)
+            self.assertEqual(len(model.draft(target, anchor, 5, 7)), 7)
+            self.assertIsNone(model.pending)
+            saved = [tuple(t.clone() for t in layer.self_attn.cache) for layer in model.layers]
+            with self.assertRaisesRegex(RuntimeError, "not initialized"):
+                model.draft(target, anchor, 5, 7)
+            for layer, expected in zip(model.layers, saved):
+                for actual, reference in zip(layer.self_attn.cache, expected):
+                    torch.testing.assert_close(actual, reference, atol=0, rtol=0)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "Drafter target lifetime checks require CUDA")
+    def test_graph_rejects_changed_or_expired_target_before_replay(self):
+        import gc
+        import weakref
+
+        from eole.modules.dflash2_graph import DFlash2GraphAdapter
+
+        reference = self._tiny_drafter()
+        model = DFlash2GraphAdapter(reference.cfg).to(device="cuda", dtype=torch.bfloat16).eval()
+        model.load_state_dict(reference.state_dict())
+        target = torch.nn.Module()
+        target.tgt_emb = torch.nn.Embedding(12, 16, device="cuda", dtype=torch.bfloat16)
+        target.generator = torch.nn.Linear(16, 12, bias=False, device="cuda", dtype=torch.bfloat16)
+        object.__setattr__(model, "_target_ref", weakref.ref(target))
+        with torch.no_grad():
+            self.assertTrue(model.prepare_draft_graph())
+            model.set_context(torch.randn(1, 5, 32, device="cuda", dtype=torch.bfloat16), 0)
+            with self.assertRaisesRegex(ValueError, "different target"):
+                model.draft(torch.nn.Module(), torch.tensor([[4]], device="cuda"), 5, 7)
+            del target
+            gc.collect()
+            self.assertIsNone(model._target_ref())
+            with self.assertRaisesRegex(RuntimeError, "target is no longer available"):
+                model.prepare_draft_graph()
+            with self.assertRaisesRegex(RuntimeError, "target is no longer available"):
+                model.draft(torch.nn.Module(), torch.tensor([[4]], device="cuda"), 5, 7)
 
     @unittest.skipUnless(torch.cuda.is_available(), "Fixed-buffer replay requires CUDA")
     def test_draft_graph_wraparound_partial_append_and_request_reset(self):
@@ -284,6 +328,58 @@ class TestDFlash2(unittest.TestCase):
         torch.testing.assert_close(parts, full)
         self.assertEqual(part_attn["dflash2_features"].shape, (1, 3, 32))
         torch.testing.assert_close(part_attn["dflash2_features"], full_attn["dflash2_features"])
+
+    def test_unsupported_dflash2_requests_reject_without_fallback_message(self):
+        for constraint in (
+            "min_length",
+            "attention",
+            "images",
+            "sampling",
+            "n_best",
+            "target_prefix",
+            "ngram",
+            "ban_unk",
+            "batch",
+        ):
+            with self.subTest(constraint=constraint):
+                target, vocab = _build_model(123)
+                gen = _generator(target, vocab, True)
+                gen.dflash2 = Mock()
+                gen._log = Mock()
+                batch = {"srclen": torch.tensor([4]), "src": torch.tensor([[4, 5, 6, 7]]), "left_pad": True}
+                if constraint == "min_length":
+                    gen.min_length = 1
+                elif constraint == "images":
+                    batch["images"] = torch.zeros(1)
+                elif constraint == "sampling":
+                    gen.top_k = 5
+                elif constraint == "n_best":
+                    gen.n_best = 2
+                elif constraint == "target_prefix":
+                    batch["left_pad"] = False
+                    batch["srclen"] = torch.tensor([2])
+                elif constraint == "ngram":
+                    gen.block_ngram_repeat = 1
+                elif constraint == "ban_unk":
+                    gen.ban_unk_token = True
+                elif constraint == "batch":
+                    batch["src"] = batch["src"].repeat(2, 1)
+                    batch["srclen"] = torch.tensor([4, 4])
+                message = "greedy decoding only" if constraint == "sampling" else "disable dflash2_model"
+                with self.assertRaisesRegex(ValueError, message):
+                    gen.predict_batch(batch, constraint == "attention")
+                self.assertFalse(any("using normal decoding" in str(call) for call in gen._log.call_args_list))
+                gen.dflash2.draft.assert_not_called()
+
+    def test_native_mtp_constraint_fallback_still_decodes(self):
+        target, vocab = _build_model(123)
+        gen = _generator(target, vocab, True)
+        gen.min_length = 1
+        gen._log = Mock()
+        batch = {"srclen": torch.tensor([4]), "src": torch.tensor([[4, 5, 6, 7]]), "left_pad": True}
+        result = gen.predict_batch(batch, False)
+        self.assertGreater(len(result["predictions"][0][0]), 0)
+        self.assertTrue(any("using normal decoding" in str(call) for call in gen._log.call_args_list))
 
     def test_external_drafter_uses_feature_taps_and_target_verification(self):
         self._check_external_drafter(False)

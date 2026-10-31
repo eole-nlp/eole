@@ -1,4 +1,4 @@
-"""Single-GPU greedy DFlash2 prototype, with ordinary/MTP controls."""
+"""Single-GPU greedy DFlash2, with ordinary/MTP controls."""
 
 import argparse
 

@@ -15,17 +15,23 @@ or train your own architecture.
 | **DFlash2 speculative decoding for Qwen3.8-27B** | [DFlash2 recipe and benchmarks](recipes/qwen38/dflash2/README.md) |
 
 Measured on one **RTX 5090** with the RedHat Qwen3.8-27B INT4 target, shared
-INT8 vocabulary heads and eight-position verification (seven draft tokens):
+INT8 vocabulary heads. DFlash2 verifies eight positions (seven draft tokens);
+native MTP uses three draft tokens:
 
-| DFlash2 drafter projections | Code tok/s | English tok/s | Translation tok/s |
+| Decoding mode | Code tok/s | English tok/s | Translation tok/s |
 | --- | ---: | ---: | ---: |
-| BF16 | 223.6 | 140.1 | 212.5 |
-| INT8, packed attention and MLP | **239.8** | 139.6 | **221.0** |
+| Ordinary greedy | 85.8 | 85.9 | 85.4 |
+| Native MTP, 3 drafts | 188.7 | 140.7 | 181.5 |
+| DFlash2, BF16 drafter | 223.6 | 140.1 | 212.5 |
+| DFlash2, INT8 drafter with packed projections | **239.8** | 139.6 | **221.0** |
 
 Median warmed decode throughput over three runs per fixture; batch-one greedy,
 64,000-token context capacity, 2,048-token output cap. Speed depends on proposal
 acceptance and workload. See the [recipe](recipes/qwen38/dflash2/README.md) for
-settings and the prototype's numerical and feature limitations.
+settings, supported scope and numerical limitations.
+
+DFlash2 output is not guaranteed bit-identical to single-token decoding; these
+speed measurements are not a model-quality evaluation.
 
 ## A local workspace, included
 

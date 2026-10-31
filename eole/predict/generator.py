@@ -332,6 +332,15 @@ class GeneratorLM(Inference):
             and batch.get("images") is None
             and (getattr(self, "dflash2", None) is not None or len(getattr(self.model, "mtp_heads", [])) > 0)
         )
+        if getattr(self, "dflash2", None) is not None:
+            if not (self.top_k == 1 or self.temperature == 0):
+                raise ValueError("DFlash2 supports greedy decoding only (top_k=1 or temperature=0)")
+            if not use_spec_decoding:
+                raise ValueError(
+                    "DFlash2 requires batch_size=1, beam_size=1, n_best=1, min_length=0, "
+                    "text-only inputs, no attention output, no target prefix, and no decode constraints; "
+                    "disable dflash2_model to use normal decoding for this request"
+                )
         # Use the effective strategy, including speculative-config fallbacks.
         self.model.decoder._decode_graph_request_allowed = (
             parallel_paths == 1
@@ -347,10 +356,6 @@ class GeneratorLM(Inference):
                 "and a model with loaded MTP heads; using normal decoding"
             )
 
-        if getattr(self, "dflash2", None) is not None and not (self.top_k == 1 or self.temperature == 0):
-            raise ValueError("DFlash2 prototype supports greedy decoding only")
-        if getattr(self, "dflash2", None) is not None and not use_spec_decoding:
-            raise ValueError("DFlash2 request does not satisfy speculative decoding constraints")
         full_chunk_only = getattr(self.model.decoder, "_full_chunk_verifier", False) is True
         if use_spec_decoding:
             qwen_recurrent_mtp = (

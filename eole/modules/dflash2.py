@@ -1,8 +1,8 @@
-"""Experimental DFlash2 drafter; target verification remains in Eole.
+"""DFlash2 drafter; target verification remains in Eole.
 
 Adapted from https://github.com/z-lab/dflash/blob/main/dflash/model.py.
 Copyright (c) 2026 Z Lab. MIT license; see licenses/dflash-MIT.txt.
-The prototype uses PyTorch SDPA and stores only target
+The drafter uses PyTorch SDPA and stores only target
 context K/V in the drafter: speculative noise K/V never needs rollback.
 """
 
@@ -49,10 +49,6 @@ def normalize_rotary(x, norm, tables):
 
         return norm_rope(x, norm.weight, norm.eps, tables)
     return apply_rotary(norm(x), tables)
-
-
-def rotate(x, positions, theta):
-    return apply_rotary(x, rotary_tables(positions, x.shape[-1], theta, x.dtype))
 
 
 def prepare_attention(cfg, context_positions, positions, previous_positions, dtype):
@@ -250,17 +246,17 @@ class DFlash2Adapter(nn.Module):
         ):
             raise ValueError("DFlash2 checkpoint does not match target decoder dimensions")
         if cfg.sliding_window < 2 or any(t != "sliding_attention" for t in cfg.layer_types):
-            raise ValueError("Prototype requires sliding-attention drafter layers")
+            raise ValueError("DFlash2 requires sliding-attention drafter layers")
         ids = cfg.dflash_config["target_layer_ids"]
         if ids != sorted(set(ids)) or not ids or ids[0] < 0 or ids[-1] >= cfg.num_target_layers - 1:
             raise ValueError("DFlash2 feature taps must be unique, ordered, and precede final target normalization")
         if cfg.vocab_size != target.tgt_emb.embeddings.num_embeddings:
             raise ValueError("DFlash2 and target vocabularies must match")
         if target.tgt_emb.embeddings.weight.dtype != torch.bfloat16:
-            raise ValueError("DFlash2 prototype requires BF16 target activations and embeddings")
+            raise ValueError("DFlash2 requires BF16 target activations and embeddings")
         device = next(target.parameters()).device
         if device.type != "cuda":
-            raise ValueError("DFlash2 prototype requires a CUDA target")
+            raise ValueError("DFlash2 requires a CUDA target")
         with torch.device("meta"):
             model = cls(cfg)
         weights = load_file(str(Path(directory) / "model.safetensors"), device=str(device))
@@ -278,7 +274,7 @@ class DFlash2Adapter(nn.Module):
         The shared output head, norms, convolution controls and selector remain
         untouched. Reuse the runtime linear quantizer's groupwise RTN packing.
         """
-        from eole.modules.vocabulary_quantization import quantize_vocabulary_head
+        from eole.modules.vocabulary_quantization import quantize_vocabulary_head as quantize_projection
 
         if hasattr(self, "_graph"):
             raise ValueError("Quantize DFlash2 projections before preparing CUDA graphs")
@@ -288,10 +284,10 @@ class DFlash2Adapter(nn.Module):
             projections.extend(getattr(layer.mlp, name) for name in ("gate_proj", "up_proj", "down_proj"))
         if any(module.bias is not None for module in projections):
             raise ValueError("DFlash2 INT8 projections must be bias-free")
-        del projections  # Release each original module as soon as its replacement is ready.
+        del projections  # Drop validation references so replacing attributes can free the originals.
 
         def quantize(linear):
-            return quantize_vocabulary_head(linear, 8, 32)
+            return quantize_projection(linear, 8, 32)
 
         def joined(linears):
             with torch.device("meta"):
@@ -353,4 +349,6 @@ class DFlash2Adapter(nn.Module):
             hidden = layer(hidden, context, context_positions, positions, shared_attention)
         hidden = self.norm(hidden)[:, 1:]
         logits = target.generator(hidden)
-        return self.candidate_selector(hidden, logits, anchor)
+        proposals = self.candidate_selector(hidden, logits, anchor)
+        self.pending = None
+        return proposals
