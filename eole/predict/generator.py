@@ -14,6 +14,8 @@ from time import time, perf_counter
 
 
 class GeneratorLM(Inference):
+    dflash2 = None
+
     @classmethod
     def validate_task(cls, task):
         if task != ModelType.DECODER:
@@ -184,7 +186,17 @@ class GeneratorLM(Inference):
                     return_hidden=speculative,
                     return_all_hidden=speculative,
                 )
-                if speculative and getattr(self.model.mtp_heads[0], "emb_norm", None) is not None:
+                if speculative and getattr(self, "dflash2", None) is not None:
+                    self.dflash2.reset()
+                    self.dflash2.set_context(self._dflash2_features, src.size(1) - self._dflash2_features.size(1))
+                    self.dflash2.draft(
+                        self.model, decoded[0].argmax(-1).reshape(1, 1), src.size(1), self.self_speculative_num_tokens
+                    )
+                if (
+                    speculative
+                    and getattr(self, "dflash2", None) is None
+                    and getattr(self.model.mtp_heads[0], "emb_norm", None) is not None
+                ):
                     self.model.init_mtp_cache(decoded[3], src, self.max_length)
                 if decode_strategy is not None:
                     # Selection also initializes lazy CUDA code on first use.
@@ -195,6 +207,9 @@ class GeneratorLM(Inference):
         finally:
             if speculative:
                 self.model.clear_mtp_cache()
+                if getattr(self, "dflash2", None) is not None:
+                    self.dflash2.reset()
+                    self._dflash2_features = None
             decoder._disable_cache()
             decoder._prefill_cache = prefix_cache
         warmed.add(key)
@@ -239,6 +254,9 @@ class GeneratorLM(Inference):
         try:
             return self._predict_batch_with_strategy_impl(batch, decode_strategy, streamer=streamer)
         except Exception:
+            if getattr(self, "dflash2", None) is not None:
+                self.dflash2.reset()
+                self._dflash2_features = None
             # Restore request-local MTP attention state even if prefill,
             # drafting, compilation, or streaming failed before normal cleanup.
             if hasattr(self.model, "clear_mtp_cache"):
@@ -312,8 +330,17 @@ class GeneratorLM(Inference):
             and not decode_strategy.return_attention
             and decode_strategy.target_prefix is None
             and batch.get("images") is None
-            and len(getattr(self.model, "mtp_heads", [])) > 0
+            and (getattr(self, "dflash2", None) is not None or len(getattr(self.model, "mtp_heads", [])) > 0)
         )
+        if getattr(self, "dflash2", None) is not None:
+            if not (self.top_k == 1 or self.temperature == 0):
+                raise ValueError("DFlash2 supports greedy decoding only (top_k=1 or temperature=0)")
+            if not use_spec_decoding:
+                raise ValueError(
+                    "DFlash2 requires batch_size=1, beam_size=1, n_best=1, min_length=0, "
+                    "text-only inputs, no attention output, no target prefix, and no decode constraints; "
+                    "disable dflash2_model to use normal decoding for this request"
+                )
         # Use the effective strategy, including speculative-config fallbacks.
         self.model.decoder._decode_graph_request_allowed = (
             parallel_paths == 1
@@ -331,7 +358,10 @@ class GeneratorLM(Inference):
 
         full_chunk_only = getattr(self.model.decoder, "_full_chunk_verifier", False) is True
         if use_spec_decoding:
-            qwen_recurrent_mtp = getattr(self.model.mtp_heads[0], "emb_norm", None) is not None
+            qwen_recurrent_mtp = (
+                getattr(self, "dflash2", None) is not None
+                or getattr(self.model.mtp_heads[0], "emb_norm", None) is not None
+            )
             draft_count = self.self_speculative_num_tokens if qwen_recurrent_mtp else len(self.model.mtp_heads)
             verify_len = draft_count + 1 if full_chunk_only else min(draft_count + 1, self.max_length)
             self.model.decoder._verify_graph_sequence_length = verify_len
@@ -461,7 +491,12 @@ class GeneratorLM(Inference):
                 if use_spec_decoding:
                     if step == 0:
                         log_probs, attn, hidden, all_hidden = decoded
-                        if getattr(self.model.mtp_heads[0], "emb_norm", None) is not None:
+                        if getattr(self, "dflash2", None) is not None:
+                            self.dflash2.reset()
+                            self.dflash2.set_context(
+                                self._dflash2_features, prefill_length - self._dflash2_features.size(1)
+                            )
+                        elif getattr(self.model.mtp_heads[0], "emb_norm", None) is not None:
                             self.model.init_mtp_cache(all_hidden, decoder_input, self.max_length)
                     else:
                         log_probs, attn, hidden = decoded
@@ -517,8 +552,8 @@ class GeneratorLM(Inference):
             if use_spec_decoding and self._speculative_drafted_tokens:
                 accepted_rate = self._speculative_accepted_tokens / self._speculative_drafted_tokens
                 self._log(
-                    "MTP draft acceptance: "
-                    f"{self._speculative_accepted_tokens}/{self._speculative_drafted_tokens} tokens "
+                    ("DFlash2 draft acceptance: " if self.dflash2 is not None else "MTP draft acceptance: ")
+                    + f"{self._speculative_accepted_tokens}/{self._speculative_drafted_tokens} tokens "
                     f"({accepted_rate:.1%})"
                 )
                 position_rates = [
@@ -528,7 +563,14 @@ class GeneratorLM(Inference):
                     )
                     if drafted
                 ]
-                self._log("MTP acceptance by draft position: " + ", ".join(position_rates))
+                self._log(
+                    (
+                        "DFlash2 acceptance by draft position: "
+                        if self.dflash2 is not None
+                        else "MTP acceptance by draft position: "
+                    )
+                    + ", ".join(position_rates)
+                )
                 if self._mtp_profile_enabled:
                     torch.cuda.synchronize()
                     phase_ms = {
@@ -548,6 +590,9 @@ class GeneratorLM(Inference):
             if use_spec_decoding and hasattr(self.model, "clear_mtp_cache"):
                 self.model.clear_mtp_cache()
 
+            if getattr(self, "dflash2", None) is not None:
+                self.dflash2.reset()
+                self._dflash2_features = None
             self.model.decoder._disable_cache()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
@@ -631,13 +676,18 @@ class GeneratorLM(Inference):
         if self._mtp_profile_enabled:
             draft_events = (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
             draft_events[0].record()
-        drafts = self.model.draft_mtp_tokens(
-            hidden,
-            seed,
-            hidden_position,
-            max_tokens=min(self.self_speculative_num_tokens, remaining - 1),
-            profile_events=self._mtp_profile_events if self._mtp_profile_enabled else None,
-        )
+        if getattr(self, "dflash2", None) is not None:
+            drafts = self.dflash2.draft(
+                self.model, seed, hidden_position + 1, min(self.self_speculative_num_tokens, remaining - 1)
+            )
+        else:
+            drafts = self.model.draft_mtp_tokens(
+                hidden,
+                seed,
+                hidden_position,
+                max_tokens=min(self.self_speculative_num_tokens, remaining - 1),
+                profile_events=self._mtp_profile_events if self._mtp_profile_enabled else None,
+            )
         if draft_events is not None:
             draft_events[1].record()
             self._mtp_profile_events["draft"].append(draft_events)
@@ -686,7 +736,8 @@ class GeneratorLM(Inference):
         except Exception:
             for layer in linear_layers:
                 layer.discard_speculation()
-            self.model.commit_mtp_draft(0)
+            if getattr(self, "dflash2", None) is None:
+                self.model.commit_mtp_draft(0)
             raise
         finally:
             self.model.decoder._speculative_forward = False
@@ -749,7 +800,8 @@ class GeneratorLM(Inference):
             state_commit_events = (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
             state_commit_events[0].record()
         committed_inputs = min(accepted + 1, advance_count) if fast_chunk_advance else accepted + 1
-        self.model.commit_mtp_draft(committed_inputs)
+        if getattr(self, "dflash2", None) is None:
+            self.model.commit_mtp_draft(committed_inputs)
 
         # The verifier consumed seed plus all draft inputs. Commit only those
         # through the last accepted draft; attention cache writes after that
@@ -780,11 +832,14 @@ class GeneratorLM(Inference):
                 if any(any(done) for done in decode_strategy.is_finished_list):
                     break
 
-        self.model.set_mtp_context(
-            verify_hidden[:, : last_advanced + 1, :],
-            predicted[:, : last_advanced + 1],
-            hidden_position + 1,
-        )
+        if getattr(self, "dflash2", None) is not None:
+            self.dflash2.set_context(self._dflash2_features[:, : last_advanced + 1], hidden_position + 1)
+        else:
+            self.model.set_mtp_context(
+                verify_hidden[:, : last_advanced + 1, :],
+                predicted[:, : last_advanced + 1],
+                hidden_position + 1,
+            )
 
         # The verifier's hidden at `last_advanced` produced the current token,
         # so it is the correct context for drafting the next chunk.
