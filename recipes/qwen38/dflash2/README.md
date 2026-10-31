@@ -6,11 +6,10 @@ greedy inference. The seven-token proposal is verified in one eight-token
 target pass, using Eole's existing attention/GDN state commit and rollback.
 
 The drafter shares the target's embeddings and vocabulary projection. Its
-five-layer backbone uses PyTorch SDPA. In compile mode 0, each pure MLP
-branch (normalization, dynamic convolutions and MLP) replays through a CUDA
-graph. The graphs are prepared during model loading, using the same eager
-kernels. Attention/cache handling and the candidate selector stay eager;
-target verification also uses the existing compile/CUDA graph path.
+five-layer backbone uses PyTorch SDPA. Compile mode 0 replays the complete
+proposal block through one CUDA graph, prepared during model loading. Fixed
+context K/V buffers retain only committed target states; speculative noise K/V
+is temporary. Target verification uses the existing compile/CUDA graph path.
 Intermediate target features and drafter context are bounded by its 2,048-token
 sliding window. Chunked prefill is supported; persistent prefix reuse is disabled
 for this path because existing prefix entries do not contain intermediate features.
