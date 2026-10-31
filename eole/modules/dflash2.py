@@ -186,25 +186,15 @@ class Layer(nn.Module):
         self.input_layernorm = Norm(cfg.hidden_size, cfg.rms_norm_eps)
         self.post_attention_layernorm = Norm(cfg.hidden_size, cfg.rms_norm_eps)
         self.attention_conv, self.mlp_conv = DynamicConv(cfg), DynamicConv(cfg)
-        self._mlp_graph = None
-        self._mlp_graph_mask = None
 
     def forward(self, hidden, context, context_positions, positions, shared_attention=None):
         x, dynamic = self.attention_conv.prepare(self.input_layernorm(hidden))
         hidden = hidden + self.attention_conv.finish(
             self.self_attn(x, context, context_positions, positions, shared_attention), dynamic
         )
-        if (
-            self._mlp_graph is not None
-            and not self.training
-            and not torch.is_grad_enabled()
-            and hidden.shape[:2] == (1, self._mlp_graph_mask.size(-1))
-        ):
-            return self._mlp_graph(hidden, tgt_pad_mask=self._mlp_graph_mask)
-        return self._forward_mlp_branch(hidden)
+        return self.forward_mlp(hidden)
 
-    def _forward_mlp_branch(self, hidden, *, tgt_pad_mask=None):
-        # Pure branch: no attention cache, accepted-prefix state, or RNG.
+    def forward_mlp(self, hidden):
         x, dynamic = self.mlp_conv.prepare(self.post_attention_layernorm(hidden))
         return hidden + self.mlp_conv.finish(self.mlp(x), dynamic)
 
@@ -290,7 +280,7 @@ class DFlash2Adapter(nn.Module):
         """
         from eole.modules.vocabulary_quantization import quantize_vocabulary_head
 
-        if hasattr(self, "_graph") or any(layer._mlp_graph is not None for layer in self.layers):
+        if hasattr(self, "_graph"):
             raise ValueError("Quantize DFlash2 projections before preparing CUDA graphs")
         projections = [self.fc]
         for layer in self.layers:
@@ -330,33 +320,6 @@ class DFlash2Adapter(nn.Module):
                 mlp.gate_proj = quantize(mlp.gate_proj)
                 mlp.up_proj = quantize(mlp.up_proj)
             mlp.down_proj = quantize(mlp.down_proj)
-
-    @torch.no_grad()
-    def prepare_mlp_graphs(self):
-        """Prepare full-block MLP replay at load time; shortened tails stay eager.
-
-        Only CUDA graph recording is added: the same eager kernels, including
-        FP32 normalization, execute in the same order. Cache-dependent attention
-        and proposal selection remain outside these graphs.
-        """
-        from eole.utils.decoder_graph import DecoderGraph
-
-        parameter = self.hidden_norm.weight
-        if parameter.device.type != "cuda":
-            raise ValueError("DFlash2 MLP graphs require a CUDA drafter")
-        dummy = torch.zeros(1, self.block_size, self.cfg.hidden_size, device=parameter.device, dtype=parameter.dtype)
-        for layer in self.layers:
-            if layer._mlp_graph is not None:
-                continue
-            # Reuse the decoder runner's mask input as an inert block-layout
-            # token; this branch itself performs no attention or masking.
-            layer._mlp_graph_mask = torch.zeros(1, 1, self.block_size, device=parameter.device, dtype=torch.bool)
-            layer._mlp_graph = DecoderGraph(layer._forward_mlp_branch, layer._forward_mlp_branch)
-            # Two warm calls and capture/replay, all before a real request.
-            for _ in range(3):
-                layer._mlp_graph(dummy, tgt_pad_mask=layer._mlp_graph_mask)
-        torch.cuda.synchronize(parameter.device)
-        return sum(layer._mlp_graph.graph is not None for layer in self.layers)
 
     def reset(self):
         self.pending = None

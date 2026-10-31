@@ -136,46 +136,6 @@ class TestDFlash2(unittest.TestCase):
                 torch.nn.init.normal_(parameter, std=0.05)
         return model
 
-    def test_mlp_graph_replays_full_block_and_leaves_tail_eager(self):
-        layer = self._tiny_drafter().layers[0]
-        reference = copy.deepcopy(layer)
-        # Isolate branch dispatch from attention's persistent cache.
-        layer.self_attn.forward = lambda hidden, *args: torch.zeros_like(hidden)
-        reference.self_attn.forward = layer.self_attn.forward
-        layer._mlp_graph_mask = torch.zeros(1, 1, 8, dtype=torch.bool)
-        layer._mlp_graph = Mock(side_effect=layer._forward_mlp_branch)
-        with torch.no_grad():
-            for length in (8, 3, 8):
-                hidden = torch.randn(1, length, 16)
-                expected = reference(hidden, None, None, None)
-                actual = layer(hidden, None, None, None)
-                torch.testing.assert_close(actual, expected, rtol=0, atol=0)
-        self.assertEqual(layer._mlp_graph.call_count, 2)
-        with torch.enable_grad():
-            layer(torch.randn(1, 8, 16), None, None, None)
-        layer.train()
-        with torch.no_grad():
-            layer(torch.randn(1, 8, 16), None, None, None)
-        self.assertEqual(layer._mlp_graph.call_count, 2)
-
-    @unittest.skipUnless(torch.cuda.is_available(), "CUDA graph replay requires a GPU")
-    def test_mlp_cuda_graph_matches_eager_without_attention_state(self):
-        torch.manual_seed(91)
-        model = self._tiny_drafter().to(device="cuda", dtype=torch.bfloat16)
-        with torch.no_grad():
-            self.assertEqual(model.prepare_mlp_graphs(), 2)
-            runners = [layer._mlp_graph for layer in model.layers]
-            self.assertEqual(model.prepare_mlp_graphs(), 2)
-            self.assertEqual(runners, [layer._mlp_graph for layer in model.layers])
-            for _ in range(2):
-                hidden = torch.randn(1, 8, 16, device="cuda", dtype=torch.bfloat16)
-                for layer in model.layers:
-                    actual = layer._mlp_graph(hidden, tgt_pad_mask=layer._mlp_graph_mask).clone()
-                    expected = layer._forward_mlp_branch(hidden)
-                    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
-                    self.assertIsNone(layer.self_attn.cache)
-            self.assertIsNone(model.pending)
-
     @unittest.skipUnless(torch.cuda.is_available(), "Fixed-buffer replay requires CUDA")
     def test_draft_graph_wraparound_partial_append_and_request_reset(self):
         import weakref
@@ -193,14 +153,14 @@ class TestDFlash2(unittest.TestCase):
         with torch.no_grad():
             self.assertTrue(model.prepare_draft_graph())
             graph = model._graph.graph
-            pointers = [buffer.data_ptr() for pair in model._fixed for buffer in pair]
+            pointers = [buffer.data_ptr() for pair in model._context_kv for buffer in pair]
             self.assertTrue(model.prepare_draft_graph())
             first_request = []
             for request in range(2):
                 torch.manual_seed(123)
                 reference.reset()
                 model.reset()
-                self.assertTrue((model._positions == -1).all())
+                self.assertTrue((model._context_positions == -1).all())
                 with self.assertRaisesRegex(RuntimeError, "not initialized"):
                     model.draft(target, torch.tensor([[4]], device="cuda"), 5, 7)
                 for start, length in ((5, 5), (8, 3), (10, 2), (14, 4), (15, 1)):
@@ -219,21 +179,21 @@ class TestDFlash2(unittest.TestCase):
                         first_request.append(result)
                     else:
                         torch.testing.assert_close(result, first_request.pop(0), atol=0, rtol=0)
-                    for layer, (key, value) in zip(reference.layers, model._fixed):
+                    for layer, (key, value) in zip(reference.layers, model._context_kv):
                         expected_key, expected_value, positions = layer.self_attn.cache
                         indices = positions.remainder(reference.cfg.sliding_window)
-                        torch.testing.assert_close(model._positions[indices], positions)
+                        torch.testing.assert_close(model._context_positions[indices], positions)
                         torch.testing.assert_close(key.index_select(2, indices), expected_key, atol=0.03, rtol=0.02)
                         torch.testing.assert_close(value.index_select(2, indices), expected_value, atol=0.03, rtol=0.02)
                 self.assertIs(model._graph.graph, graph)
-                self.assertEqual(pointers, [buffer.data_ptr() for pair in model._fixed for buffer in pair])
+                self.assertEqual(pointers, [buffer.data_ptr() for pair in model._context_kv for buffer in pair])
 
     def test_drafter_quantization_rejects_biases_and_prepared_graphs(self):
         model = self._tiny_drafter()
-        model.layers[0]._mlp_graph = Mock()
+        model._graph = Mock()
         with self.assertRaisesRegex(ValueError, "before preparing"):
             model.quantize_projections()
-        model.layers[0]._mlp_graph = None
+        del model._graph
         model.layers[0].self_attn.q_proj.bias = torch.nn.Parameter(torch.zeros(16))
         with self.assertRaisesRegex(ValueError, "bias-free"):
             model.quantize_projections(fuse_kvq=True, fuse_gate=True)

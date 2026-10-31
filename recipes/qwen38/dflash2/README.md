@@ -100,13 +100,12 @@ physical cache behavior and generated sequences differ. Eole translation emits
 the Eole optimization's benefit, while the remaining cross-engine gap needs
 further investigation.
 
-## MLP-branch CUDA graphs
+## Earlier MLP-branch experiment
 
-Compile mode 0 also records the cache-independent MLP branches and replays them
-for full eight-token draft blocks. Shortened tails, training and gradient-enabled
-calls use the eager branch. Preparation happens during loading (about 0.30 s on
-the test 5090), avoiding capture work in the first request. This adds graph
-recording without additional `torch.compile` programs or changes to normalization.
+The earlier prototype recorded only the cache-independent MLP branches. The
+full-drafter graph below supersedes this experiment; the separate MLP graph
+runner and dispatch have been removed to keep a single replay path. The numbers
+below are retained as historical measurements.
 
 The same longer-workload benchmark above, shared INT8 vocabulary heads and
 native BF16 drafter, gives these medians:
@@ -118,8 +117,7 @@ native BF16 drafter, gives these medians:
 | Translation | 147.2 | 158.2 | +7.5% |
 
 All nine before/after pairs have exactly identical token IDs and acceptance
-counts. Dedicated tests exercise real GPU capture/replay, eager tails and
-training/gradient fallbacks. The drafter backbone remains BF16 by default;
+counts. Current tests exercise the replacement full-drafter capture/replay path. The drafter backbone remains BF16 by default;
 experimental INT8 and packed-projection trials changed output trajectories and
 were not a consistent improvement at that stage, before full-drafter replay.
 The historical native MTP INT8-head results were faster on English and translation,
