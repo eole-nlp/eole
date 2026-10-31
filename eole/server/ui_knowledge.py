@@ -531,7 +531,10 @@ def register_knowledge(app, server, workspace):
                             top_p=0.0,
                             temperature=1.0,
                             report_time=True,
-                            self_speculative_decoding=model.engine.config.self_speculative_decoding,
+                            self_speculative_decoding=bool(
+                                model.engine.config.self_speculative_decoding
+                                or getattr(model.engine.config, "dflash2_model", None)
+                            ),
                         )
                         submission = perf_counter()
                         async for item in workspace.generate(model, native, settings, cancel, row, budget_text=prompt):

@@ -133,7 +133,7 @@ function markdown(raw) {
 }
 function statsHTML(s) {
   if (!s) return "";
-  return `<div class="response-stats"><span><strong>${format(s.decode_tokens_per_second)}</strong> tok/s decode</span><span>${format(s.first_token_seconds, 2)} s first token</span><span>${s.output_tokens ?? "—"} output tokens</span><span>${s.mtp_active ? "MTP active · " + format((s.mtp_acceptance ?? 0) * 100, 0) + "% acceptance" : "MTP off"}</span>${s.warmup_seconds > 1 ? `<span>${format(s.warmup_seconds)} s warmup</span>` : ""}${s.cancelled ? "<span>Stopped</span>" : s.finish_reason === "length" ? "<span>Output limit reached</span>" : ""}</div>`;
+  return `<div class="response-stats"><span><strong>${format(s.decode_tokens_per_second)}</strong> tok/s decode</span><span>${format(s.first_token_seconds, 2)} s first token</span><span>${s.output_tokens ?? "—"} output tokens</span><span>${speculationLabel(s) !== "Off" ? speculationLabel(s) + " active · " + format((s.mtp_acceptance ?? 0) * 100, 0) + "% acceptance" : "Speculation off"}</span>${s.warmup_seconds > 1 ? `<span>${format(s.warmup_seconds)} s warmup</span>` : ""}${s.cancelled ? "<span>Stopped</span>" : s.finish_reason === "length" ? "<span>Output limit reached</span>" : ""}</div>`;
 }
 function messageHTML(m, index) {
   const assistant = m.role === "assistant";
@@ -171,8 +171,51 @@ function setBusy(value) {
     ? "Preparing model / reading prompt…"
     : "Ready when you are";
   if (!value) activeRequest = null;
+  updateSpeculation();
 }
 const headPreferences = new Map();
+const speculationPreferences = new Map();
+const draftPreferences = new Map();
+function speculationLabel(stats) {
+  const mode = stats.speculation_mode ?? (stats.mtp_active ? "mtp" : "off");
+  return mode === "dflash2" ? "DFlash2" : mode === "mtp" ? "MTP" : "Off";
+}
+function updateSpeculation() {
+  const model = selectedModel();
+  if (!model) return;
+  const options = model.speculation ?? {
+    default: model.mtp_configured ? "mtp" : "off",
+    mtp_available: model.mtp_configured,
+  };
+  const select = $("speculation");
+  select.querySelector('[value="mtp"]').disabled = !options.mtp_available;
+  select.querySelector('[value="dflash2"]').disabled =
+    !options.dflash2_available;
+  const preferred =
+    speculationPreferences.get(model.id) ?? options.default ?? "off";
+  select.value =
+    preferred === "dflash2" && !options.dflash2_available
+      ? options.mtp_available
+        ? "mtp"
+        : "off"
+      : preferred === "mtp" && !options.mtp_available
+        ? "off"
+        : preferred;
+  $("draft-precision").value =
+    draftPreferences.get(model.id) ?? options.dflash2_quantization ?? "none";
+  $("draft-precision-label").hidden = select.value !== "dflash2";
+  const eligible = $("preset").value === "fast";
+  select.disabled = busy || !eligible;
+  $("draft-precision").disabled = busy || !eligible;
+  $("speculation-note").textContent = !eligible
+    ? "Creative mode uses ordinary decoding. Your speculation choice is kept for Fast mode."
+    : select.value === "dflash2"
+      ? `DFlash2 · ${options.dflash2_drafts ?? "—"} draft tokens · text-only. Image conversations use ordinary decoding. Drafter precision is separate from LM head precision.`
+      : options.dflash2_available
+        ? "DFlash2 is available. Switching to or from it reloads this model."
+        : (options.dflash2_reason ??
+          "DFlash2 is not configured for this model.");
+}
 function selectedModel() {
   return state?.models.find((m) => m.id === $("model").value);
 }
@@ -191,6 +234,8 @@ function requestPayload(messages, maxTokens = Number($("max-tokens").value)) {
     preset: $("preset").value,
     thinking: $("thinking").checked,
     vocabulary_quantization: $("head-quantization").value,
+    speculation: $("speculation").value,
+    dflash2_quantization: $("draft-precision").value,
     temperature: Number($("temperature").value),
   };
 }
@@ -304,8 +349,10 @@ function updateContext() {
   const model = selectedModel();
   if (!model) return;
   $("model-caption").textContent =
-    `${model.weight_bits ? "INT" + model.weight_bits + " · " : ""}${model.dtype.replace("torch.", "")} compute · ${model.vocabulary_quantization === "none" ? "native" : model.vocabulary_quantization?.toUpperCase() ?? "native"} head · ${model.context_length ? Number(model.context_length).toLocaleString() + " context" : "context automatic"} · ${state.compile_enabled ? "compiled mode " + state.compile_mode : "eager"}`;
-  $("head-quantization").value = headPreferences.get(model.id) ?? model.vocabulary_quantization ?? "int4";
+    `${model.weight_bits ? "INT" + model.weight_bits + " · " : ""}${model.dtype.replace("torch.", "")} compute · ${model.vocabulary_quantization === "none" ? "native" : (model.vocabulary_quantization?.toUpperCase() ?? "native")} head · ${model.context_length ? Number(model.context_length).toLocaleString() + " context" : "context automatic"} · ${state.compile_enabled ? "compiled mode " + state.compile_mode : "eager"}`;
+  $("head-quantization").value =
+    headPreferences.get(model.id) ?? model.vocabulary_quantization ?? "int4";
+  updateSpeculation();
   const max = Number(model.max_tokens) || 4096;
   $("max-tokens").max = max;
   if (Number($("max-tokens").value) > max) $("max-tokens").value = max;
@@ -403,7 +450,7 @@ function renderMonitor() {
         .slice(0, 12)
         .map(
           (r) =>
-            `<tr><td>${escapeHTML(r.model)}<small>${escapeHTML(r.task ? r.task + " · " + r.status : r.status)} · ${new Date(r.timestamp * 1000).toLocaleTimeString()}</small></td><td>${r.prompt_tokens ?? "—"}</td><td>${r.output_tokens ?? "—"}</td><td>${format(r.first_token_seconds, 2)} s</td><td>${format(r.decode_tokens_per_second)} t/s</td><td>${r.mtp_active ? format(r.mtp_acceptance * 100, 0) + "%" : "Off"}</td></tr>`,
+            `<tr><td>${escapeHTML(r.model)}<small>${escapeHTML(r.task ? r.task + " · " + r.status : r.status)} · ${new Date(r.timestamp * 1000).toLocaleTimeString()}</small></td><td>${r.prompt_tokens ?? "—"}</td><td>${r.output_tokens ?? "—"}</td><td>${format(r.first_token_seconds, 2)} s</td><td>${format(r.decode_tokens_per_second)} t/s</td><td>${speculationLabel(r) !== "Off" ? speculationLabel(r) + " · " + format(r.mtp_acceptance * 100, 0) + "%" : "Off"}</td></tr>`,
         )
         .join("")
     : '<tr><td colspan="6" class="empty-cell">No requests yet. Start a conversation to see real measurements.</td></tr>';
@@ -421,10 +468,12 @@ function renderAPI() {
     ],
     ["Model", $("model").value],
     [
-      "Configured MTP",
-      selectedModel()?.mtp_configured
-        ? "Enabled for eligible requests"
-        : "Disabled",
+      "Speculation",
+      $("speculation").value === "dflash2"
+        ? "DFlash2 · text-only greedy"
+        : $("speculation").value === "mtp"
+          ? "MTP · eligible requests"
+          : "Off",
     ],
     [
       "Hardware",
@@ -678,8 +727,16 @@ $("model").onchange = () => {
 $("head-quantization").onchange = () => {
   headPreferences.set($("model").value, $("head-quantization").value);
 };
+$("speculation").onchange = () => {
+  speculationPreferences.set($("model").value, $("speculation").value);
+  updateSpeculation();
+};
+$("draft-precision").onchange = () => {
+  draftPreferences.set($("model").value, $("draft-precision").value);
+};
 $("preset").onchange = () => {
   $("temperature").disabled = $("preset").value === "fast";
+  updateSpeculation();
 };
 $("temperature").disabled = true;
 $("attach").onclick = () => $("file").click();

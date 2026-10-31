@@ -11,6 +11,7 @@ import uuid
 from eole.predict.generator import GeneratorLM
 from eole.server.openai_chat import _OpenAIStreamParser, _chat_prompt_opens_thinking
 from eole.server.streaming import inference_stream
+from eole.server.ui_speculation import defaults, selection
 
 
 def event(event_type, **data):
@@ -24,19 +25,26 @@ class Workspace:
         self.server = server
         self.lock = server.model_lock if getattr(server, "model_policy", None) == "single" else asyncio.Lock()
 
-    async def prepare(self, model_id, model, row, vocabulary_quantization=None):
-        # Head packing happens at engine construction, never as a token-loop setting.
-        # Reload from the checkpoint to restore Native or change packing precision.
+    async def prepare(
+        self, model_id, model, row, vocabulary_quantization=None, speculation=None, dflash2_quantization=None
+    ):
+        # These are engine-construction settings, not token-loop overrides.
+        updates = {}
+        pre_config = getattr(model, "pre_config", {})
         if vocabulary_quantization is not None:
-            configured = model.pre_config.get("vocabulary_quantization", "none")
-            current = (
-                getattr(model.engine.config, "vocabulary_quantization", configured) if model.loaded else configured
-            )
-            if current != vocabulary_quantization:
-                row["status"] = "loading"
-                if model.loaded:
-                    await self.server.unload_model(model_id)
-                model.pre_config = {**model.pre_config, "vocabulary_quantization": vocabulary_quantization}
+            updates["vocabulary_quantization"] = vocabulary_quantization
+        if speculation is not None:
+            mode = selection(model, speculation)
+            updates["dflash2_model"] = defaults(model)["path"] if mode == "dflash2" else None
+            if mode == "dflash2":
+                updates["dflash2_quantization"] = dflash2_quantization or defaults(model)["quantization"]
+        current = model.engine.config if model.loaded else None
+        changed = any(getattr(current, key, pre_config.get(key)) != value for key, value in updates.items())
+        if changed:
+            row["status"] = "loading"
+            if model.loaded:
+                await self.server.unload_model(model_id)
+            model.pre_config = {**pre_config, **updates}
         if self.server is not None and hasattr(self.server, "prepare_model"):
             await self.server.prepare_model(model_id, row)
         elif not model.loaded:

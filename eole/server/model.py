@@ -67,6 +67,7 @@ class Server(object):
                 pre_config=model.get("config", {}),
                 translation_config=model.get("translation", {}),
                 warmup=model.get("warmup", False),
+                dflash2_config=model.get("dflash2", {}),
             )
             if model.get("preload", False):
                 self.models[model_id].load()
@@ -153,6 +154,7 @@ class Model(object):
         pre_config={},
         translation_config=None,
         warmup=False,
+        dflash2_config=None,
     ):
         self.loaded = False
         self.engine = None
@@ -165,6 +167,23 @@ class Model(object):
         self.pre_config = pre_config
         self.translation_config = translation_config or {}
         self.warmup_on_load = warmup
+        dflash2_config = dflash2_config or {}
+        if set(dflash2_config) - {"path", "quantization"}:
+            raise ValueError("dflash2 accepts path and quantization only")
+        path = dflash2_config.get("path", pre_config.get("dflash2_model"))
+        precision = dflash2_config.get("quantization", pre_config.get("dflash2_quantization", "none"))
+        if precision not in ("none", "int8") or (path is not None and not isinstance(path, str)):
+            raise ValueError("dflash2 requires a local path and none/int8 projection quantization")
+        self.speculation_defaults = dict(
+            mode=(
+                "dflash2"
+                if pre_config.get("dflash2_model")
+                else "mtp" if pre_config.get("self_speculative_decoding") else "off"
+            ),
+            mtp=bool(pre_config.get("self_speculative_decoding")),
+            path=os.path.expanduser(os.path.expandvars(path)) if path else None,
+            quantization=precision,
+        )
         self.request_queue = asyncio.Queue()
         self.batch_size = pre_config.get("batch_size", 8)
         self.batch_timeout = pre_config.get("batch_timeout", 0.1)

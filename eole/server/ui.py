@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 import eole
 from eole.server.ui_images import ChatImage, chat_prompt, image_capabilities
 from eole.server.ui_runtime import Workspace, event
+from eole.server.ui_speculation import capabilities, selection
 from eole.server.ui_knowledge import register_knowledge
 from eole.server.ui_ocr import register_ocr
 from eole.server.ui_ocr_models import ocr_adapter
@@ -35,6 +36,8 @@ class UIChat(BaseModel):
     max_tokens: int = Field(default=4096, ge=1, le=32768)
     preset: str = Field(default="fast", pattern="^(fast|creative)$")
     vocabulary_quantization: Literal["none", "int8", "int4"] | None = None
+    speculation: Literal["off", "mtp", "dflash2"] | None = None
+    dflash2_quantization: Literal["none", "int8"] | None = None
     thinking: bool = False
     temperature: float = Field(default=0.7, ge=0, le=2)
 
@@ -153,9 +156,8 @@ def register_ui(app, server):
                     ),
                     "context_length": getattr(config, "context_length", settings.get("context_length")),
                     "max_tokens": getattr(config, "max_length", settings.get("max_length", 4096)),
-                    "mtp_configured": bool(
-                        getattr(config, "self_speculative_decoding", settings.get("self_speculative_decoding", False))
-                    ),
+                    "mtp_configured": capabilities(model)["mtp_available"],
+                    "speculation": capabilities(model),
                     "streaming_supported": getattr(config, "world_size", settings.get("world_size", 1)) == 1
                     and (not model.loaded or isinstance(model.engine.predictor, GeneratorLM)),
                 }
@@ -200,8 +202,18 @@ def register_ui(app, server):
                             yield event("done", stats={"cancelled": True, "output_tokens": 0})
                             return
                         row["status"] = "preparing"
+                        mode = selection(
+                            model,
+                            request.speculation,
+                            eligible=request.preset == "fast" and not any(m.images for m in request.messages),
+                        )
                         await workspace.prepare(
-                            request.model, model, row, vocabulary_quantization=request.vocabulary_quantization
+                            request.model,
+                            model,
+                            row,
+                            vocabulary_quantization=request.vocabulary_quantization,
+                            speculation=mode,
+                            dflash2_quantization=request.dflash2_quantization,
                         )
                         if not isinstance(model.engine.predictor, GeneratorLM):
                             raise ValueError("Chat requires a decoder-only model; use Translate for translation models")
@@ -218,8 +230,7 @@ def register_ui(app, server):
                             "top_k": 1 if request.preset == "fast" else 40,
                             "temperature": 1.0 if request.preset == "fast" else request.temperature,
                             "top_p": 0.0 if request.preset == "fast" else 0.95,
-                            "self_speculative_decoding": request.preset == "fast"
-                            and model.engine.config.self_speculative_decoding,
+                            "self_speculative_decoding": mode != "off",
                         }
                         submission = perf_counter()
                         async for item in workspace.generate(

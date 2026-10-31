@@ -232,7 +232,7 @@ def register_translation(app, server, workspace):
                     async with workspace.lock:
                         if not cancel.is_set():
                             row["status"] = "preparing"
-                            await workspace.prepare(request.model, model, row)
+                            await workspace.prepare(request.model, model, row, speculation="off")
                         caps = translation_capabilities(model)
                         if request.target not in caps["languages"] or (
                             request.source != "auto" and request.source not in caps["languages"]

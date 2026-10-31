@@ -205,24 +205,27 @@ class TestWorkerMetrics(unittest.TestCase):
             streamer.put([2])
             engine.predictor.decode_timings = [(1, 0.01)]
             engine.predictor.warmup_time = [0.03]
-            engine.predictor._speculative_drafted_tokens = 5
-            engine.predictor._speculative_accepted_tokens = 4
+            engine.predictor._speculative_drafted_tokens = 5 if method != "off" else 0
+            engine.predictor._speculative_accepted_tokens = 4 if method != "off" else 0
             streamer.end()
 
         engine._predict = predict
-        stats = {}
         with ThreadPoolExecutor(max_workers=1) as pool:
             engine._thread_pool = pool
-            result = list(
-                engine.infer_list_stream(
-                    "prompt", settings={"top_k": 40}, generation_stats=stats, cancel_event=threading.Event()
+            for method in ("mtp", "dflash2", "off"):
+                engine.predictor.dflash2 = object() if method == "dflash2" else None
+                stats = {}
+                result = list(
+                    engine.infer_list_stream(
+                        "prompt", settings={"top_k": 40}, generation_stats=stats, cancel_event=threading.Event()
+                    )
                 )
-            )
+                self.assertEqual(stats["speculation_mode"], method)
+                self.assertEqual(stats["mtp_acceptance"], 0.8 if method != "off" else None)
         self.assertEqual(result, ["hello", " world"])
         self.assertEqual(engine.predictor.top_k, 1)
         self.assertEqual(stats["output_tokens"], 2)
         self.assertEqual(stats["decode_tokens_per_second"], 100)
-        self.assertEqual(stats["mtp_acceptance"], 0.8)
         self.assertFalse(stats["cancelled"])
         self.assertGreaterEqual(stats["first_token_seconds"], 0)
 

@@ -256,14 +256,25 @@
           <div class="settings" id="settings" hidden>
             <label
               >Mode<select id="preset">
-                <option value="fast">Fast · greedy / MTP when available</option>
-                <option value="creative">Creative · sampling / MTP off</option>
+                <option value="fast">Fast · greedy</option>
+                <option value="creative">Creative · sampling</option>
               </select></label
             ><label
               >LM head<select id="head-quantization">
                 <option value="none">Native · original dtype</option>
                 <option value="int8">INT8</option>
                 <option value="int4" selected>INT4 · fastest</option>
+              </select></label
+            ><label
+              >Speculation<select id="speculation">
+                <option value="off">Off</option>
+                <option value="mtp">MTP</option>
+                <option value="dflash2">DFlash2</option>
+              </select></label
+            ><label id="draft-precision-label" hidden
+              >DFlash2 projections<select id="draft-precision">
+                <option value="none">BF16 · native</option>
+                <option value="int8">INT8 · packed</option>
               </select></label
             ><label
               >Output limit<input
@@ -283,12 +294,14 @@
             ><label class="check"
               ><input id="thinking" type="checkbox" /> Enable thinking</label
             >
+            <p id="speculation-note" aria-live="polite"></p>
             <p>
-              Fast mode uses deterministic selection. MTP status is confirmed
-              after generation. Output must fit the remaining context.
-              Changing LM head precision reloads the model on the next request
-              and may repeat warmup. INT8/INT4 require single-GPU CUDA, FP16/BF16
-              and an unquantized, bias-free head. Quantization can change output.
+              Fast mode uses deterministic selection. Speculation is confirmed
+              after generation. Output must fit the remaining context. Changing
+              LM head precision or DFlash2 settings reloads the model on the
+              next request and may repeat warmup. INT8/INT4 require single-GPU
+              CUDA, FP16/BF16 and an unquantized, bias-free head. Quantization
+              can change output.
             </p>
           </div>
           <div id="messages" class="messages" aria-live="polite">
@@ -791,7 +804,7 @@
                     <th>Output</th>
                     <th>First token</th>
                     <th>Decode</th>
-                    <th>MTP</th>
+                    <th>Speculation</th>
                   </tr>
                 </thead>
                 <tbody id="requests">

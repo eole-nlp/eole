@@ -343,3 +343,64 @@ an unquantized, bias-free FP16/BF16 vocabulary head; use Native for unsupported
 models, CPU inference, FP32, or tensor parallelism. Checkpoint files and input
 embeddings remain unchanged. For custom server YAML files, set
 `config.vocabulary_quantization` to `none`, `int8`, or `int4`.
+
+## Choose Off, MTP or DFlash2
+
+Chat generation settings now include a **Speculation** selector. **Off** uses
+ordinary decoding, **MTP** uses the configured native heads, and **DFlash2** loads
+the separate Qwen3.8-27B drafter. Benchmark uses the same selected settings.
+MTP remains the default in the Qwen examples; DFlash2 is opt-in.
+
+![DFlash2 selection, independent drafter/head precision, and measured acceptance](images/dflash2.png)
+
+The Qwen templates look for a local checkpoint at `$QWEN38_MODEL/dflash2`.
+Download it once if it is not already installed (no Eole conversion needed):
+
+```bash
+hf download incoai/Qwen3.8-27B-DFlash2 \
+  --revision 015e795645c74b1a0eeef3b570031fb62e769bc5 \
+  --include config.json model.safetensors \
+  --local-dir "$QWEN38_MODEL/dflash2"
+```
+
+In a custom server YAML, advertise the optional checkpoint alongside the model's
+`path` and `config`. This does not enable or load DFlash2 at startup:
+
+```yaml
+models:
+  - id: qwen3.8-27B
+    path: "${QWEN38_MODEL}"
+    dflash2:
+      path: "${QWEN38_MODEL}/dflash2"
+      quantization: int8
+    config:
+      compute_dtype: bf16
+      self_speculative_decoding: true
+      self_speculative_num_tokens: 3
+      fuse_kvq: true
+      fuse_gate: true
+```
+
+The UI enables DFlash2 only when the advertised local config and weights exist.
+The loader additionally validates compatibility with the target. This path
+requires single-GPU BF16 compute and text-only greedy requests. The draft count
+comes from the checkpoint's block size and is shown beside the selector.
+
+**DFlash2 projections** selects native BF16 or packed INT8 internal drafter
+projections. It is independent of **LM head**, which selects the shared target
+and drafter vocabulary projection. The templates offer INT8 drafter projections
+and keep their existing INT4 vocabulary-head default. See the
+[DFlash2 recipe](../qwen38/dflash2/README.md) for quantization and numerical details.
+
+Entering/leaving DFlash2 or changing its precision reloads the selected engine;
+changing LM-head precision at the same time uses one reload. Warmup may repeat,
+and Stop takes effect after the in-flight loading/compilation finishes. Switching
+between Off and MTP does not reload a normal engine.
+
+Creative mode and conversations containing images use ordinary decoding. The UI
+keeps your DFlash2 choice for eligible text-only Fast requests and displays the
+method actually used, with its acceptance rate, in response/monitor statistics.
+Translate and OCR explicitly use ordinary decoding. Text-only Knowledge requests
+can reuse the currently loaded DFlash2 engine, like the selected LM-head precision.
+Model changes affect the shared engine used by API clients as well; external
+requests to a DFlash2-loaded engine must respect its supported scope.

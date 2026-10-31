@@ -430,6 +430,9 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(
                 all(m["config"]["vocabulary_quantization"] == "int4" for m in settings["models"][: len(ids)])
             )
+            for entry in settings["models"][: len(ids)]:
+                self.assertEqual(entry["dflash2"]["path"], str(Path(entry["path"]) / "dflash2"))
+                self.assertNotIn("dflash2_model", entry["config"])
             self.assertEqual(settings["workspace"]["models"]["chat"], ids[0])
             self.assertEqual(settings["workspace"]["models"]["ocr"], "deepseek-ocr")
             self.assertEqual(settings["workspace"]["models"]["translate"], "hy-mt2-7b")

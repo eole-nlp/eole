@@ -16,6 +16,9 @@ knowledge:
 models:
 - id: qwen3.8-27B
   path: ${QWEN38_MODEL}
+  dflash2:
+    path: "${QWEN38_MODEL}/dflash2"
+    quantization: int8
   preload: false
   config:
     data_type: image
@@ -36,7 +39,7 @@ models:
     self_speculative_num_tokens: 3
     report_time: true
     fuse_kvq: true
-    fuse_gate: false
+    fuse_gate: true
     prefill_cache_size: 0
     prefill_chunk_size: 256
 - id: hy-mt2-7b

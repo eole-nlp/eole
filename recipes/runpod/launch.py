@@ -104,6 +104,8 @@ def workspace_settings(source, models):
         entry = json.loads(json.dumps(qwen))
         entry["id"] = "qwen3.8-27B" if variant == "int4" else "qwen3.8-27B-bf16"
         entry["path"] = str(models[variant])
+        if entry.get("dflash2"):
+            entry["dflash2"]["path"] = str(models[variant] / "dflash2")
         entries.append(entry)
     translation["path"] = str(models["translate"])
     ocr["path"] = str(models["ocr"])
