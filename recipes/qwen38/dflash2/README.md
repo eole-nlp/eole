@@ -103,6 +103,39 @@ Compilation and kernel substitutions can change rounding, proposal acceptance
 and generated sequences. These are observed end-to-end results, not isolated
 kernel speedups. No quality evaluation was performed.
 
+## INT4 vocabulary-head benchmark, block size 8
+
+This separate comparison keeps the same RedHat INT4 target, **BF16 drafter**,
+block size 8 and benchmark protocol above, but uses **INT4 group-128 shared
+vocabulary heads**. The current implementation reaches **272.4 code tokens/s**
+in this configuration:
+
+| BF16 drafter variant | Code | English | Translation |
+| --- | ---: | ---: | ---: |
+| Current graph (implemented in this PR) | **272.4** | 132.7 | 193.1 |
+| Compilation (experiment) | 278.1 | 143.1 | 192.1 |
+| CUDA RMSNorm + SiLU (experiment) | 274.6 | 145.2 | 192.7 |
+| Compilation + packed gate/up (experiment) | 279.5 | 143.7 | 193.2 |
+| CUDA kernels + packed gate/up (experiment) | 275.5 | 146.0 | 193.5 |
+
+For the implemented baseline row, configure the shared head independently of
+DFlash2 projection quantization:
+
+```yaml
+dflash2_model: /path/to/Qwen3.8-27B-INT4/dflash2
+dflash2_quantization: none
+vocabulary_quantization: int4
+vocabulary_quantization_group_size: 128
+fuse_kvq: true
+fuse_gate: true
+```
+
+The drafter checkpoint's `dflash_config.block_size` must be 8 for this table.
+Use the same batch-one greedy settings, 64,000-token context and 2,048-token
+output cap described above. Changing the head affects target logits and
+acceptance, so 272.4 versus the INT8-head baseline's 223.6 is a configuration
+comparison, not an implementation-only speedup.
+
 ## Why the other tables had different numbers
 
 The following are graph-only BF16 drafter baselines, not successive optimization

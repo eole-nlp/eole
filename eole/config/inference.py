@@ -199,7 +199,8 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     )
     dflash2_quantization: Literal["none", "int8"] = Field(
         default="none",
-        description="Experimental runtime INT8 group-32 DFlash2 projections; independent of vocabulary head quantization.",
+        description="Experimental runtime INT8 group-32 DFlash2 projections; "
+        "independent of vocabulary head quantization.",
     )
     speculative_verifier_cache: str = Field(
         default="auto",
