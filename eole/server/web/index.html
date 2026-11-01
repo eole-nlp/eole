@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Eole · Local workspace</title>
     <link rel="icon" href="/ui/assets/favicon.svg" />
-    <link rel="stylesheet" href="/ui/assets/app.css" />
+    <link rel="stylesheet" href="/ui/assets/app.css?v=benchmark-2" />
     <script src="/ui/assets/workspace.js" defer></script>
-    <script src="/ui/assets/app.js" defer></script>
+    <script src="/ui/assets/benchmark.js" defer></script>
+    <script src="/ui/assets/app.js?v=benchmark-2" defer></script>
     <script src="/ui/assets/translator.js" defer></script>
     <script src="/ui/assets/knowledge.js" defer></script>
     <link rel="stylesheet" href="/ui/assets/knowledge.css" />
@@ -249,11 +250,16 @@
                 Connecting to the inference server
               </div>
             </div>
-            <button id="settings-toggle" class="quiet-button">
+            <button
+              id="settings-toggle"
+              class="quiet-button"
+              aria-expanded="true"
+              aria-controls="settings"
+            >
               ⚙ Generation settings
             </button>
           </div>
-          <div class="settings" id="settings" hidden>
+          <div class="settings" id="settings">
             <label
               >Mode<select id="preset">
                 <option value="fast">Fast · greedy</option>
@@ -280,7 +286,7 @@
               >Output limit<input
                 id="max-tokens"
                 type="number"
-                value="4096"
+                value="16384"
                 min="1"
                 max="32768" /></label
             ><label
@@ -830,22 +836,52 @@
           <div class="page-heading">
             <span class="eyebrow">MEASURE, DON'T GUESS</span>
             <h1>Put your setup to the test.</h1>
-            <p>A repeatable, local check of generation speed.</p>
+            <p>
+              Compare decoding methods across code, English and translation.
+            </p>
           </div>
           <div class="benchmark-layout">
             <div class="panel benchmark-form">
-              <span class="badge">SINGLE REQUEST · WARMED</span>
-              <h2>A small test. A clear result.</h2>
+              <span class="badge">BATCH ONE · GREEDY · WARMED</span>
+              <h2>One model. Several ways to run it.</h2>
               <p>
-                One warmup followed by three measured requests. Uses the
-                selected model and generation mode, with a 128-token output
-                limit.
+                Uses the model selected in Chat, fixed text-only prompts and
+                thinking disabled. Each workload/profile pair gets one discarded
+                warmup, then repeated measurements. A full comparison can take
+                several minutes; switching profiles may reload and compile.
               </p>
-              <ul class="check-list">
-                <li>Real token counts from the inference worker</li>
-                <li>Median decode speed and first-token latency</li>
-                <li>Hardware and settings recorded with results</li>
-              </ul>
+              <fieldset id="benchmark-workloads">
+                <legend>Workloads</legend>
+              </fieldset>
+              <fieldset id="benchmark-profiles">
+                <legend>Decoding profiles</legend>
+              </fieldset>
+              <div class="benchmark-controls">
+                <label
+                  >Output tokens<input
+                    id="benchmark-tokens"
+                    type="number"
+                    min="128"
+                    max="4096"
+                    step="128"
+                    value="512"
+                /></label>
+                <label
+                  >Measured repeats<input
+                    id="benchmark-repeats"
+                    type="number"
+                    min="1"
+                    max="5"
+                    value="3"
+                /></label>
+              </div>
+              <p class="small muted">
+                Native heads preserve the model dtype (BF16 for Qwen). DFlash2
+                precision describes its internal projections; vocabulary heads
+                are labelled separately. The checkpoint controls draft count.
+                Results remain here until page reload. The final profile stays
+                loaded; your next Chat request restores its selected settings.
+              </p>
               <button id="benchmark-run" class="primary-button">
                 Run local benchmark ↗
               </button>
@@ -864,17 +900,44 @@
               <p id="benchmark-caption">
                 Run a benchmark to measure your model.
               </p>
-              <div id="benchmark-runs"></div>
               <button id="benchmark-download" class="quiet-button" disabled>
                 ↓ Download report
               </button>
             </div>
           </div>
+          <div class="panel benchmark-table">
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Model / workload</th>
+                    <th>Profile</th>
+                    <th>Output cap</th>
+                    <th>Decode tok/s</th>
+                    <th>First token</th>
+                    <th>Acceptance</th>
+                    <th>Runs / status</th>
+                  </tr>
+                </thead>
+                <tbody id="benchmark-runs">
+                  <tr>
+                    <td colspan="7" class="empty-cell">
+                      Choose workloads and profiles, then start the comparison.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
           <p class="footnote">
             This measures post-first-token decode speed, not whole-request
-            throughput. Requests that stop before 128 output tokens are shown
-            but excluded from the fixed-length median. Compare systems using the
-            same prompt, model, context, output length, and stopping policy.
+            throughput or quality. Reload, compilation and warmup are excluded
+            from decode speed. First-token latency is from warmed measurements.
+            Early stops or unexpected decoding modes are retained in the report
+            but prevent a complete fixed-length median. Quantized heads may
+            change output and acceptance. Compare the same workload, model,
+            context, output cap and stopping policy. No speedup is inferred
+            across different texts.
           </p>
         </section>
         <section id="view-connect" class="view page-view" hidden>

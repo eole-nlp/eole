@@ -353,7 +353,8 @@ function updateContext() {
   $("head-quantization").value =
     headPreferences.get(model.id) ?? model.vocabulary_quantization ?? "int4";
   updateSpeculation();
-  const max = Number(model.max_tokens) || 4096;
+  benchmarkChoices();
+  const max = Number(model.max_tokens) || 16384;
   $("max-tokens").max = max;
   if (Number($("max-tokens").value) > max) $("max-tokens").value = max;
   const last = current()
@@ -522,6 +523,7 @@ async function refreshState() {
         : "Connected to local server");
     $("version").textContent = "EOLE " + state.version;
     updateContext();
+    benchmarkChoices();
     updateImageInput();
     renderMonitor();
     renderAPI();
@@ -547,86 +549,189 @@ async function copy(text) {
     toast("Clipboard unavailable in this browser. Select and copy the text.");
   }
 }
-function median(values) {
-  const a = values.slice().sort((x, y) => x - y),
-    mid = Math.floor(a.length / 2);
-  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+function benchmarkChoices() {
+  if (!$("benchmark-profiles").querySelector("input")) {
+    for (const [kind, values] of [
+      ["workloads", EoleBenchmark.workloads],
+      ["profiles", EoleBenchmark.profiles],
+    ]) {
+      $("benchmark-" + kind).insertAdjacentHTML(
+        "beforeend",
+        values
+          .map(
+            (item) =>
+              `<label class="check"><input type="checkbox" value="${item.id}" checked /> ${escapeHTML(item.label)}</label>`,
+          )
+          .join(""),
+      );
+    }
+  }
+  const model = selectedModel();
+  for (const input of $("benchmark-profiles").querySelectorAll("input")) {
+    const profile = EoleBenchmark.profiles.find((p) => p.id === input.value);
+    const supported = EoleBenchmark.available(profile, model);
+    input.disabled = busy || !supported;
+    input.parentElement.title = supported
+      ? ""
+      : "Not configured for the selected model";
+  }
+  $("benchmark-tokens").max = Math.min(4096, Number(model?.max_tokens) || 4096);
+}
+function renderBenchmark() {
+  const rows = benchmark?.results ?? [];
+  $("benchmark-runs").innerHTML =
+    rows
+      .map(
+        (row) =>
+          `<tr><td>${escapeHTML(row.model)}<br><small>${escapeHTML(row.workload.label)}</small></td><td>${escapeHTML(row.profile.label)}</td><td>${row.output_limit}</td><td><strong>${format(row.decode_tokens_per_second)}</strong></td><td>${format(row.first_token_seconds, 2)} s</td><td>${row.acceptance == null ? "—" : format(row.acceptance * 100, 1) + "%"}</td><td title="${escapeHTML(row.error ?? "")}">${row.valid_runs ?? 0}/${row.repeats} · ${escapeHTML(row.status)}</td></tr>`,
+      )
+      .join("") ||
+    '<tr><td colspan="7" class="empty-cell">No measurements yet.</td></tr>';
+  $("benchmark-download").disabled = !rows.length;
 }
 async function runBenchmark() {
   if (busy) return;
-  const payload = requestPayload(
-    [
-      {
-        role: "user",
-        content:
-          "Write a detailed essay of at least 1500 words about George Orwell, his life, and his influence on literature.",
-      },
-    ],
-    128,
-  );
-  if (Number(selectedModel()?.max_tokens) < 128)
-    return toast(
-      "This model requires an output limit of at least 128 for the benchmark.",
+  const model = selectedModel();
+  if (!model)
+    return toast("Choose an available Chat model before benchmarking.");
+  const selected = (kind) =>
+    Array.from($("benchmark-" + kind).querySelectorAll("input:checked")).map(
+      (input) => input.value,
     );
-  setBusy(true);
-  benchmark = {
-    model: payload.model,
-    preset: payload.preset,
-    thinking: payload.thinking,
-    context: selectedModel()?.context_length,
+  const workloads = EoleBenchmark.workloads.filter((p) =>
+    selected("workloads").includes(p.id),
+  );
+  const profiles = EoleBenchmark.profiles.filter(
+    (p) =>
+      selected("profiles").includes(p.id) && EoleBenchmark.available(p, model),
+  );
+  const outputLimit = Number($("benchmark-tokens").value),
+    repeats = Number($("benchmark-repeats").value);
+  if (!workloads.length || !profiles.length)
+    return toast("Select at least one workload and available profile.");
+  if (
+    !Number.isInteger(outputLimit) ||
+    outputLimit < 128 ||
+    outputLimit > Math.min(4096, Number(model?.max_tokens) || 4096) ||
+    !Number.isInteger(repeats) ||
+    repeats < 1 ||
+    repeats > 5
+  )
+    return toast("Choose a supported output cap (128–4096) and 1–5 repeats.");
+  const session = {
+    id: new Date().toISOString(),
+    model: model.id,
+    context: model.context_length,
     compile: state.compile_enabled,
     compile_mode: state.compile_mode,
     hardware: state.hardware,
-    output_limit: 128,
-    request: payload,
     eole_version: state.version,
-    runs: [],
-    timestamp: new Date().toISOString(),
+    output_limit: outputLimit,
+    repeats,
+    draft_tokens: model.speculation?.dflash2_drafts,
+    native_mtp_draft_tokens: model.mtp_draft_tokens,
+    compute_dtype: model.dtype,
+    fuse_kvq: model.fuse_kvq,
+    fuse_gate: model.fuse_gate,
   };
-  $("benchmark-runs").innerHTML = "";
+  benchmark ??= { schema_version: 2, sessions: [], results: [] };
+  benchmark.sessions.push(session);
+  setBusy(true);
+  benchmarkChoices();
+  $("benchmark-tokens").disabled = $("benchmark-repeats").disabled = true;
+  $("benchmark-workloads").disabled = true;
   $("benchmark-speed").innerHTML = "—<small>tokens / second</small>";
-  $("benchmark-download").disabled = true;
+  $("benchmark-caption").textContent =
+    "Comparing fixed workloads. Preparation can take several minutes.";
   try {
-    for (let i = 0; i < 4; i++) {
-      if (stopRequested) throw new Error("Benchmark stopped.");
-      $("benchmark-progress").textContent =
-        i === 0
-          ? "Warming all generation shapes…"
-          : `Measuring request ${i} of 3…`;
-      const stats = await consume(payload, () => {});
-      if (stats.cancelled) throw new Error("Benchmark stopped.");
-      if (i) {
-        benchmark.runs.push(stats);
-        const line = document.createElement("div");
-        line.className = "benchmark-run";
-        line.textContent = `Run ${i}: ${format(stats.decode_tokens_per_second)} tok/s · ${stats.output_tokens} tokens · ${format(stats.first_token_seconds, 2)} s first token`;
-        $("benchmark-runs").append(line);
+    for (const profile of profiles) {
+      for (const workload of workloads) {
+        if (stopRequested)
+          throw new Error(
+            "Benchmark stopped. Completed and partial results are retained.",
+          );
+        const payload = {
+          model: model.id,
+          messages: workload.messages,
+          max_tokens: outputLimit,
+          preset: "fast",
+          thinking: false,
+          temperature: 1,
+          speculation: profile.speculation,
+          vocabulary_quantization: profile.vocabulary_quantization,
+          dflash2_quantization: profile.dflash2_quantization,
+        };
+        const row = {
+          session: session.id,
+          model: model.id,
+          workload,
+          profile,
+          output_limit: outputLimit,
+          repeats,
+          request: payload,
+          runs: [],
+          status: "warming",
+        };
+        benchmark.results.push(row);
+        renderBenchmark();
+        try {
+          for (let i = 0; i <= repeats; i++) {
+            if (stopRequested) throw new Error("Benchmark stopped.");
+            $("benchmark-progress").textContent =
+              `${profile.label} · ${workload.label} · ${i ? "measuring " + i + "/" + repeats : "loading / warming"}`;
+            const stats = await consume(payload, () => {});
+            if (i) row.runs.push(stats);
+            else row.warmup = stats;
+            Object.assign(
+              row,
+              EoleBenchmark.summarize(
+                row.runs,
+                outputLimit,
+                profile.speculation,
+                repeats,
+              ),
+            );
+            renderBenchmark();
+            if (stats.cancelled) stopRequested = true;
+            if (stopRequested) throw new Error("Benchmark stopped.");
+          }
+        } catch (error) {
+          row.status = stopRequested ? "cancelled" : "error";
+          row.error = error.message;
+          renderBenchmark();
+          if (stopRequested) throw error;
+          if (/CUDA.*out of memory/i.test(error.message))
+            throw new Error(
+              "Benchmark stopped: GPU memory is full. Free memory before retrying. Details are retained in the report.",
+            );
+        }
       }
     }
-    const valid = benchmark.runs.filter(
-      (r) =>
-        r.output_tokens === 128 && Number.isFinite(r.decode_tokens_per_second),
+    const complete = benchmark.results.filter(
+      (r) => r.session === session.id && r.status === "complete",
     );
-    if (valid.length !== 3)
-      throw new Error(
-        "Some requests stopped early; results are available but no fixed-length median is reported.",
-      );
-    benchmark.median_decode_tokens_per_second = median(
-      valid.map((r) => r.decode_tokens_per_second),
+    const best = complete.reduce(
+      (a, b) =>
+        !a || b.decode_tokens_per_second > a.decode_tokens_per_second ? b : a,
+      null,
     );
     $("benchmark-speed").innerHTML =
-      format(benchmark.median_decode_tokens_per_second) +
-      "<small>tokens / second</small>";
-    $("benchmark-caption").textContent =
-      `Median of 3 warmed requests · ${payload.model} · ${payload.preset} mode`;
+      format(best?.decode_tokens_per_second) +
+      "<small>tokens / second · best completed row</small>";
+    $("benchmark-caption").textContent = best
+      ? `${best.workload.label} · ${best.profile.label}`
+      : "No complete fixed-length measurements. See individual rows and report.";
     $("benchmark-progress").textContent =
-      "Benchmark complete. Your results are ready.";
+      `Comparison finished: ${complete.length}/${profiles.length * workloads.length} complete rows. Other rows retain early stops or errors.`;
   } catch (error) {
     $("benchmark-progress").textContent = error.message;
-    toast(error.message);
   } finally {
+    activeRequest = null;
     setBusy(false);
-    $("benchmark-download").disabled = !benchmark.runs.length;
+    $("benchmark-tokens").disabled = $("benchmark-repeats").disabled = false;
+    $("benchmark-workloads").disabled = false;
+    benchmarkChoices();
+    renderBenchmark();
     refreshState();
   }
 }
@@ -650,6 +755,7 @@ document.addEventListener("click", (event) => {
     renderMessages();
     renderHistory();
     updateContext();
+    benchmarkChoices();
     updateImageInput();
     switchView("chat");
   }
@@ -709,6 +815,10 @@ $("stop").onclick = stopGeneration;
 $("benchmark-stop").onclick = stopGeneration;
 $("settings-toggle").onclick = () => {
   $("settings").hidden = !$("settings").hidden;
+  $("settings-toggle").setAttribute(
+    "aria-expanded",
+    String(!$("settings").hidden),
+  );
 };
 $("theme").onclick = () => {
   document.body.classList.toggle("dark");

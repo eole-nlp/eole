@@ -166,6 +166,8 @@ class TestSpeculationRoutes(SpeculationSetup, unittest.TestCase):
         with patch("eole.server.ui.Hardware.read", return_value={"gpus": []}):
             options = self.client.get("/ui/state").json()["models"][0]["speculation"]
         self.assertTrue(options["dflash2_available"])
+        self.assertEqual(options["default"], "dflash2")
+        self.assertEqual(options["dflash2_quantization"], "int8")
         self.assertEqual(options["dflash2_drafts"], 7)
         for invalid in [dict(speculation="unknown"), dict(dflash2_quantization="int4")]:
             self.assertEqual(self.client.post("/ui/chat", json={**self.payload, **invalid}).status_code, 422)
@@ -177,6 +179,19 @@ class TestSpeculationRoutes(SpeculationSetup, unittest.TestCase):
         self.assertEqual(self.events(speculation="dflash2", preset="creative")[-1]["type"], "done")
         self.assertIsNone(self.model.engine.config.dflash2_model)
         self.assertFalse(self.model.engine.settings["self_speculative_decoding"])
+
+    def test_default_drafter_count_and_explicit_mtp_choice(self):
+        self.assertEqual(self.events()[-1]["type"], "done")
+        self.assertEqual(self.model.engine.config.dflash2_model, str(self.folder))
+        self.assertEqual(self.model.engine.config.dflash2_quantization, "int8")
+        (self.folder / "config.json").write_text(
+            json.dumps({"architectures": ["DFlash2DraftModel"], "dflash_config": {"block_size": 4}})
+        )
+        self.assertEqual(capabilities(self.model)["dflash2_drafts"], 3)
+        self.assertEqual(self.events(speculation="mtp")[-1]["type"], "done")
+        self.assertIsNone(self.model.engine.config.dflash2_model)
+        (self.folder / "model.safetensors").unlink()
+        self.assertEqual(capabilities(self.model)["default"], "mtp")
 
     def test_image_history_uses_ordinary_engine(self):
         self.events(speculation="dflash2")

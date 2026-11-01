@@ -171,7 +171,7 @@ class Model(object):
         if set(dflash2_config) - {"path", "quantization"}:
             raise ValueError("dflash2 accepts path and quantization only")
         path = dflash2_config.get("path", pre_config.get("dflash2_model"))
-        precision = dflash2_config.get("quantization", pre_config.get("dflash2_quantization", "none"))
+        precision = dflash2_config.get("quantization", pre_config.get("dflash2_quantization", "int8"))
         if precision not in ("none", "int8") or (path is not None and not isinstance(path, str)):
             raise ValueError("dflash2 requires a local path and none/int8 projection quantization")
         self.speculation_defaults = dict(

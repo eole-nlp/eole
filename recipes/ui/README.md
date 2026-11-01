@@ -37,7 +37,9 @@ Open **http://127.0.0.1:5000**. The supplied config uses BF16 compute,
 Marlin projection packing, three MTP drafts, a 28,672-token context, and
 chunked prefill. Context and output limits should be adjusted for your GPU;
 this recipe is intended for an RTX 5090 with the converted INT4 model.
-The chat output limit defaults to 4,096 tokens, capped by the selected model's limit.
+The chat output limit defaults to 16,384 tokens, capped by the selected model's
+limit and remaining context budget. The Qwen workspace templates allow 16,384
+output tokens, including the RunPod-generated showcase.
 It does not alter FP32 normalization.
 
 The first compiled request can spend several minutes warming all full and
@@ -74,10 +76,54 @@ the same interface, monitoring and local server.
 - **Monitor:** cached hardware readings, active workspace requests, recent
   request timings, and a decode-speed chart. It tracks this UI's requests;
   external API requests are not listed. GPU cards are physical NVML devices.
-- **Benchmark:** one discarded warmup followed by three 128-token requests.
-  Reports the median post-first-token rate and exports settings and measurements.
-  Early-EOS responses are excluded from the fixed-length median.
+- **Benchmark:** compare code, English prose and Chinese-to-English translation
+  across base, MTP and DFlash2 profiles. Select workloads/profiles, an output cap
+  (default 512) and 1–5 measured repeats (default 3). Each pair starts with one
+  discarded warmup. Results accumulate in a table until page reload and can be
+  exported with exact prompts, settings, hardware, warmup and raw measurements.
 - **API & setup:** endpoint addresses, a curl example, and runtime information.
+
+### Benchmark comparisons
+
+![Workload and decoding-profile comparison controls with real measured results](images/benchmark.png)
+
+Screenshot: a short UI validation run with 128 output tokens and one measured
+repeat, rather than the default 512-token, three-repeat comparison.
+
+All profiles use the model selected in Chat, batch-one greedy text decoding,
+thinking disabled and identical fixed prompts within each workload. They do not
+inherit Chat's current speculation/head selection. The prompt contents match
+the [sampling benchmark fixtures](../qwen38/mtp-sampling-fixtures.json).
+
+| Profile | Speculation | Vocabulary heads | Drafter internal projections |
+|---|---|---|---|
+| Base | Off | Native model dtype | — |
+| MTP · native | Native MTP | Native model dtype | Native MTP implementation |
+| MTP · INT4 | Native MTP | INT4 | Native MTP implementation |
+| DFlash2 · BF16 | DFlash2 | Native model dtype | BF16 |
+| DFlash2 · INT8 | DFlash2 | Native model dtype | INT8 packed |
+| DFlash2 · INT8 / INT4 | DFlash2 | INT4 | INT8 packed |
+
+Unavailable speculation profiles are disabled. Native vocabulary heads are BF16
+for the Qwen showcase; other models retain their own original dtype. Native MTP
+and DFlash2 use their configured draft counts; the report records both. Head
+quantization may change text and acceptance, so this is a speed comparison, not
+a quality evaluation or a guarantee of identical outputs.
+
+Each completed row reports the median decode tok/s, warmed first-token latency
+and speculative acceptance. All measured runs must reach the chosen output cap
+and use the requested speculation method; otherwise the row is incomplete and
+its raw measurements remain in the JSON report. Errors and cancellation retain
+completed/partial rows. Preparation and warmup are recorded separately from
+measured runs. The full default matrix is 18 pairs, or 72 requests with warmups,
+and may take several minutes including compilation. Profiles run sequentially
+to avoid repeatedly reloading between workloads.
+
+The last profile remains loaded after a benchmark. Your next Chat request
+applies its selected settings and may reload the engine. Results are kept only
+in the current page; download the report before refreshing. Compare like-for-like
+rows with the same workload, context and output cap, rather than comparing code
+throughput directly with translation throughput.
 
 ![Measured benchmark](images/benchmark.jpg)
 
@@ -357,7 +403,17 @@ extra nested snapshot directory. No conversion of the drafter is required.
 Chat generation settings now include a **Speculation** selector. **Off** uses
 ordinary decoding, **MTP** uses the configured native heads, and **DFlash2** loads
 the separate Qwen3.8-27B drafter. Benchmark uses the same selected settings.
-MTP remains the default in the Qwen examples; DFlash2 is opt-in.
+Generation settings are expanded on page load; use the same button to hide them.
+When a compatible local drafter is available, Chat selects DFlash2 with INT8
+packed projections by default. Explicit choices are kept for the current browser
+session. Without a compatible drafter, it selects native MTP when configured,
+otherwise Off. The server's startup configuration is unchanged, so the first
+DFlash2 request may still reload a model initially prepared with MTP.
+
+The displayed draft count comes from `dflash_config.block_size - 1` in the
+drafter's `config.json`, independently of `self_speculative_num_tokens` (native
+MTP only). The pinned upstream config uses block size 8, giving seven proposals;
+a locally edited block size 4 gives three. The workspace does not override it.
 
 ![DFlash2 selection, independent drafter/head precision, and measured acceptance](images/dflash2.png)
 
