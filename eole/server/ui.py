@@ -33,7 +33,7 @@ class UIMessage(BaseModel):
 class UIChat(BaseModel):
     model: str
     messages: list[UIMessage] = Field(min_length=1, max_length=200)
-    max_tokens: int = Field(default=4096, ge=1, le=32768)
+    max_tokens: int = Field(default=16384, ge=1, le=32768)
     preset: str = Field(default="fast", pattern="^(fast|creative)$")
     vocabulary_quantization: Literal["none", "int8", "int4"] | None = None
     speculation: Literal["off", "mtp", "dflash2"] | None = None
@@ -156,7 +156,7 @@ def register_ui(app, server):
                         config, "vocabulary_quantization", settings.get("vocabulary_quantization", "none")
                     ),
                     "context_length": getattr(config, "context_length", settings.get("context_length")),
-                    "max_tokens": getattr(config, "max_length", settings.get("max_length", 4096)),
+                    "max_tokens": getattr(config, "max_length", settings.get("max_length", 16384)),
                     "mtp_configured": speculation["mtp_available"],
                     "speculation": speculation,
                     "streaming_supported": getattr(config, "world_size", settings.get("world_size", 1)) == 1

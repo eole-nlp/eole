@@ -353,7 +353,7 @@ function updateContext() {
   $("head-quantization").value =
     headPreferences.get(model.id) ?? model.vocabulary_quantization ?? "int4";
   updateSpeculation();
-  const max = Number(model.max_tokens) || 4096;
+  const max = Number(model.max_tokens) || 16384;
   $("max-tokens").max = max;
   if (Number($("max-tokens").value) > max) $("max-tokens").value = max;
   const last = current()

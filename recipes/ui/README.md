@@ -37,7 +37,9 @@ Open **http://127.0.0.1:5000**. The supplied config uses BF16 compute,
 Marlin projection packing, three MTP drafts, a 28,672-token context, and
 chunked prefill. Context and output limits should be adjusted for your GPU;
 this recipe is intended for an RTX 5090 with the converted INT4 model.
-The chat output limit defaults to 4,096 tokens, capped by the selected model's limit.
+The chat output limit defaults to 16,384 tokens, capped by the selected model's
+limit and remaining context budget. The Qwen workspace templates allow 16,384
+output tokens, including the RunPod-generated showcase.
 It does not alter FP32 normalization.
 
 The first compiled request can spend several minutes warming all full and
