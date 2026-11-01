@@ -208,9 +208,9 @@ function updateSpeculation() {
   select.disabled = busy || !eligible;
   $("draft-precision").disabled = busy || !eligible;
   $("speculation-note").textContent = !eligible
-    ? "Creative mode uses ordinary decoding. Your speculation choice is kept for Fast mode."
+    ? "Creative mode uses ordinary decoding; leaving DFlash2 reloads the model. Your speculation choice is kept for Fast mode."
     : select.value === "dflash2"
-      ? `DFlash2 · ${options.dflash2_drafts ?? "—"} draft tokens · text-only. Image conversations use ordinary decoding. Drafter precision is separate from LM head precision.`
+      ? `DFlash2 · ${options.dflash2_drafts ?? "—"} draft tokens · text-only. Image conversations use ordinary decoding and reload a DFlash2 engine. Drafter precision is separate from LM head precision.`
       : options.dflash2_available
         ? "DFlash2 is available. Switching to or from it reloads this model."
         : (options.dflash2_reason ??

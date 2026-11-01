@@ -40,15 +40,23 @@ class Workspace:
                 updates["dflash2_quantization"] = dflash2_quantization or defaults(model)["quantization"]
         current = model.engine.config if updates and model.loaded else None
         changed = any(getattr(current, key, pre_config.get(key)) != value for key, value in updates.items())
+        previous_config = pre_config
         if changed:
             row["status"] = "loading"
             if model.loaded:
                 await self.server.unload_model(model_id)
             model.pre_config = {**pre_config, **updates}
-        if self.server is not None and hasattr(self.server, "prepare_model"):
-            await self.server.prepare_model(model_id, row)
-        elif not model.loaded:
-            await asyncio.to_thread(model.load)
+        try:
+            if self.server is not None and hasattr(self.server, "prepare_model"):
+                await self.server.prepare_model(model_id, row)
+            elif not model.loaded:
+                await asyncio.to_thread(model.load)
+        except BaseException:
+            # Keep lazy API loads retryable with the last working settings.
+            # Do not immediately reload: an OOM may need user intervention.
+            if changed:
+                model.pre_config = previous_config
+            raise
 
     @asynccontextmanager
     async def track(self, model_id, task):

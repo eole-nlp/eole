@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 
+from eole.config.inference import InferenceConfig
+
 
 def defaults(model):
     configured = getattr(model, "speculation_defaults", None)
@@ -46,11 +48,19 @@ def capabilities(model):
             reason = "Download the configured DFlash2 checkpoint to enable this option."
     config = getattr(getattr(model, "engine", None), "config", None) if model.loaded else None
     settings = getattr(model, "pre_config", {})
+
+    def setting(name):
+        return getattr(config, name, settings.get(name, InferenceConfig.model_fields[name].default))
+
     dtype = str(getattr(config, "compute_dtype", settings.get("compute_dtype", "bf16")))
     if available and dtype not in ("bf16", "bfloat16", "torch.bfloat16", "auto"):
         available, reason = False, "DFlash2 requires BF16 compute."
     if available and getattr(config, "world_size", settings.get("world_size", 1)) != 1:
         available, reason = False, "DFlash2 requires single-process inference."
+    if available and (setting("batch_size") != 1 or setting("beam_size") != 1):
+        available, reason = False, "DFlash2 requires batch_size=1 and beam_size=1."
+    if available and setting("top_k") != 1 and setting("temperature") != 0:
+        available, reason = False, "DFlash2 requires greedy decoding (top_k=1 or temperature=0)."
     return dict(
         default=configured["mode"],
         mtp_available=configured["mtp"],

@@ -133,6 +133,7 @@ def register_ui(app, server):
             settings = model.pre_config
             ocr = ocr_adapter(model)
             translation = translation_capabilities(model)
+            speculation = capabilities(model)
             models.append(
                 {
                     "id": model_id,
@@ -156,8 +157,8 @@ def register_ui(app, server):
                     ),
                     "context_length": getattr(config, "context_length", settings.get("context_length")),
                     "max_tokens": getattr(config, "max_length", settings.get("max_length", 4096)),
-                    "mtp_configured": capabilities(model)["mtp_available"],
-                    "speculation": capabilities(model),
+                    "mtp_configured": speculation["mtp_available"],
+                    "speculation": speculation,
                     "streaming_supported": getattr(config, "world_size", settings.get("world_size", 1)) == 1
                     and (not model.loaded or isinstance(model.engine.predictor, GeneratorLM)),
                 }

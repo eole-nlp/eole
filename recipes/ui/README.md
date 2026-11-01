@@ -353,6 +353,10 @@ MTP remains the default in the Qwen examples; DFlash2 is opt-in.
 
 ![DFlash2 selection, independent drafter/head precision, and measured acceptance](images/dflash2.png)
 
+This screenshot illustrates the controls using a local block-size-4 drafter
+(3 proposals). Its 47% acceptance and 119.6 tok/s are from a short response
+capped at 128 output tokens, not the 7-draft benchmark configuration.
+
 The Qwen templates look for a local checkpoint at `$QWEN38_MODEL/dflash2`.
 Download it once if it is not already installed (no Eole conversion needed):
 
@@ -375,13 +379,19 @@ models:
       quantization: int8
     config:
       compute_dtype: bf16
+      batch_size: 1
+      beam_size: 1
+      n_best: 1
+      top_k: 1
+      min_length: 0
       self_speculative_decoding: true
       self_speculative_num_tokens: 3
       fuse_kvq: true
       fuse_gate: true
 ```
 
-The UI enables DFlash2 only when the advertised local config and weights exist.
+The UI enables DFlash2 only when the advertised local config and weights exist
+and the engine settings support single-item, single-beam greedy decoding.
 The loader additionally validates compatibility with the target. This path
 requires single-GPU BF16 compute and text-only greedy requests. The draft count
 comes from the checkpoint's block size and is shown beside the selector.
@@ -406,9 +416,15 @@ reuse the prepared engine, and compatible saved caches can shorten preparation.
 Decode tokens/second excludes this preparation delay.
 
 Creative mode and conversations containing images use ordinary decoding. The UI
-keeps your DFlash2 choice for eligible text-only Fast requests and displays the
+reloads a DFlash2 engine when entering these modes, and reloads again when
+returning to eligible DFlash2 requests. The UI keeps your DFlash2 choice for
+eligible text-only Fast requests and displays the
 method actually used, with its acceptance rate, in response/monitor statistics.
 Translate and OCR explicitly use ordinary decoding. Text-only Knowledge requests
 can reuse the currently loaded DFlash2 engine, like the selected LM-head precision.
 Model changes affect the shared engine used by API clients as well; external
 requests to a DFlash2-loaded engine must respect its supported scope.
+
+RunPod-generated configurations advertise the same nested `dflash2` path, but
+the launcher does not download the drafter. Provision it separately to enable
+the selector; otherwise DFlash2 remains disabled with a download explanation.

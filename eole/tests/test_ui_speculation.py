@@ -27,7 +27,9 @@ class SpeculationSetup:
         )
         (self.folder / "model.safetensors").touch()
         self.model = Model()
-        self.model.pre_config = dict(self_speculative_decoding=True, vocabulary_quantization="int4")
+        self.model.pre_config = dict(
+            self_speculative_decoding=True, vocabulary_quantization="int4", batch_size=1, beam_size=1, top_k=1
+        )
         self.model.speculation_defaults = dict(mode="mtp", mtp=True, path=str(self.folder), quantization="int8")
         self.model.engine.config = SimpleNamespace(
             world_size=1,
@@ -114,6 +116,37 @@ class TestSpeculationReloads(SpeculationSetup, unittest.IsolatedAsyncioTestCase)
         with self.assertRaisesRegex(ValueError, "incomplete"):
             await Workspace(self.server).prepare("test", self.model, {}, speculation="dflash2")
         self.assertEqual(self.calls, [])
+
+    async def test_failed_switch_restores_config_for_lazy_retry(self):
+        previous = self.model.pre_config
+        original_prepare = self.server.prepare_model
+
+        async def fail(model_id, row):
+            raise RuntimeError("load failed")
+
+        self.server.prepare_model = fail
+        with self.assertRaisesRegex(RuntimeError, "load failed"):
+            await Workspace(self.server).prepare("test", self.model, {}, speculation="dflash2")
+        self.assertIs(self.model.pre_config, previous)
+        self.assertFalse(self.model.loaded)
+        self.server.prepare_model = original_prepare
+        await Workspace(self.server).prepare("test", self.model, {})
+        self.assertTrue(self.model.loaded)
+        self.assertIsNone(self.model.engine.config.dflash2_model)
+
+    async def test_incompatible_defaults_are_rejected_before_unload(self):
+        for changes in ({"batch_size": 30}, {"beam_size": 5}, {"top_k": 0, "temperature": 1}):
+            previous = self.model.pre_config.copy()
+            self.model.pre_config.update(changes)
+            with self.assertRaises(ValueError):
+                await Workspace(self.server).prepare("test", self.model, {}, speculation="dflash2")
+            self.assertEqual(self.calls, [])
+            self.model.pre_config = previous
+        self.model.pre_config.update(top_k=0, temperature=0)
+        self.assertTrue(capabilities(self.model)["dflash2_available"])
+        for key in ("batch_size", "beam_size", "top_k", "temperature"):
+            self.model.pre_config.pop(key, None)
+        self.assertFalse(capabilities(self.model)["dflash2_available"])
 
 
 class TestSpeculationRoutes(SpeculationSetup, unittest.TestCase):
