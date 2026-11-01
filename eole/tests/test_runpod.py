@@ -26,6 +26,8 @@ from recipes.runpod.launch import (
     MODEL_CATALOG,
     QWEN_MODELS,
     WORKSPACE_MODELS,
+    DFLASH2,
+    drafter_path,
 )
 from recipes.runpod.publish_template import template_spec
 
@@ -256,7 +258,45 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
                 model = checkpoint_path(self.root, identity)
                 self.checkpoint(model)
                 (model / "deployment.json").write_text(json.dumps(identity))
+            drafter = drafter_path(self.root)
+            drafter.mkdir(parents=True)
+            for name, metadata in DFLASH2["files"].items():
+                with (drafter / name).open("wb") as file:
+                    file.truncate(metadata["size"])
+            (drafter / "deployment.json").write_text(json.dumps(DFLASH2))
             self.assertEqual(preparation_space(self.root), 8 * 1024**3)
+
+    async def test_drafter_is_pinned_atomic_shared_and_cached(self):
+        calls = []
+
+        async def command(*args):
+            calls.append(args)
+            self.assertEqual(args[-2], DFLASH2["revision"])
+            if args[2] == "download-drafter":
+                for name, metadata in DFLASH2["files"].items():
+                    with (Path(args[-1]) / name).open("wb") as file:
+                        file.truncate(metadata["size"])
+
+        self.deployment.command = command
+        path = await self.deployment.drafter()
+        self.assertEqual([args[2] for args in calls], ["download-drafter", "verify-drafter"])
+        self.assertTrue((path / "deployment.json").is_file())
+        self.assertEqual(await self.deployment.drafter(), path)
+        self.assertEqual(len(calls), 2)
+        source = Path(__file__).resolve().parents[2]
+        models = {role: self.root / role for role in ["int4", "bf16", "translate", "ocr"]}
+        models["dflash2"] = path
+        with patch.dict("os.environ", {"EOLE_QWEN_VARIANT": "both"}):
+            settings = workspace_settings(source, models)
+        self.assertEqual([m["dflash2"]["path"] for m in settings["models"][:2]], [str(path)] * 2)
+
+    async def test_failed_drafter_verification_keeps_resumable_staging(self):
+        self.deployment.command = AsyncMock(side_effect=[None, RuntimeError("checksum mismatch")])
+        with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
+            await self.deployment.drafter()
+        self.assertFalse(drafter_path(self.root).exists())
+        self.assertTrue(drafter_path(self.root).with_suffix(".partial").is_dir())
+        self.assertFalse(list(self.root.rglob("deployment.json")))
 
     async def test_download_is_atomic_cached_and_revision_pinned(self):
         calls = []
@@ -430,6 +470,9 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(
                 all(m["config"]["vocabulary_quantization"] == "int4" for m in settings["models"][: len(ids)])
             )
+            for entry in settings["models"][: len(ids)]:
+                self.assertEqual(entry["dflash2"]["path"], str(Path(entry["path"]) / "dflash2"))
+                self.assertNotIn("dflash2_model", entry["config"])
             self.assertEqual(settings["workspace"]["models"]["chat"], ids[0])
             self.assertEqual(settings["workspace"]["models"]["ocr"], "deepseek-ocr")
             self.assertEqual(settings["workspace"]["models"]["translate"], "hy-mt2-7b")

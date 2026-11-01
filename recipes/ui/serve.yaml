@@ -3,6 +3,9 @@ models_root: "${EOLE_MODEL_DIR}"
 models:
   - id: qwen3.8-27B
     path: "${QWEN38_MODEL}"
+    dflash2:
+      path: "${QWEN38_MODEL}/dflash2"
+      quantization: int8
     preload: true
     warmup: true
     config:
@@ -24,6 +27,6 @@ models:
       self_speculative_num_tokens: 3
       report_time: true
       fuse_kvq: true
-      fuse_gate: false
+      fuse_gate: true
       prefill_cache_size: 0
       prefill_chunk_size: 256

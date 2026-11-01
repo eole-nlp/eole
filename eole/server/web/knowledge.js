@@ -100,7 +100,7 @@
     if (!stats) return "";
     const seconds = (value) =>
       Number.isFinite(value) ? value.toFixed(2) + " s" : "—";
-    return `<div class="knowledge-metrics"><span><strong>${seconds(stats.retrieval_seconds)}</strong> retrieval</span><span><strong>${Number.isFinite(stats.decode_tokens_per_second) ? stats.decode_tokens_per_second.toFixed(1) : "—"}</strong> tok/s decode</span><span>${seconds(stats.first_token_seconds)} first token</span><span>${stats.output_tokens ?? "—"} output tokens</span><span>MTP ${stats.mtp_active ? "on" : "off"}</span>${stats.warmup_seconds > 0.1 ? `<span>${seconds(stats.warmup_seconds)} warmup</span>` : ""}<span>${stats.finish_reason === "length" ? "Output limit reached" : stats.cancelled ? "Stopped" : "Complete"}</span></div>`;
+    return `<div class="knowledge-metrics"><span><strong>${seconds(stats.retrieval_seconds)}</strong> retrieval</span><span><strong>${Number.isFinite(stats.decode_tokens_per_second) ? stats.decode_tokens_per_second.toFixed(1) : "—"}</strong> tok/s decode</span><span>${seconds(stats.first_token_seconds)} first token</span><span>${stats.output_tokens ?? "—"} output tokens</span><span>${stats.speculation_mode === "dflash2" ? "DFlash2" : stats.mtp_active ? "MTP" : "Speculation off"}</span>${stats.warmup_seconds > 0.1 ? `<span>${seconds(stats.warmup_seconds)} warmup</span>` : ""}<span>${stats.finish_reason === "length" ? "Output limit reached" : stats.cancelled ? "Stopped" : "Complete"}</span></div>`;
   }
   function renderMessages() {
     $("kg-messages").innerHTML = turns.length

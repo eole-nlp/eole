@@ -1,0 +1,14 @@
+{
+  "repo": "incoai/Qwen3.8-27B-DFlash2",
+  "revision": "015e795645c74b1a0eeef3b570031fb62e769bc5",
+  "files": {
+    "config.json": {
+      "size": 1239,
+      "sha256": "873e3556509b0da06e29654ba00d4944888d4b5e8a33afde25f7eb27d321e980"
+    },
+    "model.safetensors": {
+      "size": 3848817896,
+      "sha256": "67fc76d68dc5a9415511a4f394ef744d67510cd20e93b37cc2cc7d28e4bab65c"
+    }
+  }
+}

@@ -4,7 +4,87 @@ The host needs Docker, a compatible NVIDIA driver and the
 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 Configure the NVIDIA Docker runtime before starting a GPU container.
 
-## Build or choose an image
+## Quick start: run the workspace locally
+
+Use the **full Eole image** for local testing. You do not need to build a base
+image, publish anything, or use the RunPod image. The commands below use the
+published 0.6.5 image and an already converted Qwen checkpoint.
+
+Run these commands in a terminal on your host:
+
+```bash
+export EOLE_IMAGE=ghcr.io/eole-nlp/eole:0.6.5-torch2.14.1-ubuntu24.04-cuda13.2.1
+export EOLE_MODEL_DIR=/mnt/InternalCrucial4/LLM_work
+
+# Check that Docker can access your GPUs. The first run downloads the image.
+docker run --rm --gpus all --entrypoint nvidia-smi "$EOLE_IMAGE"
+```
+
+Change `EOLE_MODEL_DIR` to your model directory. It must contain the converted
+`Qwen3.8-27B-INT4` folder; this command does not download or convert a model.
+See the [Qwen3.8 recipe](../recipes/qwen38/README.md) if you need a checkpoint.
+If the GPU check fails, configure the NVIDIA Container Toolkit linked above
+before continuing.
+
+To use **DFlash2** with an image containing the workspace selector, first download
+its separate drafter **on your host**, into the `dflash2/` subdirectory of the
+converted Qwen model. The target checkpoint alone does not include it:
+
+```bash
+hf download incoai/Qwen3.8-27B-DFlash2 \
+  --revision 015e795645c74b1a0eeef3b570031fb62e769bc5 \
+  --include config.json model.safetensors \
+  --local-dir "$EOLE_MODEL_DIR/Qwen3.8-27B-INT4/dflash2"
+```
+
+The result must contain `dflash2/config.json` and `dflash2/model.safetensors`.
+The model-directory mount below makes them available inside Docker at the same
+path. No drafter conversion is needed. Without these files, DFlash2 stays
+disabled; Off and native MTP remain available. The 0.6.5 image itself predates
+the DFlash2 workspace selector; use a newer image or build your updated checkout
+to test that feature.
+
+Stop other inference processes using the selected GPU to free VRAM, then start
+the container:
+
+```bash
+docker run --rm -it --name eole-local \
+  --gpus '"device=0"' \
+  --shm-size=8g \
+  -p 127.0.0.1:5020:5000 \
+  -v "$EOLE_MODEL_DIR:$EOLE_MODEL_DIR" \
+  -v "$HOME/.cache/eole-docker:/root/.cache" \
+  -e EOLE_MODEL_DIR="$EOLE_MODEL_DIR" \
+  -e QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-INT4" \
+  -e EOLE_TORCH_COMPILE=1 \
+  -e EOLE_COMPILE_MODE=0 \
+  "$EOLE_IMAGE" \
+  -lc 'python -m eole.bin.main serve \
+    -c recipes/ui/serve.yaml --host 0.0.0.0 --port 5000'
+```
+
+Wait for loading and warmup to finish, then open
+**[http://127.0.0.1:5020/](http://127.0.0.1:5020/)**.
+The server is reachable only from your machine. Change `device=0` if you want
+another GPU; `nvidia-smi` shows the device indices.
+
+The model folder is mounted at the same absolute path inside the container so
+saved tokenizer paths remain valid. The cache mount retains compilation caches
+between runs; the first startup still needs compilation and warmup. Your local
+Python environment and host CUDA extension are not used by the container.
+
+Press **Ctrl+C** to stop, or run `docker stop eole-local` in another terminal.
+`--rm` removes the container afterward. Your mounted models and caches remain;
+save any other files you want to keep in a mounted directory.
+
+This runs the code packaged in the selected image. Mounting model files does
+not update that code. Features added after 0.6.5, including the DFlash2 workspace
+selector, require an image built from a source revision containing those changes.
+See the next section to build a local image from your checkout. For the combined
+Chat/Translate/OCR showcase, follow the [UI recipe](../recipes/ui/README.md) to
+configure the additional models.
+
+## Build an image locally (optional)
 
 The tested default is Ubuntu 24.04 / Python 3.12, PyTorch **2.14.1+cu132**,
 CUDA **13.2.1**, FlashAttention **2.8.3**, Triton **3.8.0**, and FLA **0.6.0**. The base upgrades
@@ -139,6 +219,15 @@ is checked against the runtime, GPU, source and model layout; failures fall back
 to ordinary compilation. Input shapes not covered by preparation can still warm
 additional kernels. These features require an image built from the updated source.
 
+**Startup warmup prepares the configured settings only.** In images with the
+DFlash2 workspace selector, switching MTP to/from DFlash2 or changing LM-head
+or drafter quantization reloads the model on the next request. That request can
+have a much longer wait for its first token while loading, quantization and
+compilation finish; cold compilation can take minutes. Subsequent requests with
+the same settings reuse the prepared engine. Persistent caches reduce repeat
+preparation, but do not eliminate all warmup. Decode tokens/second excludes this
+delay.
+
 Open `http://127.0.0.1:5000/` for the bundled workspace. See the
 [UI recipes](../recipes/ui/README.md) for Chat, Translate, Documents (OCR),
 Knowledge (RAG) and the combined showcase; mount/configure their models too.
@@ -223,6 +312,10 @@ change the live template or existing Pods. The deploy button keeps its current
 template ID. Preserve earlier release/revision images rather than overwriting them.
 The launcher downloads pinned pre-converted public `eole-nlp` checkpoints and
 verifies their SHA256 checksums; it does not convert original HF weights.
+RunPod wrappers built from the updated source also download and SHA256-verify
+the pinned `incoai/Qwen3.8-27B-DFlash2` drafter, shared by the Qwen INT4/BF16
+targets. Native MTP remains the default; DFlash2 can be selected in the workspace.
+The regular local Docker quick start still uses your own local drafter files.
 On startup the launcher probes the bundled extension on each visible GPU, then
 uses source compilation only if the binary is absent or incompatible. A matching
 volume cache is used when no bundled binary exists. The fallback result is cached.

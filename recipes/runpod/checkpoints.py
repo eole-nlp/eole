@@ -8,6 +8,8 @@ from pathlib import Path
 
 from huggingface_hub import hf_hub_download, snapshot_download
 
+DFLASH2 = json.loads(Path(__file__).with_name("dflash2.json").read_text())
+
 
 def manifest_files(manifest):
     if manifest.get("format") != "eole" or manifest.get("format_version") != 1:
@@ -36,6 +38,13 @@ def download(repo, revision, destination):
 def verify(destination):
     manifest = json.loads((destination / "model-manifest.json").read_text())
     files = manifest_files(manifest)
+    verify_files(destination, files)
+    index = json.loads((destination / "model.safetensors.index.json").read_text())
+    if not index.get("weight_map") or any(name not in files for name in index["weight_map"].values()):
+        raise ValueError("Checkpoint index references missing weights")
+
+
+def verify_files(destination, files):
     for name, metadata in files.items():
         path = destination / name
         if path.is_symlink() or not path.is_file():
@@ -52,19 +61,25 @@ def verify(destination):
             # other completed transfers. No deployment marker has been written.
             path.unlink()
             raise ValueError(f"Checkpoint checksum mismatch: {name}; restart to download it again")
-    index = json.loads((destination / "model.safetensors.index.json").read_text())
-    if not index.get("weight_map") or any(name not in files for name in index["weight_map"].values()):
-        raise ValueError("Checkpoint index references missing weights")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["download", "verify"])
+    parser.add_argument("action", choices=["download", "verify", "download-drafter", "verify-drafter"])
     parser.add_argument("repo")
     parser.add_argument("revision")
     parser.add_argument("destination", type=Path)
     args = parser.parse_args()
-    if args.action == "download":
+    if args.action.endswith("-drafter"):
+        if (args.repo, args.revision) != (DFLASH2["repo"], DFLASH2["revision"]):
+            raise ValueError("Drafter must match the pinned deployment checkpoint")
+        if args.action == "download-drafter":
+            snapshot_download(
+                args.repo, revision=args.revision, local_dir=args.destination, allow_patterns=list(DFLASH2["files"])
+            )
+        else:
+            verify_files(args.destination, DFLASH2["files"])
+    elif args.action == "download":
         download(args.repo, args.revision, args.destination)
     else:
         verify(args.destination)

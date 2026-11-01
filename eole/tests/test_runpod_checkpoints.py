@@ -7,10 +7,25 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from recipes.runpod.checkpoints import download, manifest_files, verify
+from recipes.runpod.checkpoints import DFLASH2, download, main, manifest_files, verify, verify_files
 
 
 class TestCheckpointDownload(unittest.TestCase):
+    def test_drafter_download_uses_pinned_files_without_target_manifest(self):
+        with patch("sys.argv", ["checkpoints", "download-drafter", DFLASH2["repo"], DFLASH2["revision"], "/tmp/draft"]):
+            with patch("recipes.runpod.checkpoints.snapshot_download") as snapshot:
+                main()
+        self.assertEqual(snapshot.call_args.kwargs["revision"], DFLASH2["revision"])
+        self.assertEqual(set(snapshot.call_args.kwargs["allow_patterns"]), {"config.json", "model.safetensors"})
+
+    def test_drafter_checksums_reject_corrupt_files(self):
+        files = {"config.json": self.manifest["files"]["config.json"]}
+        verify_files(self.root, files)
+        (self.root / "config.json").write_bytes(b"[]")
+        with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+            verify_files(self.root, files)
+        self.assertFalse((self.root / "config.json").exists())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

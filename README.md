@@ -84,7 +84,7 @@ this release.
 | Chat with a local LLM in your browser | [Local workspace UI](recipes/ui/README.md) |
 | Translate through a web interface: text, terminology, subtitles, and documents | [Hy-MT2 translation workspace](recipes/translation/README.md) |
 | Try Qwen3.8-27B with MTP speculative decoding | [Qwen3.8 and MTP](recipes/qwen38/README.md) |
-| Try DFlash2 speculative decoding with Qwen3.8-27B | [DFlash2 recipe](recipes/qwen38/dflash2/README.md) |
+| Try DFlash2 speculative decoding with Qwen3.8-27B | [DFlash2 recipe](recipes/qwen38/dflash2/README.md) or [workspace controls](recipes/ui/README.md#choose-off-mtp-or-dflash2) |
 | Use Codex with a locally served Qwen model | [Codex Responses API](recipes/codex/README.md) |
 | Use Claude Code with a locally served Qwen model | [Claude Code endpoint](recipes/claude-code/README.md) |
 | Ask questions about your documents with sources | [Local Knowledge / RAG workspace](recipes/rag/README.md) |

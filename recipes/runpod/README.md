@@ -61,6 +61,18 @@ cost; it cannot skip those steps.
 | Knowledge (RAG) | Qwen answers questions using your documents; the embedding model downloads on first use |
 | Benchmark | Measure generation speed after warmup |
 
+Images built from the updated launcher also prepare the pinned
+`incoai/Qwen3.8-27B-DFlash2` drafter (about 3.85 GB), so Chat offers Off, MTP
+and DFlash2 without a manual download. Config and weight SHA256 checksums are
+verified before activation. INT4 and BF16 targets share one cached drafter on
+the volume; downloads interrupted during preparation resume on restart. Storage
+checks include this extra checkpoint. Native MTP remains the startup default.
+Selecting DFlash2 or changing precision reloads and warms the engine on the next
+request, so that request can take longer to produce its first token. This needs
+a newly built full Eole image containing the workspace controls and a RunPod
+wrapper built from the same updated source; existing published images do not
+change automatically.
+
 Switching workspaces automatically unloads the previous inference model and loads
 the appropriate one. All prepared weights stay on disk. Loading and first-use
 warmup take time, so a switch is not instantaneous.

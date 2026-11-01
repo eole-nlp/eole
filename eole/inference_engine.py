@@ -423,6 +423,11 @@ class InferenceEnginePY(InferenceEngine):
                             (streamer.first_token_time - started) if streamer.first_token_time else None
                         ),
                         warmup_seconds=sum(getattr(self.predictor, "warmup_time", [])),
+                        speculation_mode=(
+                            "dflash2"
+                            if drafted and getattr(self.predictor, "dflash2", None) is not None
+                            else "mtp" if drafted else "off"
+                        ),
                         mtp_active=drafted > 0,
                         mtp_acceptance=(
                             getattr(self.predictor, "_speculative_accepted_tokens", 0) / drafted if drafted else None
