@@ -4,7 +4,68 @@ The host needs Docker, a compatible NVIDIA driver and the
 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 Configure the NVIDIA Docker runtime before starting a GPU container.
 
-## Build or choose an image
+## Quick start: run the workspace locally
+
+Use the **full Eole image** for local testing. You do not need to build a base
+image, publish anything, or use the RunPod image. The commands below use the
+published 0.6.5 image and an already converted Qwen checkpoint.
+
+Run these commands in a terminal on your host:
+
+```bash
+export EOLE_IMAGE=ghcr.io/eole-nlp/eole:0.6.5-torch2.14.1-ubuntu24.04-cuda13.2.1
+export EOLE_MODEL_DIR=/mnt/InternalCrucial4/LLM_work
+
+# Check that Docker can access your GPUs. The first run downloads the image.
+docker run --rm --gpus all --entrypoint nvidia-smi "$EOLE_IMAGE"
+```
+
+Change `EOLE_MODEL_DIR` to your model directory. It must contain the converted
+`Qwen3.8-27B-INT4` folder; this command does not download or convert a model.
+See the [Qwen3.8 recipe](../recipes/qwen38/README.md) if you need a checkpoint.
+If the GPU check fails, configure the NVIDIA Container Toolkit linked above
+before continuing.
+
+Stop other inference processes using the selected GPU to free VRAM, then run:
+
+```bash
+docker run --rm -it --name eole-local \
+  --gpus '"device=0"' \
+  --shm-size=8g \
+  -p 127.0.0.1:5020:5000 \
+  -v "$EOLE_MODEL_DIR:$EOLE_MODEL_DIR" \
+  -v "$HOME/.cache/eole-docker:/root/.cache" \
+  -e EOLE_MODEL_DIR="$EOLE_MODEL_DIR" \
+  -e QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-INT4" \
+  -e EOLE_TORCH_COMPILE=1 \
+  -e EOLE_COMPILE_MODE=0 \
+  "$EOLE_IMAGE" \
+  -lc 'python -m eole.bin.main serve \
+    -c recipes/ui/serve.yaml --host 0.0.0.0 --port 5000'
+```
+
+Wait for loading and warmup to finish, then open
+**[http://127.0.0.1:5020/](http://127.0.0.1:5020/)**.
+The server is reachable only from your machine. Change `device=0` if you want
+another GPU; `nvidia-smi` shows the device indices.
+
+The model folder is mounted at the same absolute path inside the container so
+saved tokenizer paths remain valid. The cache mount retains compilation caches
+between runs; the first startup still needs compilation and warmup. Your local
+Python environment and host CUDA extension are not used by the container.
+
+Press **Ctrl+C** to stop, or run `docker stop eole-local` in another terminal.
+`--rm` removes the container afterward. Your mounted models and caches remain;
+save any other files you want to keep in a mounted directory.
+
+This runs the code packaged in the selected image. Mounting model files does
+not update that code. Features added after 0.6.5, including the DFlash2 workspace
+selector, require an image built from a source revision containing those changes.
+See the next section to build a local image from your checkout. For the combined
+Chat/Translate/OCR showcase, follow the [UI recipe](../recipes/ui/README.md) to
+configure the additional models.
+
+## Build an image locally (optional)
 
 The tested default is Ubuntu 24.04 / Python 3.12, PyTorch **2.14.1+cu132**,
 CUDA **13.2.1**, FlashAttention **2.8.3**, Triton **3.8.0**, and FLA **0.6.0**. The base upgrades
