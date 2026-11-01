@@ -158,6 +158,11 @@ def register_ui(app, server):
                     "context_length": getattr(config, "context_length", settings.get("context_length")),
                     "max_tokens": getattr(config, "max_length", settings.get("max_length", 16384)),
                     "mtp_configured": speculation["mtp_available"],
+                    "mtp_draft_tokens": getattr(
+                        config, "self_speculative_num_tokens", settings.get("self_speculative_num_tokens", 0)
+                    ),
+                    "fuse_kvq": getattr(config, "fuse_kvq", settings.get("fuse_kvq", False)),
+                    "fuse_gate": getattr(config, "fuse_gate", settings.get("fuse_gate", False)),
                     "speculation": speculation,
                     "streaming_supported": getattr(config, "world_size", settings.get("world_size", 1)) == 1
                     and (not model.loaded or isinstance(model.engine.predictor, GeneratorLM)),
