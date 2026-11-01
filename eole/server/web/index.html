@@ -249,11 +249,16 @@
                 Connecting to the inference server
               </div>
             </div>
-            <button id="settings-toggle" class="quiet-button">
+            <button
+              id="settings-toggle"
+              class="quiet-button"
+              aria-expanded="true"
+              aria-controls="settings"
+            >
               ⚙ Generation settings
             </button>
           </div>
-          <div class="settings" id="settings" hidden>
+          <div class="settings" id="settings">
             <label
               >Mode<select id="preset">
                 <option value="fast">Fast · greedy</option>

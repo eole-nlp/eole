@@ -357,7 +357,17 @@ extra nested snapshot directory. No conversion of the drafter is required.
 Chat generation settings now include a **Speculation** selector. **Off** uses
 ordinary decoding, **MTP** uses the configured native heads, and **DFlash2** loads
 the separate Qwen3.8-27B drafter. Benchmark uses the same selected settings.
-MTP remains the default in the Qwen examples; DFlash2 is opt-in.
+Generation settings are expanded on page load; use the same button to hide them.
+When a compatible local drafter is available, Chat selects DFlash2 with INT8
+packed projections by default. Explicit choices are kept for the current browser
+session. Without a compatible drafter, it selects native MTP when configured,
+otherwise Off. The server's startup configuration is unchanged, so the first
+DFlash2 request may still reload a model initially prepared with MTP.
+
+The displayed draft count comes from `dflash_config.block_size - 1` in the
+drafter's `config.json`, independently of `self_speculative_num_tokens` (native
+MTP only). The pinned upstream config uses block size 8, giving seven proposals;
+a locally edited block size 4 gives three. The workspace does not override it.
 
 ![DFlash2 selection, independent drafter/head precision, and measured acceptance](images/dflash2.png)
 

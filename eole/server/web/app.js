@@ -709,6 +709,10 @@ $("stop").onclick = stopGeneration;
 $("benchmark-stop").onclick = stopGeneration;
 $("settings-toggle").onclick = () => {
   $("settings").hidden = !$("settings").hidden;
+  $("settings-toggle").setAttribute(
+    "aria-expanded",
+    String(!$("settings").hidden),
+  );
 };
 $("theme").onclick = () => {
   document.body.classList.toggle("dark");
