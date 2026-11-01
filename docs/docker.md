@@ -26,7 +26,26 @@ See the [Qwen3.8 recipe](../recipes/qwen38/README.md) if you need a checkpoint.
 If the GPU check fails, configure the NVIDIA Container Toolkit linked above
 before continuing.
 
-Stop other inference processes using the selected GPU to free VRAM, then run:
+To use **DFlash2** with an image containing the workspace selector, first download
+its separate drafter **on your host**, into the `dflash2/` subdirectory of the
+converted Qwen model. The target checkpoint alone does not include it:
+
+```bash
+hf download incoai/Qwen3.8-27B-DFlash2 \
+  --revision 015e795645c74b1a0eeef3b570031fb62e769bc5 \
+  --include config.json model.safetensors \
+  --local-dir "$EOLE_MODEL_DIR/Qwen3.8-27B-INT4/dflash2"
+```
+
+The result must contain `dflash2/config.json` and `dflash2/model.safetensors`.
+The model-directory mount below makes them available inside Docker at the same
+path. No drafter conversion is needed. Without these files, DFlash2 stays
+disabled; Off and native MTP remain available. The 0.6.5 image itself predates
+the DFlash2 workspace selector; use a newer image or build your updated checkout
+to test that feature.
+
+Stop other inference processes using the selected GPU to free VRAM, then start
+the container:
 
 ```bash
 docker run --rm -it --name eole-local \
@@ -293,6 +312,10 @@ change the live template or existing Pods. The deploy button keeps its current
 template ID. Preserve earlier release/revision images rather than overwriting them.
 The launcher downloads pinned pre-converted public `eole-nlp` checkpoints and
 verifies their SHA256 checksums; it does not convert original HF weights.
+RunPod wrappers built from the updated source also download and SHA256-verify
+the pinned `incoai/Qwen3.8-27B-DFlash2` drafter, shared by the Qwen INT4/BF16
+targets. Native MTP remains the default; DFlash2 can be selected in the workspace.
+The regular local Docker quick start still uses your own local drafter files.
 On startup the launcher probes the bundled extension on each visible GPU, then
 uses source compilation only if the binary is absent or incompatible. A matching
 volume cache is used when no bundled binary exists. The fallback result is cached.

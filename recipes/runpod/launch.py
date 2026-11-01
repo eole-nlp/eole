@@ -18,8 +18,10 @@ import yaml
 
 try:
     from .gateway import create_gateway
+    from .checkpoints import DFLASH2
 except ImportError:
     from gateway import create_gateway
+    from checkpoints import DFLASH2
 
 LOG = logging.getLogger("eole.runpod")
 MODEL_CATALOG = json.loads((Path(__file__).resolve().parent / "models.json").read_text())
@@ -85,7 +87,25 @@ def preparation_space(root):
         explicit, identity = model_options(model_id, role)
         if not explicit and not completed_checkpoint(checkpoint_path(root, identity), identity):
             needed += MODEL_CATALOG[role]["size_bytes"]
+    if not completed_drafter(drafter_path(root)):
+        needed += sum(file["size"] for file in DFLASH2["files"].values())
     return needed
+
+
+def drafter_path(root):
+    return checkpoint_path(root, DFLASH2)
+
+
+def completed_drafter(path):
+    marker = path / "deployment.json"
+    return (
+        marker.is_file()
+        and json.loads(marker.read_text()) == DFLASH2
+        and all(
+            (path / name).is_file() and (path / name).stat().st_size == metadata["size"]
+            for name, metadata in DFLASH2["files"].items()
+        )
+    )
 
 
 def qwen_variants():
@@ -105,7 +125,7 @@ def workspace_settings(source, models):
         entry["id"] = "qwen3.8-27B" if variant == "int4" else "qwen3.8-27B-bf16"
         entry["path"] = str(models[variant])
         if entry.get("dflash2"):
-            entry["dflash2"]["path"] = str(models[variant] / "dflash2")
+            entry["dflash2"]["path"] = str(models.get("dflash2", models[variant] / "dflash2"))
         entries.append(entry)
     translation["path"] = str(models["translate"])
     ocr["path"] = str(models["ocr"])
@@ -280,6 +300,25 @@ for i in range(torch.cuda.device_count()):
         staging.rename(model)
         return model
 
+    async def drafter(self):
+        # One immutable drafter is shared by INT4 and BF16 targets on this volume.
+        path = drafter_path(self.root)
+        if completed_drafter(path):
+            self.stage("download", "Using the DFlash2 drafter saved on your volume.")
+            return path
+        staging = path.with_name(path.name + ".partial")
+        staging.mkdir(parents=True, exist_ok=True)
+        helper = RECIPE / "checkpoints.py"
+        self.stage("download", "Downloading the pinned DFlash2 drafter (3.85 GB)…")
+        await self.command(sys.executable, helper, "download-drafter", DFLASH2["repo"], DFLASH2["revision"], staging)
+        self.stage("verify", "Verifying DFlash2 config and weights…")
+        await self.command(sys.executable, helper, "verify-drafter", DFLASH2["repo"], DFLASH2["revision"], staging)
+        (staging / "deployment.json").write_text(json.dumps(DFLASH2))
+        if path.exists():
+            raise RuntimeError("An incomplete drafter destination exists; preserve/remove it manually before retrying")
+        staging.rename(path)
+        return path
+
     async def run(self):
         # One startup writer per volume; don't corrupt shared caches/models.
         import fcntl
@@ -296,6 +335,7 @@ for i in range(torch.cuda.device_count()):
                 models[variant] = await self.model(QWEN_MODELS[variant], variant)
             for role, model_id in WORKSPACE_MODELS.items():
                 models[role] = await self.model(model_id, role)
+            models["dflash2"] = await self.drafter()
             self.stage("load", "Loading Qwen and preparing inference: reuse the local verifier or compile it once…")
             config = self.root / "serve.yaml"
             settings = workspace_settings(self.source, models)

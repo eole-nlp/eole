@@ -346,6 +346,14 @@ embeddings remain unchanged. For custom server YAML files, set
 
 ## Choose Off, MTP or DFlash2
 
+**Local Python and regular Docker users must download the separate drafter into
+`$QWEN38_MODEL/dflash2/` before starting the server.** The converted target model
+does not include it. Run the download command below on the host; for Docker,
+mount the parent Qwen model directory as described in the
+[Docker quick start](../../docs/docker.md#quick-start-run-the-workspace-locally).
+The folder must contain `config.json` and `model.safetensors` directly, with no
+extra nested snapshot directory. No conversion of the drafter is required.
+
 Chat generation settings now include a **Speculation** selector. **Off** uses
 ordinary decoding, **MTP** uses the configured native heads, and **DFlash2** loads
 the separate Qwen3.8-27B drafter. Benchmark uses the same selected settings.
@@ -425,6 +433,7 @@ can reuse the currently loaded DFlash2 engine, like the selected LM-head precisi
 Model changes affect the shared engine used by API clients as well; external
 requests to a DFlash2-loaded engine must respect its supported scope.
 
-RunPod-generated configurations advertise the same nested `dflash2` path, but
-the launcher does not download the drafter. Provision it separately to enable
-the selector; otherwise DFlash2 remains disabled with a download explanation.
+RunPod images built from this source download and SHA256-verify the pinned
+DFlash2 drafter during preparation. INT4 and BF16 targets share one copy on the
+volume, and the selector is available after startup. Older images require manual
+provisioning or rebuilding; local Docker still uses the checkpoint you provide.
