@@ -397,6 +397,14 @@ changing LM-head precision at the same time uses one reload. Warmup may repeat,
 and Stop takes effect after the in-flight loading/compilation finishes. Switching
 between Off and MTP does not reload a normal engine.
 
+**Expect a longer wait for the first token on the next request after switching
+between MTP and DFlash2, or changing LM-head/drafter precision.** Loading,
+quantization and any new compilation happen before generation; a cold
+compilation can take minutes. Startup warmup covers the startup configuration,
+not every possible UI configuration. Later requests with unchanged settings
+reuse the prepared engine, and compatible saved caches can shorten preparation.
+Decode tokens/second excludes this preparation delay.
+
 Creative mode and conversations containing images use ordinary decoding. The UI
 keeps your DFlash2 choice for eligible text-only Fast requests and displays the
 method actually used, with its acceptance rate, in response/monitor statistics.

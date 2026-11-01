@@ -200,6 +200,15 @@ is checked against the runtime, GPU, source and model layout; failures fall back
 to ordinary compilation. Input shapes not covered by preparation can still warm
 additional kernels. These features require an image built from the updated source.
 
+**Startup warmup prepares the configured settings only.** In images with the
+DFlash2 workspace selector, switching MTP to/from DFlash2 or changing LM-head
+or drafter quantization reloads the model on the next request. That request can
+have a much longer wait for its first token while loading, quantization and
+compilation finish; cold compilation can take minutes. Subsequent requests with
+the same settings reuse the prepared engine. Persistent caches reduce repeat
+preparation, but do not eliminate all warmup. Decode tokens/second excludes this
+delay.
+
 Open `http://127.0.0.1:5000/` for the bundled workspace. See the
 [UI recipes](../recipes/ui/README.md) for Chat, Translate, Documents (OCR),
 Knowledge (RAG) and the combined showcase; mount/configure their models too.

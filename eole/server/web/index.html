@@ -299,9 +299,11 @@
               Fast mode uses deterministic selection. Speculation is confirmed
               after generation. Output must fit the remaining context. Changing
               LM head precision or DFlash2 settings reloads the model on the
-              next request and may repeat warmup. INT8/INT4 require single-GPU
-              CUDA, FP16/BF16 and an unquantized, bias-free head. Quantization
-              can change output.
+              next request and may repeat warmup. That request can take much
+              longer to show its first token, especially when new compilation is
+              needed. Later requests reuse the prepared engine. INT8/INT4
+              require single-GPU CUDA, FP16/BF16 and an unquantized, bias-free
+              head. Quantization can change output.
             </p>
           </div>
           <div id="messages" class="messages" aria-live="polite">
