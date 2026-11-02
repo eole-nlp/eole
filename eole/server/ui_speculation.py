@@ -20,7 +20,7 @@ def defaults(model):
         mode="dflash2" if path else "mtp" if mtp else "off",
         mtp=bool(mtp),
         path=os.path.expanduser(os.path.expandvars(path)) if path else None,
-        quantization=config.get("dflash2_quantization", "none"),
+        quantization=config.get("dflash2_quantization", "int8"),
     )
 
 
@@ -62,7 +62,7 @@ def capabilities(model):
     if available and setting("top_k") != 1 and setting("temperature") != 0:
         available, reason = False, "DFlash2 requires greedy decoding (top_k=1 or temperature=0)."
     return dict(
-        default=configured["mode"],
+        default="dflash2" if available else "mtp" if configured["mtp"] else "off",
         mtp_available=configured["mtp"],
         dflash2_available=available,
         dflash2_quantization=configured["quantization"],
@@ -72,8 +72,8 @@ def capabilities(model):
 
 
 def selection(model, requested=None, *, eligible=True):
-    mode = requested or defaults(model)["mode"]
     options = capabilities(model)
+    mode = requested or options["default"]
     if mode == "dflash2" and not options["dflash2_available"]:
         raise ValueError(options["dflash2_reason"])
     if mode == "mtp" and not options["mtp_available"]:

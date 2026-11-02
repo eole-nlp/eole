@@ -837,7 +837,7 @@ td small {
 }
 .benchmark-layout {
   display: grid;
-  grid-template-columns: 1.05fr 1fr;
+  grid-template-columns: 1fr;
   gap: 20px;
 }
 .benchmark-form,
@@ -1233,4 +1233,70 @@ td small {
 .composer.image-dragover {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
+}
+
+.benchmark-form fieldset {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin: 8px 0;
+  padding: 12px 16px;
+  align-self: start;
+}
+.benchmark-form fieldset .check {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.benchmark-controls {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.benchmark-controls label {
+  display: grid;
+  gap: 6px;
+}
+.benchmark-controls input {
+  width: 120px;
+}
+.benchmark-table {
+  margin-top: 20px;
+  padding: 16px;
+  overflow-x: auto;
+}
+.benchmark-table td {
+  white-space: normal;
+  min-width: 95px;
+}
+.benchmark-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+}
+.benchmark-form > :not(fieldset) {
+  grid-column: 1 / -1;
+}
+.benchmark-form > button {
+  justify-self: start;
+}
+.benchmark-result {
+  padding: 20px 32px;
+}
+.benchmark-result .big-number {
+  font-size: 48px;
+  margin: 12px 0;
+}
+.benchmark-result .big-number small {
+  display: inline;
+  margin-left: 16px;
+}
+@media (max-width: 680px) {
+  .benchmark-form {
+    grid-template-columns: 1fr;
+  }
+  .benchmark-result .big-number small {
+    display: block;
+    margin-left: 0;
+  }
 }

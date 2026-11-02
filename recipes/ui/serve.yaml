@@ -19,7 +19,7 @@ models:
       top_p: 0.0
       temperature: 1.0
       min_length: 0
-      max_length: 4096
+      max_length: 16384
       max_length_ratio: 0
       context_length: 28672
       batch_size: 1
