@@ -9,7 +9,7 @@ on:
         default: "main"
         type: string
       deploy_tag:
-        description: "Deployment tag: 0.6.5 for this release (empty publishes dev tag only)"
+        description: "Deployment tag: 0.6.6 for this release (empty publishes dev tag only)"
         required: false
         default: ""
         type: string

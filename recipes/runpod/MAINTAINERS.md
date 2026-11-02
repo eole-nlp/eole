@@ -4,20 +4,20 @@ For deploying an existing template, follow the [user quick start](README.md).
 This guide is for maintainers publishing the images and deploy button, or users
 customizing the deployment. Ordinary users do not need Docker commands or an API key.
 
-## Publish 0.6.5
+## Publish 0.6.6
 
 The Python package, full Eole image and RunPod wrapper must include the merged
-0.6.5 source. Publishing a GitHub release does not build Docker images, and
+0.6.6 source. Publishing a GitHub release does not build Docker images, and
 publishing images does not update the live RunPod template.
 
-1. Merge the release PR, create tag **`0.6.5`** on that commit, and publish its
+1. Merge the release PR, create tag **`0.6.6`** on that commit, and publish its
    GitHub release. **Deploy Docs & Publish to PyPi** publishes the Python package
    and documentation. It checks that the tag matches the package version.
 2. Run **Actions → Build Docker Images** with the workflow branch on `main`:
 
    | Input | Value |
    |---|---|
-   | `source_ref` | `0.6.5` |
+   | `source_ref` | `0.6.6` |
    | `torch_version` | `2.14.1` |
    | `cuda_version` | `13.2.1` |
    | `cuda_arch_list` | `8.0 8.6 8.9 9.0 10.0 10.3 12.0` |
@@ -28,7 +28,7 @@ publishing images does not update the live RunPod template.
    image reference to use in the next step:
 
    ```text
-   ghcr.io/eole-nlp/eole:0.6.5-torch2.14.1-ubuntu24.04-cuda13.2.1
+   ghcr.io/eole-nlp/eole:0.6.6-torch2.14.1-ubuntu24.04-cuda13.2.1
    ```
 
    The default stack includes FlashAttention 2.8.3, Triton 3.8.0 and fla-core
@@ -38,23 +38,24 @@ publishing images does not update the live RunPod template.
 
    | Input | Value |
    |---|---|
-   | `source_ref` | `0.6.5` |
-   | `deploy_tag` | `0.6.5` |
+   | `source_ref` | `0.6.6` |
+   | `deploy_tag` | `0.6.6` |
    | `eole_image` | Full image reference above, or its immutable digest |
 
-   This publishes **`ghcr.io/eole-nlp/eole-runpod:0.6.5`**. The release check
+   This publishes **`ghcr.io/eole-nlp/eole-runpod:0.6.6`**. The release check
    rejects a parent whose Eole version or source revision differs from the tagged
    checkout. An older r2 image cannot supply the latest kernels, quantized heads,
    workspace controls or warmup code merely by rebuilding the wrapper.
 4. Verify GHCR visibility and validate a disposable GPU Pod: authentication,
    persistent storage, pre-converted model downloads/checksums, Qwen startup
-   warmup, Chat/Translate/Documents/Knowledge, head precision selection, model
+   warmup, Chat/Translate/Documents/Knowledge, DFlash2 download/checksums and
+   selection, head/drafter precision changes, benchmark comparisons, model
    unloading and a cached restart. Build-time imports do not validate GPU execution.
 5. After validation, update the **existing public RunPod template `e9e19ozt9c`**
    in the console. Set **Container Image** to
-   **`ghcr.io/eole-nlp/eole-runpod:0.6.5`**; retain the launcher, Secret reference,
+   **`ghcr.io/eole-nlp/eole-runpod:0.6.6`**; retain the launcher, Secret reference,
    port and storage settings from `template.json`. Its repository copy already
-   selects 0.6.5; merging it does not update the live template.
+   selects 0.6.6; merging it does not update the live template.
 6. Open the README deploy button and check the selected image before deployment.
    The button's template ID stays unchanged. Existing Pods retain their images;
    stop/delete validation resources according to the agreed retention policy.
@@ -66,7 +67,7 @@ or CUDA code require rebuilding the full parent. For later Docker-only correctio
 use a new revision tag instead of overwriting published images. The strict
 same-release check applies to plain `x.y.z` deployment tags.
 
-Do not overwrite `0.6.4`, `0.6.4-r1`, `0.6.4-r2`, or a published `0.6.5` image.
+Do not overwrite `0.6.4`, `0.6.4-r1`, `0.6.4-r2`, or a published `0.6.5` or `0.6.6` image.
 A deployment-only correction does not require another PyPI version. Building an
 image does not rent a Pod. See the [Docker guide](../../docs/docker.md) for local
 builds and compatibility requirements.
@@ -166,7 +167,7 @@ All four packages passed a fresh private-Hub download, complete SHA256 compariso
 and offline inference before publication. INT4 (with MTP), translation and OCR
 were tested on RTX 5090; the original BF16 checkpoint was tested on CPU using
 Eole's PyTorch fallback. These checks do not constitute GPU validation of a
-newly built 0.6.5 image.
+newly built release image.
 
 To update a model, validate the new Eole package first, then change its catalog
 commit and size together and rebuild the RunPod wrapper. The Eole parent image
@@ -339,7 +340,7 @@ were terminated after validation; no test storage is retained.
 
 ## Startup preparation in the release image
 
-The 0.6.5 full Eole image contains the server, local verifier cache and timing
+The 0.6.6 full Eole image contains the server, local verifier cache and timing
 fixes. Its RunPod wrapper checks for importable ops and startup/cache support.
 The default Qwen model uses `preload: true, warmup: true`; the preparation screen
 stays visible until inference preparation finishes. Translation/OCR load on first

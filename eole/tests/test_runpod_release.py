@@ -18,11 +18,11 @@ class TestRunPodRelease(unittest.TestCase):
         self.script = recipe / "check_release.sh"
         shutil.copy2(Path(__file__).resolve().parents[2] / "recipes/runpod/check_release.sh", self.script)
         (self.root / "eole").mkdir()
-        (self.root / "eole/__init__.py").write_text('__version__ = "0.6.5"\n')
+        (self.root / "eole/__init__.py").write_text('__version__ = "0.6.6"\n')
         self.git("init", "-q")
         self.git("add", ".")
         self.git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "release")
-        self.git("tag", "0.6.5")
+        self.git("tag", "0.6.6")
         revision = self.git("rev-parse", "HEAD").stdout.strip()
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
@@ -41,14 +41,14 @@ class TestRunPodRelease(unittest.TestCase):
             **os.environ,
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
             "DOCKER_TEST_LOG": str(self.log),
-            "PARENT_VERSION": "0.6.5",
+            "PARENT_VERSION": "0.6.6",
             "PARENT_REVISION": revision,
         }
 
     def git(self, *args):
         return subprocess.run(["git", *args], cwd=self.root, text=True, capture_output=True, check=True)
 
-    def check(self, tag="0.6.5"):
+    def check(self, tag="0.6.6"):
         return subprocess.run(
             ["bash", str(self.script), tag, "example/eole:release"],
             cwd="/tmp",
@@ -63,7 +63,7 @@ class TestRunPodRelease(unittest.TestCase):
         self.assertIn("image inspect", self.log.read_text())
 
     def test_stale_parent_version_or_revision_is_rejected(self):
-        for key, value in [("PARENT_VERSION", "0.6.4"), ("PARENT_REVISION", "0" * 40)]:
+        for key, value in [("PARENT_VERSION", "0.6.5"), ("PARENT_REVISION", "0" * 40)]:
             with self.subTest(key=key):
                 original = self.env[key]
                 self.env[key] = value
@@ -76,7 +76,7 @@ class TestRunPodRelease(unittest.TestCase):
         self.git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "later")
         result = self.check()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("source_ref=0.6.5", result.stderr)
+        self.assertIn("source_ref=0.6.6", result.stderr)
         self.assertFalse(self.log.exists())
 
     def test_wrong_source_package_version_is_rejected(self):
@@ -86,7 +86,7 @@ class TestRunPodRelease(unittest.TestCase):
         self.assertFalse(self.log.exists())
 
     def test_development_build_does_not_require_a_release_tag_or_pull(self):
-        self.git("tag", "-d", "0.6.5")
+        self.git("tag", "-d", "0.6.6")
         for tag in ("", "dev-123456789abc"):
             result = self.check(tag)
             self.assertEqual(result.returncode, 0, result.stderr)
