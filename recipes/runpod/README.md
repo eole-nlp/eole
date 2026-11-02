@@ -16,7 +16,7 @@ This recipe targets **`eole-runpod:0.6.6`**, with prebuilt Eole CUDA ops and
 pre-converted models from the public [eole-nlp organization](https://huggingface.co/eole-nlp).
 No HF token is required for these four checkpoints; no model conversion runs on the Pod.
 Maintainers must first build a full Eole image containing those ops, publish the
-RunPod wrapper, and update the existing public template before the button uses it; see the [publishing steps](MAINTAINERS.md#publish-065).
+RunPod wrapper, and update the existing public template before the button uses it; see the [publishing steps](MAINTAINERS.md#publish-066).
 
 ## Get started
 
@@ -170,4 +170,4 @@ of compiling it on the rented GPU. A source-build fallback handles incompatible
 binaries. Model downloads, checksum verification and Triton/torch.compile warmup still take time.
 Older published images retain their original startup behavior. Maintainers must
 publish a new image and update the deployment template to enable this change;
-see [publishing instructions](MAINTAINERS.md#publish-065).
+see [publishing instructions](MAINTAINERS.md#publish-066).
