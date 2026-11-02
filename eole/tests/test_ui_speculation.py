@@ -1,11 +1,12 @@
 """Workspace speculation selection, reload boundaries and safe request fallbacks."""
 
+import asyncio
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -135,7 +136,15 @@ class TestSpeculationReloads(SpeculationSetup, unittest.IsolatedAsyncioTestCase)
         self.assertIsNone(self.model.engine.config.dflash2_model)
 
     async def test_incompatible_defaults_are_rejected_before_unload(self):
-        for changes in ({"batch_size": 30}, {"beam_size": 5}, {"top_k": 0, "temperature": 1}):
+        for changes in (
+            {"batch_size": 30},
+            {"beam_size": 5},
+            {"top_k": 0, "temperature": 1},
+            {"n_best": 2},
+            {"min_length": 10},
+            {"ban_unk_token": True},
+            {"block_ngram_repeat": 2},
+        ):
             previous = self.model.pre_config.copy()
             self.model.pre_config.update(changes)
             with self.assertRaises(ValueError):
@@ -205,9 +214,40 @@ class TestSpeculationRoutes(SpeculationSetup, unittest.TestCase):
 
 
 class TestModelSpeculationDefaults(unittest.TestCase):
-    def test_metadata_does_not_enable_dflash2_at_startup(self):
+    def test_missing_drafter_keeps_native_startup(self):
         model = ServerModel(pre_config={"self_speculative_decoding": True}, dflash2_config={"path": "/models/drafter"})
         self.assertEqual(model.speculation_defaults["mode"], "mtp")
         self.assertNotIn("dflash2_model", model.pre_config)
         with self.assertRaises(ValueError):
             ServerModel(dflash2_config={"path": "/models/drafter", "quantization": "int4"})
+
+    def test_available_drafter_is_selected_before_startup_warmup(self):
+        with TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / "config.json").write_text(
+                json.dumps({"architectures": ["DFlash2DraftModel"], "dflash_config": {"block_size": 8}})
+            )
+            (folder / "model.safetensors").touch()
+            settings = dict(compute_dtype="bf16", batch_size=1, beam_size=1, top_k=1, self_speculative_decoding=True)
+            model = ServerModel(pre_config=settings, warmup=True, dflash2_config={"path": directory})
+            self.assertEqual(model.pre_config["dflash2_model"], directory)
+            self.assertEqual(model.pre_config["dflash2_quantization"], "int8")
+            self.assertEqual(capabilities(model)["default"], "dflash2")
+            self.assertNotIn("dflash2_model", settings)
+            self.assertTrue(model.warmup_on_load)
+            model.maybe_retrieve_model = Mock()
+            model.get_config = Mock()
+            model.config = SimpleNamespace(**model.pre_config)
+            model.warmup = Mock(side_effect=lambda: self.assertFalse(model.loaded))
+            with patch("eole.server.model.InferenceEnginePY") as factory:
+                model.load()
+            self.assertEqual(factory.call_args.args[0].dflash2_model, directory)
+            model.warmup.assert_called_once()
+            # A request using the advertised defaults must reuse the prepared engine.
+            model.loaded = True
+            model.engine = SimpleNamespace(config=SimpleNamespace(**model.pre_config))
+            server = SimpleNamespace(prepare_model=AsyncMock(), unload_model=AsyncMock())
+            asyncio.run(
+                Workspace(server).prepare("test", model, {}, speculation="dflash2", dflash2_quantization="int8")
+            )
+            server.unload_model.assert_not_called()

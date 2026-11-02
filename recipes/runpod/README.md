@@ -66,8 +66,9 @@ Images built from the updated launcher also prepare the pinned
 and DFlash2 without a manual download. Config and weight SHA256 checksums are
 verified before activation. INT4 and BF16 targets share one cached drafter on
 the volume; downloads interrupted during preparation resume on restart. Storage
-checks include this extra checkpoint. Native MTP remains the server startup
-configuration; Chat selects DFlash2 with INT8 packed projections when available.
+checks include this extra checkpoint. An available compatible drafter selects
+DFlash2 with INT8 packed projections before server startup warmup, matching
+Chat's default. Otherwise the native MTP configuration is retained.
 Selecting DFlash2 or changing precision reloads and warms the engine on the next
 request, so that request can take longer to produce its first token. This needs
 a newly built full Eole image containing the workspace controls and a RunPod

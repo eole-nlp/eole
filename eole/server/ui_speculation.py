@@ -61,6 +61,13 @@ def capabilities(model):
         available, reason = False, "DFlash2 requires batch_size=1 and beam_size=1."
     if available and setting("top_k") != 1 and setting("temperature") != 0:
         available, reason = False, "DFlash2 requires greedy decoding (top_k=1 or temperature=0)."
+    if available and (
+        setting("n_best") != 1
+        or setting("min_length") != 0
+        or setting("ban_unk_token")
+        or setting("block_ngram_repeat") != 0
+    ):
+        available, reason = False, "DFlash2 requires n_best=1, min_length=0 and no token/ngram constraints."
     return dict(
         default="dflash2" if available else "mtp" if configured["mtp"] else "off",
         mtp_available=configured["mtp"],
