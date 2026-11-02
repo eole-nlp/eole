@@ -18,6 +18,7 @@ from eole.inference_engine import InferenceEnginePY
 from eole.config.run import PredictConfig
 from eole.utils.logging import logger
 from eole.server.utils import _normalize_developer_role, estimate_tokens
+from eole.server.ui_speculation import capabilities
 
 
 class Server(object):
@@ -184,6 +185,17 @@ class Model(object):
             path=os.path.expanduser(os.path.expandvars(path)) if path else None,
             quantization=precision,
         )
+        # Select once, before preload/warmup, so readiness covers the same
+        # engine that the workspace will use for its first default request.
+        # Do not reapply this on load(): explicit UI switches must stay intact.
+        if dflash2_config and capabilities(self)["dflash2_available"]:
+            self.pre_config = {
+                **pre_config,
+                "dflash2_model": self.speculation_defaults["path"],
+                "dflash2_quantization": precision,
+                "self_speculative_decoding": True,
+            }
+            self.speculation_defaults["mode"] = "dflash2"
         self.request_queue = asyncio.Queue()
         self.batch_size = pre_config.get("batch_size", 8)
         self.batch_timeout = pre_config.get("batch_timeout", 0.1)

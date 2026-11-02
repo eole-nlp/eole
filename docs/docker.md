@@ -314,7 +314,8 @@ The launcher downloads pinned pre-converted public `eole-nlp` checkpoints and
 verifies their SHA256 checksums; it does not convert original HF weights.
 RunPod wrappers built from the updated source also download and SHA256-verify
 the pinned `incoai/Qwen3.8-27B-DFlash2` drafter, shared by the Qwen INT4/BF16
-targets. Native MTP remains the default; DFlash2 can be selected in the workspace.
+targets. When compatible, DFlash2 with INT8 packed projections is selected before
+startup warmup, matching the workspace default; otherwise native MTP is retained.
 The regular local Docker quick start still uses your own local drafter files.
 On startup the launcher probes the bundled extension on each visible GPU, then
 uses source compilation only if the binary is absent or incompatible. A matching

@@ -407,8 +407,10 @@ Generation settings are expanded on page load; use the same button to hide them.
 When a compatible local drafter is available, Chat selects DFlash2 with INT8
 packed projections by default. Explicit choices are kept for the current browser
 session. Without a compatible drafter, it selects native MTP when configured,
-otherwise Off. The server's startup configuration is unchanged, so the first
-DFlash2 request may still reload a model initially prepared with MTP.
+otherwise Off. Server initialization selects the same compatible DFlash2
+checkpoint and precision before preload/warmup, so the first default Chat request
+reuses that prepared engine. Missing or incompatible drafters keep native startup
+settings. Explicit later Off/MTP/precision switches are not overridden on reload.
 
 The displayed draft count comes from `dflash_config.block_size - 1` in the
 drafter's `config.json`, independently of `self_speculative_num_tokens` (native
@@ -432,7 +434,8 @@ hf download incoai/Qwen3.8-27B-DFlash2 \
 ```
 
 In a custom server YAML, advertise the optional checkpoint alongside the model's
-`path` and `config`. This does not enable or load DFlash2 at startup:
+`path` and `config`. An available compatible checkpoint becomes the initial
+engine selection; `preload: true` and `warmup: true` prepare it before readiness:
 
 ```yaml
 models:
