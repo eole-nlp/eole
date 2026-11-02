@@ -53,24 +53,26 @@ compilation waits are omitted; the displayed generation measurements come from
 Eole's inference worker on an RTX 5090. Benchmark numbers measure post-first-token
 decode speed and depend on the prompt, settings and hardware.
 
-## Latest: 0.6.5
+## Latest: 0.6.6
 
-This release adds MTP sampling, optional INT8/INT4 vocabulary heads and a head
-precision selector in the workspace. It improves packed Marlin/GDN inference,
-startup preparation and timing. Docker and RunPod bundle GPU kernels, download
-pre-converted showcase models, and prepare Qwen before opening the workspace.
+This release adds DFlash2 decoding for Qwen3.8-27B and workspace controls for
+Off/MTP/DFlash2 with separate drafter and vocabulary-head precision. Generation
+settings open by default, and Chat allows up to 16,384 output tokens. The expanded
+benchmark compares code, English and translation across six decoding profiles,
+with warmups, measured results and JSON export. RunPod automatically downloads
+and verifies the pinned drafter alongside the pre-converted showcase models.
 
 Eole supports **PyTorch >= 2.14.1 and < 2.15**. The refreshed
 Docker defaults use PyTorch 2.14.1 with CUDA 13.2. Start with the
 [workspace UI](recipes/ui/README.md), [Qwen3.8/MTP recipe](recipes/qwen38/README.md),
-or [Docker guide](docs/docker.md). See the [changelog](CHANGELOG.md#065) for release
+or [Docker guide](docs/docker.md). See the [changelog](CHANGELOG.md#066) for release
 details and remaining limitations.
 
 [![Deploy on RunPod](https://img.shields.io/badge/RunPod-Deploy%20Eole-673AB7?style=for-the-badge)](https://console.runpod.io/deploy?template=e9e19ozt9c&type=gpu)
 
 Browser-based Chat, translation and OCR on a rented GPU. See the
 [RunPod quick start](recipes/runpod/README.md) for password setup, GPU choices and
-the required persistent-volume attachment. The `0.6.5` deployment
+the required persistent-volume attachment. The `0.6.6` deployment
 uses prebuilt GPU kernels and pre-converted public Eole checkpoints. Maintainers
 publish the new images and update the public template before the button selects
 this release.

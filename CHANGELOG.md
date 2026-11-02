@@ -2,6 +2,24 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.6.6
+
+* Add DFlash2 speculative decoding for Qwen3.8-27B, including a fixed-cache drafter CUDA graph, packed projections and optional INT8 drafter quantization ([#497](https://github.com/eole-nlp/eole/pull/497)).
+* Add workspace Off/MTP/DFlash2 selection with separate drafter/head precision, validated and recoverable model reloads, truthful speculation metrics, and ordinary-decoding fallback for Creative/image requests ([#498](https://github.com/eole-nlp/eole/pull/498)).
+* Open generation settings by default, prefer available DFlash2 with INT8 packed projections, and raise the Chat output allowance to 16,384 tokens. Add code/English/translation benchmark comparisons across six profiles, configurable repeats/output caps, discarded warmups and JSON reports ([#499](https://github.com/eole-nlp/eole/pull/499)).
+* Prepare a pinned, SHA256-verified DFlash2 drafter during RunPod deployment, sharing one cached copy between INT4/BF16 targets with storage accounting and resumable transfers. Clarify local Docker and drafter installation instructions ([#498](https://github.com/eole-nlp/eole/pull/498)).
+
+DFlash2 currently supports single-GPU, batch-one, text-only greedy decoding with
+BF16 activations. Quantized heads/projections can change outputs and acceptance;
+benchmark rates depend on workload, settings and hardware.
+
+Publish both Docker images from the **same `0.6.6` release commit**, validate on
+a GPU, then update the existing public RunPod template to `eole-runpod:0.6.6`.
+Publishing the Python release does not build images or update that live template.
+See the [publishing checklist](recipes/runpod/MAINTAINERS.md#publish-066).
+
+**Full Changelog**: https://github.com/eole-nlp/eole/compare/0.6.5...0.6.6
+
 ## 0.6.5
 
 * Add target sampling with greedy MTP proposals, presence/frequency penalties and reproducible sampling fixtures ([#479](https://github.com/eole-nlp/eole/pull/479)).
@@ -16,7 +34,7 @@ This is just a centralised version of the Github automatically generated Release
 Publish the Eole and RunPod images from the **same `0.6.5` release commit**, then
 update the existing public deployment template to `eole-runpod:0.6.5` after GPU
 validation. A GitHub release publishes the Python package/docs; Docker builds
-are separate manual workflows. See the [publishing checklist](recipes/runpod/MAINTAINERS.md#publish-065).
+are separate manual workflows. See the [publishing checklist](recipes/runpod/MAINTAINERS.md).
 
 **Full Changelog**: https://github.com/eole-nlp/eole/compare/0.6.4...0.6.5
 
