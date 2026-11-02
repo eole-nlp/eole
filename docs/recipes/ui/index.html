@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">Eole local workspace | Eole</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/recipes/ui/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Eole local workspace | Eole"><meta data-rh="true" name="description" content="eole serve now includes a browser interface at /. No Gradio, Node runtime,"><meta data-rh="true" property="og:description" content="eole serve now includes a browser interface at /. No Gradio, Node runtime,"><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/recipes/ui/"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/recipes/ui/" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/recipes/ui/" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Recipes","item":"https://eole-nlp.github.io/eole/docs/category/recipes"},{"@type":"ListItem","position":2,"name":"Eole local workspace","item":"https://eole-nlp.github.io/eole/docs/recipes/ui/"}]}</script><link rel="stylesheet" href="/eole/assets/css/styles.209cbda3.css">
-<script src="/eole/assets/js/runtime~main.e66528e9.js" defer="defer"></script>
-<script src="/eole/assets/js/main.415a60cb.js" defer="defer"></script>
+<script src="/eole/assets/js/runtime~main.c69f4a36.js" defer="defer"></script>
+<script src="/eole/assets/js/main.bac503ce.js" defer="defer"></script>
 </head>
 <body>
 <svg style="display: none;"><defs>
@@ -35,7 +35,9 @@ Run from the repository root:</p>
 Marlin projection packing, three MTP drafts, a 28,672-token context, and
 chunked prefill. Context and output limits should be adjusted for your GPU;
 this recipe is intended for an RTX 5090 with the converted INT4 model.
-The chat output limit defaults to 4,096 tokens, capped by the selected model&#x27;s limit.
+The chat output limit defaults to 16,384 tokens, capped by the selected model&#x27;s
+limit and remaining context budget. The Qwen workspace templates allow 16,384
+output tokens, including the RunPod-generated showcase.
 It does not alter FP32 normalization.</p>
 <p>The first compiled request can spend several minutes warming all full and
 shortened verifier shapes. The UI shows preparation and reports warmup
@@ -72,14 +74,90 @@ request timings, and a decode-speed chart. It tracks this UI&#x27;s requests;
 external API requests are not listed. GPU cards are physical NVML devices.</p>
 </li>
 <li class="">
-<p><strong>Benchmark:</strong> one discarded warmup followed by three 128-token requests.
-Reports the median post-first-token rate and exports settings and measurements.
-Early-EOS responses are excluded from the fixed-length median.</p>
+<p><strong>Benchmark:</strong> compare code, English prose and Chinese-to-English translation
+across base, MTP and DFlash2 profiles. Select workloads/profiles, an output cap
+(default 512) and 1–5 measured repeats (default 3). Each pair starts with one
+discarded warmup. Results accumulate in a table until page reload and can be
+exported with exact prompts, settings, hardware, warmup and raw measurements.</p>
 </li>
 <li class="">
 <p><strong>API &amp; setup:</strong> endpoint addresses, a curl example, and runtime information.</p>
 </li>
 </ul>
+<h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="benchmark-comparisons">Benchmark comparisons<a href="#benchmark-comparisons" class="hash-link" aria-label="Direct link to Benchmark comparisons" title="Direct link to Benchmark comparisons" translate="no">​</a></h3>
+<p><img decoding="async" loading="lazy" alt="Workload and decoding-profile comparison controls with real measured results" src="/eole/assets/images/benchmark-7c0815de5149b810d417c3000a9b5164.png" width="1265" height="1769" class="img_ev3q"></p>
+<p>Screenshot: a short UI validation run with 128 output tokens and one measured
+repeat, rather than the default 512-token, three-repeat comparison.</p>
+<p>All profiles use the model selected in Chat, batch-one greedy text decoding,
+thinking disabled and identical fixed prompts within each workload. They do not
+inherit Chat&#x27;s current speculation/head selection. The prompt contents match
+the <a href="https://github.com/eole-nlp/eole/blob/main/recipes/qwen38/mtp-sampling-fixtures.json" target="_blank" rel="noopener noreferrer" class="">sampling benchmark fixtures</a>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Profile</th><th>Speculation</th><th>Vocabulary heads</th><th>Drafter internal projections</th></tr></thead><tbody><tr><td>Base</td><td>Off</td><td>Native model dtype</td><td>—</td></tr><tr><td>MTP · native</td><td>Native MTP</td><td>Native model dtype</td><td>Native MTP implementation</td></tr><tr><td>MTP · INT4</td><td>Native MTP</td><td>INT4</td><td>Native MTP implementation</td></tr><tr><td>DFlash2 · BF16</td><td>DFlash2</td><td>Native model dtype</td><td>BF16</td></tr><tr><td>DFlash2 · INT8</td><td>DFlash2</td><td>Native model dtype</td><td>INT8 packed</td></tr><tr><td>DFlash2 · INT8 / INT4</td><td>DFlash2</td><td>INT4</td><td>INT8 packed</td></tr></tbody></table>
+<p>Unavailable speculation profiles are disabled. Native vocabulary heads are BF16
+for the Qwen showcase; other models retain their own original dtype. Native MTP
+and DFlash2 use their configured draft counts; the report records both. Head
+quantization may change text and acceptance, so this is a speed comparison, not
+a quality evaluation or a guarantee of identical outputs.</p>
+<p>Each completed row reports the median decode tok/s, warmed first-token latency
+and speculative acceptance. All measured runs must reach the chosen output cap
+and use the requested speculation method; otherwise the row is incomplete and
+its raw measurements remain in the JSON report. Errors and cancellation retain
+completed/partial rows. Preparation and warmup are recorded separately from
+measured runs. The full default matrix is 18 pairs, or 72 requests with warmups,
+and may take several minutes including compilation. Profiles run sequentially
+to avoid repeatedly reloading between workloads.</p>
+<p>The last profile remains loaded after a benchmark. Your next Chat request
+applies its selected settings and may reload the engine. Results are kept only
+in the current page; download the report before refreshing. Compare like-for-like
+rows with the same workload, context and output cap, rather than comparing code
+throughput directly with translation throughput.</p>
 <p><img decoding="async" loading="lazy" alt="Measured benchmark" src="/eole/assets/images/benchmark-66b4dbb442befcdada08bb565510b656.jpg" width="1265" height="846" class="img_ev3q"></p>
 <p><img decoding="async" loading="lazy" alt="Workspace monitor with the current navigation" src="/eole/assets/images/monitor-634f2e93a4c1998b4fa44525f7b6802c.jpg" width="1265" height="1796" class="img_ev3q"></p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="what-the-numbers-mean">What the numbers mean<a href="#what-the-numbers-mean" class="hash-link" aria-label="Direct link to What the numbers mean" title="Direct link to What the numbers mean" translate="no">​</a></h2>
@@ -262,6 +340,71 @@ change generated output and MTP acceptance. They require a single CUDA GPU and
 an unquantized, bias-free FP16/BF16 vocabulary head; use Native for unsupported
 models, CPU inference, FP32, or tensor parallelism. Checkpoint files and input
 embeddings remain unchanged. For custom server YAML files, set
-<code>config.vocabulary_quantization</code> to <code>none</code>, <code>int8</code>, or <code>int4</code>.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/edit/main/recipes/ui/README.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/eole/docs/recipes/translation/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Translate in the Eole workspace</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/recipes/whisper/"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Whisper</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#start-with-qwen38-int4" class="table-of-contents__link toc-highlight">Start with Qwen3.8 INT4</a></li><li><a href="#workspace-features" class="table-of-contents__link toc-highlight">Workspace features</a></li><li><a href="#what-the-numbers-mean" class="table-of-contents__link toc-highlight">What the numbers mean</a></li><li><a href="#scope-and-storage" class="table-of-contents__link toc-highlight">Scope and storage</a></li><li><a href="#development" class="table-of-contents__link toc-highlight">Development</a></li><li><a href="#documents-pdf-and-image-ocr" class="table-of-contents__link toc-highlight">Documents: PDF and image OCR</a><ul><li><a href="#hunyuanocr" class="table-of-contents__link toc-highlight">HunyuanOCR</a></li></ul></li><li><a href="#combined-showcase-chat-translate-documents-ocr-and-knowledge-rag" class="table-of-contents__link toc-highlight">Combined showcase: Chat, Translate, Documents (OCR) and Knowledge (RAG)</a><ul><li><a href="#images-in-chat" class="table-of-contents__link toc-highlight">Images in Chat</a></li><li><a href="#lm-head-precision" class="table-of-contents__link toc-highlight">LM head precision</a></li></ul></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
+<code>config.vocabulary_quantization</code> to <code>none</code>, <code>int8</code>, or <code>int4</code>.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="choose-off-mtp-or-dflash2">Choose Off, MTP or DFlash2<a href="#choose-off-mtp-or-dflash2" class="hash-link" aria-label="Direct link to Choose Off, MTP or DFlash2" title="Direct link to Choose Off, MTP or DFlash2" translate="no">​</a></h2>
+<p><strong>Local Python and regular Docker users must download the separate drafter into
+<code>$QWEN38_MODEL/dflash2/</code> before starting the server.</strong> The converted target model
+does not include it. Run the download command below on the host; for Docker,
+mount the parent Qwen model directory as described in the
+<a class="" href="/eole/docs/guides/docker#quick-start-run-the-workspace-locally">Docker quick start</a>.
+The folder must contain <code>config.json</code> and <code>model.safetensors</code> directly, with no
+extra nested snapshot directory. No conversion of the drafter is required.</p>
+<p>Chat generation settings now include a <strong>Speculation</strong> selector. <strong>Off</strong> uses
+ordinary decoding, <strong>MTP</strong> uses the configured native heads, and <strong>DFlash2</strong> loads
+the separate Qwen3.8-27B drafter. Benchmark uses the same selected settings.
+Generation settings are expanded on page load; use the same button to hide them.
+When a compatible local drafter is available, Chat selects DFlash2 with INT8
+packed projections by default. Explicit choices are kept for the current browser
+session. Without a compatible drafter, it selects native MTP when configured,
+otherwise Off. The server&#x27;s startup configuration is unchanged, so the first
+DFlash2 request may still reload a model initially prepared with MTP.</p>
+<p>The displayed draft count comes from <code>dflash_config.block_size - 1</code> in the
+drafter&#x27;s <code>config.json</code>, independently of <code>self_speculative_num_tokens</code> (native
+MTP only). The pinned upstream config uses block size 8, giving seven proposals;
+a locally edited block size 4 gives three. The workspace does not override it.</p>
+<p><img decoding="async" loading="lazy" alt="DFlash2 selection, independent drafter/head precision, and measured acceptance" src="/eole/assets/images/dflash2-3b29149a2f77fd4f6cd8ad73334bb7dd.png" width="1150" height="1260" class="img_ev3q"></p>
+<p>This screenshot illustrates the controls using a local block-size-4 drafter
+(3 proposals). Its 47% acceptance and 119.6 tok/s are from a short response
+capped at 128 output tokens, not the 7-draft benchmark configuration.</p>
+<p>The Qwen templates look for a local checkpoint at <code>$QWEN38_MODEL/dflash2</code>.
+Download it once if it is not already installed (no Eole conversion needed):</p>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">hf download incoai/Qwen3.8-27B-DFlash2 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --revision 015e795645c74b1a0eeef3b570031fb62e769bc5 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --include config.json model.safetensors \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --local-dir &quot;$QWEN38_MODEL/dflash2&quot;</span><br></div></code></pre></div></div>
+<p>In a custom server YAML, advertise the optional checkpoint alongside the model&#x27;s
+<code>path</code> and <code>config</code>. This does not enable or load DFlash2 at startup:</p>
+<div class="language-yaml codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-yaml codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token key atrule">models</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  </span><span class="token punctuation" style="color:rgb(248, 248, 242)">-</span><span class="token plain"> </span><span class="token key atrule">id</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> qwen3.8</span><span class="token punctuation" style="color:rgb(248, 248, 242)">-</span><span class="token plain">27B</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">    </span><span class="token key atrule">path</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token string" style="color:rgb(255, 121, 198)">&quot;${QWEN38_MODEL}&quot;</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">    </span><span class="token key atrule">dflash2</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">      </span><span class="token key atrule">path</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token string" style="color:rgb(255, 121, 198)">&quot;${QWEN38_MODEL}/dflash2&quot;</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">      </span><span class="token key atrule">quantization</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> int8</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">    </span><span class="token key atrule">config</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">      </span><span class="token key atrule">compute_dtype</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> bf16</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">      </span><span class="token key atrule">batch_size</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token number">1</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">      </span><span class="token key atrule">beam_size</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token number">1</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">      </span><span class="token key atrule">n_best</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token number">1</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">      </span><span class="token key atrule">top_k</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token number">1</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">      </span><span class="token key atrule">min_length</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token number">0</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">      </span><span class="token key atrule">self_speculative_decoding</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token boolean important">true</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">      </span><span class="token key atrule">self_speculative_num_tokens</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token number">3</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">      </span><span class="token key atrule">fuse_kvq</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token boolean important">true</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">      </span><span class="token key atrule">fuse_gate</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token boolean important">true</span><br></div></code></pre></div></div>
+<p>The UI enables DFlash2 only when the advertised local config and weights exist
+and the engine settings support single-item, single-beam greedy decoding.
+The loader additionally validates compatibility with the target. This path
+requires single-GPU BF16 compute and text-only greedy requests. The draft count
+comes from the checkpoint&#x27;s block size and is shown beside the selector.</p>
+<p><strong>DFlash2 projections</strong> selects native BF16 or packed INT8 internal drafter
+projections. It is independent of <strong>LM head</strong>, which selects the shared target
+and drafter vocabulary projection. The templates offer INT8 drafter projections
+and keep their existing INT4 vocabulary-head default. See the
+<a class="" href="/eole/docs/recipes/qwen38/dflash2/">DFlash2 recipe</a> for quantization and numerical details.</p>
+<p>Entering/leaving DFlash2 or changing its precision reloads the selected engine;
+changing LM-head precision at the same time uses one reload. Warmup may repeat,
+and Stop takes effect after the in-flight loading/compilation finishes. Switching
+between Off and MTP does not reload a normal engine.</p>
+<p><strong>Expect a longer wait for the first token on the next request after switching
+between MTP and DFlash2, or changing LM-head/drafter precision.</strong> Loading,
+quantization and any new compilation happen before generation; a cold
+compilation can take minutes. Startup warmup covers the startup configuration,
+not every possible UI configuration. Later requests with unchanged settings
+reuse the prepared engine, and compatible saved caches can shorten preparation.
+Decode tokens/second excludes this preparation delay.</p>
+<p>Creative mode and conversations containing images use ordinary decoding. The UI
+reloads a DFlash2 engine when entering these modes, and reloads again when
+returning to eligible DFlash2 requests. The UI keeps your DFlash2 choice for
+eligible text-only Fast requests and displays the
+method actually used, with its acceptance rate, in response/monitor statistics.
+Translate and OCR explicitly use ordinary decoding. Text-only Knowledge requests
+can reuse the currently loaded DFlash2 engine, like the selected LM-head precision.
+Model changes affect the shared engine used by API clients as well; external
+requests to a DFlash2-loaded engine must respect its supported scope.</p>
+<p>RunPod images built from this source download and SHA256-verify the pinned
+DFlash2 drafter during preparation. INT4 and BF16 targets share one copy on the
+volume, and the selector is available after startup. Older images require manual
+provisioning or rebuilding; local Docker still uses the checkpoint you provide.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/edit/main/recipes/ui/README.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/eole/docs/recipes/translation/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Translate in the Eole workspace</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/recipes/whisper/"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Whisper</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#start-with-qwen38-int4" class="table-of-contents__link toc-highlight">Start with Qwen3.8 INT4</a></li><li><a href="#workspace-features" class="table-of-contents__link toc-highlight">Workspace features</a><ul><li><a href="#benchmark-comparisons" class="table-of-contents__link toc-highlight">Benchmark comparisons</a></li></ul></li><li><a href="#what-the-numbers-mean" class="table-of-contents__link toc-highlight">What the numbers mean</a></li><li><a href="#scope-and-storage" class="table-of-contents__link toc-highlight">Scope and storage</a></li><li><a href="#development" class="table-of-contents__link toc-highlight">Development</a></li><li><a href="#documents-pdf-and-image-ocr" class="table-of-contents__link toc-highlight">Documents: PDF and image OCR</a><ul><li><a href="#hunyuanocr" class="table-of-contents__link toc-highlight">HunyuanOCR</a></li></ul></li><li><a href="#combined-showcase-chat-translate-documents-ocr-and-knowledge-rag" class="table-of-contents__link toc-highlight">Combined showcase: Chat, Translate, Documents (OCR) and Knowledge (RAG)</a><ul><li><a href="#images-in-chat" class="table-of-contents__link toc-highlight">Images in Chat</a></li><li><a href="#lm-head-precision" class="table-of-contents__link toc-highlight">LM head precision</a></li></ul></li><li><a href="#choose-off-mtp-or-dflash2" class="table-of-contents__link toc-highlight">Choose Off, MTP or DFlash2</a></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
 </body>
 </html>

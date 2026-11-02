@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en" dir="ltr" class="docs-wrapper plugin-docs plugin-id-default docs-version-current docs-doc-page docs-doc-id-recipes/qwen38/dflash2/README" data-has-hydrated="false">
+<head>
+<meta charset="UTF-8">
+<meta name="generator" content="Docusaurus v3.10.2">
+<title data-rh="true">DFlash2 decoding | Eole</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/recipes/qwen38/dflash2/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="DFlash2 decoding | Eole"><meta data-rh="true" name="description" content="DFlash2 runs the BF16 incoai/Qwen3.8-27B-DFlash2 drafter with a"><meta data-rh="true" property="og:description" content="DFlash2 runs the BF16 incoai/Qwen3.8-27B-DFlash2 drafter with a"><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/recipes/qwen38/dflash2/"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/recipes/qwen38/dflash2/" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/recipes/qwen38/dflash2/" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Recipes","item":"https://eole-nlp.github.io/eole/docs/category/recipes"},{"@type":"ListItem","position":2,"name":"Qwen3.8-27B and native MTP speculative decoding","item":"https://eole-nlp.github.io/eole/docs/recipes/qwen38/"},{"@type":"ListItem","position":3,"name":"DFlash2 decoding","item":"https://eole-nlp.github.io/eole/docs/recipes/qwen38/dflash2/"}]}</script><link rel="stylesheet" href="/eole/assets/css/styles.209cbda3.css">
+<script src="/eole/assets/js/runtime~main.c69f4a36.js" defer="defer"></script>
+<script src="/eole/assets/js/main.bac503ce.js" defer="defer"></script>
+</head>
+<body>
+<svg style="display: none;"><defs>
+<symbol id="theme-svg-external-link" viewBox="0 0 24 24"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"/></symbol>
+</defs></svg>
+<script>!function(){var t=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();document.documentElement.setAttribute("data-theme",t||"dark"),document.documentElement.setAttribute("data-theme-choice",t||"dark")}(),function(){try{const c=new URLSearchParams(window.location.search).entries();for(var[t,e]of c)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script><div id="__docusaurus"><link rel="preload" as="image" href="/eole/img/eole-logo.png"><div role="region" aria-label="Skip to main content"><a class="skipToContent_fXgn" href="#__docusaurus_skipToContent_fallback">Skip to main content</a></div><nav aria-label="Main" class="theme-layout-navbar navbar navbar--fixed-top"><div class="navbar__inner"><div class="theme-layout-navbar-left navbar__items"><button aria-label="Toggle navigation bar" aria-expanded="false" class="navbar__toggle clean-btn" type="button"><svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path stroke="currentColor" stroke-linecap="round" stroke-miterlimit="10" stroke-width="2" d="M4 7h22M4 15h22M4 23h22"></path></svg></button><a class="navbar__brand" href="/eole/"><div class="navbar__logo"><img src="/eole/img/eole-logo.png" alt="Eole Logo" class="themedComponent_mlkZ themedComponent--light_NVdE"><img src="/eole/img/eole-logo.png" alt="Eole Logo" class="themedComponent_mlkZ themedComponent--dark_xIcU"></div><b class="navbar__title text--truncate"></b></a><a aria-current="page" class="navbar__item navbar__link navbar__link--active" href="/eole/docs/">Docs</a><a class="navbar__item navbar__link" href="/eole/docs/reference/index">Reference</a></div><div class="theme-layout-navbar-right navbar__items navbar__items--right"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="navbar__item navbar__link">GitHub<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a><div class="toggle_vylO colorModeToggle_DEke"><button class="clean-btn toggleButton_gllP toggleButtonDisabled_aARS" type="button" disabled="" title="system mode" aria-label="Switch between dark and light mode (currently system mode)"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="toggleIcon_g3eP lightToggleIcon_pyhR"><path fill="currentColor" d="M12,9c1.65,0,3,1.35,3,3s-1.35,3-3,3s-3-1.35-3-3S10.35,9,12,9 M12,7c-2.76,0-5,2.24-5,5s2.24,5,5,5s5-2.24,5-5 S14.76,7,12,7L12,7z M2,13l2,0c0.55,0,1-0.45,1-1s-0.45-1-1-1l-2,0c-0.55,0-1,0.45-1,1S1.45,13,2,13z M20,13l2,0c0.55,0,1-0.45,1-1 s-0.45-1-1-1l-2,0c-0.55,0-1,0.45-1,1S19.45,13,20,13z M11,2v2c0,0.55,0.45,1,1,1s1-0.45,1-1V2c0-0.55-0.45-1-1-1S11,1.45,11,2z M11,20v2c0,0.55,0.45,1,1,1s1-0.45,1-1v-2c0-0.55-0.45-1-1-1C11.45,19,11,19.45,11,20z M5.99,4.58c-0.39-0.39-1.03-0.39-1.41,0 c-0.39,0.39-0.39,1.03,0,1.41l1.06,1.06c0.39,0.39,1.03,0.39,1.41,0s0.39-1.03,0-1.41L5.99,4.58z M18.36,16.95 c-0.39-0.39-1.03-0.39-1.41,0c-0.39,0.39-0.39,1.03,0,1.41l1.06,1.06c0.39,0.39,1.03,0.39,1.41,0c0.39-0.39,0.39-1.03,0-1.41 L18.36,16.95z M19.42,5.99c0.39-0.39,0.39-1.03,0-1.41c-0.39-0.39-1.03-0.39-1.41,0l-1.06,1.06c-0.39,0.39-0.39,1.03,0,1.41 s1.03,0.39,1.41,0L19.42,5.99z M7.05,18.36c0.39-0.39,0.39-1.03,0-1.41c-0.39-0.39-1.03-0.39-1.41,0l-1.06,1.06 c-0.39,0.39-0.39,1.03,0,1.41s1.03,0.39,1.41,0L7.05,18.36z"></path></svg><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="toggleIcon_g3eP darkToggleIcon_wfgR"><path fill="currentColor" d="M9.37,5.51C9.19,6.15,9.1,6.82,9.1,7.5c0,4.08,3.32,7.4,7.4,7.4c0.68,0,1.35-0.09,1.99-0.27C17.45,17.19,14.93,19,12,19 c-3.86,0-7-3.14-7-7C5,9.07,6.81,6.55,9.37,5.51z M12,3c-4.97,0-9,4.03-9,9s4.03,9,9,9s9-4.03,9-9c0-0.46-0.04-0.92-0.1-1.36 c-0.98,1.37-2.58,2.26-4.4,2.26c-2.98,0-5.4-2.42-5.4-5.4c0-1.81,0.89-3.42,2.26-4.4C12.92,3.04,12.46,3,12,3L12,3z"></path></svg><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="toggleIcon_g3eP systemToggleIcon_QzmC"><path fill="currentColor" d="m12 21c4.971 0 9-4.029 9-9s-4.029-9-9-9-9 4.029-9 9 4.029 9 9 9zm4.95-13.95c1.313 1.313 2.05 3.093 2.05 4.95s-0.738 3.637-2.05 4.95c-1.313 1.313-3.093 2.05-4.95 2.05v-14c1.857 0 3.637 0.737 4.95 2.05z"></path></svg></button></div><div class="navbarSearchContainer_Bca1"><div class="navbar__search"><span aria-label="expand searchbar" role="button" class="search-icon" tabindex="0"></span><input id="search_input_react" type="search" placeholder="Loading..." aria-label="Search" class="navbar__search-input search-bar" disabled=""></div></div></div></div><div role="presentation" class="navbar-sidebar__backdrop"></div></nav><div id="__docusaurus_skipToContent_fallback" class="theme-layout-main main-wrapper mainWrapper_z2l0"><div class="docsWrapper_hBAB"><button aria-label="Scroll back to top" class="clean-btn theme-back-to-top-button backToTopButton_sjWU" type="button"></button><div class="docRoot_UBD9"><aside class="theme-doc-sidebar-container docSidebarContainer_YfHR"><div class="sidebarViewport_aRkj"><div class="sidebar_njMd"><nav aria-label="Docs sidebar" class="menu thin-scrollbar menu_SIkG"><ul class="theme-doc-sidebar-menu menu__list"><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/"><span class="linkLabel_WmDU">EOLE</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/main"><span class="linkLabel_WmDU">Toolkit overview</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/quickstart"><span class="linkLabel_WmDU">Quickstart</span></a></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist menu__link--sublist-caret" role="button" aria-expanded="false" href="/eole/docs/guides/"><span class="categoryLinkLabel_W154">Guides and validation</span></a></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" href="/eole/docs/category/key-concepts"><span class="categoryLinkLabel_W154">Key Concepts</span></a><button aria-label="Expand sidebar category &#x27;Key Concepts&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" href="/eole/docs/category/frequently-asked-questions"><span class="categoryLinkLabel_W154">Frequently Asked Questions</span></a><button aria-label="Expand sidebar category &#x27;Frequently Asked Questions&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist menu__link--active" href="/eole/docs/category/recipes"><span class="categoryLinkLabel_W154">Recipes</span></a><button aria-label="Collapse sidebar category &#x27;Recipes&#x27;" aria-expanded="true" type="button" class="clean-btn menu__caret"></button></div><ul class="menu__list"><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/NewsPalm-synthetic/"><span class="linkLabel_WmDU">Example of using Hugging Face streaming dataset</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/"><span class="linkLabel_WmDU">Recipes</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/claude-code/"><span class="linkLabel_WmDU">Use Claude Code with local Qwen3.8 served by Eole</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/codex/"><span class="linkLabel_WmDU">Use Codex with local Qwen served by Eole</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/deepseekocr/"><span class="linkLabel_WmDU">DeepSeek-OCR</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/eurollm/"><span class="linkLabel_WmDU">EuroLLM model and legacy Gradio example</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/fineweb10B/"><span class="linkLabel_WmDU">Train a language model on FineWeb 10BT</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/gpt2/"><span class="linkLabel_WmDU">OpenAI GPT2</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/hf/"><span class="linkLabel_WmDU">Run a supported Hugging Face model directly</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/hunyuanocr/"><span class="linkLabel_WmDU">HunyuanOCR</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/livecodebench/"><span class="linkLabel_WmDU">Coding correctness with LiveCodeBench</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/llama2/"><span class="linkLabel_WmDU">Llama2</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/llama3/"><span class="linkLabel_WmDU">Llama3</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/mistral/"><span class="linkLabel_WmDU">Mistral inference</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/mixtral/"><span class="linkLabel_WmDU">Mixtral</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/mmlu/"><span class="linkLabel_WmDU">Evaluation with MMLU dataset</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/model-validator/"><span class="linkLabel_WmDU">Model conversion smoke tests</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/nllb/"><span class="linkLabel_WmDU">NLLB conversion and translation</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/pixtral/"><span class="linkLabel_WmDU">Pixtral</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/qwen35/"><span class="linkLabel_WmDU">Qwen3.5: text, vision, streaming, and serving</span></a></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist menu__link--active" tabindex="0" href="/eole/docs/recipes/qwen38/"><span class="categoryLinkLabel_W154">Qwen3.8-27B and native MTP speculative decoding</span></a><button aria-label="Collapse sidebar category &#x27;Qwen3.8-27B and native MTP speculative decoding&#x27;" aria-expanded="true" type="button" class="clean-btn menu__caret"></button></div><ul class="menu__list"><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-3 menu__list-item"><a class="menu__link menu__link--active" aria-current="page" tabindex="0" href="/eole/docs/recipes/qwen38/dflash2/"><span class="linkLabel_WmDU">DFlash2 decoding</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-3 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/qwen38/gdn-ab-benchmark"><span class="linkLabel_WmDU">Paired GDN A/B projections: RTX 5090 measurements</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-3 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/qwen38/marlin-benchmark"><span class="linkLabel_WmDU">Marlin register and launch scheduling benchmark</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-3 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/qwen38/packed-projections"><span class="linkLabel_WmDU">Packed Marlin projections</span></a></li></ul></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" tabindex="0" href="/eole/docs/recipes/rag/"><span class="categoryLinkLabel_W154">Local Knowledge (RAG) workspace</span></a><button aria-label="Expand sidebar category &#x27;Local Knowledge (RAG) workspace&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/rl/"><span class="linkLabel_WmDU">RL fine-tuning recipes</span></a></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" tabindex="0" href="/eole/docs/recipes/runpod/"><span class="categoryLinkLabel_W154">Eole on RunPod</span></a><button aria-label="Expand sidebar category &#x27;Eole on RunPod&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" tabindex="0" href="/eole/docs/recipes/scoring/"><span class="categoryLinkLabel_W154">Scoring Recipes</span></a><button aria-label="Expand sidebar category &#x27;Scoring Recipes&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/server/"><span class="linkLabel_WmDU">Serve a model with Eole</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/translation/"><span class="linkLabel_WmDU">Translate in the Eole workspace</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/ui/"><span class="linkLabel_WmDU">Eole local workspace</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/whisper/"><span class="linkLabel_WmDU">Whisper</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/wiki_103/"><span class="linkLabel_WmDU">Train a language model on WikiText-103</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/wmt17/"><span class="linkLabel_WmDU">Translation WMT17 en-de</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/wmt22_with_TowerInstruct-Mistral/"><span class="linkLabel_WmDU">TowerInstruct (Mistral)</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/wmt22_with_TowerInstruct-llama2/"><span class="linkLabel_WmDU">TowerInstruct-(Llama2)</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/wmt22_with_llama3.1/"><span class="linkLabel_WmDU">Llama3</span></a></li></ul></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/contributing"><span class="linkLabel_WmDU">Contributors</span></a></li></ul></nav></div></div></aside><main class="docMainContainer_TBSr"><div class="container padding-top--md padding-bottom--lg"><div class="row"><div class="col docItemCol_VOVn"><div class="docItemContainer_Djhp"><article><nav class="theme-doc-breadcrumbs breadcrumbsContainer_Z_bl" aria-label="Breadcrumbs"><ul class="breadcrumbs"><li class="breadcrumbs__item"><a aria-label="Home page" class="breadcrumbs__link" href="/eole/"><svg viewBox="0 0 24 24" class="breadcrumbHomeIcon_YNFT"><path d="M10 19v-5h4v5c0 .55.45 1 1 1h3c.55 0 1-.45 1-1v-7h1.7c.46 0 .68-.57.33-.87L12.67 3.6c-.38-.34-.96-.34-1.34 0l-8.36 7.53c-.34.3-.13.87.33.87H5v7c0 .55.45 1 1 1h3c.55 0 1-.45 1-1z" fill="currentColor"></path></svg></a></li><li class="breadcrumbs__item"><a class="breadcrumbs__link" href="/eole/docs/category/recipes"><span>Recipes</span></a></li><li class="breadcrumbs__item"><a class="breadcrumbs__link" href="/eole/docs/recipes/qwen38/"><span>Qwen3.8-27B and native MTP speculative decoding</span></a></li><li class="breadcrumbs__item breadcrumbs__item--active"><span class="breadcrumbs__link">DFlash2 decoding</span></li></ul></nav><div class="tocCollapsible_ETCw theme-doc-toc-mobile tocMobile_ITEo"><button type="button" class="clean-btn tocCollapsibleButton_TO0P">On this page</button></div><div class="theme-doc-markdown markdown"><header><h1>DFlash2 decoding</h1></header>
+<p>DFlash2 runs the BF16 <code>incoai/Qwen3.8-27B-DFlash2</code> drafter with a
+converted Qwen3.8-27B target. It supports single-GPU, batch-one, text-only
+greedy inference. The seven-token proposal is verified in one eight-token
+target pass, using Eole&#x27;s existing attention/GDN state commit and rollback.</p>
+<p>The drafter shares the target&#x27;s embeddings and vocabulary projection. Its
+five-layer backbone uses PyTorch SDPA. Compile mode 0 replays the complete
+proposal block through one CUDA graph, prepared during model loading. Fixed
+context K/V buffers retain only committed target states; speculative noise K/V
+is temporary. Target verification uses the existing compile/CUDA graph path.
+Intermediate target features and drafter context are bounded by its 2,048-token
+sliding window. Chunked prefill is supported; persistent prefix reuse is disabled
+for this path because existing prefix entries do not contain intermediate features.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="try-locally">Try locally<a href="#try-locally" class="hash-link" aria-label="Direct link to Try locally" title="Direct link to Try locally" translate="no">​</a></h2>
+<p>Use the normal Eole environment and a converted target checkpoint. Download the
+separate HF-format drafter without converting it:</p>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">hf download incoai/Qwen3.8-27B-DFlash2 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --revision 015e795645c74b1a0eeef3b570031fb62e769bc5 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --include config.json model.safetensors \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --local-dir /path/to/Qwen3.8-27B-DFlash2</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain" style="display:inline-block"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python recipes/qwen38/dflash2.py \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --model /path/to/Qwen3.8-27B-INT4 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --drafter /path/to/Qwen3.8-27B-DFlash2 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --mode dflash2 --max-tokens 512 --repeats 2</span><br></div></code></pre></div></div>
+<p>Use <code>--mode none</code> and <code>--mode mtp</code> for controls with the same target and prompt.
+The recipe defaults to native BF16 vocabulary heads, a 4,096-token target cache,
+and fused projections. <code>--context-length</code> and <code>--prompt</code> can be adjusted.</p>
+<p>In a regular <code>PredictConfig</code>, set:</p>
+<div class="language-yaml codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-yaml codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token key atrule">dflash2_model</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> /path/to/Qwen3.8</span><span class="token punctuation" style="color:rgb(248, 248, 242)">-</span><span class="token plain">27B</span><span class="token punctuation" style="color:rgb(248, 248, 242)">-</span><span class="token plain">DFlash2</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain"></span><span class="token key atrule">batch_size</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token number">1</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain"></span><span class="token key atrule">beam_size</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token number">1</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain"></span><span class="token key atrule">top_k</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token number">1</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain"></span><span class="token key atrule">compute_dtype</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> bf16</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain"></span><span class="token key atrule">gpu_ranks</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token punctuation" style="color:rgb(248, 248, 242)">[</span><span class="token number">0</span><span class="token punctuation" style="color:rgb(248, 248, 242)">]</span><br></div></code></pre></div></div>
+<p><code>dflash2_model</code> enables the external drafter and derives the proposal length from
+its checkpoint. <code>self_speculative_num_tokens</code> continues to control native MTP.
+This implementation has no workspace selector or deployment-template integration yet.</p>
+<p>There are two independent quantization settings:</p>
+<ul>
+<li class=""><code>dflash2_quantization: none</code> keeps BF16 drafter projections; <code>int8</code> uses group-32
+runtime RTN Marlin projections. Norms, convolution controls and the selector stay native.</li>
+<li class=""><code>vocabulary_quantization: none</code>, <code>int8</code> or <code>int4</code> controls the shared vocabulary
+projection used by both the target and drafter. This changes target logits as
+well as proposals. The measured quantized heads use group size 128.</li>
+</ul>
+<p><code>fuse_kvq</code> and <code>fuse_gate</code> also pack the compatible INT8 drafter projections.
+BF16 drafter gate/up packing is an experiment, not enabled by those flags in this PR.
+The default HF checkpoint block size is 8, giving seven proposals. The graph path
+uses the checkpoint block size; <code>self_speculative_num_tokens</code> does not override it.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="matched-benchmark-int8-vocabulary-heads">Matched benchmark: INT8 vocabulary heads<a href="#matched-benchmark-int8-vocabulary-heads" class="hash-link" aria-label="Direct link to Matched benchmark: INT8 vocabulary heads" title="Direct link to Matched benchmark: INT8 vocabulary heads" translate="no">​</a></h2>
+<p>All rows below use the same converted RedHat Qwen3.8-27B INT4 target and shared
+INT8 group-128 vocabulary head. This is the configuration of the original
+optimization table, not the INT4-head configuration used in the local Orwell script.
+DFlash2 uses block size 8 (seven proposals); native MTP uses three proposals.</p>
+<p>RTX 5090; Torch 2.14.1/CUDA 13.2; Triton 3.8.0; FLA 0.6.0; FlashAttention 2.8.3.
+The code, English mystery and Chinese-to-English prompts are the same
+<a href="https://github.com/eole-nlp/eole/blob/main/recipes/qwen38/mtp-sampling-fixtures.json" target="_blank" rel="noopener noreferrer" class=""><code>mtp-sampling-fixtures.json</code></a> fixtures throughout.
+Batch one, greedy, thinking disabled, context capacity 64,000, output cap 2,048,
+BF16 KV cache, prefix reuse off, fused target projections and compile mode 0.
+Each fixture gets a 128-token warmup and three measured repetitions. Optional
+phase-event profiling is off. Values are median decode tokens/s, excluding the
+first token, prefill and warmup.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Variant</th><th style="text-align:right">Code</th><th style="text-align:right">English</th><th style="text-align:right">Translation</th></tr></thead><tbody><tr><td>Ordinary greedy</td><td style="text-align:right">85.8</td><td style="text-align:right">85.9</td><td style="text-align:right">85.4</td></tr><tr><td>Native MTP, 3 drafts</td><td style="text-align:right">188.7</td><td style="text-align:right">140.7</td><td style="text-align:right">181.5</td></tr><tr><td>DFlash2 BF16, current graph</td><td style="text-align:right">223.6</td><td style="text-align:right">140.1</td><td style="text-align:right">212.5</td></tr><tr><td>DFlash2 INT8 drafter, packed attention + MLP</td><td style="text-align:right">239.8</td><td style="text-align:right">139.6</td><td style="text-align:right">221.0</td></tr></tbody></table>
+<p>The current BF16 graph baseline reproduces all nine original output token
+sequences. Its original measurement was 223.0 / 139.7 / 212.6 tokens/s; the small
+rerun difference is measurement variation, not an implementation improvement.</p>
+<p>Both DFlash2 rows are implemented by this PR; ordinary decoding and native MTP
+are matched controls. Target verification is compiled and graph-replayed in the
+speculative cases. The drafter graph records eager kernels; it does
+not itself use <code>torch.compile</code>.</p>
+<p>Compilation and kernel substitutions can change rounding, proposal acceptance
+and generated sequences. These are observed end-to-end results, not isolated
+kernel speedups. No quality evaluation was performed.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="why-the-other-tables-had-different-numbers">Why the other tables had different numbers<a href="#why-the-other-tables-had-different-numbers" class="hash-link" aria-label="Direct link to Why the other tables had different numbers" title="Direct link to Why the other tables had different numbers" translate="no">​</a></h2>
+<p>The following are graph-only BF16 drafter baselines, not successive optimization
+stages. Only the shared head setting and/or checkpoint block size changes:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Shared vocabulary head</th><th style="text-align:right">Block size</th><th style="text-align:right">Code</th><th style="text-align:right">English</th><th style="text-align:right">Translation</th></tr></thead><tbody><tr><td>INT8 group 128</td><td style="text-align:right">8</td><td style="text-align:right">223.6</td><td style="text-align:right">140.1</td><td style="text-align:right">212.5</td></tr><tr><td>INT4 group 128</td><td style="text-align:right">8</td><td style="text-align:right">272.4</td><td style="text-align:right">132.7</td><td style="text-align:right">193.1</td></tr><tr><td>INT4 group 128</td><td style="text-align:right">4</td><td style="text-align:right">205.3</td><td style="text-align:right">144.9</td><td style="text-align:right">172.9</td></tr></tbody></table>
+<p>Switching INT8 to INT4 heads at block size 8 changes acceptance from
+55.3% / 29.7% / 51.6% to 67.3% / 25.7% / 43.3%, respectively. Translation
+length changes from 719 to 1,065 generated tokens. The 272.4 code figure is
+therefore not a further optimization gain over 223.0. Head projection cost and
+output/acceptance changes both contribute. A shorter translation is not evidence
+of better quality.</p>
+<p>The block-size-4 runs use a temporary four-position drafter configuration with
+three proposals; block size 8 proposes seven. Longer blocks help when later
+proposals are accepted often enough to offset verification cost. These fixtures
+do not establish one universally optimal block size.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="earlier-implementation-checkpoints">Earlier implementation checkpoints<a href="#earlier-implementation-checkpoints" class="hash-link" aria-label="Direct link to Earlier implementation checkpoints" title="Direct link to Earlier implementation checkpoints" translate="no">​</a></h2>
+<p>These historical rows all used INT8 group-128 vocabulary heads and block size 8:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Earlier stage</th><th style="text-align:right">Code</th><th style="text-align:right">English</th><th style="text-align:right">Translation</th></tr></thead><tbody><tr><td>MLP-only graph baseline</td><td style="text-align:right">191.2</td><td style="text-align:right">115.0</td><td style="text-align:right">158.2</td></tr><tr><td>Fused Q/K normalization and RoPE</td><td style="text-align:right">211.3</td><td style="text-align:right">120.1</td><td style="text-align:right">168.4</td></tr><tr><td>Full-drafter graph, BF16</td><td style="text-align:right">223.0</td><td style="text-align:right">139.7</td><td style="text-align:right">212.6</td></tr><tr><td>Full graph, unpacked INT8 drafter projections</td><td style="text-align:right">229.2</td><td style="text-align:right">134.7</td><td style="text-align:right">220.7</td></tr><tr><td>Full graph, packed INT8 drafter projections</td><td style="text-align:right">240.7</td><td style="text-align:right">140.2</td><td style="text-align:right">222.3</td></tr></tbody></table>
+<p>The MLP-only graph implementation has been removed; full-drafter replay replaces
+it. The initial short binary-search measurements used a different prompt, native
+BF16 heads and a 4,096-token context, so they are omitted from this comparison.
+Earlier Ninfer results used different mixed weights, proposal heads and FP8 KV
+cache; they do not isolate an engine-only difference and are not included here.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="packing-and-startup">Packing and startup<a href="#packing-and-startup" class="hash-link" aria-label="Direct link to Packing and startup" title="Direct link to Packing and startup" translate="no">​</a></h2>
+<p>With INT8 drafter projections, <code>fuse_kvq</code> packs noise Q/K/V and context K/V;
+<code>fuse_gate</code> packs MLP gate/up. Original projections are released after replacement.
+Context K/V needs separate Marlin packing, adding about 55 MB compared with the
+unpacked INT8 drafter. BF16 drafter projection packing is not enabled.</p>
+<p>Drafter graph preparation is about one second. This is startup work, separate
+from target-verifier compilation (about a minute cold in these tests, or a few
+seconds to load a saved verifier). Warmup is excluded from the throughput tables.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="supported-scope-and-numerical-behaviour">Supported scope and numerical behaviour<a href="#supported-scope-and-numerical-behaviour" class="hash-link" aria-label="Direct link to Supported scope and numerical behaviour" title="Direct link to Supported scope and numerical behaviour" translate="no">​</a></h2>
+<p>The small-model drafter calculation was compared with the upstream reference
+across cache updates and sliding-window eviction (maximum FP32 difference 3e-8).
+Tests cover split-half RoPE, dynamic convolution, selector transitions, bounded
+context, chunked feature collection, real CUDA graph replay, ring wraparound,
+partial appends, stable-buffer request resets, packed projections, and target
+verification with ordinary and GDN decoders, including incorrect proposals.</p>
+<p>Target FP32 normalization is unchanged. Drafter Q/K normalization remains FP32
+and preserves intermediate BF16 casts. Reduction ordering can still affect
+rounding, acceptance and later trajectories. Repeated runs are deterministic
+within each tested configuration, but bit-identical output to single-token
+ordinary decoding has not been established. The tables measure throughput,
+not task quality; they do not establish a quality gain or loss.</p>
+<p>DFlash2 supports single-GPU, batch-one, beam-one, text-only greedy
+inference. Sampling, tensor parallelism, vision inputs and other compile modes
+remain outside its tested scope.</p>
+<p>The adapted drafter implementation retains the upstream MIT notice in
+<a href="https://github.com/eole-nlp/eole/blob/main/licenses/dflash-MIT.txt" target="_blank" rel="noopener noreferrer" class=""><code>licenses/dflash-MIT.txt</code></a>.</p>
+<p>Unsupported requests are rejected explicitly rather than falling back with the
+external drafter still loaded. Disable <code>dflash2_model</code> for sampling, multiple
+sequences/hypotheses, image inputs, attention output, target prefixes or decode
+constraints. The normal native-MTP fallback behaviour is unchanged.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/edit/main/recipes/qwen38/dflash2/README.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/eole/docs/recipes/qwen38/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Qwen3.8-27B and native MTP speculative decoding</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/recipes/qwen38/gdn-ab-benchmark"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Paired GDN A/B projections: RTX 5090 measurements</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#try-locally" class="table-of-contents__link toc-highlight">Try locally</a></li><li><a href="#matched-benchmark-int8-vocabulary-heads" class="table-of-contents__link toc-highlight">Matched benchmark: INT8 vocabulary heads</a></li><li><a href="#why-the-other-tables-had-different-numbers" class="table-of-contents__link toc-highlight">Why the other tables had different numbers</a></li><li><a href="#earlier-implementation-checkpoints" class="table-of-contents__link toc-highlight">Earlier implementation checkpoints</a></li><li><a href="#packing-and-startup" class="table-of-contents__link toc-highlight">Packing and startup</a></li><li><a href="#supported-scope-and-numerical-behaviour" class="table-of-contents__link toc-highlight">Supported scope and numerical behaviour</a></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
+</body>
+</html>

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">RunPod publishing and technical reference | Eole</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/recipes/runpod/MAINTAINERS"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="RunPod publishing and technical reference | Eole"><meta data-rh="true" name="description" content="For deploying an existing template, follow the user quick start."><meta data-rh="true" property="og:description" content="For deploying an existing template, follow the user quick start."><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/recipes/runpod/MAINTAINERS"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/recipes/runpod/MAINTAINERS" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/recipes/runpod/MAINTAINERS" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Recipes","item":"https://eole-nlp.github.io/eole/docs/category/recipes"},{"@type":"ListItem","position":2,"name":"Eole on RunPod","item":"https://eole-nlp.github.io/eole/docs/recipes/runpod/"},{"@type":"ListItem","position":3,"name":"RunPod publishing and technical reference","item":"https://eole-nlp.github.io/eole/docs/recipes/runpod/MAINTAINERS"}]}</script><link rel="stylesheet" href="/eole/assets/css/styles.209cbda3.css">
-<script src="/eole/assets/js/runtime~main.e66528e9.js" defer="defer"></script>
-<script src="/eole/assets/js/main.415a60cb.js" defer="defer"></script>
+<script src="/eole/assets/js/runtime~main.c69f4a36.js" defer="defer"></script>
+<script src="/eole/assets/js/main.bac503ce.js" defer="defer"></script>
 </head>
 <body>
 <svg style="display: none;"><defs>
@@ -15,13 +15,13 @@
 <p>For deploying an existing template, follow the <a class="" href="/eole/docs/recipes/runpod/">user quick start</a>.
 This guide is for maintainers publishing the images and deploy button, or users
 customizing the deployment. Ordinary users do not need Docker commands or an API key.</p>
-<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="publish-065">Publish 0.6.5<a href="#publish-065" class="hash-link" aria-label="Direct link to Publish 0.6.5" title="Direct link to Publish 0.6.5" translate="no">​</a></h2>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="publish-066">Publish 0.6.6<a href="#publish-066" class="hash-link" aria-label="Direct link to Publish 0.6.6" title="Direct link to Publish 0.6.6" translate="no">​</a></h2>
 <p>The Python package, full Eole image and RunPod wrapper must include the merged
-0.6.5 source. Publishing a GitHub release does not build Docker images, and
+0.6.6 source. Publishing a GitHub release does not build Docker images, and
 publishing images does not update the live RunPod template.</p>
 <ol>
 <li class="">
-<p>Merge the release PR, create tag <strong><code>0.6.5</code></strong> on that commit, and publish its
+<p>Merge the release PR, create tag <strong><code>0.6.6</code></strong> on that commit, and publish its
 GitHub release. <strong>Deploy Docs &amp; Publish to PyPi</strong> publishes the Python package
 and documentation. It checks that the tag matches the package version.</p>
 </li>
@@ -56,11 +56,11 @@ and documentation. It checks that the tag matches the package version.</p>
 
 
 
-<table><thead><tr><th>Input</th><th>Value</th></tr></thead><tbody><tr><td><code>source_ref</code></td><td><code>0.6.5</code></td></tr><tr><td><code>torch_version</code></td><td><code>2.14.1</code></td></tr><tr><td><code>cuda_version</code></td><td><code>13.2.1</code></td></tr><tr><td><code>cuda_arch_list</code></td><td><code>8.0 8.6 8.9 9.0 10.0 10.3 12.0</code></td></tr><tr><td><code>max_jobs</code></td><td><code>2</code></td></tr></tbody></table>
+<table><thead><tr><th>Input</th><th>Value</th></tr></thead><tbody><tr><td><code>source_ref</code></td><td><code>0.6.6</code></td></tr><tr><td><code>torch_version</code></td><td><code>2.14.1</code></td></tr><tr><td><code>cuda_version</code></td><td><code>13.2.1</code></td></tr><tr><td><code>cuda_arch_list</code></td><td><code>8.0 8.6 8.9 9.0 10.0 10.3 12.0</code></td></tr><tr><td><code>max_jobs</code></td><td><code>2</code></td></tr></tbody></table>
 <p>This workflow builds the base <strong>and</strong> full Eole image; running <strong>Build Base
 Docker Image</strong> separately is unnecessary. Read its <strong>Summary</strong> for the full
 image reference to use in the next step:</p>
-<div class="language-text codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-text codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">ghcr.io/eole-nlp/eole:0.6.5-torch2.14.1-ubuntu24.04-cuda13.2.1</span><br></div></code></pre></div></div>
+<div class="language-text codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-text codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">ghcr.io/eole-nlp/eole:0.6.6-torch2.14.1-ubuntu24.04-cuda13.2.1</span><br></div></code></pre></div></div>
 <p>The default stack includes FlashAttention 2.8.3, Triton 3.8.0 and fla-core
 0.6.0. Eole CUDA ops are compiled into the image for the selected targets.
 The downloadable <code>eole-cuda-ops-*</code> artifact is <strong>not</strong> a container image.</p>
@@ -88,8 +88,8 @@ The downloadable <code>eole-cuda-ops-*</code> artifact is <strong>not</strong> a
 
 
 
-<table><thead><tr><th>Input</th><th>Value</th></tr></thead><tbody><tr><td><code>source_ref</code></td><td><code>0.6.5</code></td></tr><tr><td><code>deploy_tag</code></td><td><code>0.6.5</code></td></tr><tr><td><code>eole_image</code></td><td>Full image reference above, or its immutable digest</td></tr></tbody></table>
-<p>This publishes <strong><code>ghcr.io/eole-nlp/eole-runpod:0.6.5</code></strong>. The release check
+<table><thead><tr><th>Input</th><th>Value</th></tr></thead><tbody><tr><td><code>source_ref</code></td><td><code>0.6.6</code></td></tr><tr><td><code>deploy_tag</code></td><td><code>0.6.6</code></td></tr><tr><td><code>eole_image</code></td><td>Full image reference above, or its immutable digest</td></tr></tbody></table>
+<p>This publishes <strong><code>ghcr.io/eole-nlp/eole-runpod:0.6.6</code></strong>. The release check
 rejects a parent whose Eole version or source revision differs from the tagged
 checkout. An older r2 image cannot supply the latest kernels, quantized heads,
 workspace controls or warmup code merely by rebuilding the wrapper.</p>
@@ -97,15 +97,16 @@ workspace controls or warmup code merely by rebuilding the wrapper.</p>
 <li class="">
 <p>Verify GHCR visibility and validate a disposable GPU Pod: authentication,
 persistent storage, pre-converted model downloads/checksums, Qwen startup
-warmup, Chat/Translate/Documents/Knowledge, head precision selection, model
+warmup, Chat/Translate/Documents/Knowledge, DFlash2 download/checksums and
+selection, head/drafter precision changes, benchmark comparisons, model
 unloading and a cached restart. Build-time imports do not validate GPU execution.</p>
 </li>
 <li class="">
 <p>After validation, update the <strong>existing public RunPod template <code>e9e19ozt9c</code></strong>
 in the console. Set <strong>Container Image</strong> to
-<strong><code>ghcr.io/eole-nlp/eole-runpod:0.6.5</code></strong>; retain the launcher, Secret reference,
+<strong><code>ghcr.io/eole-nlp/eole-runpod:0.6.6</code></strong>; retain the launcher, Secret reference,
 port and storage settings from <code>template.json</code>. Its repository copy already
-selects 0.6.5; merging it does not update the live template.</p>
+selects 0.6.6; merging it does not update the live template.</p>
 </li>
 <li class="">
 <p>Open the README deploy button and check the selected image before deployment.
@@ -119,7 +120,7 @@ files change, a compatible parent can be reused for development; changes to Eole
 or CUDA code require rebuilding the full parent. For later Docker-only corrections,
 use a new revision tag instead of overwriting published images. The strict
 same-release check applies to plain <code>x.y.z</code> deployment tags.</p>
-<p>Do not overwrite <code>0.6.4</code>, <code>0.6.4-r1</code>, <code>0.6.4-r2</code>, or a published <code>0.6.5</code> image.
+<p>Do not overwrite <code>0.6.4</code>, <code>0.6.4-r1</code>, <code>0.6.4-r2</code>, or a published <code>0.6.5</code> or <code>0.6.6</code> image.
 A deployment-only correction does not require another PyPI version. Building an
 image does not rent a Pod. See the <a class="" href="/eole/docs/guides/docker">Docker guide</a> for local
 builds and compatibility requirements.</p>
@@ -184,7 +185,7 @@ All four packages passed a fresh private-Hub download, complete SHA256 compariso
 and offline inference before publication. INT4 (with MTP), translation and OCR
 were tested on RTX 5090; the original BF16 checkpoint was tested on CPU using
 Eole&#x27;s PyTorch fallback. These checks do not constitute GPU validation of a
-newly built 0.6.5 image.</p>
+newly built release image.</p>
 <p>To update a model, validate the new Eole package first, then change its catalog
 commit and size together and rebuild the RunPod wrapper. The Eole parent image
 can be reused for a compatible development wrapper. A numbered release uses
@@ -400,7 +401,7 @@ validation of #470 also passed all three workspaces and a cached restart using
 the existing image with the PR launcher injected. Its test Pod and attached volume
 were terminated after validation; no test storage is retained.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="startup-preparation-in-the-release-image">Startup preparation in the release image<a href="#startup-preparation-in-the-release-image" class="hash-link" aria-label="Direct link to Startup preparation in the release image" title="Direct link to Startup preparation in the release image" translate="no">​</a></h2>
-<p>The 0.6.5 full Eole image contains the server, local verifier cache and timing
+<p>The 0.6.6 full Eole image contains the server, local verifier cache and timing
 fixes. Its RunPod wrapper checks for importable ops and startup/cache support.
 The default Qwen model uses <code>preload: true, warmup: true</code>; the preparation screen
 stays visible until inference preparation finishes. Translation/OCR load on first
@@ -410,6 +411,6 @@ verifiers are produced on that GPU and reused immediately; no verifier binaries
 are built into the image, downloaded or uploaded by maintainers. Preserve the
 volume to retain model downloads, binary fallbacks and compiler caches. First
 compilation, hardware/runtime changes and new image shapes can still require
-preparation. FP32 normalization is unchanged.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/edit/main/recipes/runpod/MAINTAINERS.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/eole/docs/recipes/runpod/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Eole on RunPod</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/recipes/scoring/"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Scoring Recipes</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#publish-065" class="table-of-contents__link toc-highlight">Publish 0.6.5</a></li><li><a href="#storage-provisioning-and-the-post-064-guard" class="table-of-contents__link toc-highlight">Storage provisioning and the post-0.6.4 guard</a></li><li><a href="#optional-validate-future-launcher-prs-without-publishing-images" class="table-of-contents__link toc-highlight">Optional: validate future launcher PRs without publishing images</a></li><li><a href="#local-image-build" class="table-of-contents__link toc-highlight">Local image build</a></li><li><a href="#register-another-template-optional" class="table-of-contents__link toc-highlight">Register another template (optional)</a></li><li><a href="#pre-converted-checkpoint-catalog" class="table-of-contents__link toc-highlight">Pre-converted checkpoint catalog</a></li><li><a href="#preparation-and-persistence" class="table-of-contents__link toc-highlight">Preparation and persistence</a></li><li><a href="#local-end-to-end-test" class="table-of-contents__link toc-highlight">Local end-to-end test</a></li><li><a href="#pre-converted-workflow-validation-21-october-2026" class="table-of-contents__link toc-highlight">Pre-converted workflow validation (21 October 2026)</a></li><li><a href="#earlier-cloud-validation" class="table-of-contents__link toc-highlight">Earlier cloud validation</a></li><li><a href="#startup-preparation-in-the-release-image" class="table-of-contents__link toc-highlight">Startup preparation in the release image</a></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
+preparation. FP32 normalization is unchanged.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/edit/main/recipes/runpod/MAINTAINERS.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/eole/docs/recipes/runpod/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Eole on RunPod</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/recipes/scoring/"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Scoring Recipes</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#publish-066" class="table-of-contents__link toc-highlight">Publish 0.6.6</a></li><li><a href="#storage-provisioning-and-the-post-064-guard" class="table-of-contents__link toc-highlight">Storage provisioning and the post-0.6.4 guard</a></li><li><a href="#optional-validate-future-launcher-prs-without-publishing-images" class="table-of-contents__link toc-highlight">Optional: validate future launcher PRs without publishing images</a></li><li><a href="#local-image-build" class="table-of-contents__link toc-highlight">Local image build</a></li><li><a href="#register-another-template-optional" class="table-of-contents__link toc-highlight">Register another template (optional)</a></li><li><a href="#pre-converted-checkpoint-catalog" class="table-of-contents__link toc-highlight">Pre-converted checkpoint catalog</a></li><li><a href="#preparation-and-persistence" class="table-of-contents__link toc-highlight">Preparation and persistence</a></li><li><a href="#local-end-to-end-test" class="table-of-contents__link toc-highlight">Local end-to-end test</a></li><li><a href="#pre-converted-workflow-validation-21-october-2026" class="table-of-contents__link toc-highlight">Pre-converted workflow validation (21 October 2026)</a></li><li><a href="#earlier-cloud-validation" class="table-of-contents__link toc-highlight">Earlier cloud validation</a></li><li><a href="#startup-preparation-in-the-release-image" class="table-of-contents__link toc-highlight">Startup preparation in the release image</a></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
 </body>
 </html>
