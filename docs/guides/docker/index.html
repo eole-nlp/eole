@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">Using Eole with Docker | Eole</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/guides/docker"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Using Eole with Docker | Eole"><meta data-rh="true" name="description" content="The host needs Docker, a compatible NVIDIA driver and the"><meta data-rh="true" property="og:description" content="The host needs Docker, a compatible NVIDIA driver and the"><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/guides/docker"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/guides/docker" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/guides/docker" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Using Eole with Docker","item":"https://eole-nlp.github.io/eole/docs/guides/docker"}]}</script><link rel="stylesheet" href="/eole/assets/css/styles.209cbda3.css">
-<script src="/eole/assets/js/runtime~main.c69f4a36.js" defer="defer"></script>
-<script src="/eole/assets/js/main.bac503ce.js" defer="defer"></script>
+<script src="/eole/assets/js/runtime~main.6a1a86c0.js" defer="defer"></script>
+<script src="/eole/assets/js/main.31c5daca.js" defer="defer"></script>
 </head>
 <body>
 <svg style="display: none;"><defs>
@@ -18,10 +18,10 @@ Configure the NVIDIA Docker runtime before starting a GPU container.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="quick-start-run-the-workspace-locally">Quick start: run the workspace locally<a href="#quick-start-run-the-workspace-locally" class="hash-link" aria-label="Direct link to Quick start: run the workspace locally" title="Direct link to Quick start: run the workspace locally" translate="no">​</a></h2>
 <p>Use the <strong>full Eole image</strong> for local testing. You do not need to build a base
 image, publish anything, or use the RunPod image. The commands below use the
-0.6.6 release image (after publication) and an already converted Qwen checkpoint.
+0.6.7 release image (after publication) and an already converted Qwen checkpoint.
 Until the image is published, build your checkout locally using the next section.</p>
 <p>Run these commands in a terminal on your host:</p>
-<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">export EOLE_IMAGE=ghcr.io/eole-nlp/eole:0.6.6-torch2.14.1-ubuntu24.04-cuda13.2.1</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">export EOLE_MODEL_DIR=/mnt/InternalCrucial4/LLM_work</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain" style="display:inline-block"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain"># Check that Docker can access your GPUs. The first run downloads the image.</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">docker run --rm --gpus all --entrypoint nvidia-smi &quot;$EOLE_IMAGE&quot;</span><br></div></code></pre></div></div>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">export EOLE_IMAGE=ghcr.io/eole-nlp/eole:0.6.7-torch2.14.1-ubuntu24.04-cuda13.2.1</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">export EOLE_MODEL_DIR=/mnt/InternalCrucial4/LLM_work</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain" style="display:inline-block"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain"># Check that Docker can access your GPUs. The first run downloads the image.</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">docker run --rm --gpus all --entrypoint nvidia-smi &quot;$EOLE_IMAGE&quot;</span><br></div></code></pre></div></div>
 <p>Change <code>EOLE_MODEL_DIR</code> to your model directory. It must contain the converted
 <code>Qwen3.8-27B-INT4</code> folder; this command does not download or convert a model.
 See the <a class="" href="/eole/docs/recipes/qwen38/">Qwen3.8 recipe</a> if you need a checkpoint.
@@ -34,7 +34,7 @@ converted Qwen model. The target checkpoint alone does not include it:</p>
 <p>The result must contain <code>dflash2/config.json</code> and <code>dflash2/model.safetensors</code>.
 The model-directory mount below makes them available inside Docker at the same
 path. No drafter conversion is needed. Without these files, DFlash2 stays
-disabled; Off and native MTP remain available. The 0.6.6 image includes the
+disabled; Off and native MTP remain available. The 0.6.7 image includes the
 DFlash2 workspace selector; older 0.6.5 images do not.</p>
 <p>Stop other inference processes using the selected GPU to free VRAM, then start
 the container:</p>
@@ -51,7 +51,7 @@ Python environment and host CUDA extension are not used by the container.</p>
 <code>--rm</code> removes the container afterward. Your mounted models and caches remain;
 save any other files you want to keep in a mounted directory.</p>
 <p>This runs the code packaged in the selected image. Mounting model files does
-not update that code. Use the 0.6.6 release image for the DFlash2 selector and
+not update that code. Use the 0.6.7 release image for the DFlash2 selector and
 workload/profile benchmark comparisons; older images do not gain these features.
 See the next section to build a local image from your checkout. For the combined
 Chat/Translate/OCR showcase, follow the <a class="" href="/eole/docs/recipes/ui/">UI recipe</a> to
@@ -172,10 +172,10 @@ checkout gets <code>dev-&lt;12-character-commit&gt;</code>. OCI labels record th
 No unrelated release number is assigned to current main. Publishing requires
 GHCR package write permission; the workflow uses its repository <code>GITHUB_TOKEN</code>.
 <strong>Build Base Docker Image</strong> publishes just the base when needed.</p>
-<p>For the <strong>0.6.6 release image</strong>, after the version-bump PR is merged and the
-<code>0.6.6</code> tag is created on the release commit, select <code>source_ref=0.6.6</code> (keep the
+<p>For the <strong>0.6.7 release image</strong>, after the version-bump PR is merged and the
+<code>0.6.7</code> tag is created on the release commit, select <code>source_ref=0.6.7</code> (keep the
 workflow branch on <code>main</code>). The workflow then publishes:</p>
-<div class="language-text codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-text codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">ghcr.io/eole-nlp/eole:0.6.6-torch2.14.1-ubuntu24.04-cuda13.2.1</span><br></div></code></pre></div></div>
+<div class="language-text codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-text codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">ghcr.io/eole-nlp/eole:0.6.7-torch2.14.1-ubuntu24.04-cuda13.2.1</span><br></div></code></pre></div></div>
 <p>The release tag must include the refreshed Docker tooling. Publishing a GitHub
 release triggers the Python package/docs workflow; Docker publication still
 requires the separate manual workflow above.</p>
@@ -188,7 +188,7 @@ be included. Builds retain Docker layer caching; add <code>--no-cache</code> to 
 verify packaging and CLI/dependencies, but GPU inference must be tested on GPU
 hardware before claiming a new combination is supported.</p>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="runpod-deployment-images">RunPod deployment images<a href="#runpod-deployment-images" class="hash-link" aria-label="Direct link to RunPod deployment images" title="Direct link to RunPod deployment images" translate="no">​</a></h3>
-<p>Build the full Eole image from the <strong><code>0.6.6</code> tag</strong> first. The image includes the
+<p>Build the full Eole image from the <strong><code>0.6.7</code> tag</strong> first. The image includes the
 current source, bundled CUDA ops, Torch 2.14.1, Triton 3.8.0 and fla-core 0.6.0.
 The full-image workflow builds its matching base too; a separate base workflow
 run is unnecessary. Its <strong>Summary</strong> shows the full image tag for the next step.</p>
@@ -214,23 +214,24 @@ run is unnecessary. Its <strong>Summary</strong> shows the full image tag for th
 
 
 
-<table><thead><tr><th>Input</th><th>Value</th></tr></thead><tbody><tr><td><code>source_ref</code></td><td><code>0.6.6</code></td></tr><tr><td><code>deploy_tag</code></td><td><code>0.6.6</code></td></tr><tr><td><code>eole_image</code></td><td><code>ghcr.io/eole-nlp/eole:0.6.6-torch2.14.1-ubuntu24.04-cuda13.2.1</code> or its digest</td></tr></tbody></table>
+<table><thead><tr><th>Input</th><th>Value</th></tr></thead><tbody><tr><td><code>source_ref</code></td><td><code>0.6.7</code></td></tr><tr><td><code>deploy_tag</code></td><td><code>0.6.7</code></td></tr><tr><td><code>eole_image</code></td><td><code>ghcr.io/eole-nlp/eole:0.6.7-torch2.14.1-ubuntu24.04-cuda13.2.1</code> or its digest</td></tr></tbody></table>
 <p>The wrapper requires importable bundled ops and startup/cache support. A plain
 release tag additionally requires a parent with the same Eole version and source
 revision as the tagged checkout. Older images do not gain new Eole code when
 only the wrapper is rebuilt. Both builds install matching Torchvision while
 constraining the selected PyTorch/CUDA runtime.</p>
 <p>After GPU validation, update the existing public template&#x27;s <code>imageName</code> to
-<strong><code>ghcr.io/eole-nlp/eole-runpod:0.6.6</code></strong>, following the
-<a class="" href="/eole/docs/recipes/runpod/MAINTAINERS#publish-066">release publishing checklist</a>.
-The repository template targets 0.6.6, but Git merges and image publication do not
+<strong><code>ghcr.io/eole-nlp/eole-runpod:0.6.7</code></strong>, following the
+<a class="" href="/eole/docs/recipes/runpod/MAINTAINERS#publish-067">release publishing checklist</a>.
+The repository template targets 0.6.7, but Git merges and image publication do not
 change the live template or existing Pods. The deploy button keeps its current
 template ID. Preserve earlier release/revision images rather than overwriting them.
 The launcher downloads pinned pre-converted public <code>eole-nlp</code> checkpoints and
 verifies their SHA256 checksums; it does not convert original HF weights.
 RunPod wrappers built from the updated source also download and SHA256-verify
 the pinned <code>incoai/Qwen3.8-27B-DFlash2</code> drafter, shared by the Qwen INT4/BF16
-targets. Native MTP remains the default; DFlash2 can be selected in the workspace.
+targets. When compatible, DFlash2 with INT8 packed projections is selected before
+startup warmup, matching the workspace default; otherwise native MTP is retained.
 The regular local Docker quick start still uses your own local drafter files.
 On startup the launcher probes the bundled extension on each visible GPU, then
 uses source compilation only if the binary is absent or incompatible. A matching
