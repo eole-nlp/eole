@@ -2,6 +2,22 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.6.7
+
+* Align server startup preparation with the workspace default. A compatible configured DFlash2 drafter and its precision are selected before preload/warmup, so the first default Chat request reuses the prepared engine instead of unloading MTP and compiling a second verifier ([#501](https://github.com/eole-nlp/eole/pull/501)).
+* Preserve native startup settings when the drafter is missing or incompatible, validate token/ngram constraints before enabling DFlash2, and retain explicit later Off/MTP/precision switches ([#501](https://github.com/eole-nlp/eole/pull/501)).
+
+With `preload: true` and `warmup: true`, preparation finishes before server
+readiness. Later mode/precision changes or new input shapes may still require
+additional preparation. This correction needs a rebuilt full Eole image; updating
+only the RunPod wrapper does not apply it.
+
+Build both images from the **same `0.6.7` release commit**, validate on a GPU,
+then update the public RunPod template to `eole-runpod:0.6.7`. See the
+[publishing checklist](recipes/runpod/MAINTAINERS.md#publish-067).
+
+**Full Changelog**: https://github.com/eole-nlp/eole/compare/0.6.6...0.6.7
+
 ## 0.6.6
 
 * Add DFlash2 speculative decoding for Qwen3.8-27B, including a fixed-cache drafter CUDA graph, packed projections and optional INT8 drafter quantization ([#497](https://github.com/eole-nlp/eole/pull/497)).
@@ -16,7 +32,7 @@ benchmark rates depend on workload, settings and hardware.
 Publish both Docker images from the **same `0.6.6` release commit**, validate on
 a GPU, then update the existing public RunPod template to `eole-runpod:0.6.6`.
 Publishing the Python release does not build images or update that live template.
-See the [publishing checklist](recipes/runpod/MAINTAINERS.md#publish-066).
+See the [publishing checklist](recipes/runpod/MAINTAINERS.md).
 
 **Full Changelog**: https://github.com/eole-nlp/eole/compare/0.6.5...0.6.6
 
