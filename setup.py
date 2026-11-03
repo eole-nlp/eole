@@ -90,7 +90,7 @@ setup(
     description="Open language modeling toolkit based on PyTorch",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    version="0.6.6",
+    version="0.6.7",
     packages=find_packages(),
     license_files=["LICENSE.md", "licenses/dflash-MIT.txt"],
     package_data={"eole.server": ["web/*"]},
