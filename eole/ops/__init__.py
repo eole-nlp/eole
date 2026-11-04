@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 import warnings
 from eole import EOLE_TORCH_COMPILE
+from eole.ops.kv_cache import bounded_kv_cache
 
 # Try to import the C++ extension
 try:
@@ -68,7 +69,9 @@ if EOLE_TORCH_COMPILE:
             alibi_slopes: torch.Tensor | None = None,
             num_splits: int = 0,
             return_softmax_lse: bool = False,
+            cache_view_bound: torch.Tensor | None = None,
         ) -> torch.Tensor:
+            k_cache, v_cache = bounded_kv_cache(k_cache, v_cache, cache_view_bound, block_table)
             return flash_attn.flash_attn_with_kvcache(
                 q=q,
                 k_cache=k_cache,
@@ -113,6 +116,7 @@ if EOLE_TORCH_COMPILE:
             alibi_slopes=None,
             num_splits=0,
             return_softmax_lse=False,
+            cache_view_bound=None,
         ):
             if return_softmax_lse:
                 lse = torch.empty(q.shape[0], q.shape[1], q.shape[2], device=q.device, dtype=torch.float32)
@@ -140,6 +144,7 @@ if EOLE_TORCH_COMPILE:
             alibi_slopes: torch.Tensor | None = None,
             num_splits: int = 0,
             return_softmax_lse: bool = False,
+            cache_view_bound: torch.Tensor | None = None,
         ) -> torch.Tensor:
             """
             Flash attention with KV cache.
@@ -169,6 +174,7 @@ if EOLE_TORCH_COMPILE:
                 alibi_slopes=alibi_slopes,
                 num_splits=num_splits,
                 return_softmax_lse=return_softmax_lse,
+                cache_view_bound=cache_view_bound,
             )
 
     else:
@@ -571,7 +577,11 @@ if EOLE_TORCH_COMPILE:
 else:
     # NO EOLE_TORCH_COMPILE — use native CUDA kernels directly for performance.
     if _FLASH_ATTN_AVAILABLE:
-        flash_attn_kvcache = flash_attn.flash_attn_with_kvcache
+
+        def flash_attn_kvcache(q, k_cache, v_cache, *args, cache_view_bound=None, **kwargs):
+            k_cache, v_cache = bounded_kv_cache(k_cache, v_cache, cache_view_bound, kwargs.get("block_table"))
+            return flash_attn.flash_attn_with_kvcache(q, k_cache, v_cache, *args, **kwargs)
+
     else:
         flash_attn_kvcache = None
 

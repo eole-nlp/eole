@@ -66,7 +66,7 @@ def main():
         content = (
             "George Orwell wrote novels and essays about politics, language, individual freedom, "
             "and the abuse of power. " * args.prompt_repeat
-        ) + "Summarize this in a single sentence."
+        ) + "Generate a 500 word text talking about George Orwell."
     prompt = f"<|im_start|>user\n{content}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
     report = {
         "torch": torch.__version__,
