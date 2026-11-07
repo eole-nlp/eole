@@ -15,20 +15,24 @@ or train your own architecture.
 | **DFlash2 speculative decoding for Qwen3.8-27B** | [DFlash2 recipe and benchmarks](recipes/qwen38/dflash2/README.md) |
 
 Measured on one **RTX 5090** with the RedHat Qwen3.8-27B INT4 target, shared
-INT8 vocabulary heads. DFlash2 verifies eight positions (seven draft tokens);
+INT8 vocabulary heads. DFlash2 uses seven draft tokens unless specified;
 native MTP uses three draft tokens:
 
 | Decoding mode | Code tok/s | English tok/s | Translation tok/s |
 | --- | ---: | ---: | ---: |
-| Ordinary greedy | 85.8 | 85.9 | 85.4 |
-| Native MTP, 3 drafts | 188.7 | 140.7 | 181.5 |
-| DFlash2, BF16 drafter | 223.6 | 140.1 | 212.5 |
-| DFlash2, INT8 drafter with packed projections | **239.8** | 139.6 | **221.0** |
+| Ordinary greedy | 85.9 | 85.7 | 85.3 |
+| Native MTP, 3 drafts | 191.1 | 136.9 | 180.2 |
+| DFlash2, BF16 drafter | 221.7 | 139.3 | 208.4 |
+| DFlash2, INT8 drafter with packed projections | 252.2 | 139.0 | 217.3 |
+| DFlash2, INT8 drafter, 9 draft tokens | **289.8** | **152.9** | **256.7** |
 
 Median warmed decode throughput over three runs per fixture; batch-one greedy,
 64,000-token context capacity, 2,048-token output cap. Speed depends on proposal
 acceptance and workload. See the [recipe](recipes/qwen38/dflash2/README.md) for
-settings, supported scope and numerical limitations.
+settings, supported scope and numerical limitations. All rows were rerun with
+PyTorch 2.15.0 / Triton 3.9.0 and `TRITON_DEFAULT_FP_FUSION=1`.
+See the [block-size sweep](recipes/qwen38/dflash2/README.md#block-size-sweep)
+for the comparison of six through ten draft tokens.
 
 DFlash2 output is not guaranteed bit-identical to single-token decoding; these
 speed measurements are not a model-quality evaluation.

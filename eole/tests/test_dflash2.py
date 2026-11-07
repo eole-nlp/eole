@@ -232,6 +232,60 @@ class TestDFlash2(unittest.TestCase):
                 self.assertIs(model._graph.graph, graph)
                 self.assertEqual(pointers, [buffer.data_ptr() for pair in model._context_kv for buffer in pair])
 
+    @unittest.skipUnless(torch.cuda.is_available(), "Ring writes require CUDA")
+    def test_arbitrary_block_ring_writes_preserve_uncommitted_slots(self):
+        from eole.triton.dflash2 import put_kv, put_positions
+
+        window, heads, dim = 16, 2, 4
+        for block in (7, 8, 9, 10, 11):
+            for count in (0, 1, block - 1, block):
+                with self.subTest(block=block, count=count):
+                    start = window - 2  # Include ring wraparound.
+                    control = torch.tensor([0, 0, start, count], device="cuda")
+                    positions = torch.full((window,), -1, device="cuda", dtype=torch.int64)
+                    key = torch.arange(block * heads * dim, device="cuda").reshape(1, block, heads, dim)
+                    key = key.transpose(1, 2).float()
+                    value = key + 1000
+                    kc = torch.full((1, heads, window, dim), -1.0, device="cuda")
+                    vc = kc.clone()
+                    expected_positions = positions.clone()
+                    expected_k, expected_v = kc.clone(), vc.clone()
+                    indices = (start + torch.arange(count, device="cuda")) % window
+                    expected_positions[indices] = start + torch.arange(count, device="cuda")
+                    expected_k[:, :, indices] = key[:, :, :count]
+                    expected_v[:, :, indices] = value[:, :, :count]
+                    put_positions[(1,)](positions, control, window, block)
+                    put_kv[(heads * block,)](
+                        key, value, kc, vc, control, *key.stride()[:3], *value.stride()[:3], window, block, dim
+                    )
+                    torch.testing.assert_close(positions, expected_positions, atol=0, rtol=0)
+                    torch.testing.assert_close(kc, expected_k, atol=0, rtol=0)
+                    torch.testing.assert_close(vc, expected_v, atol=0, rtol=0)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "Arbitrary-block graphs require CUDA")
+    def test_arbitrary_block_graph_capture_and_replay(self):
+        import weakref
+
+        from eole.modules.dflash2_graph import DFlash2GraphAdapter
+
+        for block in (7, 8, 9, 10, 11):
+            with self.subTest(block=block), torch.no_grad():
+                cfg = self._tiny_drafter().cfg
+                cfg.sliding_window = 16
+                cfg.dflash_config["block_size"] = block
+                model = DFlash2GraphAdapter(cfg).to(device="cuda", dtype=torch.bfloat16).eval()
+                target = torch.nn.Module()
+                target.tgt_emb = torch.nn.Embedding(12, 16, device="cuda", dtype=torch.bfloat16)
+                target.generator = torch.nn.Linear(16, 12, bias=False, device="cuda", dtype=torch.bfloat16)
+                object.__setattr__(model, "_target_ref", weakref.ref(target))
+                self.assertTrue(model.prepare_draft_graph())
+                graph = model._graph.graph
+                for start, length, count in ((5, 5, block - 1), (8, 3, 1), (10, 2, block - 1)):
+                    model.set_context(torch.randn(1, length, 32, device="cuda", dtype=torch.bfloat16), start - length)
+                    proposals = model.draft(target, torch.tensor([[4]], device="cuda"), start, count)
+                    self.assertEqual(len(proposals), count)
+                    self.assertIs(model._graph.graph, graph)
+
     def test_drafter_quantization_rejects_biases_and_prepared_graphs(self):
         model = self._tiny_drafter()
         model._graph = Mock()

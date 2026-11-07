@@ -63,16 +63,51 @@ There are two independent quantization settings:
 BF16 drafter gate/up packing is an experiment, not enabled by those flags in this PR.
 The default HF checkpoint block size is 8, giving seven proposals. The graph path
 uses the checkpoint block size; `self_speculative_num_tokens` does not override it.
+Any integer block size from 2 through the drafter sliding-window size is supported,
+including non-powers of two. For example, setting `dflash_config.block_size` to 10
+in the local drafter `config.json` gives nine draft tokens. Restart/reload the
+engine after changing it; each size needs its own verifier compilation.
+The upstream default remains 8.
 
+
+## Block-size sweep
+
+RTX 5090; PyTorch 2.15.0/CUDA 13.2, Triton 3.9.0,
+`TRITON_DEFAULT_FP_FUSION=1`. Same target, INT8 group-128 vocabulary head,
+packed INT8 drafter, fixtures and benchmark settings as below: compile mode 0,
+batch-one greedy, 64,000 context, 2,048 output cap, 128-token warmup per fixture,
+three measured repetitions, GPU phase profiling off. Median decode tokens/s:
+
+| Block | Drafts | Code tok/s | English tok/s | Translation tok/s |
+|---:|---:|---:|---:|---:|
+| 7 | 6 | 227.5 | 131.9 | 209.9 |
+| 8 | 7 | 251.4 | 138.5 | 216.5 |
+| 9 | 8 | 277.7 | 146.7 | 260.4 |
+| 10 | 9 | 287.8 | 151.3 | 256.5 |
+| 11 | 10 | 282.2 | 145.5 | 259.6 |
+
+Fresh-process confirmation: block 8 measured 252.0 / 138.7 / 216.6 tok/s;
+block 10 measured 289.0 / 152.8 / 257.1 (code / English / translation).
+Relative to block 8 on this same stack, block 10 improved throughput by
+14.5% / 9.2% / 18.5%. Larger blocks did not improve every workload.
+
+Code and English reached the output cap; translation ended naturally at
+698 / 720 / 722 / 719 / 698 timed tokens for blocks 7 through 11.
+Each pair's three repetitions produced identical text, but text can differ
+between block sizes. This is an end-to-end throughput comparison, not a
+quality evaluation or identical-token replay. These measurements used the
+same padded ring-write implementation introduced here. The matched benchmark
+below is a separate complete rerun on the same PyTorch 2.15/Triton 3.9 stack.
 
 ## Matched benchmark: INT8 vocabulary heads
 
 All rows below use the same converted RedHat Qwen3.8-27B INT4 target and shared
 INT8 group-128 vocabulary head. This is the configuration of the original
 optimization table, not the INT4-head configuration used in the local Orwell script.
-DFlash2 uses block size 8 (seven proposals); native MTP uses three proposals.
+DFlash2 uses block size 8 (seven proposals) unless specified; native MTP uses three proposals.
 
-RTX 5090; Torch 2.14.1/CUDA 13.2; Triton 3.8.0; FLA 0.6.0; FlashAttention 2.8.3.
+RTX 5090; Torch 2.15.0/CUDA 13.2; Triton 3.9.0; FLA 0.6.0; FlashAttention 2.8.3.
+`TRITON_DEFAULT_FP_FUSION=1`. All five rows were rerun on this stack.
 The code, English mystery and Chinese-to-English prompts are the same
 [`mtp-sampling-fixtures.json`](../mtp-sampling-fixtures.json) fixtures throughout.
 Batch one, greedy, thinking disabled, context capacity 64,000, output cap 2,048,
@@ -83,25 +118,31 @@ first token, prefill and warmup.
 
 | Variant | Code | English | Translation |
 | --- | ---: | ---: | ---: |
-| Ordinary greedy | 85.8 | 85.9 | 85.4 |
-| Native MTP, 3 drafts | 188.7 | 140.7 | 181.5 |
-| DFlash2 BF16, current graph | 223.6 | 140.1 | 212.5 |
-| DFlash2 INT8 drafter, packed attention + MLP | 239.8 | 139.6 | 221.0 |
+| Ordinary greedy | 85.9 | 85.7 | 85.3 |
+| Native MTP, 3 drafts | 191.1 | 136.9 | 180.2 |
+| DFlash2, BF16 drafter | 221.7 | 139.3 | 208.4 |
+| DFlash2, INT8 drafter with packed projections | 252.2 | 139.0 | 217.3 |
+| DFlash2, INT8 drafter, 9 draft tokens | **289.8** | **152.9** | **256.7** |
 
-The current BF16 graph baseline reproduces all nine original output token
-sequences. Its original measurement was 223.0 / 139.7 / 212.6 tokens/s; the small
-rerun difference is measurement variation, not an implementation improvement.
+Target verification is compiled and graph-replayed in the speculative cases.
+The drafter graph records eager kernels; it does not itself use `torch.compile`.
+All rows use INT8 vocabulary heads, including the BF16-drafter row.
 
-Both DFlash2 rows are implemented by this PR; ordinary decoding and native MTP
-are matched controls. Target verification is compiled and graph-replayed in the
-speculative cases. The drafter graph records eager kernels; it does
-not itself use `torch.compile`.
+Code and English reached the 2,048-token output cap (2,047 timed tokens).
+Translation ended naturally at 698 / 698 / 698 / 720 / 719 timed tokens,
+respectively. All three repetitions of each profile/workload produced identical
+text, but different profiles can follow different continuations.
 
 Compilation and kernel substitutions can change rounding, proposal acceptance
 and generated sequences. These are observed end-to-end results, not isolated
 kernel speedups. No quality evaluation was performed.
 
-## Why the other tables had different numbers
+## Historical PyTorch 2.14.1 / Triton 3.8 results
+
+The tables below predate the full PyTorch 2.15 rerun above. They are retained
+for context; differences from the new table are not isolated optimization gains.
+
+### Why the other tables had different numbers
 
 The following are graph-only BF16 drafter baselines, not successive optimization
 stages. Only the shared head setting and/or checkpoint block size changes:
