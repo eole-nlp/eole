@@ -117,7 +117,7 @@ layer, used **20.45 GiB peak PyTorch allocation** and generated 64 tokens:
 | Same weights, serial execution | 15.48 |
 
 All six runs produced identical text. The overlap gain is too small to call
-meaningful here; the fixed partition is largely CPU-limited. One/two CPU threads
+meaningful here; both CPU work and the eager execution path contribute to the limit. One/two CPU threads
 measured 11.87/14.29 tok/s. Six real expert projection checks measured
 0.78–0.94% relative RMS error from INT8 weights/BF16 computation; this is not a
 model-quality evaluation. The hybrid run and GPTQ control use different weight
@@ -128,3 +128,31 @@ fits on the 4090 with the unused MTP head disabled: **about 116 tok/s**, compile
 mode 0, at **21.55 GiB** peak PyTorch allocation (128 output tokens, three runs).
 This prototype is groundwork for larger models, not the recommended speed path
 when all expert weights already fit on the GPU.
+
+### Matched 4090 / 5090 follow-up
+
+Same script and settings on both GPUs: 128 output tokens (127 timed), 16-token
+warmup, three measured repetitions, six CPU threads, 4,096-token cache, native
+vocabulary heads and no MTP. Hybrid uses 64 BF16 GPU experts/layer plus CPU INT8
+experts; resident uses the prepared GPTQ checkpoint. Different quantization means
+these are practical configurations, not accuracy-equivalent execution backends.
+
+| Configuration | RTX 4090 tok/s | RTX 5090 tok/s |
+| --- | ---: | ---: |
+| Hybrid BF16/CPU INT8, eager | 15.6 | 16.1 |
+| GPTQ, resident eager | 25.8 | 25.7 |
+| GPTQ, resident compile mode 0 | 118.9 | 161.9 |
+
+The near-identical resident eager speeds suggest host launch/synchronization
+overhead limits GPU scaling; compiled execution exposes the hardware difference.
+It does not establish which individual operations cause the eager overhead.
+
+Lightweight host timing of three additional hybrid runs on the 5090 measured
+62.8 ms/decode token overall. CPU expert work took 22.6 ms/token, including
+15.2 ms/token in native CPU linear calls. The executor boundary took 29.1 ms/token
+inclusive of CPU work; about 33.7 ms/token remained outside it. These nested,
+potentially overlapping wall-clock measurements are not additive GPU kernel
+profiling. They indicate that optimizing only CPU matvecs is insufficient:
+GPU segments, Python dispatch and synchronization also need investigation.
+Whole-decoder compilation is currently rejected by this prototype; compiling
+GPU segments around the host-execution boundary is a possible next experiment.
