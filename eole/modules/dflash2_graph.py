@@ -13,7 +13,7 @@ class DFlash2GraphAdapter(DFlash2Adapter):
     """Batch-one fixed-ring drafter. Graph buffers survive request resets.
 
     The prompt populates context K/V once, outside replay. Each subsequent
-    replay appends only the committed target features, then proposes seven
+    replay appends only the committed target features, then proposes block_size - 1
     tokens. Noise K/V is temporary, so rejection needs no drafter rollback.
     """
 
@@ -36,8 +36,8 @@ class DFlash2GraphAdapter(DFlash2Adapter):
             return self._graph.graph is not None
         if self.hidden_norm.weight.device.type != "cuda":
             raise ValueError("DFlash2 draft graphs require CUDA")
-        if self.block_size & (self.block_size - 1) or self.cfg.sliding_window < self.block_size:
-            raise ValueError("DFlash2 graph blocks must be powers of two and fit the sliding window")
+        if not 2 <= self.block_size <= self.cfg.sliding_window:
+            raise ValueError("DFlash2 graph blocks must contain at least two positions and fit the sliding window")
         device = self.hidden_norm.weight.device
         dtype = self.hidden_norm.weight.dtype
         self._context_positions = torch.full((self.cfg.sliding_window,), -1, device=device, dtype=torch.int64)

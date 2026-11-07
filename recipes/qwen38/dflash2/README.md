@@ -63,7 +63,41 @@ There are two independent quantization settings:
 BF16 drafter gate/up packing is an experiment, not enabled by those flags in this PR.
 The default HF checkpoint block size is 8, giving seven proposals. The graph path
 uses the checkpoint block size; `self_speculative_num_tokens` does not override it.
+Any integer block size from 2 through the drafter sliding-window size is supported,
+including non-powers of two. For example, setting `dflash_config.block_size` to 10
+in the local drafter `config.json` gives nine draft tokens. Restart/reload the
+engine after changing it; each size needs its own verifier compilation.
+The upstream default remains 8.
 
+
+## Block-size sweep
+
+RTX 5090; PyTorch 2.15.0/CUDA 13.2, Triton 3.9.0,
+`TRITON_DEFAULT_FP_FUSION=1`. Same target, INT8 group-128 vocabulary head,
+packed INT8 drafter, fixtures and benchmark settings as below: compile mode 0,
+batch-one greedy, 64,000 context, 2,048 output cap, 128-token warmup per fixture,
+three measured repetitions, GPU phase profiling off. Median decode tokens/s:
+
+| Block | Drafts | Code tok/s | English tok/s | Translation tok/s |
+|---:|---:|---:|---:|---:|
+| 7 | 6 | 227.5 | 131.9 | 209.9 |
+| 8 | 7 | 251.4 | 138.5 | 216.5 |
+| 9 | 8 | 277.7 | 146.7 | 260.4 |
+| 10 | 9 | 287.8 | 151.3 | 256.5 |
+| 11 | 10 | 282.2 | 145.5 | 259.6 |
+
+Fresh-process confirmation: block 8 measured 252.0 / 138.7 / 216.6 tok/s;
+block 10 measured 289.0 / 152.8 / 257.1 (code / English / translation).
+Relative to block 8 on this same stack, block 10 improved throughput by
+14.5% / 9.2% / 18.5%. Larger blocks did not improve every workload.
+
+Code and English reached the output cap; translation ended naturally at
+698 / 720 / 722 / 719 / 698 timed tokens for blocks 7 through 11.
+Each pair's three repetitions produced identical text, but text can differ
+between block sizes. This is an end-to-end throughput comparison, not a
+quality evaluation or identical-token replay. These measurements used the
+same padded ring-write implementation introduced here; the historical table
+below uses the older PyTorch/Triton stack.
 
 ## Matched benchmark: INT8 vocabulary heads
 

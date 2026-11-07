@@ -63,10 +63,11 @@ def norm_rope(x, weight, eps, tables):
 
 @triton.jit
 def put_positions(P, C, W: tl.constexpr, T: tl.constexpr):
-    t = tl.arange(0, T)
+    # Triton ranges need a power-of-two extent, but the model block does not.
+    t = tl.arange(0, triton.next_power_of_2(T))
     start = tl.load(C + 2)
     count = tl.load(C + 3)
-    tl.store(P + (start + t) % W, start + t, t < count)
+    tl.store(P + (start + t) % W, start + t, (t < T) & (t < count))
 
 
 @triton.jit
