@@ -90,7 +90,7 @@ def inference_backend_summary(model, compile_enabled, compile_mode, speculative=
         ("_causal_conv1d_fn", "conv prefill"),
         ("_causal_conv1d_update", "conv decode"),
         ("_chunk_gated_delta_rule", "GDN prefill"),
-        ("_recurrent_gated_delta_rule", "GDN decode/verify/replay"),
+        ("_recurrent_gated_delta_rule", "GDN decode/verify"),
     ):
         if gdn_layers:
             selected = Counter(_kernel_name(getattr(layer, attr)) for layer in gdn_layers)
