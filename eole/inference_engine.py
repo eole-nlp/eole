@@ -559,6 +559,9 @@ class InferenceEnginePY(InferenceEngine):
             self._thread_pool.shutdown(wait=True)
 
         if self.config.world_size <= 1:
+            runtime = getattr(getattr(getattr(self, "predictor", None), "model", None), "_expert_runtime", None)
+            if runtime is not None:
+                runtime.close()
             return
 
         # Ask workers to stop

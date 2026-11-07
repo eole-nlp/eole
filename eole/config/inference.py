@@ -177,6 +177,13 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     model_config = get_config_dict()
     model_config["arbitrary_types_allowed"] = True  # to allow torch.dtype
 
+    moe_expert_backend: Literal["resident", "hybrid_int8"] = Field(
+        default="resident", description="Expert executor. hybrid_int8 is an experimental inference-only CPU/GPU path."
+    )
+    moe_gpu_experts: int = Field(
+        default=16, ge=0, description="Fixed number of GPU-resident experts per layer for hybrid_int8."
+    )
+
     report_align: bool = Field(default=False, description="Report alignment for each translation.")
     gold_align: bool = Field(
         default=False,

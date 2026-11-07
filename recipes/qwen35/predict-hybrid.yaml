@@ -1,0 +1,22 @@
+# Unquantized, converted Qwen3.5-35B-A3B. This backend quantizes only CPU experts.
+# CUDA_VISIBLE_DEVICES=1 OMP_NUM_THREADS=6 EOLE_TORCH_COMPILE=0 eole predict -c recipes/qwen35/predict-hybrid.yaml
+model_path: ${QWEN35_MOE_MODEL}
+src: recipes/qwen38/prompts.txt
+output: /tmp/qwen35-hybrid.txt
+compute_dtype: bf16
+gpu_ranks: [0]
+self_attn_backend: flash
+batch_size: 1
+beam_size: 1
+top_k: 1
+max_length: 128
+max_length_ratio: 0
+context_length: 4096
+prefill_chunk_size: 32
+prefill_cache_size: 0
+self_speculative_decoding: false
+fuse_kvq: true
+fuse_gate: true
+report_time: true
+moe_expert_backend: hybrid_int8
+moe_gpu_experts: 16

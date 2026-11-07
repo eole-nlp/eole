@@ -31,6 +31,9 @@ class Inference(object):
     """
 
     def _prepare_inference_projections(self, config):
+        from eole.modules.hybrid_experts import prepare_hybrid_experts
+
+        prepare_hybrid_experts(self.model, config)
         from eole.modules.autoround_linear import finalize_deferred_autoround_linear
 
         vocabulary_quantization = getattr(config, "vocabulary_quantization", "none")
