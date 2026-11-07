@@ -372,6 +372,9 @@ class BaseModel(nn.Module):
         if "autoround_sym" not in running_config.model_fields_set:
             update_dict["autoround_sym"] = metadata["config"].training.autoround_sym
         running_config.update(**update_dict)
+        from eole.modules.expert_placement import validate_expert_placement
+
+        validate_expert_placement(running_config)
 
         # Build vocabs
         vocabs = dict_to_vocabs(metadata["vocab"])
@@ -845,6 +848,9 @@ class BaseModel(nn.Module):
         self, f, keys_shard, updated_params, buf_list, device, dtype, tp_offset, strict, running_config
     ):
         """Load parameters module by module, moving to device as we go"""
+        from eole.modules.expert_placement import ExpertWeightPlacement
+
+        placement = ExpertWeightPlacement(self, running_config, device)
         keyfound = {}
         # Load leaf modules
         for module_name, module in self.named_modules():
@@ -857,6 +863,8 @@ class BaseModel(nn.Module):
                 self._load_module_parameters(
                     module_name, module, f, keys_shard, updated_params, buf_list, keyfound, tp_offset, strict
                 )
+                module_device = placement.device_for(module_name)
+                module_dtype = placement.dtype_for(module_name, dtype)
                 if has_children:
                     # Module has both own params and children (e.g. VisionEncoderDecoderModel
                     # with image_newline/view_separator). Move only direct params/buffers to
@@ -864,13 +872,13 @@ class BaseModel(nn.Module):
                     # weights in child modules before those modules have loaded their weights.
                     for param_name, param in module._parameters.items():
                         if param is not None:
-                            param.data = param.data.to(device=device, dtype=dtype)
+                            param.data = param.data.to(device=module_device, dtype=module_dtype)
                     for buf_name, buf in module._buffers.items():
                         if buf is not None:
-                            buf_dtype = dtype if buf.is_floating_point() else buf.dtype
-                            module._buffers[buf_name] = buf.to(device=device, dtype=buf_dtype)
+                            buf_dtype = module_dtype if buf.is_floating_point() else buf.dtype
+                            module._buffers[buf_name] = buf.to(device=module_device, dtype=buf_dtype)
                 else:
-                    module.to(device=device, dtype=dtype)
+                    module.to(device=module_device, dtype=module_dtype)
                 if getattr(running_config, "compute_dtype", None) == torch.int8:
                     torch.quantization.quantize_dynamic(module, inplace=True)
         return keyfound
