@@ -12,6 +12,8 @@ top_k: 1
 max_length: 128
 max_length_ratio: 0
 context_length: 4096
+dynamic_shapes: false
+moe_expert_cuda_graph: true
 prefill_chunk_size: 32
 prefill_cache_size: 0
 self_speculative_decoding: false

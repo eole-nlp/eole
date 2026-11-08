@@ -65,7 +65,7 @@ checkpoint reader.
   This is a fixed partition, **not** an adaptive expert cache or SSD-offload engine.
 - Currently requires one CUDA GPU, BF16 compute, gated-SiLU experts, ordinary
   decoding and `EOLE_TORCH_COMPILE=0`. MTP, DFlash2, tensor parallelism and whole
-  decoder CUDA graphs are rejected for this backend. The default resident backend
+  decoder compilation is rejected for this backend. The default resident backend
   keeps its existing capabilities. No new extension build or dependency is needed.
 
 Use a checkpoint converted with current Eole (older Qwen conversions may still
@@ -156,3 +156,73 @@ profiling. They indicate that optimizing only CPU matvecs is insufficient:
 GPU segments, Python dispatch and synchronization also need investigation.
 Whole-decoder compilation is currently rejected by this prototype; compiling
 GPU segments around the host-execution boundary is a possible next experiment.
+
+### GPU stages around the host expert boundary
+
+For `hybrid_int8`, `moe_expert_cuda_graph: true` (default) captures two GPU
+phases per supported decoder layer: attention/normalization/routing, then the
+shared expert and residual combination. CPU expert execution and the existing
+resident-expert dispatch remain outside these graphs. This does not compile the
+whole decoder or change expert selection, quantization or FP32 normalization.
+
+The graph path requires ordinary single-token inference, a static cache
+(`dynamic_shapes: false`), FlashAttention and the supported sequential residual
+layout. Prefill, batches larger than one, attention/alignment output and other
+unsupported layouts retain the eager path. The first two eligible calls run
+eagerly; the third captures and executes once. Compatible requests reset owned
+KV/GDN buffers in place and reuse the captures. A changed cache shape, dtype or
+device invalidates the graphs before replacing their buffers. Termination
+releases the graphs and CPU worker; a capture failure warns and falls back.
+
+To compare the same backend without these GPU graphs, set
+`moe_expert_cuda_graph: false` or pass `--no-hybrid-graph` to
+`benchmark_moe.py`. Whole-decoder `EOLE_TORCH_COMPILE` remains disabled.
+
+The CPU single-token worker also avoids regrouping already-distinct top-k
+expert IDs and redundant input copies. Multi-token prefill retains grouped
+expert execution and the original route ordering.
+
+### Fixed-partition hybrid graph confirmation (RTX 5090)
+
+BF16 source, 64 BF16 GPU experts and 192 CPU INT8 experts per layer, native
+vocabulary head, no MTP, six CPU threads, context 4096 and prefill chunk 32.
+After a discarded 16-token warmup, three fixed-history runs generated 64 output
+tokens each (63 timed). These compare the **same updated executor**, changing
+only `moe_expert_cuda_graph`; the CPU worker optimization is present in both.
+Unused vision modules were placed on CPU for this text-only measurement.
+
+| Routing | GPU phases eager, tok/s | GPU phases graphed, tok/s |
+| --- | ---: | ---: |
+| Legacy four selected experts | 17.34 | 30.89 |
+| Corrected eight selected experts | 12.96 | 20.15 |
+
+The BF16 metadata used in the older hybrid measurements above selected four
+experts per token. The official model selects eight; use the corrected row for
+that workload. This check changed the routing count explicitly without altering
+the source checkpoint. Peak measured PyTorch allocation was 19.71 GiB, excluding
+unused vision modules, in both graph modes. Captures were retained in both comparison arms, so this
+is not a measurement of incremental graph memory. It is not a model-quality
+evaluation.
+
+160 exact layer/token checks (two per layer at each routing count) compared GPU
+graph execution with the existing eager layer, including KV and GDN states.
+Each of the 40 attention/router and 40 shared-expert graphs was captured once
+per routing configuration and reused across the measured requests.
+
+### Resident regression confirmation after GPU-stage extraction
+
+Fresh controls against clean main `3d6a170d` used the same GPTQ checkpoint,
+compiled extension, forced 128-token history and settings described above.
+Each cell is the median of three runs; the eager comparison was repeated in
+reverse process order because the first pass showed a small difference.
+
+| Resident mode / run order | Main tok/s | This PR tok/s |
+| --- | ---: | ---: |
+| Eager, main then PR | 26.10 | 25.17 |
+| Eager, PR then main | 25.13 | 25.47 |
+| Compile mode 0 | 161.49 | 160.51 |
+
+The eager ordering reverses which version is faster; these measurements do not
+establish a repeatable eager regression. Compiled throughput differs by less
+than 1%. Both versions measured 21.55 GiB peak PyTorch allocation. This is a
+limited regression control, not a guarantee across all models and workloads.

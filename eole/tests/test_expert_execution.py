@@ -111,6 +111,36 @@ class TestExpertExecution(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             root._expert_runtime.pool.submit(lambda: None)
 
+    def test_graph_opt_out_and_unsupported_decoders_do_not_create_cuda_streams(self):
+        for enabled, dynamic, backend, context in (
+            (False, False, "flash", False),
+            (True, True, "flash", False),
+            (True, False, "torch", False),
+            (True, False, "flash", True),
+        ):
+            with self.subTest(enabled=enabled, dynamic=dynamic, backend=backend, context=context):
+                root = nn.Module()
+                root.decoder = nn.Module()
+                root.decoder.dynamic_shapes = dynamic
+                root.decoder.self_attn_backend = backend
+                layer = nn.Module()
+                layer.mlp = tiny_moe()
+                layer.context_attn = context
+                layer.ffn_layernorm = False
+                layer.parallel_residual = False
+                layer.dropout_p = 0
+                root.decoder.transformer_layers = nn.ModuleList([layer])
+                config = SimpleNamespace(
+                    moe_expert_backend="hybrid_int8", moe_gpu_experts=0, moe_expert_cuda_graph=enabled
+                )
+                with patch("eole.EOLE_TORCH_COMPILE", False), patch("torch.cuda.Stream") as stream:
+                    prepare_hybrid_experts(root, config)
+                    try:
+                        stream.assert_not_called()
+                        self.assertFalse(hasattr(layer, "_hybrid_graph"))
+                    finally:
+                        root._expert_runtime.close()
+
     def test_cpu_int8_error_is_bounded_and_zero_weights_are_finite(self):
         torch.manual_seed(42)
         linear = nn.Linear(128, 32)
@@ -120,6 +150,29 @@ class TestExpertExecution(unittest.TestCase):
         self.assertLess((actual - expected).square().mean().sqrt().item(), 0.025)
         nn.init.zeros_(linear.weight)
         self.assertTrue(CPUInt8Linear(linear)(x).isfinite().all())
+
+    def test_single_token_worker_preserves_values_and_route_positions(self):
+        model = tiny_moe()
+        runtime = HybridExpertRuntime()
+        executor = HybridExpertExecutor(model.experts, 1, runtime)
+        try:
+            for dtype in (torch.float32, torch.bfloat16):
+                for selected in ([0], [1], [0, 1], [3, 2, 1], [3, 0, 2, 1]):
+                    with self.subTest(dtype=dtype, selected=selected), torch.inference_mode():
+                        x = torch.randn(1, 32, dtype=dtype)
+                        original_x = x.clone()
+                        ids = torch.tensor([selected])
+                        expected = torch.zeros(1, len(selected), 32)
+                        for expert_id in torch.unique(ids).tolist():
+                            if expert_id >= executor.resident:
+                                token, position = torch.where(ids == expert_id)
+                                expected[token, position] = executor.cpu_experts[expert_id](x[token]).float()
+                        actual = executor._run_cpu(x, ids)
+                        self.assertEqual(actual.dtype, torch.bfloat16)
+                        torch.testing.assert_close(actual.float(), expected, rtol=0, atol=0)
+                        torch.testing.assert_close(x, original_x, rtol=0, atol=0)
+        finally:
+            runtime.close()
 
     def test_cpu_only_executor_preserves_all_routes_and_drains_worker(self):
         model = tiny_moe()
@@ -151,14 +204,23 @@ class TestExpertExecution(unittest.TestCase):
                 x = torch.randn(3, 32, device="cuda")
                 ids = torch.tensor([[0, 1], [2, 0], [1, 3]], device="cuda")
                 weights = torch.tensor([[0.3, 0.7], [0.6, 0.4], [0.5, 0.5]], device="cuda")
-                parts = torch.zeros(3, 2, 32, device="cuda")
-                for index in range(4):
-                    token, position = torch.where(ids == index)
-                    values = (
-                        model.experts[0](x[token]) if index == 0 else executor.cpu_experts[index](x[token].cpu()).cuda()
-                    )
-                    parts[token, position] = values.float()
-                expected = (parts * weights.unsqueeze(-1)).sum(1)
-                torch.testing.assert_close(executor.execute(x, weights, ids), expected, atol=1e-6, rtol=1e-5)
+                for rows in (1, 3):
+                    with self.subTest(rows=rows):
+                        batch_x, batch_ids, batch_weights = x[:rows], ids[:rows], weights[:rows]
+                        parts = torch.zeros(rows, 2, 32, device="cuda")
+                        for index in range(4):
+                            token, position = torch.where(batch_ids == index)
+                            if token.numel() == 0:
+                                continue
+                            values = (
+                                model.experts[0](batch_x[token])
+                                if index == 0
+                                else executor.cpu_experts[index](batch_x[token].cpu()).cuda()
+                            )
+                            parts[token, position] = values.float()
+                        expected = (parts * batch_weights.unsqueeze(-1)).sum(1)
+                        torch.testing.assert_close(
+                            executor.execute(batch_x, batch_weights, batch_ids), expected, atol=1e-6, rtol=1e-5
+                        )
         finally:
             runtime.close()

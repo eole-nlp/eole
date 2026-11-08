@@ -84,11 +84,17 @@ class MoE(nn.Module):
             self._maybe_init_quant_weights(x.device, x.dtype)
 
         B, T, C = x.shape
-        K = self.num_experts_per_tok
 
         # flatten only token dimension, but keep track
         x_flat = x.view(-1, C)
 
+        expert_weights, expert_indices = self.route(x_flat)
+        y = self._executor.execute(x_flat, expert_weights, expert_indices, training=self.training).view(B, T, C)
+        return self.combine(x, y)
+
+    def route(self, x_flat):
+        """GPU routing shared by resident and hybrid execution."""
+        K = self.num_experts_per_tok
         # ── Gate ──────────────────────────────────────────────────────────────
         scores = self.gate(x_flat)  # (BT, num_experts)
 
@@ -110,8 +116,11 @@ class MoE(nn.Module):
             # clamp prevents a theoretical zero-sum when all selected logits are tiny.
             expert_weights = expert_weights / expert_weights.sum(dim=-1, keepdim=True).clamp(min=1e-9)
 
-        y = self._executor.execute(x_flat, expert_weights, expert_indices, training=self.training).view(B, T, C)
+        return expert_weights, expert_indices
 
+    def combine(self, x, y):
+        """Combine routed results with the optional shared expert."""
+        B, T, _ = x.shape
         # ── Optional shared experts ───────────────────────────────────────────
         if self.shared_experts is not None:
             shared_out = self.shared_experts(x)

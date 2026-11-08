@@ -16,6 +16,13 @@ def main():
     parser.add_argument("--model", required=True)
     parser.add_argument("--backend", choices=["resident", "hybrid_int8"], default="resident")
     parser.add_argument("--gpu-experts", type=int, default=16)
+    parser.add_argument(
+        "--no-hybrid-graph",
+        "--no-expert-graph",
+        dest="no_expert_graph",
+        action="store_true",
+        help="Disable hybrid attention/router and shared-expert GPU graphs",
+    )
     parser.add_argument("--tokens", type=int, default=128)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--output", type=Path, required=True)
@@ -38,6 +45,8 @@ def main():
         min_length=0,
         max_length_ratio=0,
         context_length=4096,
+        dynamic_shapes=False,
+        moe_expert_cuda_graph=not args.no_expert_graph,
         prefill_chunk_size=32 if args.backend == "hybrid_int8" else 128,
         prefill_cache_size=0,
         self_speculative_decoding=False,
@@ -65,6 +74,7 @@ def main():
     try:
         engine.infer_list([prompt], settings={"max_length": min(16, args.tokens)})
         for _ in range(args.repeats):
+            torch.cuda.reset_peak_memory_stats()
             engine.predictor.decode_timings = []
             _, _, predictions = engine.infer_list([prompt], settings={"max_length": args.tokens})
             torch.cuda.synchronize()
@@ -75,6 +85,7 @@ def main():
                     "decode_seconds": seconds,
                     "tokens_per_second": tokens / seconds,
                     "peak_allocated_gib": torch.cuda.max_memory_allocated() / 2**30,
+                    "peak_reserved_gib": torch.cuda.max_memory_reserved() / 2**30,
                     "text": predictions[0][0],
                 }
             )

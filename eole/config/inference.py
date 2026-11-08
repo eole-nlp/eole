@@ -184,6 +184,11 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
         default=16, ge=0, description="Fixed number of GPU-resident experts per layer for hybrid_int8."
     )
 
+    moe_expert_cuda_graph: bool = Field(
+        default=True,
+        description="Capture supported hybrid single-token attention/router and shared-expert GPU stages.",
+    )
+
     report_align: bool = Field(default=False, description="Report alignment for each translation.")
     gold_align: bool = Field(
         default=False,

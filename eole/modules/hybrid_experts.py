@@ -2,7 +2,7 @@
 
 Only activations, routing and results cross PCIe. Expert weights stay on their
 assigned device. This first executor uses a fixed expert partition, not an
-adaptive cache, and deliberately stays outside torch.compile/CUDA graphs.
+adaptive cache, and stays outside whole-decoder torch.compile. Supported GPU phases use CUDA graphs.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -48,9 +48,24 @@ class HybridExpertRuntime:
 
     def __init__(self):
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="eole-experts")
+        self.executors = []
+        self._graph_streams = {}
+
+    def graph_stream(self, device):
+        # BLAS workspaces are stream-specific. Share a capture stream across
+        # stages/layers, but never share graph memory pools (outputs overlap in
+        # lifetime across the attention -> expert -> shared-MLP boundary).
+        key = torch.device(device)
+        if key not in self._graph_streams:
+            self._graph_streams[key] = torch.cuda.Stream(device=key)
+        return self._graph_streams[key]
 
     def close(self):
         self.pool.shutdown(wait=True)
+        for executor in self.executors:
+            executor.close()
+        self.executors.clear()
+        self._graph_streams.clear()
 
 
 class HybridExpertExecutor:
@@ -67,6 +82,16 @@ class HybridExpertExecutor:
 
     @torch.inference_mode()
     def _run_cpu(self, x, ids):
+        if x.shape[0] == 1:
+            # Top-k selects distinct experts for one token. Avoid regrouping,
+            # per-expert nonzero indices and copies of the same input row.
+            # CPUInt8Expert returns BF16; keeping that dtype also avoids an
+            # FP32 round trip before execute() uploads BF16 results to CUDA.
+            parts = torch.zeros(1, ids.shape[1], x.shape[1], dtype=torch.bfloat16)
+            for position, expert_id in enumerate(ids[0].tolist()):
+                if expert_id >= self.resident:
+                    parts[0, position] = self.cpu_experts[expert_id](x)[0]
+            return parts
         parts = torch.zeros(ids.shape[0], ids.shape[1], x.shape[1], dtype=torch.float32)
         for expert_id in torch.unique(ids).tolist():
             if expert_id < self.resident:
@@ -121,11 +146,33 @@ def prepare_hybrid_experts(model, config):
         from eole.utils.logging import logger
 
         logger.info(
-            "Preparing hybrid MoE: %d GPU experts per layer; remaining experts use CPU INT8", config.moe_gpu_experts
+            "Preparing hybrid MoE: %s, %d GPU experts per layer", config.moe_expert_backend, config.moe_gpu_experts
         )
         for module in model.modules():
             if isinstance(module, MoE):
                 module._executor = HybridExpertExecutor(module.experts, config.moe_gpu_experts, runtime)
+        if getattr(config, "moe_expert_cuda_graph", True):
+            from eole.modules.hybrid_graph import HybridCacheStorage, HybridLayerGraph
+
+            decoder = getattr(model, "decoder", None)
+            if decoder is not None and not decoder.dynamic_shapes:
+                graphs = []
+                for layer in decoder.transformer_layers:
+                    if (
+                        hasattr(layer.mlp, "_executor")
+                        and not layer.context_attn
+                        and not layer.ffn_layernorm
+                        and not layer.parallel_residual
+                        and layer.dropout_p == 0
+                        and decoder.self_attn_backend == "flash"
+                    ):
+                        graph = HybridLayerGraph(layer, runtime.graph_stream(layer.mlp.gate.weight.device))
+                        layer._hybrid_graph = graph
+                        runtime.executors.append(graph)
+                        graphs.append(graph)
+                if graphs:
+                    decoder._hybrid_cache_storage = HybridCacheStorage(graphs)
+                    runtime.executors.append(decoder._hybrid_cache_storage)
         model._expert_runtime = runtime
     except BaseException:
         runtime.close()
