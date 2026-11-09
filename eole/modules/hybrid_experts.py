@@ -148,16 +148,20 @@ def prepare_hybrid_experts(model, config):
         logger.info(
             "Preparing hybrid MoE: %s, %d GPU experts per layer", config.moe_expert_backend, config.moe_gpu_experts
         )
+        formats = set()
         for module in model.modules():
             if isinstance(module, MoE):
-                if config.moe_expert_backend == "hybrid_gptq":
-                    from eole.modules.cached_experts import CachedGPTQExpertExecutor
+                if config.moe_expert_backend in ("adaptive", "hybrid_gptq"):
+                    from eole.modules.cached_experts import CachedExpertExecutor
 
-                    executor = CachedGPTQExpertExecutor(module.experts, runtime, config, module.gate.weight.device)
+                    executor = CachedExpertExecutor(module.experts, runtime, config, module.gate.weight.device)
                     runtime.executors.append(executor)
+                    formats.add("INT8 (runtime RTN)" if executor.store.bits == 8 else "INT4 (checkpoint codes)")
                     module._executor = executor
                 else:
                     module._executor = HybridExpertExecutor(module.experts, config.moe_gpu_experts, runtime)
+        if formats:
+            logger.info("Adaptive expert storage on CPU and GPU: %s", ", ".join(sorted(formats)))
         if getattr(config, "moe_expert_cuda_graph", True):
             from eole.modules.hybrid_graph import HybridCacheStorage, HybridLayerGraph
 

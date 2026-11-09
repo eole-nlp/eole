@@ -14,7 +14,7 @@ import torch
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True)
-    parser.add_argument("--backend", choices=["resident", "hybrid_int8", "hybrid_gptq"], default="resident")
+    parser.add_argument("--backend", choices=["resident", "hybrid_int8", "adaptive", "hybrid_gptq"], default="resident")
     parser.add_argument("--gpu-experts", type=int, default=16)
     parser.add_argument("--cache-policy", choices=["fixed", "frequency"], default="frequency")
     parser.add_argument("--cache-dir", default=None)
@@ -23,7 +23,7 @@ def main():
         "--no-expert-graph",
         dest="no_expert_graph",
         action="store_true",
-        help="Disable hybrid GPU graph stages, including GPTQ expert projections",
+        help="Disable hybrid GPU graph stages, including adaptive expert projections",
     )
     parser.add_argument("--task", choices=["code", "english", "translation"], default="code")
     parser.add_argument("--tokens", type=int, default=128)

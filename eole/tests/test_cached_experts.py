@@ -12,7 +12,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from eole.modules.expert_cache import FrequencyExpertCache
-from eole.modules.host_gptq_experts import HostGPTQLinear
+from eole.modules.host_experts import HostGPTQLinear, HostInt8Linear
 from eole.modules.hybrid_experts import HybridExpertRuntime
 
 
@@ -95,6 +95,48 @@ class TestExpertCache(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unrepacked CPU GPTQ"):
             HostGPTQLinear(linear)
 
+    def test_int8_cpu_codes_scales_and_zero_weights(self):
+        torch.manual_seed(87)
+        source = nn.Linear(256, 128, bias=False, dtype=torch.bfloat16)
+        host = HostInt8Linear(source)
+        x = torch.randn(3, 256, dtype=torch.bfloat16)
+        reference = x.double() @ (host.weight.double() * host.scales.double()[:, None]).t()
+        torch.testing.assert_close(host(x).double(), reference, rtol=0.004, atol=0.0002)
+        reconstructed = host.weight.float() * host.scales.float()[:, None]
+        error = (
+            reconstructed - source.weight.float()
+        ).square().mean().sqrt() / source.weight.float().square().mean().sqrt()
+        self.assertLess(error.item(), 0.012)
+        with torch.no_grad():
+            source.weight.zero_()
+        self.assertEqual(HostInt8Linear(source)(x).count_nonzero().item(), 0)
+
+    def test_adaptive_float_placement_keeps_all_experts_on_host(self):
+        from eole.modules.expert_placement import ExpertWeightPlacement
+        from eole.tests.test_expert_execution import tiny_moe
+
+        model = nn.Module()
+        model.mlp = tiny_moe()
+        config = SimpleNamespace(moe_expert_backend="adaptive", moe_gpu_experts=2)
+        with patch("eole.EOLE_TORCH_COMPILE", False):
+            placement = ExpertWeightPlacement(model, config, torch.device("cuda"))
+        for i in range(4):
+            self.assertEqual(placement.device_for(f"mlp.experts.{i}.gate_up_proj"), torch.device("cpu"))
+        self.assertEqual(placement.device_for("mlp.gate"), torch.device("cuda"))
+
+    @unittest.skipUnless(torch.cuda.is_available(), "Marlin execution requires CUDA")
+    def test_int8_gpu_and_cpu_represent_identical_quantized_weights(self):
+        torch.manual_seed(88)
+        host = HostInt8Linear(nn.Linear(2048, 512, bias=False, dtype=torch.bfloat16))
+        with torch.inference_mode():
+            projection = host.marlin_projection(torch.device("cuda"))
+            projection.post_init()
+            x = torch.randn(4, 2048, dtype=torch.bfloat16)
+            expected = x.double() @ (host.weight.double() * host.scales.double()[:, None]).t()
+            for output in (host(x).double(), projection(x.cuda()).cpu().double()):
+                error = (output - expected).square().mean().sqrt() / expected.square().mean().sqrt()
+                self.assertLess(error.item(), 0.004)
+
     def test_quantized_placement_keeps_all_source_experts_on_host(self):
         from eole.modules.expert_placement import ExpertWeightPlacement
         from eole.tests.test_expert_execution import tiny_moe
@@ -131,9 +173,9 @@ class TestExpertCache(unittest.TestCase):
         self.assertTrue(root.moe.shared_experts.initialized)
 
     def test_fully_resident_executor_does_not_read_ids_back_to_cpu(self):
-        from eole.modules.cached_experts import CachedGPTQExpertExecutor
+        from eole.modules.cached_experts import CachedExpertExecutor
 
-        executor = CachedGPTQExpertExecutor.__new__(CachedGPTQExpertExecutor)
+        executor = CachedExpertExecutor.__new__(CachedExpertExecutor)
         executor.closed, executor.fully_resident, executor.capture = False, True, True
         executor.lock = Lock()
         executor.routes = executor.lookup_hits = executor.gpu_hits = 0
@@ -146,9 +188,9 @@ class TestExpertCache(unittest.TestCase):
         self.assertEqual(executor.lookup_hits, 2)
 
     def test_failed_admission_never_publishes_partial_upload(self):
-        from eole.modules.cached_experts import CachedGPTQExpertExecutor
+        from eole.modules.cached_experts import CachedExpertExecutor
 
-        executor = CachedGPTQExpertExecutor.__new__(CachedGPTQExpertExecutor)
+        executor = CachedExpertExecutor.__new__(CachedExpertExecutor)
         executor.adaptive = True
         executor.policy = FrequencyExpertCache(4, 1, interval=1)
         executor.mapping, executor.spare, executor.migrations = {0: 0}, 1, 0
@@ -163,21 +205,27 @@ class TestExpertCache(unittest.TestCase):
 
     @unittest.skipUnless(torch.cuda.is_available(), "Marlin packing requires CUDA")
     def test_failed_disk_preallocation_cleans_temporary_store(self):
-        from eole.modules.host_gptq_experts import MarlinExpertStore
+        from eole.modules.host_experts import MarlinExpertStore
 
         with tempfile.TemporaryDirectory() as directory:
-            with patch("eole.modules.host_gptq_experts.os.posix_fallocate", side_effect=OSError("No disk space")):
+            with patch("eole.modules.host_experts.os.posix_fallocate", side_effect=OSError("No disk space")):
                 with self.assertRaisesRegex(OSError, "No disk space"):
                     MarlinExpertStore(experts(), torch.device("cuda"), directory)
             self.assertEqual(list(Path(directory).iterdir()), [])
 
     @unittest.skipUnless(torch.cuda.is_available(), "Marlin execution requires CUDA")
     def test_decode_replay_prefill_and_cache_replacement(self):
-        from eole.modules.cached_experts import CachedGPTQExpertExecutor
+        for floating in (False, True):
+            with self.subTest(floating=floating):
+                self.check_decode_replay_prefill_and_cache_replacement(floating)
+
+    def check_decode_replay_prefill_and_cache_replacement(self, floating):
+        from eole.modules.cached_experts import CachedExpertExecutor
 
         runtime = HybridExpertRuntime()
         with tempfile.TemporaryDirectory() as directory:
             config = SimpleNamespace(
+                moe_expert_backend="adaptive" if floating else "hybrid_gptq",
                 moe_gpu_experts=2,
                 moe_expert_cache_interval=1,
                 moe_expert_cache_swaps=1,
@@ -188,7 +236,14 @@ class TestExpertCache(unittest.TestCase):
             executor = None
             try:
                 with torch.inference_mode():
-                    executor = CachedGPTQExpertExecutor(experts(), runtime, config, torch.device("cuda"))
+                    source = experts()
+                    if floating:
+                        for expert in source:
+                            expert.gate_up_proj = nn.Linear(2048, 512, bias=False, dtype=torch.bfloat16)
+                            expert.up_proj = nn.Linear(2048, 512, bias=False, dtype=torch.bfloat16)
+                            expert.down_proj = nn.Linear(512, 2048, bias=False, dtype=torch.bfloat16)
+                    executor = CachedExpertExecutor(source, runtime, config, torch.device("cuda"))
+                    self.assertEqual(executor.store.bits, 8 if floating else 4)
                     runtime.executors.append(executor)
                     x = torch.randn(1, 2048, device="cuda", dtype=torch.bfloat16)
                     ids = torch.tensor([[0, 2]], device="cuda")

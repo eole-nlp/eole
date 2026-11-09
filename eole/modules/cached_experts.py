@@ -1,4 +1,4 @@
-"""Single-request hybrid GPTQ executor with a bounded GPU expert cache.
+"""Single-request adaptive expert executor with a bounded GPU expert cache.
 
 CPU and GPU execute complementary routes using the same published assignment.
 Admissions complete before execution; there is deliberately no asynchronous
@@ -10,7 +10,7 @@ from threading import Lock
 import torch
 
 from eole.modules.expert_cache import FrequencyExpertCache
-from eole.modules.host_gptq_experts import MarlinExpertStore
+from eole.modules.host_experts import MarlinExpertStore
 
 
 class ExpertGPUPhase:
@@ -20,10 +20,11 @@ class ExpertGPUPhase:
     change between replays. Returned route values are overwritten next call.
     """
 
-    def __init__(self, tensors, hidden, intermediate, experts, stream=None):
+    def __init__(self, tensors, hidden, intermediate, experts, scalar_type_id, stream=None):
         from eole.modules.marlin_utils import marlin_make_workspace
 
         self.tensors = tensors
+        self.scalar_type_id = scalar_type_id
         self.hidden, self.intermediate = hidden, intermediate
         self.lookup = torch.full((experts,), -1, dtype=torch.long, device=tensors[0].device)
         self.workspace = marlin_make_workspace(tensors[0].device)
@@ -42,7 +43,6 @@ class ExpertGPUPhase:
 
     def _run(self, x, ids, scratch):
         from eole.modules.fused_moe_marlin import fused_experts_marlin_impl
-        from eole.modules.moe_quant_utils import MARLIN_UINT4B8_TYPE_ID
 
         slots = self.lookup[ids]
         # Misses run through a valid dummy slot and are masked before combining
@@ -64,7 +64,7 @@ class ExpertGPUPhase:
             self.workspace,
             torch.ones_like(ids, dtype=torch.float32),
             mapped,
-            MARLIN_UINT4B8_TYPE_ID,
+            self.scalar_type_id,
             w1.shape[0],
             cache13=scratch[0],
             cache2=scratch[1],
@@ -128,11 +128,16 @@ class ExpertGPUPhase:
         self.lookup = self.workspace = self.empty = self.stream = None
 
 
-class CachedGPTQExpertExecutor:
+class CachedExpertExecutor:
     def __init__(self, experts, runtime, config, device):
         self.runtime = runtime
         self.lock = Lock()
-        self.store = MarlinExpertStore(experts, device, getattr(config, "moe_expert_cache_dir", None))
+        self.store = MarlinExpertStore(
+            experts,
+            device,
+            getattr(config, "moe_expert_cache_dir", None),
+            source_format="gptq" if config.moe_expert_backend == "hybrid_gptq" else "auto",
+        )
         self.gpu = None
         self.closed = False
         try:
@@ -147,7 +152,12 @@ class CachedGPTQExpertExecutor:
                 torch.empty((capacity + 1, *t.shape[1:]), device=device, dtype=t.dtype) for t in self.store.tensors
             ]
             self.gpu = ExpertGPUPhase(
-                banks, self.store.hidden, self.store.intermediate, len(experts), runtime.graph_stream(device)
+                banks,
+                self.store.hidden,
+                self.store.intermediate,
+                len(experts),
+                self.store.scalar_type_id,
+                runtime.graph_stream(device),
             )
             for expert, slot in self.mapping.items():
                 self._upload(slot, expert)

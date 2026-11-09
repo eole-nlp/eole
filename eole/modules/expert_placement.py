@@ -19,6 +19,11 @@ def validate_expert_placement(config):
             raise ValueError("Hybrid GPTQ requires a GPTQ/autoround INT4 checkpoint")
         if getattr(config, "moe_gpu_experts", 16) < 1:
             raise ValueError("Hybrid GPTQ requires at least one GPU cache slot")
+    elif getattr(config, "moe_expert_backend", "resident") == "adaptive":
+        if getattr(config, "quant_type", "") not in ("", "autoround"):
+            raise ValueError("Adaptive experts require floating-point or GPTQ INT4 source weights")
+        if getattr(config, "moe_gpu_experts", 16) < 1:
+            raise ValueError("Adaptive experts require at least one GPU cache slot")
     elif getattr(config, "quant_type", ""):
         raise ValueError("Hybrid MoE CPU INT8 requires an unquantized source checkpoint")
     if getattr(config, "self_speculative_decoding", False) or getattr(config, "dflash2_model", None):
@@ -39,13 +44,13 @@ class ExpertWeightPlacement:
         from eole.modules.moe import MoE
 
         host_experts = set()
-        quantized = config.moe_expert_backend == "hybrid_gptq"
-        resident = 0 if quantized else config.moe_gpu_experts
+        cached = config.moe_expert_backend in ("adaptive", "hybrid_gptq")
+        resident = 0 if cached else config.moe_gpu_experts
         for name, module in model.named_modules():
             if isinstance(module, MoE):
                 if module.activation_function != "silu" or module.experts[0].up_proj is None:
                     raise ValueError("Hybrid MoE currently requires gated SiLU experts")
-                if quantized:
+                if cached:
                     module._defer_expert_post_init = True
                     if config.moe_gpu_experts > len(module.experts):
                         raise ValueError("moe_gpu_experts exceeds the number of experts")

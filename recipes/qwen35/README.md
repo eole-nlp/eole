@@ -51,28 +51,53 @@ Expert kernel caches/dispatch now live in `eole/modules/expert_execution.py`;
 placement policy where each module belongs instead of tying placement to the
 checkpoint reader.
 
-### Quantized adaptive GPU cache
+### Adaptive INT4/INT8 GPU cache
 
-`moe_expert_backend: hybrid_gptq` runs the converted **Qwen3.5-35B-A3B-GPTQ-Int4**
-checkpoint with a bounded GPU cache. Both CPU and GPU use the checkpoint's
-original INT4 codes and BF16 scales; weights are not quantized again. The first
-supported format is symmetric GPTQ4, group size 128, direct zero point 8, no
-activation ordering or bias. Other formats are rejected rather than reinterpreted.
+`moe_expert_backend: adaptive` uses one bounded GPU expert cache with two
+explicit weight paths:
+
+| Converted source checkpoint | CPU experts | GPU experts | Weight changes |
+| --- | --- | --- | --- |
+| GPTQ INT4 | Original INT4 | Original INT4 (Marlin) | Codes/scales preserved |
+| Floating-point (BF16/FP16) | Runtime INT8 | Same runtime INT8 (Marlin) | Per-output-channel RTN quantization |
+
+The floating-point path quantizes routed experts once at load. CPU and GPU share
+the same signed INT8 codes and rounded BF16 scales; changing residency does not
+change quantization. The GPU repeats each per-channel scale across 128-value
+groups to use the existing Marlin group layout. Attention, shared experts,
+vocabulary heads and FP32 normalization retain their existing precision. Runtime
+quantization changes numerical behavior versus the floating-point checkpoint.
+
+The existing `hybrid_int8` backend remains the fixed CPU INT8/GPU BF16 variant.
+`hybrid_gptq` remains an alias restricted to GPTQ INT4; use `adaptive` for either
+supported source. Loading an already-quantized GPTQ INT8 checkpoint is not yet
+supported. GPTQ inputs require symmetric INT4, group128, BF16 scales, direct zero
+point 8, no activation ordering or bias; unsupported layouts are rejected.
+
+**Rebuild the Eole CUDA extension after checking out this PR**. It adds the
+BF16-activation INT8 MoE specializations; older extensions support only INT4 MoE.
+From the repository root with the intended Python environment active:
+
+```bash
+MAX_JOBS=4 python setup.py build_ext --inplace
+```
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=6 MKL_NUM_THREADS=6 EOLE_TORCH_COMPILE=0 \
   python recipes/qwen35/benchmark_moe.py \
   --model /path/to/converted/Qwen3.5-35B-A3B-GPTQ-Int4 \
-  --backend hybrid_gptq --gpu-experts 64 --cache-policy frequency \
+  --backend adaptive --gpu-experts 64 --cache-policy frequency \
   --cache-dir /path/to/local/ssd/cache \
   --tokens 128 --repeats 3 --output /tmp/qwen35-adaptive.json
 ```
 
-For regular prediction, set `QWEN35_MOE_GPTQ_MODEL` and use
-[predict-hybrid-gptq.yaml](predict-hybrid-gptq.yaml). Equivalent inference settings:
+For a floating-point source, set `QWEN35_MOE_MODEL` and use
+[predict-adaptive.yaml](predict-adaptive.yaml). For GPTQ INT4, set
+`QWEN35_MOE_GPTQ_MODEL` and use [predict-hybrid-gptq.yaml](predict-hybrid-gptq.yaml).
+Equivalent inference settings:
 
 ```yaml
-moe_expert_backend: hybrid_gptq
+moe_expert_backend: adaptive
 moe_gpu_experts: 64
 moe_expert_cache_policy: frequency  # fixed keeps the initial residency
 moe_expert_cache_interval: 32
@@ -110,16 +135,50 @@ for comparison. When every expert fits in the cache, no CPU routing readback or
 CPU expert job is needed. This does not enable whole-decoder `torch.compile`: the backend
 still requires `EOLE_TORCH_COMPILE=0`, one GPU and ordinary decoding.
 
-CPU native INT4 layouts stay in RAM. Separate Marlin layouts are temporarily
+CPU native INT4/INT8 layouts stay in RAM. Separate Marlin layouts are temporarily
 memory-mapped on the selected SSD, so they do not require a second anonymous RAM
-bank. Allow approximately another INT4 model's size on disk. Preparation can take minutes and is excluded from decode timings. Packing occurs
-at model load, one expert at a time on CUDA; the temporary files are removed when
-the engine is terminated or preparation fails. This is an in-process GPU cache,
+bank. Allow disk space for the routed expert weights at execution precision
+(INT4 or INT8). Preparation can take minutes and is excluded from decode timings.
+Packing occurs at model load, one expert at a time on CUDA. Temporary files are
+removed when the engine is terminated or preparation fails. This is an in-process GPU cache,
 not an SSD-streaming inference engine or a reusable converted checkpoint format.
 CPU/GPU kernel rounding can differ near ties; this is not a promise of bit-identical
 generation to the fully resident backend. FP32 normalization is unchanged.
 
-#### Controlled RTX 5090 measurements
+#### Floating-point and GPTQ path confirmation
+
+Both formats were rerun after adding INT8 MoE kernels: eight selected experts,
+native vocabulary head, no MTP, 4096-token context, prefill chunk 32 and 128 output
+tokens (127 timed), six CPU threads on the RTX 5090/Ryzen 5900X. Identical token
+histories are forced; these are practical checkpoint configurations, not an
+accuracy evaluation or an isolated expert-bitwidth ablation. Non-expert weights
+retain each source checkpoint's precision. Unused vision modules were on CPU.
+
+The table shows the third successive adapted request per task, with learning
+retained across code → English → translation:
+
+| Source / expert storage | Slots/layer | Harness cap | Process peak | Code | English | Translation |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| GPTQ / original INT4 | 91 | 16 GiB | 15.57 GiB | 45.4 tok/s | 48.0 tok/s | 51.1 tok/s |
+| BF16 / runtime INT8 | 48 | 20 GiB | 15.94 GiB | 34.0 tok/s | 33.4 tok/s | 32.8 tok/s |
+
+80 exact layer/output/KV/GDN checks passed for each source (160 total). Kernel
+packing/migration/replay tests passed on the RTX 5090 and RTX 4090. CPU and GPU
+kernel rounding may differ despite identical codes/scales; cache warming can
+therefore change generated text even with fixed sampling settings.
+
+The BF16 checkpoint first failed the artificial 20 GiB allocator cap with 80
+cache slots while validating GPU graph workspaces; the 48-slot run above passed.
+Capacity is not a byte budget: floating-point dense weights and graph workspaces
+need headroom beyond the expert banks. Successful BF16 preparation on local NVMe
+with warm source data took about 215 seconds; a cold run using the source SSD for
+backing took about 696 seconds before that cap failure. Packing is excluded from
+the table's decode timings, and temporary backing files are removed on close.
+
+Normal resident compile-mode-0 throughput after the rebuild was **160.6 tok/s**,
+within 1% of the prior matched main control (160.7 tok/s).
+
+#### Earlier GPTQ cache-capacity measurements
 
 Original Qwen3.5-35B-A3B-GPTQ-Int4 codes/scales, eight routed experts per token,
 BF16 compute, native vocabulary head and no speculation. PyTorch 2.15.0/CUDA
