@@ -141,6 +141,34 @@ class TestExpertExecution(unittest.TestCase):
                     finally:
                         root._expert_runtime.close()
 
+    def test_ensemble_decoder_without_graph_capability_keeps_eager_execution(self):
+        from eole.decoders.ensemble import EnsembleDecoder
+
+        decoders = []
+        for _ in range(2):
+            decoder = nn.Module()
+            decoder.attentional = False
+            decoder.mlp = tiny_moe()
+            decoders.append(decoder)
+        root = nn.Module()
+        root.decoder = EnsembleDecoder(decoders)
+        self.assertFalse(hasattr(root.decoder, "dynamic_shapes"))
+        # Omit the graph option to exercise its enabled-by-default behavior.
+        config = SimpleNamespace(moe_expert_backend="hybrid_int8", moe_gpu_experts=0)
+        with patch("eole.EOLE_TORCH_COMPILE", False), patch("torch.cuda.Stream") as stream:
+            prepare_hybrid_experts(root, config)
+            try:
+                stream.assert_not_called()
+                self.assertFalse(hasattr(root.decoder, "_hybrid_cache_storage"))
+                for decoder in root.decoder.model_decoders:
+                    self.assertIsInstance(decoder.mlp._executor, HybridExpertExecutor)
+                    with torch.inference_mode():
+                        output = decoder.mlp(torch.randn(1, 1, 32))
+                    self.assertEqual(output.shape, (1, 1, 32))
+                    self.assertTrue(output.isfinite().all())
+            finally:
+                root._expert_runtime.close()
+
     def test_cpu_int8_error_is_bounded_and_zero_weights_are_finite(self):
         torch.manual_seed(42)
         linear = nn.Linear(128, 32)

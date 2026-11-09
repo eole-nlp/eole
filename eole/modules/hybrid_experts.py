@@ -155,7 +155,8 @@ def prepare_hybrid_experts(model, config):
             from eole.modules.hybrid_graph import HybridCacheStorage, HybridLayerGraph
 
             decoder = getattr(model, "decoder", None)
-            if decoder is not None and not decoder.dynamic_shapes:
+            # Wrappers such as EnsembleDecoder do not expose static-cache graph support.
+            if decoder is not None and not getattr(decoder, "dynamic_shapes", True):
                 graphs = []
                 for layer in decoder.transformer_layers:
                     if (
