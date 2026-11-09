@@ -245,6 +245,9 @@ class TransformerDecoderLayer(nn.Module):
         return self_attn + self.mlp(ff_in), attns
 
     def forward(self, layer_in, **kwargs):
+        hybrid_graph = getattr(self, "_hybrid_graph", None)
+        if hybrid_graph is not None and hybrid_graph.allowed(layer_in, kwargs):
+            return hybrid_graph(layer_in, **kwargs)
         if layer_in.size(1) > 1:
             # prefill or training no compile
             return self._forward_eager(layer_in, **kwargs)
@@ -298,12 +301,17 @@ class TransformerDecoderLayer(nn.Module):
                 or ``None``.
         """
 
-        attn_mask = kwargs.pop("attn_mask", None)
-        return_attn = kwargs.pop("return_attn", False)
-        position_embeddings = kwargs.pop("position_embeddings", None)
-        cache_seqlens = kwargs.pop("cache_seqlens", None)
-        cache_slice = kwargs.pop("cache_slice", None)
-        pos_ids_2d = kwargs.pop("pos_ids_2d", None)
+        norm_layer_in, self_attn, attns = self._self_attention(layer_in, **kwargs)
+        return self._forward(layer_in, norm_layer_in, self_attn, attns, **kwargs)
+
+    def _self_attention(self, layer_in, **kwargs):
+        """Attention phase, shared with the hybrid decoder's GPU graph."""
+        attn_mask = kwargs.get("attn_mask", None)
+        return_attn = kwargs.get("return_attn", False)
+        position_embeddings = kwargs.get("position_embeddings", None)
+        cache_seqlens = kwargs.get("cache_seqlens", None)
+        cache_slice = kwargs.get("cache_slice", None)
+        pos_ids_2d = kwargs.get("pos_ids_2d", None)
         norm_layer_in = self.input_layernorm(layer_in)
 
         if self.layer_type == "linear_attention":
@@ -323,15 +331,7 @@ class TransformerDecoderLayer(nn.Module):
         if self.dropout_p > 0:
             self_attn = self.dropout(self_attn)
 
-        return self._forward(
-            layer_in,
-            norm_layer_in,
-            self_attn,
-            attns,
-            return_attn=return_attn,
-            cache_seqlens=cache_seqlens,
-            **kwargs,
-        )
+        return norm_layer_in, self_attn, attns
 
     def get_attn_align(self, layer_in, **kwargs):
         """:cite:`garg2019jointly`."""
@@ -1419,6 +1419,10 @@ class TransformerDecoder(DecoderBase):
         else:
             self.cache_len_tgt = self.kvcache_maxsize  # kv cache is set to max and remains static
 
+        hybrid_storage = getattr(self, "_hybrid_cache_storage", None)
+        if hybrid_storage is not None:
+            hybrid_storage.begin((b, self.cache_len_tgt, dtype, device))
+
         # We find the index of the first non-pad token (the first '0' or 'False')
         # If the first token is NOT a pad, this returns 0.
         mask_int = pad_mask.squeeze(1).to(torch.int8)
@@ -1427,49 +1431,46 @@ class TransformerDecoder(DecoderBase):
         # This boolean tensor tells us if left-padding actually exists.
         is_left_padded = pad_mask[:, 0, 0]
         cache_leftpad = torch.where(is_left_padded, left_pad_counts, 0)
+        if hybrid_storage is not None:
+            owned_leftpad = hybrid_storage.zeros("leftpad", (b,), dtype=torch.int32, device=device)
+            owned_leftpad.copy_(cache_leftpad)
+            cache_leftpad = owned_leftpad
         self.position_indices = torch.arange(self.cache_len_tgt, device=device).unsqueeze(0)
         # If cache_leftpad is 0, this mask will effectively do nothing
         self.left_pad_attn_mask = self.position_indices >= cache_leftpad.view(-1, 1)
         self.cache_seqlens = torch.zeros((b,), device=device, dtype=torch.int32)
 
-        for layer in self.transformer_layers:
+        for index, layer in enumerate(self.transformer_layers):
             if layer.layer_type == "linear_attention":
-                layer.linear_attn.conv_state = torch.zeros(
-                    b,
-                    layer.linear_attn.conv_dim,
-                    layer.linear_attn.conv_kernel_size,
-                    dtype=dtype,
-                    device=device,
-                )
-                layer.linear_attn.recurrent_state = torch.zeros(
-                    b,
-                    layer.linear_attn.num_v_heads,
-                    layer.linear_attn.head_k_dim,
-                    layer.linear_attn.head_v_dim,
-                    dtype=dtype,
-                    device=device,
-                )
+                attention = layer.linear_attn
+                shapes = {
+                    "conv_state": (b, attention.conv_dim, attention.conv_kernel_size),
+                    "recurrent_state": (b, attention.num_v_heads, attention.head_k_dim, attention.head_v_dim),
+                }
             else:
-                # KV projections are sharded across tensor-parallel ranks.
-                heads_kv = layer.self_attn.heads_kv // layer.self_attn.parallel_gpu
-                dph = layer.self_attn.dim_per_head
-                shape = (b, self.cache_len_tgt, heads_kv, dph)
-                for name in ("kcache", "vcache"):
-                    cache = getattr(layer.self_attn, name, None)
+                attention = layer.self_attn
+                heads_kv = attention.heads_kv // attention.parallel_gpu
+                shape = (b, self.cache_len_tgt, heads_kv, attention.dim_per_head)
+                shapes = {"kcache": shape, "vcache": shape}
+            for name, shape in shapes.items():
+                if hybrid_storage is not None:
+                    cache = hybrid_storage.zeros((index, name), shape, dtype=dtype, device=device)
+                    setattr(attention, name, cache)
+                else:
+                    cache = getattr(attention, name, None)
                     if (
-                        isinstance(cache, torch.Tensor)
+                        layer.layer_type != "linear_attention"
+                        and isinstance(cache, torch.Tensor)
                         and cache.shape == shape
                         and cache.dtype == dtype
                         and cache.device == device
                     ):
-                        # Graph bindings were reset above. Reuse compatible storage
-                        # so warmup and real prefill do not overlap two full caches.
                         cache.zero_()
                     else:
-                        setattr(layer.self_attn, name, torch.zeros(shape, dtype=dtype, device=device))
-                layer.self_attn.cache_leftpad = cache_leftpad
+                        setattr(attention, name, torch.zeros(shape, dtype=dtype, device=device))
+            if layer.layer_type != "linear_attention":
+                attention.cache_leftpad = cache_leftpad
                 if layer.context_attn:
-                    # prefill context KV with encoder out
                     layer.context_attn._prefill_cache(enc_out)
 
     def _extend_cache(self, threshold=1, addzeros=32):
