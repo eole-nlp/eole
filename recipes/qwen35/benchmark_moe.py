@@ -1,4 +1,4 @@
-"""Compare resident and experimental CPU INT8 / GPU MoE inference."""
+"""Compare resident and hybrid CPU/GPU MoE inference."""
 
 import argparse
 import json
@@ -14,15 +14,18 @@ import torch
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True)
-    parser.add_argument("--backend", choices=["resident", "hybrid_int8"], default="resident")
+    parser.add_argument("--backend", choices=["resident", "hybrid_int8", "hybrid_gptq"], default="resident")
     parser.add_argument("--gpu-experts", type=int, default=16)
+    parser.add_argument("--cache-policy", choices=["fixed", "frequency"], default="frequency")
+    parser.add_argument("--cache-dir", default=None)
     parser.add_argument(
         "--no-hybrid-graph",
         "--no-expert-graph",
         dest="no_expert_graph",
         action="store_true",
-        help="Disable hybrid attention/router and shared-expert GPU graphs",
+        help="Disable hybrid GPU graph stages, including GPTQ expert projections",
     )
+    parser.add_argument("--task", choices=["code", "english", "translation"], default="code")
     parser.add_argument("--tokens", type=int, default=128)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--output", type=Path, required=True)
@@ -46,8 +49,7 @@ def main():
         max_length_ratio=0,
         context_length=4096,
         dynamic_shapes=False,
-        moe_expert_cuda_graph=not args.no_expert_graph,
-        prefill_chunk_size=32 if args.backend == "hybrid_int8" else 128,
+        prefill_chunk_size=32 if args.backend != "resident" else 128,
         prefill_cache_size=0,
         self_speculative_decoding=False,
         fuse_kvq=True,
@@ -55,11 +57,20 @@ def main():
         report_time=True,
         moe_expert_backend=args.backend,
         moe_gpu_experts=args.gpu_experts,
+        moe_expert_cache_policy=args.cache_policy,
+        moe_expert_cache_dir=args.cache_dir,
+        moe_expert_cuda_graph=not args.no_expert_graph,
     )
-    prompt = (
-        "<|im_start|>user\nWrite a Python function for binary search, then give an example."
-        "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
-    )
+    tasks = {
+        "code": "Write a Python function for binary search, then give an example.",
+        "english": "Write a story about a lighthouse keeper who discovers an old letter.",
+        "translation": (
+            "Translate into English: Le vieux phare domine le port. Chaque soir, la gardienne "
+            "monte les marches et vérifie la lumière. Un jour, elle découvre une lettre cachée "
+            "sous le plancher. Elle décide de retrouver la personne qui l’a écrite."
+        ),
+    }
+    prompt = "<|im_start|>user\n" + tasks[args.task] + "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
     started = time.perf_counter()
     engine = InferenceEnginePY(config)
     report = {

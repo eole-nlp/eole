@@ -97,6 +97,7 @@ def fused_experts_marlin_impl(
     cache2: "torch.Tensor | None" = None,
     out: "torch.Tensor | None" = None,
     topk_ids_i32: "torch.Tensor | None" = None,
+    return_per_route: bool = False,
 ) -> torch.Tensor:
     """MoE forward pass using moe_wna16_marlin_gemm fused kernel.
 
@@ -121,7 +122,9 @@ def fused_experts_marlin_impl(
 
     Returns
     -------
-    (M, K) output tensor (= *out* when provided)
+    (M, K) output tensor (= *out* when provided). With return_per_route,
+    return unweighted (M, topk, K) results instead. These alias cache13 and
+    are overwritten by the next call; no reduction or BLAS workspace is used.
     """
     M, K = hidden_states.shape
     topk = topk_ids.shape[1]
@@ -211,6 +214,9 @@ def fused_experts_marlin_impl(
         I,
         b_q_type_id,
     )
+
+    if return_per_route:
+        return cache_w2.view(M, topk, K)
 
     # ── Weighted reduction: (M*topk, K) → (M, K) ──────────────────────────
     # Routing weights are applied here via bmm rather than inside the kernel,

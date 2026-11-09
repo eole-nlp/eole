@@ -150,7 +150,14 @@ def prepare_hybrid_experts(model, config):
         )
         for module in model.modules():
             if isinstance(module, MoE):
-                module._executor = HybridExpertExecutor(module.experts, config.moe_gpu_experts, runtime)
+                if config.moe_expert_backend == "hybrid_gptq":
+                    from eole.modules.cached_experts import CachedGPTQExpertExecutor
+
+                    executor = CachedGPTQExpertExecutor(module.experts, runtime, config, module.gate.weight.device)
+                    runtime.executors.append(executor)
+                    module._executor = executor
+                else:
+                    module._executor = HybridExpertExecutor(module.experts, config.moe_gpu_experts, runtime)
         if getattr(config, "moe_expert_cuda_graph", True):
             from eole.modules.hybrid_graph import HybridCacheStorage, HybridLayerGraph
 

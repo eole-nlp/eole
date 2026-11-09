@@ -51,6 +51,124 @@ Expert kernel caches/dispatch now live in `eole/modules/expert_execution.py`;
 placement policy where each module belongs instead of tying placement to the
 checkpoint reader.
 
+### Quantized adaptive GPU cache
+
+`moe_expert_backend: hybrid_gptq` runs the converted **Qwen3.5-35B-A3B-GPTQ-Int4**
+checkpoint with a bounded GPU cache. Both CPU and GPU use the checkpoint's
+original INT4 codes and BF16 scales; weights are not quantized again. The first
+supported format is symmetric GPTQ4, group size 128, direct zero point 8, no
+activation ordering or bias. Other formats are rejected rather than reinterpreted.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=6 MKL_NUM_THREADS=6 EOLE_TORCH_COMPILE=0 \
+  python recipes/qwen35/benchmark_moe.py \
+  --model /path/to/converted/Qwen3.5-35B-A3B-GPTQ-Int4 \
+  --backend hybrid_gptq --gpu-experts 64 --cache-policy frequency \
+  --cache-dir /path/to/local/ssd/cache \
+  --tokens 128 --repeats 3 --output /tmp/qwen35-adaptive.json
+```
+
+For regular prediction, set `QWEN35_MOE_GPTQ_MODEL` and use
+[predict-hybrid-gptq.yaml](predict-hybrid-gptq.yaml). Equivalent inference settings:
+
+```yaml
+moe_expert_backend: hybrid_gptq
+moe_gpu_experts: 64
+moe_expert_cache_policy: frequency  # fixed keeps the initial residency
+moe_expert_cache_interval: 32
+moe_expert_cache_swaps: 4
+moe_expert_cache_dir: /path/to/local/ssd/cache
+moe_expert_cuda_graph: true
+compute_dtype: bf16
+self_attn_backend: flash
+dynamic_shapes: false
+self_speculative_decoding: false
+```
+
+The slot count is **per layer, not a VRAM limit**. Leave room for dense weights,
+KV/recurrent state, graph pools, prefill workspace and one spare expert per layer.
+Start conservatively and measure process GPU memory with your intended context
+and prompts. Increasing batch size or context changes the required headroom.
+
+Frequency admission learns demand over successive requests, replaces at most four
+experts every 32 layer calls, and decays old counts. It changes residency only:
+every selected expert is still evaluated with its original routing weight. Cache
+misses run on the CPU while cached experts run on the GPU. A frozen domain-specific
+cache can be faster than adaptation for a stable workload; changing domains needs
+time to learn. No policy guarantees that adaptation improves every request.
+
+GPU execution uses Eole's existing Marlin kernels. Single-token expert graphs use
+a persistent GPU ID-to-slot table; supported decoder layers also capture attention,
+routing and shared-expert stages around the CPU handoff. Prefill and unsupported
+layer layouts stay eager. Static KV/GDN buffers are owned by the hybrid runtime
+and reset in place at the next request. Compatible requests reuse their graphs;
+a batch/shape/dtype/device change invalidates the bindings before buffers are
+replaced. The first two real decode calls warm a new stage and the third captures
+it. Initial capture costs remain part of the first request's latency.
+`--no-hybrid-graph` disables all these hybrid GPU stages
+for comparison. When every expert fits in the cache, no CPU routing readback or
+CPU expert job is needed. This does not enable whole-decoder `torch.compile`: the backend
+still requires `EOLE_TORCH_COMPILE=0`, one GPU and ordinary decoding.
+
+CPU native INT4 layouts stay in RAM. Separate Marlin layouts are temporarily
+memory-mapped on the selected SSD, so they do not require a second anonymous RAM
+bank. Allow approximately another INT4 model's size on disk. Preparation can take minutes and is excluded from decode timings. Packing occurs
+at model load, one expert at a time on CUDA; the temporary files are removed when
+the engine is terminated or preparation fails. This is an in-process GPU cache,
+not an SSD-streaming inference engine or a reusable converted checkpoint format.
+CPU/GPU kernel rounding can differ near ties; this is not a promise of bit-identical
+generation to the fully resident backend. FP32 normalization is unchanged.
+
+#### Controlled RTX 5090 measurements
+
+Original Qwen3.5-35B-A3B-GPTQ-Int4 codes/scales, eight routed experts per token,
+BF16 compute, native vocabulary head and no speculation. PyTorch 2.15.0/CUDA
+13.2, Ryzen 5900X with six CPU threads, static 4096-token KV cache, 32-token
+prefill chunks and 128 output tokens (127 timed). These controlled decode runs
+force fixed code/English/translation token histories; they are **not quality
+scores or unconstrained-generation benchmarks**. Unused vision blocks were on CPU.
+
+| GPU budget | Cached experts/layer | Code | English | Translation | Measured process peak |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 16 GiB | 91 | 46.5 tok/s | 49.7 tok/s | 49.9 tok/s | 15.57 GiB |
+| 20 GiB | 157 | 62.2 tok/s | 67.9 tok/s | 70.6 tok/s | 19.57 GiB |
+| All experts on GPU | 256 | 129.3 tok/s | 129.0 tok/s | 128.4 tok/s | 25.43 GiB |
+
+Each task runs three successive requests; the table shows the **third**, after
+frequency admission has adapted. Tasks run code → English → translation without
+resetting learning. Cold requests are slower; there is no universal speedup for
+arbitrary workloads. The harness enforced the byte caps and sampled process
+memory; the configuration's slot count alone does not enforce a byte limit.
+Graphs reuse compatible KV/GDN storage between requests. Initial capture is
+included in the first request, rather than subtracted from timings.
+
+With all experts cached on GPU, there is no CPU expert computation and the
+executor bypasses the CPU routing readback. Hybrid GPU stages retain more launch
+boundaries than whole-decoder compilation; use the normal resident backend when
+the checkpoint fits entirely on GPU.
+
+A fresh ordinary resident compile-mode-0 code control measured **160.67
+tok/s on main** and **160.74 tok/s with this backend available**, using
+the same checkpoint and fixed history. It retained the default resident executor
+and native vocabulary head; no throughput regression was observed in this control.
+
+A separate code control froze residency after the translation workload, then ran
+three repeats per execution mode with the same assignments and token histories:
+
+| GPU budget | Eager GPU phases | All hybrid GPU stages |
+| --- | ---: | ---: |
+| 16 GiB | 15.9 tok/s | 33.7 tok/s |
+| 20 GiB | 19.1 tok/s | 53.2 tok/s |
+| All experts on GPU | 24.2 tok/s | 127.6 tok/s |
+
+These medians isolate dispatch costs from adaptation; the frozen translation
+cache is not the adapted-code cache in the first table. Exact output and KV/GDN
+state checks against eager execution passed for 80 layer/token pairs at each
+capacity (240 total), including graph reuse across requests. This is not a
+promise of bit-identical end-to-end generation across CPU and GPU arithmetic.
+
+### BF16 source with CPU INT8
+
 `moe_expert_backend: hybrid_int8` is an **experimental capacity-oriented path**:
 
 - Start from an **unquantized converted checkpoint**, not the GPTQ/NF4 checkpoint.
