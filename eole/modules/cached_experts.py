@@ -175,9 +175,9 @@ class CachedExpertExecutor:
             target[slot].copy_(source[expert])
 
     def _publish(self):
-        lookup = torch.full((len(self.store.cpu_experts),), -1, dtype=torch.long)
-        for expert, slot in self.mapping.items():
-            lookup[expert] = slot
+        lookup = torch.tensor(
+            [self.mapping.get(expert, -1) for expert in range(len(self.store.cpu_experts))], dtype=torch.long
+        )
         self.gpu.lookup.copy_(lookup)
         self.resident_ids = frozenset(self.mapping)
 
