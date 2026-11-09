@@ -403,3 +403,51 @@ The eager ordering reverses which version is faster; these measurements do not
 establish a repeatable eager regression. Compiled throughput differs by less
 than 1%. Both versions measured 21.55 GiB peak PyTorch allocation. This is a
 limited regression control, not a guarantee across all models and workloads.
+
+### Runtime INT8 dense projections
+
+`dense_quantization: int8` optionally quantizes the remaining native FP16/BF16
+**decoder** attention and MLP projections at model initialization. This is useful
+with a GPTQ INT4 MoE checkpoint: routed experts keep their calibrated checkpoint
+weights, while native attention and shared-expert projections use symmetric
+round-to-nearest INT8 with group size 32 and FP16/BF16 activations. It also works
+with adaptive expert placement; the expert backend keeps its separate policy.
+
+```yaml
+# Add to a prediction config, or the model's config section in a server YAML.
+dense_quantization: int8        # default: none
+fuse_kvq: true
+fuse_gate: true
+vocabulary_quantization: int8   # independent; none/int8/int4
+```
+
+This currently requires single-GPU CUDA inference with the Eole Marlin extension.
+Only native, bias-free projections with input dimensions divisible by 128 and
+output dimensions divisible by 64 are converted; unsupported projections remain
+native with a warning. Already quantized projections, routed experts, routers,
+GDN A/B controls, normalization, embeddings, vision components and vocabulary
+heads are excluded. Separate MTP/drafter modules are also left unchanged.
+`fuse_kvq` and `fuse_gate` use the existing packing paths, including shared-expert
+gate/up packing. Activations retain the compute dtype;
+this does not enable INT8 activation quantization.
+
+Quantization occurs once per model load, before compilation and warmup, without
+modifying checkpoint files. It adds initialization work and changes numerical
+results; it is not a lossless transformation. The default remains `none`.
+
+For a local comparison, run the same command with `--dense-quantization none`
+and `--dense-quantization int8`, keeping the vocabulary quantization and expert
+backend unchanged. For example:
+
+```bash
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+python recipes/qwen35/benchmark_moe.py \
+  --model "$QWEN35_GPTQ_MODEL" --backend resident --task code \
+  --dense-quantization int8 --vocabulary-quantization int8 \
+  --output /tmp/qwen35-dense-int8.json
+```
+
+For adaptive mode, use `EOLE_TORCH_COMPILE=0`, `--backend adaptive`, and the same
+`--gpu-experts` value for both runs. This benchmark generates freely: quantization
+can change the output, expert routing and EOS position, so compare several tasks
+and inspect the recorded output lengths as well as throughput.

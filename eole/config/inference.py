@@ -177,6 +177,12 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     model_config = get_config_dict()
     model_config["arbitrary_types_allowed"] = True  # to allow torch.dtype
 
+    dense_quantization: Literal["none", "int8"] = Field(
+        default="none",
+        description="Runtime INT8 group-32 decoder attention/MLP projections (single-GPU CUDA Marlin). "
+        "Preserves existing quantized weights, routed experts, routers, controls and normalization.",
+    )
+
     moe_expert_backend: Literal["resident", "hybrid_int8", "adaptive", "hybrid_gptq"] = Field(
         default="resident",
         description="Expert executor: resident GPU, fixed hybrid_int8, or adaptive INT4/INT8 CPU/GPU cache.",

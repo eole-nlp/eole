@@ -266,9 +266,9 @@ def finalize_deferred_autoround_linear(model):
 
 
 def make_runtime_marlin_linear(head, bits, group_size):
-    """Construct an explicitly requested runtime head, with optional imports isolated here."""
+    """Construct a runtime projection, with optional imports isolated here."""
     if not _CPP_OPS_AVAILABLE:
-        raise ValueError("Vocabulary quantization requires the Eole CUDA extension")
+        raise ValueError("Runtime quantization requires the Eole CUDA extension")
     from eole.modules.marlin_linear import MarlinQuantLinear
 
     result = MarlinQuantLinear(

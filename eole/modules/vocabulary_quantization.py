@@ -1,4 +1,4 @@
-"""Optional runtime round-to-nearest quantization of the vocabulary projection."""
+"""Runtime round-to-nearest quantization shared by vocabulary and dense projections."""
 
 import torch
 from torch import nn
@@ -7,16 +7,22 @@ from torch import nn
 @torch.no_grad()
 def quantize_vocabulary_head(head, bits, group_size=128):
     """Build a Marlin head without modifying the checkpoint or tied embeddings."""
+    return quantize_linear(head, bits, group_size)
+
+
+@torch.no_grad()
+def quantize_linear(head, bits, group_size=128, *, defer_post_init=False):
+    """Quantize a floating-point projection; optionally leave its GPTQ layout for fusion."""
     if not isinstance(head, nn.Linear):
-        raise ValueError("Vocabulary quantization requires an unquantized nn.Linear generator")
+        raise ValueError("Runtime quantization requires an unquantized nn.Linear projection")
     if head.weight.device.type != "cuda" or head.weight.dtype not in (torch.float16, torch.bfloat16):
-        raise ValueError("Vocabulary quantization requires CUDA and FP16/BF16 weights")
+        raise ValueError("Runtime quantization requires CUDA and FP16/BF16 weights")
     if head.bias is not None:
-        raise ValueError("Vocabulary quantization currently requires a bias-free generator")
+        raise ValueError("Runtime quantization currently requires a bias-free projection")
     if bits not in (4, 8):
-        raise ValueError("Vocabulary quantization supports 4 or 8 bits")
+        raise ValueError("Runtime quantization supports 4 or 8 bits")
     if head.in_features % group_size:
-        raise ValueError("Vocabulary head input size must be divisible by the quantization group size")
+        raise ValueError("Projection input size must be divisible by the quantization group size")
     from eole.modules.autoround_linear import make_runtime_marlin_linear
 
     result = make_runtime_marlin_linear(head, bits, group_size)
@@ -28,7 +34,10 @@ def quantize_vocabulary_head(head, bits, group_size=128):
         result.qweight[:, start:stop].copy_(packed.to(head.weight.device))
         result.scales[:, start:stop].copy_(scales.to(head.weight.device))
     result.qzeros.zero_()  # Unused for symmetric Marlin quantization.
-    result.post_init()
+    if defer_post_init:
+        result._projection_post_init_deferred = True
+    else:
+        result.post_init()
     return result
 
 
