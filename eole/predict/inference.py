@@ -33,6 +33,9 @@ class Inference(object):
     def _prepare_inference_projections(self, config):
         from eole.modules.hybrid_experts import prepare_hybrid_experts
 
+        dense_quantization = getattr(config, "dense_quantization", "none")
+        if dense_quantization != "none" and getattr(config, "parallel_gpu", 1) > 1:
+            raise ValueError("Runtime dense quantization currently requires single-GPU inference")
         prepare_hybrid_experts(self.model, config)
         from eole.modules.autoround_linear import finalize_deferred_autoround_linear
 
@@ -48,9 +51,14 @@ class Inference(object):
                 config.vocabulary_quantization_group_size,
             )
 
+        dense_count = 0
         if hasattr(self.model, "decoder") and self.model.decoder is not None:
             if hasattr(self.model.decoder, "transformer_layers"):
                 for layer in self.model.decoder.transformer_layers:
+                    if dense_quantization != "none":
+                        from eole.modules.dense_quantization import quantize_decoder_layer
+
+                        dense_count += quantize_decoder_layer(layer)
                     linear_attn = getattr(layer, "linear_attn", None)
                     if (
                         linear_attn is not None
@@ -64,8 +72,10 @@ class Inference(object):
                     self_attn = getattr(layer, "self_attn", None)
                     if getattr(config, "fuse_kvq", False) and self_attn is not None:
                         self_attn._fuse_KVQ()
-                    if getattr(config, "fuse_gate", False) and getattr(layer.mlp, "up_proj", None) is not None:
-                        layer.mlp._fuse_gate()
+                    mlp = getattr(layer, "mlp", None)
+                    mlp = getattr(mlp, "shared_experts", mlp)
+                    if getattr(config, "fuse_gate", False) and getattr(mlp, "up_proj", None) is not None:
+                        mlp._fuse_gate()
                     # Repack and release temporary fused layouts before the next layer.
                     if finalize_deferred_autoround_linear(layer):
                         # Return unused allocator blocks from concatenation/repacking.
@@ -77,8 +87,10 @@ class Inference(object):
                     self_attn = getattr(layer, "self_attn", None)
                     if getattr(config, "fuse_kvq", False) and self_attn is not None:
                         self_attn._fuse_KVQ()
-                    if getattr(config, "fuse_gate", False) and getattr(layer.mlp, "up_proj", None) is not None:
-                        layer.mlp._fuse_gate()
+                    mlp = getattr(layer, "mlp", None)
+                    mlp = getattr(mlp, "shared_experts", mlp)
+                    if getattr(config, "fuse_gate", False) and getattr(mlp, "up_proj", None) is not None:
+                        mlp._fuse_gate()
                     # Repack and release temporary fused layouts before the next layer.
                     if finalize_deferred_autoround_linear(layer):
                         # Return unused allocator blocks from concatenation/repacking.
@@ -87,6 +99,10 @@ class Inference(object):
 
         if isinstance(self.model, torch.nn.Module):
             finalize_deferred_autoround_linear(self.model)
+        if dense_quantization != "none":
+            from eole.utils.logging import logger
+
+            logger.info("Runtime INT8 decoder projections: %d (group size 32)", dense_count)
 
     def __init__(
         self,

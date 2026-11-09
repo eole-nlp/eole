@@ -71,6 +71,24 @@ def model(layer):
 
 
 class TestPackedProjectionSetup(unittest.TestCase):
+    def test_dense_kvq_metadata_includes_query_gate_rows(self):
+        from eole.modules.multi_headed_attn import SelfMHA
+
+        for gated in (False, True):
+            for parallel in (1, 2):
+                with self.subTest(gated=gated, parallel=parallel):
+                    cfg = TransformerDecoderConfig(hidden_size=128, heads=4, heads_kv=2, q_gating=gated)
+                    attention = SelfMHA(cfg, SimpleNamespace(parallel_gpu=parallel)).eval()
+                    projections = [attention.linear_keys, attention.linear_values, attention.linear_query]
+                    for projection in projections:
+                        projection.reset_parameters()
+                    x = torch.randn(2, 3, 128)
+                    expected = torch.cat([projection(x) for projection in projections], -1)
+                    attention._fuse_KVQ()
+                    self.assertEqual(attention.linear_kvq.out_features, expected.shape[-1])
+                    self.assertEqual(attention.linear_kvq.weight.shape[0], expected.shape[-1])
+                    torch.testing.assert_close(attention.linear_kvq(x), expected)
+
     def test_flags_defer_and_finalize_only_their_projections(self):
         for kvq in (False, True):
             for gate in (False, True):
@@ -233,3 +251,26 @@ class TestPackedProjectionCUDA(unittest.TestCase):
                     for a, b in zip(output, expected):
                         torch.testing.assert_close(a, b, atol=0.01, rtol=0.01)
                 torch._dynamo.reset()
+
+
+class TestSharedExpertFusion(unittest.TestCase):
+    def test_fuse_gate_includes_shared_expert_in_both_stacks(self):
+        for stack in ("encoder", "decoder"):
+            for enabled in (False, True):
+                with self.subTest(stack=stack, enabled=enabled):
+                    cfg = TransformerDecoderConfig(
+                        hidden_size=128, heads=4, transformer_ff=128, mlp_activation_fn="gated-silu"
+                    )
+                    shared = MLP(cfg, config())
+                    root = nn.Module()
+                    transformer = nn.Module()
+                    layer = nn.Module()
+                    layer.mlp = nn.Module()
+                    layer.mlp.shared_experts = shared
+                    transformer.transformer_layers = nn.ModuleList([layer])
+                    setattr(root, stack, transformer)
+                    with patch.object(shared, "_fuse_gate") as fuse:
+                        Inference._prepare_inference_projections(
+                            SimpleNamespace(model=root), config(fuse_gate=enabled, fuse_kvq=False)
+                        )
+                    self.assertEqual(fuse.call_count, int(enabled))
