@@ -74,9 +74,9 @@ supported source. Loading an already-quantized GPTQ INT8 checkpoint is not yet
 supported. GPTQ inputs require symmetric INT4, group128, BF16 scales, direct zero
 point 8, no activation ordering or bias; unsupported layouts are rejected.
 
-**Rebuild the Eole CUDA extension after checking out this PR**. It adds the
-BF16-activation INT8 MoE specializations; older extensions support only INT4 MoE.
-From the repository root with the intended Python environment active:
+The floating-point source path requires Eole's BF16-activation INT8 MoE CUDA
+specializations. If your installed extension predates this support, rebuild it
+from the repository root with the intended Python environment active:
 
 ```bash
 MAX_JOBS=4 python setup.py build_ext --inplace
@@ -130,6 +130,18 @@ and reset in place at the next request. Compatible requests reuse their graphs;
 a batch/shape/dtype/device change invalidates the bindings before buffers are
 replaced. The first two real decode calls warm a new stage and the third captures
 it. Initial capture costs remain part of the first request's latency.
+Attention/routing and shared-expert stages share one ordered CUDA graph pool;
+expert graphs keep their own pools. All participating stages warm up before
+capture starts, and replay follows the model's layer order on one stream.
+Changing a captured signature or interrupting a cycle abandons that pool until
+the next request. Graphs are released before replacing cache buffers or closing
+the expert runtime.
+
+Runtime dense/head quantization finishes before GPU expert banks are allocated.
+This reduces startup peaks and leaves more VRAM available for expert slots.
+These changes do **not** select a larger `moe_gpu_experts` automatically: retune
+that setting against measured peak memory. The ordinary resident backend and
+expert routing/quantization are unchanged.
 `--no-hybrid-graph` disables all these hybrid GPU stages
 for comparison. When every expert fits in the cache, no CPU routing readback or
 CPU expert job is needed. This does not enable whole-decoder `torch.compile`: the backend
