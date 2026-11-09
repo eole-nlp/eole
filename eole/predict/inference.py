@@ -41,7 +41,6 @@ class Inference(object):
 
             if find_spec("triton") is None:
                 raise ValueError("W8A8 decoder quantization requires Triton")
-        prepare_hybrid_experts(self.model, config)
         from eole.modules.autoround_linear import finalize_deferred_autoround_linear
 
         vocabulary_quantization = getattr(config, "vocabulary_quantization", "none")
@@ -104,6 +103,8 @@ class Inference(object):
 
         if isinstance(self.model, torch.nn.Module):
             finalize_deferred_autoround_linear(self.model)
+        # Release native dense/head weights before allocating bounded expert banks.
+        prepare_hybrid_experts(self.model, config)
         if dense_quantization != "none":
             from eole.utils.logging import logger
 
