@@ -451,3 +451,35 @@ For adaptive mode, use `EOLE_TORCH_COMPILE=0`, `--backend adaptive`, and the sam
 `--gpu-experts` value for both runs. This benchmark generates freely: quantization
 can change the output, expert routing and EOS position, so compare several tasks
 and inspect the recorded output lengths as well as throughput.
+
+#### Dynamic INT8 activations (W8A8)
+
+Use `dense_quantization: w8a8` instead of `int8` to additionally quantize the
+selected projections' activations dynamically, in groups of 32. This requires
+Triton and the Eole CUDA extension on a single NVIDIA GPU. The vocabulary head,
+routed experts, routers, normalization and separate MTP/drafter modules keep
+their independent precision settings.
+
+Weights use the same RTN INT8 codes and rounded scales as `int8`. Only one weight
+layout is retained, including after `fuse_kvq` / `fuse_gate` packing. For batches
+below 64 rows, DP4A integer dot products use identical per-row arithmetic for
+ordinary decoding and verification. Larger prefills use the same activation
+quantization, round its dequantized values to the compute dtype, and execute
+Marlin with a temporary repacked weight layout. That layout is released after
+the call, rather than keeping a second model-sized weight copy. Prefill therefore
+has an additional conversion cost, and its floating-point rounding can differ
+from the small-row path. Both FP16 and BF16 compute are supported.
+
+This is an opt-in accuracy/performance trade-off: activation quantization can
+change predictions beyond weight-only INT8. It is not a lossless optimization or
+a guarantee of higher throughput for every workload. The default remains `none`;
+`int8` retains the existing weight-only Marlin path.
+
+The benchmark accepts `--dense-quantization w8a8`. Keep vocabulary quantization,
+expert placement, prompts and generation settings fixed when comparing modes.
+
+Changing this setting requires a model reload and warmup. Small-row MTP
+verification is covered by CUDA tests, but W8A8 is not necessarily faster with
+MTP, and whole-model floating-point execution is not guaranteed bit-identical
+between ordinary and chunked verification paths. Benchmark the intended request
+length and speculation settings before choosing it.

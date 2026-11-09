@@ -15,15 +15,14 @@ from eole.predict.generator import GeneratorLM
 from eole.decoders import transformer
 
 
-def _build_model(seed, gated_delta=False, qwen_mtp=False):
+def _build_model(seed, gated_delta=False, qwen_mtp=False, hidden=16):
     torch.manual_seed(seed)
-    hidden = 16
     decoder = {
         "decoder_type": "transformer",
         "layers": 2,
         "hidden_size": hidden,
         "heads": 2,
-        "transformer_ff": 32,
+        "transformer_ff": hidden * 2,
         "num_mtp_heads": 1,
         "mtp_lambda": 0.1,
         "mtp_emb_norm": qwen_mtp,
@@ -31,8 +30,8 @@ def _build_model(seed, gated_delta=False, qwen_mtp=False):
             {
                 "layer_types": ["linear_attention", "full_attention"],
                 "linear_conv_kernel_dim": 3,
-                "linear_key_head_dim": 4,
-                "linear_value_head_dim": 4,
+                "linear_key_head_dim": 4 if hidden == 16 else 64,
+                "linear_value_head_dim": 4 if hidden == 16 else 64,
                 "linear_num_key_heads": 2,
                 "linear_num_value_heads": 2,
             }
@@ -40,6 +39,8 @@ def _build_model(seed, gated_delta=False, qwen_mtp=False):
             else {}
         ),
     }
+    if hidden != 16:
+        decoder.update(add_qkvbias=False, add_final_linear_bias=False, add_ffnbias=False)
     config = CustomModelConfig(
         decoder=decoder,
         embeddings={"tgt_word_vec_size": hidden, "src_word_vec_size": hidden},

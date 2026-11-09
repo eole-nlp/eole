@@ -83,14 +83,15 @@ class TestABPacking(unittest.TestCase):
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
 class TestABKernel(unittest.TestCase):
     def test_fp64_reference_compile_and_graph_replay(self):
-        for rows in (1, 4):
-            with self.subTest(rows=rows):
-                self.check_fp64_reference_compile_and_graph_replay(rows)
+        for hidden, heads in ((5120, 96), (2048, 64)):
+            for rows in (1, 4):
+                with self.subTest(rows=rows, hidden=hidden):
+                    self.check_fp64_reference_compile_and_graph_replay(rows, hidden, heads)
 
-    def check_fp64_reference_compile_and_graph_replay(self, rows):
+    def check_fp64_reference_compile_and_graph_replay(self, rows, hidden, heads):
         torch.manual_seed(109)
-        x = torch.randn(1, rows, 5120, device="cuda", dtype=torch.bfloat16)
-        w = torch.randn(96, 5120, device="cuda", dtype=torch.bfloat16) / 72
+        x = torch.randn(1, rows, hidden, device="cuda", dtype=torch.bfloat16)
+        w = torch.randn(heads, hidden, device="cuda", dtype=torch.bfloat16) / 72
 
         # FP64 accumulation distinguishes real errors from BF16 rounding boundaries.
         def check(output):
@@ -188,6 +189,21 @@ class TestABKernel(unittest.TestCase):
         layer._speculating = False
         self.assertFalse(layer._should_pair_ab_projections(x))
         self.assertTrue(layer._should_pair_ab_projections(x[:, :1].contiguous()))
+
+    def test_2048_pairing_and_width_guard(self):
+        torch.manual_seed(72)
+        layer = projection_tests.TestGDNControlProjection().new_layer(hidden_size=2048, heads=32).cuda().bfloat16()
+        layer.in_proj_a.reset_parameters()
+        layer.in_proj_b.reset_parameters()
+        layer.prepare_ab_projections()
+        self.assertEqual(layer._ab_pair_weight.shape, (64, 2048))
+        x = torch.randn(1, 1, 2048, device="cuda", dtype=torch.bfloat16)
+        self.assertTrue(layer._should_pair_ab_projections(x))
+        self.assertFalse(layer._should_pair_ab_projections(x[..., :1024]))
+        with torch.inference_mode():
+            b, a = layer._project_ab(x)
+            torch.testing.assert_close(b, layer.in_proj_b(x), rtol=0.01, atol=0.005)
+            torch.testing.assert_close(a, layer.in_proj_a(x), rtol=0.01, atol=0.005)
 
     def test_pack_order_and_device_policy(self):
         layer = projection_tests.TestGDNControlProjection().new_layer(hidden_size=5120, heads=48).cuda().bfloat16()

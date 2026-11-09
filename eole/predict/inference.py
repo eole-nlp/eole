@@ -36,6 +36,11 @@ class Inference(object):
         dense_quantization = getattr(config, "dense_quantization", "none")
         if dense_quantization != "none" and getattr(config, "parallel_gpu", 1) > 1:
             raise ValueError("Runtime dense quantization currently requires single-GPU inference")
+        if dense_quantization == "w8a8":
+            from importlib.util import find_spec
+
+            if find_spec("triton") is None:
+                raise ValueError("W8A8 decoder quantization requires Triton")
         prepare_hybrid_experts(self.model, config)
         from eole.modules.autoround_linear import finalize_deferred_autoround_linear
 
@@ -77,7 +82,7 @@ class Inference(object):
                     if getattr(config, "fuse_gate", False) and getattr(mlp, "up_proj", None) is not None:
                         mlp._fuse_gate()
                     # Repack and release temporary fused layouts before the next layer.
-                    if finalize_deferred_autoround_linear(layer):
+                    if finalize_deferred_autoround_linear(layer, w8a8=dense_quantization == "w8a8"):
                         # Return unused allocator blocks from concatenation/repacking.
                         # This is setup only, never part of decoding.
                         torch.cuda.empty_cache()
@@ -102,7 +107,7 @@ class Inference(object):
         if dense_quantization != "none":
             from eole.utils.logging import logger
 
-            logger.info("Runtime INT8 decoder projections: %d (group size 32)", dense_count)
+            logger.info("Runtime %s decoder projections: %d (group size 32)", dense_quantization, dense_count)
 
     def __init__(
         self,

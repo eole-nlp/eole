@@ -692,7 +692,8 @@ class GatedDeltaNet(nn.Module):
             # BF16 tensor-core MMA is available on NVIDIA Ampere and newer.
             # Triton lowers the same split-K algorithm for the target GPU.
             and torch.cuda.get_device_capability(a.weight.device)[0] >= 8
-            and a.weight.shape == b.weight.shape == (48, 5120)
+            and a.weight.shape == b.weight.shape
+            and a.weight.shape in ((48, 5120), (32, 2048))
             and a.weight.dtype == b.weight.dtype == torch.bfloat16
             and a.weight.device == b.weight.device
             and a.bias is None
@@ -728,7 +729,7 @@ class GatedDeltaNet(nn.Module):
             and not self.training
             and hidden_states.ndim == 3
             and hidden_states.shape[0] == 1
-            and hidden_states.shape[2] == 5120
+            and hidden_states.shape[2] == self._ab_pair_weight.shape[1]
             and (hidden_states.shape[1] == 1 or (self._speculating and hidden_states.shape[1] == 4))
             and hidden_states.dtype == torch.bfloat16
             and hidden_states.is_cuda
