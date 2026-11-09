@@ -177,16 +177,27 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     model_config = get_config_dict()
     model_config["arbitrary_types_allowed"] = True  # to allow torch.dtype
 
-    moe_expert_backend: Literal["resident", "hybrid_int8"] = Field(
-        default="resident", description="Expert executor. hybrid_int8 is an experimental inference-only CPU/GPU path."
+    moe_expert_backend: Literal["resident", "hybrid_int8", "adaptive", "hybrid_gptq"] = Field(
+        default="resident",
+        description="Expert executor: resident GPU, fixed hybrid_int8, or adaptive INT4/INT8 CPU/GPU cache.",
     )
     moe_gpu_experts: int = Field(
-        default=16, ge=0, description="Fixed number of GPU-resident experts per layer for hybrid_int8."
+        default=16,
+        ge=0,
+        description="GPU experts per layer for hybrid_int8, or cache slots per layer for adaptive execution.",
     )
 
+    moe_expert_cache_policy: Literal["fixed", "frequency"] = Field(
+        default="frequency", description="Adaptive expert cache admission policy; routing itself is unchanged."
+    )
+    moe_expert_cache_interval: int = Field(default=32, ge=1, description="Calls between frequency-cache updates.")
+    moe_expert_cache_swaps: int = Field(default=4, ge=1, description="Maximum expert admissions per update.")
+    moe_expert_cache_dir: str | None = Field(
+        default=None, description="Directory for temporary memory-mapped Marlin expert backing files."
+    )
     moe_expert_cuda_graph: bool = Field(
         default=True,
-        description="Capture supported hybrid single-token attention/router and shared-expert GPU stages.",
+        description="Capture supported hybrid single-token GPU stages, including adaptive expert projections.",
     )
 
     report_align: bool = Field(default=False, description="Report alignment for each translation.")

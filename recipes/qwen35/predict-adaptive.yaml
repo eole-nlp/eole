@@ -1,0 +1,28 @@
+# Floating-point Qwen3.5-35B-A3B. Runtime per-channel INT8 experts on CPU and GPU.
+# CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=6 MKL_NUM_THREADS=6 EOLE_TORCH_COMPILE=0 eole predict -c recipes/qwen35/predict-adaptive.yaml
+model_path: ${QWEN35_MOE_MODEL}
+src: recipes/qwen38/prompts.txt
+output: /tmp/qwen35-adaptive.txt
+compute_dtype: bf16
+gpu_ranks: [0]
+self_attn_backend: flash
+batch_size: 1
+beam_size: 1
+top_k: 1
+max_length: 128
+max_length_ratio: 0
+context_length: 4096
+dynamic_shapes: false
+prefill_chunk_size: 32
+prefill_cache_size: 0
+self_speculative_decoding: false
+fuse_kvq: true
+fuse_gate: true
+report_time: true
+moe_expert_backend: adaptive
+# Slots per layer, not a VRAM byte limit. Allow runtime and prefill headroom.
+moe_gpu_experts: 64
+moe_expert_cache_policy: frequency
+moe_expert_cache_interval: 32
+moe_expert_cache_swaps: 4
+moe_expert_cuda_graph: true

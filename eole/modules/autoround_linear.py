@@ -140,6 +140,10 @@ def post_init_autoround_linear(model, defer_kvq=False, defer_gate=False):
         if isinstance(model, MLP):
             deferred_names.update(("gate_up_proj", "up_proj"))
     for name, module in model.named_children():
+        # Hybrid GPTQ owns host packing and bounded GPU repacking. Never move
+        # all of its experts onto CUDA or stack them during ordinary post_init.
+        if name == "experts" and getattr(model, "_defer_expert_post_init", False):
+            continue
         if name in deferred_names and getattr(module, "supports_projection_fusion", False):
             module._projection_post_init_deferred = True
             continue
@@ -174,7 +178,11 @@ def post_init_autoround_linear(model, defer_kvq=False, defer_gate=False):
             )
 
         # MoE: eagerly stack quantized expert weights before CUDAGraphs capture
-        if hasattr(module, "_maybe_init_quant_weights") and hasattr(module, "experts"):
+        if (
+            hasattr(module, "_maybe_init_quant_weights")
+            and hasattr(module, "experts")
+            and not getattr(module, "_defer_expert_post_init", False)
+        ):
             device = _get_module_device(module)
             # Determine dtype from the first expert weight we can find
             dtype = torch.float16

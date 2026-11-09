@@ -51,6 +51,183 @@ Expert kernel caches/dispatch now live in `eole/modules/expert_execution.py`;
 placement policy where each module belongs instead of tying placement to the
 checkpoint reader.
 
+### Adaptive INT4/INT8 GPU cache
+
+`moe_expert_backend: adaptive` uses one bounded GPU expert cache with two
+explicit weight paths:
+
+| Converted source checkpoint | CPU experts | GPU experts | Weight changes |
+| --- | --- | --- | --- |
+| GPTQ INT4 | Original INT4 | Original INT4 (Marlin) | Codes/scales preserved |
+| Floating-point (BF16/FP16) | Runtime INT8 | Same runtime INT8 (Marlin) | Per-output-channel RTN quantization |
+
+The floating-point path quantizes routed experts once at load. CPU and GPU share
+the same signed INT8 codes and rounded BF16 scales; changing residency does not
+change quantization. The GPU repeats each per-channel scale across 128-value
+groups to use the existing Marlin group layout. Attention, shared experts,
+vocabulary heads and FP32 normalization retain their existing precision. Runtime
+quantization changes numerical behavior versus the floating-point checkpoint.
+
+The existing `hybrid_int8` backend remains the fixed CPU INT8/GPU BF16 variant.
+`hybrid_gptq` remains an alias restricted to GPTQ INT4; use `adaptive` for either
+supported source. Loading an already-quantized GPTQ INT8 checkpoint is not yet
+supported. GPTQ inputs require symmetric INT4, group128, BF16 scales, direct zero
+point 8, no activation ordering or bias; unsupported layouts are rejected.
+
+**Rebuild the Eole CUDA extension after checking out this PR**. It adds the
+BF16-activation INT8 MoE specializations; older extensions support only INT4 MoE.
+From the repository root with the intended Python environment active:
+
+```bash
+MAX_JOBS=4 python setup.py build_ext --inplace
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=6 MKL_NUM_THREADS=6 EOLE_TORCH_COMPILE=0 \
+  python recipes/qwen35/benchmark_moe.py \
+  --model /path/to/converted/Qwen3.5-35B-A3B-GPTQ-Int4 \
+  --backend adaptive --gpu-experts 64 --cache-policy frequency \
+  --cache-dir /path/to/local/ssd/cache \
+  --tokens 128 --repeats 3 --output /tmp/qwen35-adaptive.json
+```
+
+For a floating-point source, set `QWEN35_MOE_MODEL` and use
+[predict-adaptive.yaml](predict-adaptive.yaml). For GPTQ INT4, set
+`QWEN35_MOE_GPTQ_MODEL` and use [predict-hybrid-gptq.yaml](predict-hybrid-gptq.yaml).
+Equivalent inference settings:
+
+```yaml
+moe_expert_backend: adaptive
+moe_gpu_experts: 64
+moe_expert_cache_policy: frequency  # fixed keeps the initial residency
+moe_expert_cache_interval: 32
+moe_expert_cache_swaps: 4
+moe_expert_cache_dir: /path/to/local/ssd/cache
+moe_expert_cuda_graph: true
+compute_dtype: bf16
+self_attn_backend: flash
+dynamic_shapes: false
+self_speculative_decoding: false
+```
+
+The slot count is **per layer, not a VRAM limit**. Leave room for dense weights,
+KV/recurrent state, graph pools, prefill workspace and one spare expert per layer.
+Start conservatively and measure process GPU memory with your intended context
+and prompts. Increasing batch size or context changes the required headroom.
+
+Frequency admission learns demand over successive requests, replaces at most four
+experts every 32 layer calls, and decays old counts. It changes residency only:
+every selected expert is still evaluated with its original routing weight. Cache
+misses run on the CPU while cached experts run on the GPU. A frozen domain-specific
+cache can be faster than adaptation for a stable workload; changing domains needs
+time to learn. No policy guarantees that adaptation improves every request.
+
+GPU execution uses Eole's existing Marlin kernels. Single-token expert graphs use
+a persistent GPU ID-to-slot table; supported decoder layers also capture attention,
+routing and shared-expert stages around the CPU handoff. Prefill and unsupported
+layer layouts stay eager. Static KV/GDN buffers are owned by the hybrid runtime
+and reset in place at the next request. Compatible requests reuse their graphs;
+a batch/shape/dtype/device change invalidates the bindings before buffers are
+replaced. The first two real decode calls warm a new stage and the third captures
+it. Initial capture costs remain part of the first request's latency.
+`--no-hybrid-graph` disables all these hybrid GPU stages
+for comparison. When every expert fits in the cache, no CPU routing readback or
+CPU expert job is needed. This does not enable whole-decoder `torch.compile`: the backend
+still requires `EOLE_TORCH_COMPILE=0`, one GPU and ordinary decoding.
+
+CPU native INT4/INT8 layouts stay in RAM. Separate Marlin layouts are temporarily
+memory-mapped on the selected SSD, so they do not require a second anonymous RAM
+bank. Allow disk space for the routed expert weights at execution precision
+(INT4 or INT8). Preparation can take minutes and is excluded from decode timings.
+Packing occurs at model load, one expert at a time on CUDA. Temporary files are
+removed when the engine is terminated or preparation fails. This is an in-process GPU cache,
+not an SSD-streaming inference engine or a reusable converted checkpoint format.
+CPU/GPU kernel rounding can differ near ties; this is not a promise of bit-identical
+generation to the fully resident backend. FP32 normalization is unchanged.
+
+#### Floating-point and GPTQ path confirmation
+
+Both formats were rerun after adding INT8 MoE kernels: eight selected experts,
+native vocabulary head, no MTP, 4096-token context, prefill chunk 32 and 128 output
+tokens (127 timed), six CPU threads on the RTX 5090/Ryzen 5900X. Identical token
+histories are forced; these are practical checkpoint configurations, not an
+accuracy evaluation or an isolated expert-bitwidth ablation. Non-expert weights
+retain each source checkpoint's precision. Unused vision modules were on CPU.
+
+The table shows the third successive adapted request per task, with learning
+retained across code → English → translation:
+
+| Source / expert storage | Slots/layer | Harness cap | Process peak | Code | English | Translation |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| GPTQ / original INT4 | 91 | 16 GiB | 15.57 GiB | 45.4 tok/s | 48.0 tok/s | 51.1 tok/s |
+| BF16 / runtime INT8 | 48 | 20 GiB | 15.94 GiB | 34.0 tok/s | 33.4 tok/s | 32.8 tok/s |
+
+80 exact layer/output/KV/GDN checks passed for each source (160 total). Kernel
+packing/migration/replay tests passed on the RTX 5090 and RTX 4090. CPU and GPU
+kernel rounding may differ despite identical codes/scales; cache warming can
+therefore change generated text even with fixed sampling settings.
+
+The BF16 checkpoint first failed the artificial 20 GiB allocator cap with 80
+cache slots while validating GPU graph workspaces; the 48-slot run above passed.
+Capacity is not a byte budget: floating-point dense weights and graph workspaces
+need headroom beyond the expert banks. Successful BF16 preparation on local NVMe
+with warm source data took about 215 seconds; a cold run using the source SSD for
+backing took about 696 seconds before that cap failure. Packing is excluded from
+the table's decode timings, and temporary backing files are removed on close.
+
+Normal resident compile-mode-0 throughput after the rebuild was **160.6 tok/s**,
+within 1% of the prior matched main control (160.7 tok/s).
+
+#### Earlier GPTQ cache-capacity measurements
+
+Original Qwen3.5-35B-A3B-GPTQ-Int4 codes/scales, eight routed experts per token,
+BF16 compute, native vocabulary head and no speculation. PyTorch 2.15.0/CUDA
+13.2, Ryzen 5900X with six CPU threads, static 4096-token KV cache, 32-token
+prefill chunks and 128 output tokens (127 timed). These controlled decode runs
+force fixed code/English/translation token histories; they are **not quality
+scores or unconstrained-generation benchmarks**. Unused vision blocks were on CPU.
+
+| GPU budget | Cached experts/layer | Code | English | Translation | Measured process peak |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 16 GiB | 91 | 46.5 tok/s | 49.7 tok/s | 49.9 tok/s | 15.57 GiB |
+| 20 GiB | 157 | 62.2 tok/s | 67.9 tok/s | 70.6 tok/s | 19.57 GiB |
+| All experts on GPU | 256 | 129.3 tok/s | 129.0 tok/s | 128.4 tok/s | 25.43 GiB |
+
+Each task runs three successive requests; the table shows the **third**, after
+frequency admission has adapted. Tasks run code → English → translation without
+resetting learning. Cold requests are slower; there is no universal speedup for
+arbitrary workloads. The harness enforced the byte caps and sampled process
+memory; the configuration's slot count alone does not enforce a byte limit.
+Graphs reuse compatible KV/GDN storage between requests. Initial capture is
+included in the first request, rather than subtracted from timings.
+
+With all experts cached on GPU, there is no CPU expert computation and the
+executor bypasses the CPU routing readback. Hybrid GPU stages retain more launch
+boundaries than whole-decoder compilation; use the normal resident backend when
+the checkpoint fits entirely on GPU.
+
+A fresh ordinary resident compile-mode-0 code control measured **160.67
+tok/s on main** and **160.74 tok/s with this backend available**, using
+the same checkpoint and fixed history. It retained the default resident executor
+and native vocabulary head; no throughput regression was observed in this control.
+
+A separate code control froze residency after the translation workload, then ran
+three repeats per execution mode with the same assignments and token histories:
+
+| GPU budget | Eager GPU phases | All hybrid GPU stages |
+| --- | ---: | ---: |
+| 16 GiB | 15.9 tok/s | 33.7 tok/s |
+| 20 GiB | 19.1 tok/s | 53.2 tok/s |
+| All experts on GPU | 24.2 tok/s | 127.6 tok/s |
+
+These medians isolate dispatch costs from adaptation; the frozen translation
+cache is not the adapted-code cache in the first table. Exact output and KV/GDN
+state checks against eager execution passed for 80 layer/token pairs at each
+capacity (240 total), including graph reuse across requests. This is not a
+promise of bit-identical end-to-end generation across CPU and GPU arithmetic.
+
+### BF16 source with CPU INT8
+
 `moe_expert_backend: hybrid_int8` is an **experimental capacity-oriented path**:
 
 - Start from an **unquantized converted checkpoint**, not the GPTQ/NF4 checkpoint.

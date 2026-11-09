@@ -3,7 +3,7 @@
  * Copyright (C) Marlin.2024 Elias Frantar / Neural Magic.
  *
  * Only the Marlin<> instantiations actually used by typical Marlin MoE
- * inference (group_size=128, fp16/bf16, uint4b8/uint8b128, Ampere+) are
+ * inference (group_size=128, uint4b8 FP16/BF16 and uint8b128 BF16, Ampere+) are
  * compiled.  Add more following the INST_ macros below if needed.
  *
  * Eole additions vs vLLM ops.cu:
@@ -89,6 +89,13 @@ INST_FP16_U4B8(128, 4,  4, 8, false, 4)
 INST_BF16_U4B8(256, 4, 16, 4, false, 4)
 INST_BF16_U4B8(128, 4,  8, 4, false, 4)
 INST_BF16_U4B8(128, 4,  4, 8, false, 4)
+
+// Adaptive floating-point sources use INT8 experts with BF16 activations.
+// Reuse the canonical shapes so decode and prefill dispatch stay aligned.
+#define INST_BF16_U8B128(TH, TM, TN, TK, M8) \
+  INST(BF16_ID, U8B128_ID, BF16_ID, BF16_ID, TH, TM, TN, TK, M8, 4, 8)
+MARLIN_FOR_EACH_SHAPE(INST_BF16_U8B128)
+#undef INST_BF16_U8B128
 
 #undef INST
 #undef INST_FP16_U4B8
@@ -315,6 +322,13 @@ MarlinFuncPtr get_marlin_kernel(
 #define DISPATCH_U4B8_BF16(TH,TM_,TN_,TK_,M8_) \
   if (MATCH(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,TH,TM_,TN_,TK_,M8_)) return K(BF16_ID,U4B8_ID,BF16_ID,BF16_ID,TH,TM_,TN_,TK_,M8_);
 
+#define DISPATCH_U8B128_BF16(TH,TM_,TN_,TK_,M8_) \
+  if (MATCH(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,TH,TM_,TN_,TK_,M8_)) return K(BF16_ID,U8B128_ID,BF16_ID,BF16_ID,TH,TM_,TN_,TK_,M8_);
+
+  if (a_id==BF16_ID && b_id==U8B128_ID && c_id==BF16_ID && s_id==BF16_ID) {
+    MARLIN_FOR_EACH_SHAPE(DISPATCH_U8B128_BF16)
+  }
+
   // fp16 + uint4b8
   if (a_id==FP16_ID && b_id==U4B8_ID && c_id==FP16_ID && s_id==FP16_ID) {
     MARLIN_FOR_EACH_SHAPE(DISPATCH_U4B8_FP16)
@@ -329,6 +343,7 @@ MarlinFuncPtr get_marlin_kernel(
 #undef K
 #undef DISPATCH_U4B8_FP16
 #undef DISPATCH_U4B8_BF16
+#undef DISPATCH_U8B128_BF16
   return nullptr;
 }
 
