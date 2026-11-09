@@ -16,7 +16,7 @@ def main():
     parser.add_argument("--model", required=True)
     parser.add_argument("--backend", choices=["resident", "hybrid_int8", "adaptive", "hybrid_gptq"], default="resident")
     parser.add_argument("--gpu-experts", type=int, default=16)
-    parser.add_argument("--dense-quantization", choices=["none", "int8"], default="none")
+    parser.add_argument("--dense-quantization", choices=["none", "int8", "w8a8"], default="none")
     parser.add_argument("--vocabulary-quantization", choices=["none", "int8", "int4"], default="none")
     parser.add_argument("--cache-policy", choices=["fixed", "frequency"], default="frequency")
     parser.add_argument("--cache-dir", default=None)

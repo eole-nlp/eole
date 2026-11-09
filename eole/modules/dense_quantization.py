@@ -49,6 +49,7 @@ def quantize_decoder_layer(layer):
             continue
         parent, _, leaf = name.rpartition(".")
         replacement = quantize_linear(projection, 8, 32, defer_post_init=True)
+        replacement._runtime_dense_int8 = True
         setattr(layer.get_submodule(parent), leaf, replacement)
         converted += 1
     if skipped:

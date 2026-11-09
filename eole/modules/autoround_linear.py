@@ -248,15 +248,28 @@ def fuse_autoround_projections(projections, name="KVQ"):
     except (ImportError, ValueError) as error:
         logger.warning("Skipping Marlin %s fusion: %s", name, error)
         return True, None
+    fused._runtime_dense_int8 = all(getattr(module, "_runtime_dense_int8", False) for module in projections)
     fused._projection_post_init_deferred = any(
         getattr(module, "_projection_post_init_deferred", False) for module in projections
     )
     return True, fused
 
 
-def finalize_deferred_autoround_linear(model):
+def finalize_deferred_autoround_linear(model, *, w8a8=False):
     """Initialize deferred projections; return whether any layouts were replaced."""
     initialized = False
+    if w8a8:
+        from eole.modules.int8_gemv import W8A8Linear
+
+        # Only projections freshly quantized by inference setup are eligible.
+        # Existing checkpoint weights retain their own layout and precision.
+        for name, module in list(model.named_modules()):
+            if getattr(module, "_projection_post_init_deferred", False) and getattr(
+                module, "_runtime_dense_int8", False
+            ):
+                parent, _, leaf = name.rpartition(".")
+                setattr(model.get_submodule(parent), leaf, W8A8Linear(module))
+                initialized = True
     for module in model.modules():
         if getattr(module, "_projection_post_init_deferred", False):
             module.post_init()
@@ -283,3 +296,30 @@ def make_runtime_marlin_linear(head, bits, group_size):
     if head.bias is not None:
         result.bias.data.copy_(head.bias)
     return result
+
+
+def w8a8_prefill(inputs, packed, scales, workspace, empty_index):
+    """Use a temporary Marlin layout for larger batches, never a retained weight copy."""
+    from eole.ops import gptq_marlin_repack
+    from eole.modules.marlin_scalar_type import scalar_types
+    from eole.modules.marlin_utils import apply_gptq_marlin_linear
+
+    n, k = packed.shape[0], inputs.shape[-1]
+    gptq = (packed ^ -2139062144).t().contiguous()
+    weight = gptq_marlin_repack(gptq, empty_index, k, n, 8)
+    weight_scales = scales.t().contiguous().reshape(-1, 8, 8).transpose(1, 2).reshape(k // 32, n)
+    return apply_gptq_marlin_linear(
+        input=inputs,
+        weight=weight,
+        weight_scale=weight_scales,
+        weight_zp=empty_index,
+        g_idx=empty_index,
+        g_idx_sort_indices=empty_index,
+        workspace=workspace,
+        wtype=scalar_types.uint8b128,
+        output_size_per_partition=n,
+        input_size_per_partition=k,
+        is_k_full=True,
+        bias=None,
+        use_fp32_reduce=True,
+    )
