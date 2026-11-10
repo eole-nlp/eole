@@ -1,7 +1,7 @@
 """Hybrid GPU stages retain state and fall back outside single-token decode."""
 
 import unittest
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from unittest.mock import Mock, patch
 
 import torch
@@ -69,6 +69,8 @@ class TestHybridGPUStage(unittest.TestCase):
     def test_request_guards(self):
         layer = Mock()
         layer.training = False
+        layer.supports_hybrid_graph = True
+        layer._hybrid_states = lambda: (layer.self_attn.kcache, layer.self_attn.vcache, layer.self_attn.cache_leftpad)
         layer.layer_type = "full_attention"
         layer.self_attn.kcache = torch.zeros(4, device="cuda")
         layer.self_attn.vcache = torch.zeros(4, device="cuda")
@@ -208,6 +210,17 @@ class TestSharedHybridPool(unittest.TestCase):
             _self_attention=lambda x, **kwargs: (None, x * 2, None),
             post_attention_layernorm=lambda x: x,
         )
+        from eole.decoders.transformer import TransformerDecoderLayer
+
+        layer.supports_hybrid_graph = True
+        for name in (
+            "_prepare_feed_forward",
+            "_finish_feed_forward",
+            "_hybrid_prefix",
+            "_hybrid_suffix",
+            "_hybrid_states",
+        ):
+            setattr(layer, name, MethodType(getattr(TransformerDecoderLayer, name), layer))
         graph = HybridLayerGraph(layer, pool=pool)
         x = torch.ones(1, 1, 128, device="cuda")
         with torch.inference_mode():

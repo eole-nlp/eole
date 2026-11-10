@@ -176,10 +176,7 @@ def prepare_hybrid_experts(model, config):
                 for layer in decoder.transformer_layers:
                     if (
                         hasattr(layer.mlp, "_executor")
-                        and not layer.context_attn
-                        and not layer.ffn_layernorm
-                        and not layer.parallel_residual
-                        and layer.dropout_p == 0
+                        and getattr(layer, "supports_hybrid_graph", False) is True
                         and decoder.self_attn_backend == "flash"
                     ):
                         device = layer.mlp.gate.weight.device

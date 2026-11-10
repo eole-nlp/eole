@@ -119,7 +119,7 @@ class TransformerDecoderLayer(nn.Module):
             )
 
         if self.layer_type == "linear_attention":
-            self._forward = self._forward_linear_attn
+            self._forward = self._forward_residual
         elif self.ffn_layernorm:
             self._forward = self._forward_ffn_layernorm
         elif self.parallel_residual:
@@ -127,7 +127,21 @@ class TransformerDecoderLayer(nn.Module):
         elif self.context_attn:
             self._forward = self._forward_cross_attn
         else:
-            self._forward = self._forward_no_cross_attn
+            self._forward = self._forward_residual
+
+        # Positive opt-in for the two tested split-forward contracts. A new
+        # decoder/attention implementation must explicitly support this API.
+        self.supports_hybrid_graph = (
+            type(self) is TransformerDecoderLayer
+            and self._forward.__func__ is TransformerDecoderLayer._forward_residual
+            and type(self.mlp) is MoE
+            and self.context_attn is None
+            and self.dropout_p == 0
+            and (
+                (self.layer_type == "linear_attention" and type(self.linear_attn) is GatedDeltaNet)
+                or (self.layer_type == "full_attention" and type(self.self_attn) is SelfMHA)
+            )
+        )
 
         self.compiled_shapes = set()
         self.hidden_size = decoder_config.hidden_size
@@ -230,19 +244,35 @@ class TransformerDecoderLayer(nn.Module):
         # we apply residual with un-normed
         return self_attn + self.mlp(ff_in), attns
 
-    def _forward_linear_attn(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
-        """Qwen3.5 style (GatedDeltaNet) layers."""
-        # Note: self_attn here is already the output of linear_attn (set by _forward_eager)
-        self_attn.add_(layer_in)
-        ff_in = self.post_attention_layernorm(self_attn)
-        return self_attn + self.mlp(ff_in), attns
+    def _prepare_feed_forward(self, layer_in, attention):
+        """Residual/norm math shared by ordinary and split execution."""
+        attention.add_(layer_in)
+        return attention, self.post_attention_layernorm(attention)
 
-    def _forward_no_cross_attn(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
-        """Regular decoder only"""
-        kwargs.pop("return_attn", None)
-        self_attn.add_(layer_in)
-        ff_in = self.post_attention_layernorm(self_attn)
-        return self_attn + self.mlp(ff_in), attns
+    def _finish_feed_forward(self, residual, update):
+        return residual + update
+
+    def _forward_residual(self, layer_in, norm_layer_in, self_attn, attns, **kwargs):
+        """Sequential residual layout, for regular attention and GatedDeltaNet."""
+        residual, ff = self._prepare_feed_forward(layer_in, self_attn)
+        return self._finish_feed_forward(residual, self.mlp(ff)), attns
+
+    def _hybrid_states(self):
+        """Mutable state captured by the explicitly supported attention layout."""
+        if self.layer_type == "linear_attention":
+            return self.linear_attn.conv_state, self.linear_attn.recurrent_state
+        attention = self.self_attn
+        return attention.kcache, attention.vcache, attention.cache_leftpad
+
+    def _hybrid_prefix(self, layer_in, **kwargs):
+        _, attention, _ = self._self_attention(layer_in, **kwargs)
+        residual, ff = self._prepare_feed_forward(layer_in, attention)
+        weights, ids = self.mlp.route(ff.view(-1, ff.shape[-1]))
+        return residual, ff, weights, ids
+
+    def _hybrid_suffix(self, residual, ff, routed):
+        update = self.mlp.combine(ff, routed.view_as(ff))
+        return self._finish_feed_forward(residual, update)
 
     def forward(self, layer_in, **kwargs):
         hybrid_graph = getattr(self, "_hybrid_graph", None)
