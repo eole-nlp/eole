@@ -4,14 +4,18 @@ Load testing script for Eole inference server with dynamic batching.
 Tests both single and multiple concurrent requests with randomized input counts.
 """
 
+from __future__ import annotations
+
 import asyncio
-import aiohttp
 import time
 import random
 import statistics
-from typing import List
+from typing import TYPE_CHECKING, List
 from dataclasses import dataclass
 from eole.bin import BaseBin, register_bin
+
+if TYPE_CHECKING:
+    import aiohttp
 
 
 @dataclass
@@ -31,6 +35,15 @@ class LoadTester:
     """Load testing class for the inference server"""
 
     def __init__(self, base_url: str, model_id: str):
+        try:
+            import aiohttp
+        except ModuleNotFoundError as error:
+            if error.name != "aiohttp":
+                raise
+            raise ImportError(
+                "Load testing requires aiohttp; install it with: python -m pip install aiohttp"
+            ) from error
+        self._aiohttp = aiohttp
         self.base_url = base_url
         self.model_id = model_id
         self.results: List[RequestResult] = []
@@ -88,7 +101,7 @@ class LoadTester:
         start_time = time.time()
         try:
             async with session.post(
-                f"{self.base_url}/infer", json=payload, timeout=aiohttp.ClientTimeout(total=60)
+                f"{self.base_url}/infer", json=payload, timeout=self._aiohttp.ClientTimeout(total=60)
             ) as response:
                 await response.json()
                 end_time = time.time()
@@ -128,7 +141,7 @@ class LoadTester:
         start_time = time.time()
         try:
             async with session.post(
-                f"{self.base_url}/infer", json=payload, timeout=aiohttp.ClientTimeout(total=60)
+                f"{self.base_url}/infer", json=payload, timeout=self._aiohttp.ClientTimeout(total=60)
             ) as response:
                 await response.json()
                 end_time = time.time()
@@ -168,7 +181,7 @@ class LoadTester:
         start_time = time.time()
         try:
             async with session.post(
-                f"{self.base_url}/v1/chat/completions", json=payload, timeout=aiohttp.ClientTimeout(total=60)
+                f"{self.base_url}/v1/chat/completions", json=payload, timeout=self._aiohttp.ClientTimeout(total=60)
             ) as response:
                 await response.json()
                 end_time = time.time()
@@ -211,7 +224,7 @@ class LoadTester:
             max_inputs: Maximum number of inputs per request (text only)
             stagger_ms: Milliseconds to stagger request starts (0 = all at once)
         """
-        async with aiohttp.ClientSession() as session:
+        async with self._aiohttp.ClientSession() as session:
             tasks = []
             for i in range(num_requests):
                 if stagger_ms > 0:
