@@ -153,17 +153,12 @@ class GPUStage:
 
 class HybridLayerGraph:
     def __init__(self, layer, stream=None, pool=None):
+        if getattr(layer, "supports_hybrid_graph", False) is not True:
+            raise ValueError("Decoder layer does not support hybrid split forward")
         self.layer, self.pool = layer, pool
         self.enabled = True
-        self.before = GPUStage(self.prefix, self.states, stream, pool)
-        self.after = GPUStage(self.suffix, stream=stream, pool=pool)
-
-    def states(self):
-        if self.layer.layer_type == "linear_attention":
-            attention = self.layer.linear_attn
-            return attention.conv_state, attention.recurrent_state
-        attention = self.layer.self_attn
-        return attention.kcache, attention.vcache, attention.cache_leftpad
+        self.before = GPUStage(layer._hybrid_prefix, layer._hybrid_states, stream, pool)
+        self.after = GPUStage(layer._hybrid_suffix, stream=stream, pool=pool)
 
     def allowed(self, x, kwargs):
         layer = self.layer
@@ -174,19 +169,8 @@ class HybridLayerGraph:
             and x.shape[:2] == (1, 1)
             and kwargs.get("cache_slice") is None
             and not any(kwargs.get(k, False) for k in ("return_attn", "with_align", "collect_cross_attns"))
-            and all(isinstance(t, torch.Tensor) for t in self.states())
+            and all(isinstance(t, torch.Tensor) for t in layer._hybrid_states())
         )
-
-    def prefix(self, x, **kwargs):
-        layer = self.layer
-        _, attention, _ = layer._self_attention(x, **kwargs)
-        attention.add_(x)
-        ff = layer.post_attention_layernorm(attention)
-        weights, ids = layer.mlp.route(ff.view(-1, ff.shape[-1]))
-        return attention, ff, weights, ids
-
-    def suffix(self, residual, ff, routed):
-        return residual + self.layer.mlp.combine(ff, routed.view_as(ff))
 
     def __call__(self, x, **kwargs):
         try:
