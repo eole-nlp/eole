@@ -11,6 +11,61 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 from eole.utils.logging import logger
 
 
+class GraphPool:
+    """One ordered, non-concurrent pool for a model's prefix/suffix stages.
+
+    Capture starts at stage zero after every stage has warmed up. A changed
+    signature, interrupted request or capture failure abandons the whole epoch;
+    eager execution continues until the next request boundary. Expert graphs
+    are independent and never allocate from this pool.
+    """
+
+    def __init__(self, device, stream=None):
+        self.device, self.stream = device, stream
+        self.stages = []
+        self.handle = None
+        self.next = 0
+        self.armed = self.disabled = self.started = False
+
+    def register(self, stage):
+        stage.pool_index = len(self.stages)
+        self.stages.append(stage)
+
+    def enter(self, stage):
+        self.started = True
+        if self.disabled:
+            return False
+        if stage.pool_index != self.next:
+            self.abort()
+            return False
+        if self.next == 0 and not self.armed and all(s.warm_calls >= 2 for s in self.stages):
+            self.handle = torch.cuda.graph_pool_handle()
+            self.armed = True
+        self.next = (self.next + 1) % len(self.stages)
+        return self.armed
+
+    def reset(self):
+        try:
+            if self.started:
+                torch.cuda.synchronize(self.device)
+        finally:
+            for stage in self.stages:
+                stage.reset()
+            self.handle = None
+            self.next = 0
+            self.armed = self.disabled = self.started = False
+
+    def abort(self):
+        try:
+            self.reset()
+        finally:
+            self.disabled = True
+
+    def begin(self):
+        if self.disabled or self.next:
+            self.reset()
+
+
 class GPUStage:
     """Capture on the third real call; mutable state advances exactly once.
 
@@ -19,9 +74,11 @@ class GPUStage:
     buffers. Outputs alias graph storage, overwritten on the next replay.
     """
 
-    def __init__(self, function, states=lambda: (), stream=None):
+    def __init__(self, function, states=lambda: (), stream=None, pool=None):
         self.function, self.states = function, states
-        self.stream = stream
+        self.stream, self.pool = stream, pool
+        if pool is not None:
+            pool.register(self)
         self.failed = set()
         self.captures = 0
         self.reset()
@@ -33,15 +90,25 @@ class GPUStage:
     def __call__(self, *args, **kwargs):
         leaves, spec = tree_flatten((args, kwargs))
         states = tuple(t for t in self.states() if isinstance(t, torch.Tensor))
+        # Size-one dimensions have no observable stride. A final one-token
+        # prefill slice can differ from decode here without changing the layout
+        # of the owned capture buffers (arguments are copied before replay).
         metadata = tuple(
-            (tuple(t.shape), tuple(t.stride()), t.dtype, t.device) if isinstance(t, torch.Tensor) else repr(t)
+            (
+                (tuple(t.shape), tuple(s if n > 1 else 0 for n, s in zip(t.shape, t.stride())), t.dtype, t.device)
+                if isinstance(t, torch.Tensor)
+                else repr(t)
+            )
             for t in leaves
         )
         signature = (tuple(t.data_ptr() for t in states), metadata, spec)
         if signature != self.signature:
+            if self.pool is not None and self.signature is not None:
+                self.pool.abort()
             self.reset()
             self.signature = signature
-        if metadata in self.failed or self.warm_calls < 2:
+        capture_allowed = self.pool.enter(self) if self.pool is not None else True
+        if metadata in self.failed or self.warm_calls < 2 or not capture_allowed:
             self.warm_calls += 1
             return self.function(*args, **kwargs)
         if self.graph is None:
@@ -50,17 +117,28 @@ class GPUStage:
                 self.inputs = [t.clone() if isinstance(t, torch.Tensor) else t for t in leaves]
                 captured_args, captured_kwargs = tree_unflatten(self.inputs, spec)
                 graph = torch.cuda.CUDAGraph()
-                if self.stream is None:
+                if self.pool is not None:
+                    if self.pool.stream is None:
+                        self.pool.stream = self.stream or torch.cuda.Stream(device=args[0].device)
+                    self.stream = self.pool.stream
+                elif self.stream is None:
                     self.stream = torch.cuda.Stream(device=args[0].device)
                 stream = self.stream
                 with torch.cuda.stream(torch.cuda.current_stream(args[0].device)):
-                    with torch.cuda.graph(graph, stream=stream, capture_error_mode="thread_local"):
+                    with torch.cuda.graph(
+                        graph,
+                        stream=stream,
+                        pool=self.pool.handle if self.pool is not None else None,
+                        capture_error_mode="thread_local",
+                    ):
                         self.outputs = self.function(*captured_args, **captured_kwargs)
                 self.graph, self.state_refs = graph, states
                 self.captures += 1
             except RuntimeError as error:
                 if graph is not None:
                     graph.reset()
+                if self.pool is not None:
+                    self.pool.abort()
                 self.reset()
                 self.failed.add(metadata)
                 logger.warning("Hybrid GPU stage capture failed; using eager execution: %s", error)
@@ -74,11 +152,11 @@ class GPUStage:
 
 
 class HybridLayerGraph:
-    def __init__(self, layer, stream=None):
-        self.layer = layer
+    def __init__(self, layer, stream=None, pool=None):
+        self.layer, self.pool = layer, pool
         self.enabled = True
-        self.before = GPUStage(self.prefix, self.states, stream)
-        self.after = GPUStage(self.suffix, stream=stream)
+        self.before = GPUStage(self.prefix, self.states, stream, pool)
+        self.after = GPUStage(self.suffix, stream=stream, pool=pool)
 
     def states(self):
         if self.layer.layer_type == "linear_attention":
@@ -111,13 +189,21 @@ class HybridLayerGraph:
         return residual + self.layer.mlp.combine(ff, routed.view_as(ff))
 
     def __call__(self, x, **kwargs):
-        residual, ff, weights, ids = self.before(x, **kwargs)
-        routed = self.layer.mlp._executor.execute(ff.view(-1, ff.shape[-1]), weights, ids, training=False)
-        return self.after(residual, ff, routed), None
+        try:
+            residual, ff, weights, ids = self.before(x, **kwargs)
+            routed = self.layer.mlp._executor.execute(ff.view(-1, ff.shape[-1]), weights, ids, training=False)
+            return self.after(residual, ff, routed), None
+        except BaseException:
+            if self.pool is not None:
+                self.pool.abort()
+            raise
 
     def close(self):
-        self.before.reset()
-        self.after.reset()
+        if self.pool is not None and (self.before.signature is not None or self.after.signature is not None):
+            self.pool.abort()
+        else:
+            self.before.reset()
+            self.after.reset()
 
 
 class HybridCacheStorage:
@@ -128,8 +214,8 @@ class HybridCacheStorage:
     A shape/dtype/device change releases graphs before replacing any buffers.
     """
 
-    def __init__(self, graphs):
-        self.graphs = graphs
+    def __init__(self, graphs, pool=None):
+        self.graphs, self.pool = graphs, pool
         self.signature = None
         self.tensors = {}
 
@@ -137,6 +223,8 @@ class HybridCacheStorage:
         if signature != self.signature:
             self.close()
             self.signature = signature
+        elif self.pool is not None:
+            self.pool.begin()
 
     def zeros(self, key, shape, *, dtype, device):
         if key not in self.tensors:
@@ -149,7 +237,10 @@ class HybridCacheStorage:
         return tensor.zero_()
 
     def close(self):
-        for graph in self.graphs:
-            graph.close()
+        if self.pool is not None:
+            self.pool.reset()
+        else:
+            for graph in self.graphs:
+                graph.close()
         self.tensors.clear()
         self.signature = None

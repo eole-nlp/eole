@@ -15,6 +15,43 @@ from eole.tests.test_vocabulary_quantization import dequantize
 
 
 class TestDenseQuantization(unittest.TestCase):
+    def test_prepare_releases_dense_weights_before_expert_banks(self):
+        root = nn.Module()
+        root.generator = nn.Linear(128, 64, bias=False)
+        root.decoder = nn.Module()
+        layer = nn.Module()
+        layer.mlp = nn.Module()
+        layer.projection = nn.Linear(128, 64, bias=False)
+        root.decoder.transformer_layers = nn.ModuleList([layer])
+        head, projection = nn.Identity(), nn.Identity()
+        order = []
+
+        def dense(block):
+            order.append("dense")
+            block.projection = projection
+            return 1
+
+        def finalize(module, **kwargs):
+            order.append("finalize")
+            return False
+
+        def prepare(model, config):
+            self.assertIs(model.generator, head)
+            self.assertIs(layer.projection, projection)
+            self.assertEqual(order, ["dense", "finalize", "finalize"])
+            order.append("experts")
+
+        with patch("eole.modules.vocabulary_quantization.quantize_vocabulary_head", return_value=head), patch(
+            "eole.modules.dense_quantization.quantize_decoder_layer", side_effect=dense
+        ), patch("eole.modules.autoround_linear.finalize_deferred_autoround_linear", side_effect=finalize), patch(
+            "eole.modules.hybrid_experts.prepare_hybrid_experts", side_effect=prepare
+        ):
+            Inference._prepare_inference_projections(
+                SimpleNamespace(model=root),
+                InferenceConfig(dense_quantization="int8", vocabulary_quantization="int4"),
+            )
+        self.assertEqual(order[-1], "experts")
+
     def test_roles_preserve_experts_controls_and_existing_quantization(self):
         layer = nn.Module()
         layer.mlp = nn.Module()

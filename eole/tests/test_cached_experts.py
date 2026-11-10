@@ -172,6 +172,22 @@ class TestExpertCache(unittest.TestCase):
         self.assertFalse(root.moe.experts[0].initialized)
         self.assertTrue(root.moe.shared_experts.initialized)
 
+    def test_lookup_publication_preserves_sparse_ids_and_slots(self):
+        from eole.modules.cached_experts import CachedExpertExecutor
+
+        for mapping in ({}, {5: 0, 1: 7, 0: 2}, dict(enumerate(range(8)))):
+            with self.subTest(mapping=mapping):
+                executor = CachedExpertExecutor.__new__(CachedExpertExecutor)
+                executor.mapping = mapping
+                executor.store = SimpleNamespace(cpu_experts=[None] * 8)
+                executor.gpu = SimpleNamespace(lookup=torch.empty(8, dtype=torch.long))
+                executor._publish()
+                expected = torch.full((8,), -1, dtype=torch.long)
+                for expert, slot in mapping.items():
+                    expected[expert] = slot
+                torch.testing.assert_close(executor.gpu.lookup, expected, rtol=0, atol=0)
+                self.assertEqual(executor.resident_ids, frozenset(mapping))
+
     def test_fully_resident_executor_does_not_read_ids_back_to_cpu(self):
         from eole.modules.cached_experts import CachedExpertExecutor
 

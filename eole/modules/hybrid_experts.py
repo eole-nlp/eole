@@ -50,11 +50,10 @@ class HybridExpertRuntime:
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="eole-experts")
         self.executors = []
         self._graph_streams = {}
+        self.stage_pool = None
 
     def graph_stream(self, device):
-        # BLAS workspaces are stream-specific. Share a capture stream across
-        # stages/layers, but never share graph memory pools (outputs overlap in
-        # lifetime across the attention -> expert -> shared-MLP boundary).
+        # BLAS workspaces and shared graph pools use the same capture stream.
         key = torch.device(device)
         if key not in self._graph_streams:
             self._graph_streams[key] = torch.cuda.Stream(device=key)
@@ -62,10 +61,15 @@ class HybridExpertRuntime:
 
     def close(self):
         self.pool.shutdown(wait=True)
+        if self.stage_pool is not None:
+            self.stage_pool.reset()
         for executor in self.executors:
             executor.close()
         self.executors.clear()
         self._graph_streams.clear()
+        if self.stage_pool is not None:
+            self.stage_pool.stages.clear()
+            self.stage_pool = None
 
 
 class HybridExpertExecutor:
@@ -163,7 +167,7 @@ def prepare_hybrid_experts(model, config):
         if formats:
             logger.info("Adaptive expert storage on CPU and GPU: %s", ", ".join(sorted(formats)))
         if getattr(config, "moe_expert_cuda_graph", True):
-            from eole.modules.hybrid_graph import HybridCacheStorage, HybridLayerGraph
+            from eole.modules.hybrid_graph import GraphPool, HybridCacheStorage, HybridLayerGraph
 
             decoder = getattr(model, "decoder", None)
             # Wrappers such as EnsembleDecoder do not expose static-cache graph support.
@@ -178,12 +182,15 @@ def prepare_hybrid_experts(model, config):
                         and layer.dropout_p == 0
                         and decoder.self_attn_backend == "flash"
                     ):
-                        graph = HybridLayerGraph(layer, runtime.graph_stream(layer.mlp.gate.weight.device))
+                        device = layer.mlp.gate.weight.device
+                        if runtime.stage_pool is None:
+                            runtime.stage_pool = GraphPool(device, runtime.graph_stream(device))
+                        graph = HybridLayerGraph(layer, runtime.graph_stream(device), runtime.stage_pool)
                         layer._hybrid_graph = graph
                         runtime.executors.append(graph)
                         graphs.append(graph)
                 if graphs:
-                    decoder._hybrid_cache_storage = HybridCacheStorage(graphs)
+                    decoder._hybrid_cache_storage = HybridCacheStorage(graphs, runtime.stage_pool)
                     runtime.executors.append(decoder._hybrid_cache_storage)
         model._expert_runtime = runtime
     except BaseException:
