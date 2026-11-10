@@ -51,6 +51,7 @@ class TestFLACompile(unittest.TestCase):
 
 @unittest.skipUnless(hasattr(gdn, "_compiled_fla_rms_norm_gated"), "FLA norm adapter unavailable")
 class TestFLANormCompile(unittest.TestCase):
+    @unittest.skipUnless(torch.cuda.is_available(), "FLA norm dispatch requires CUDA inputs")
     def test_fullgraph_norm_preserves_fla_inputs(self):
         calls = []
 
@@ -63,11 +64,11 @@ class TestFLANormCompile(unittest.TestCase):
                 output = output + bias
             return (output * torch.nn.functional.silu(gate.float())).to(x.dtype)
 
-        norm = gdn.RMSNormGated(4, eps=1e-5)
+        norm = gdn.RMSNormGated(4, eps=1e-5).cuda()
         with torch.no_grad(), patch.object(fla_ops, "_fla_rms_norm_gated", fake_norm):
             compiled = torch.compile(norm, backend="aot_eager", fullgraph=True)
             for dtype in (torch.float32, torch.bfloat16):
-                x = torch.randn(2, 3, 4, dtype=dtype)
+                x = torch.randn(2, 3, 4, dtype=dtype, device="cuda")
                 gate = torch.randn_like(x)
                 expected = fake_norm(x, gate, norm.weight, norm.bias, norm.activation, eps=norm.eps)
                 actual = compiled(x, gate)

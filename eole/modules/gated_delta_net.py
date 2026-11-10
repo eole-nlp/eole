@@ -275,6 +275,66 @@ def _torch_recurrent_gated_delta_rule(
     return core_attn_out, last_recurrent_state
 
 
+# Dispatch on the input, not package availability or the device at construction:
+# modules are commonly constructed on CPU before being moved to an accelerator.
+# Keep these boundaries shared by forward, cached decode and speculative replay.
+def _causal_conv1d_activation(activation):
+    """Keep the PyTorch and optional GPU convolution activation contracts aligned."""
+    if activation not in (None, "silu", "swish"):
+        raise ValueError(f"Unsupported causal convolution activation: {activation!r}")
+    return "silu" if activation == "swish" else activation
+
+
+def _causal_conv1d_dispatch(x, weight, bias=None, activation=None):
+    activation = _causal_conv1d_activation(activation)
+    if x.is_cuda and causal_conv1d_fn is not None:
+        return causal_conv1d_fn(x, weight, bias, activation)
+    output = F.conv1d(x, weight.unsqueeze(1), bias, padding=weight.shape[-1] - 1, groups=x.shape[1])
+    output = output[..., : x.shape[-1]]
+    return F.silu(output) if activation == "silu" else output
+
+
+def _causal_conv1d_update_dispatch(x, conv_state, weight, bias=None, activation=None):
+    activation = _causal_conv1d_activation(activation)
+    kernel = causal_conv1d_update if x.is_cuda and causal_conv1d_update is not None else _torch_causal_conv1d_update
+    return kernel(x, conv_state, weight, bias, activation)
+
+
+def _chunk_gated_delta_rule_dispatch(query, key, value, g, beta, **kwargs):
+    kernel = (
+        chunk_gated_delta_rule
+        if query.is_cuda and chunk_gated_delta_rule is not None
+        else _torch_chunk_gated_delta_rule
+    )
+    return kernel(query, key, value, g, beta, **kwargs)
+
+
+def _recurrent_gated_delta_rule_dispatch(query, key, value, g, beta, **kwargs):
+    kernel = (
+        fused_recurrent_gated_delta_rule
+        if query.is_cuda and fused_recurrent_gated_delta_rule is not None
+        else _torch_recurrent_gated_delta_rule
+    )
+    return kernel(query, key, value, g, beta, **kwargs)
+
+
+def _torch_rms_norm_gated(x, g, weight, bias, eps, activation, residual=None, prenorm=False, residual_in_fp32=False):
+    """Match FLA's residual/prenorm contract without launching a GPU kernel."""
+    values = x.float()
+    if residual is not None:
+        values = values + residual.float()
+    residual_dtype = residual.dtype if residual is not None else (torch.float32 if residual_in_fp32 else x.dtype)
+    residual_out = values.to(residual_dtype)
+    output = values * torch.rsqrt(values.square().mean(-1, keepdim=True) + eps)
+    if weight is not None:
+        output = output * weight.float()
+    if bias is not None:
+        output = output + bias.float()
+    gate = torch.sigmoid(g.float()) if activation == "sigmoid" else F.silu(g.float())
+    output = (output * gate).to(x.dtype)
+    return (output, residual_out) if prenorm else output
+
+
 # ---------------------------------------------------------------------------
 # RMSNorm variants used inside GatedDeltaNet
 # ---------------------------------------------------------------------------
@@ -292,6 +352,10 @@ try:
         _fla_backend = True
 
         def forward(self, x, g, residual=None, prenorm=False, residual_in_fp32=False):
+            if not x.is_cuda:
+                return _torch_rms_norm_gated(
+                    x, g, self.weight, self.bias, self.eps, self.activation, residual, prenorm, residual_in_fp32
+                )
             if torch.compiler.is_compiling() and not torch.is_grad_enabled() and residual is None and not prenorm:
                 return _compiled_fla_rms_norm_gated(x, g, self.weight, self.bias, self.eps, self.activation)
             return super().forward(x, g, residual=residual, prenorm=prenorm, residual_in_fp32=residual_in_fp32)
@@ -411,11 +475,11 @@ class GatedDeltaNet(nn.Module):
             bias=False,
         )
 
-        # Choose fast/fallback kernels
-        self._causal_conv1d_fn = causal_conv1d_fn
-        self._causal_conv1d_update = causal_conv1d_update or _torch_causal_conv1d_update
-        self._chunk_gated_delta_rule = chunk_gated_delta_rule or _torch_chunk_gated_delta_rule
-        self._recurrent_gated_delta_rule = fused_recurrent_gated_delta_rule or _torch_recurrent_gated_delta_rule
+        # Select per invocation so CPU/MPS remain usable with optional GPU libraries installed.
+        self._causal_conv1d_fn = _causal_conv1d_dispatch
+        self._causal_conv1d_update = _causal_conv1d_update_dispatch
+        self._chunk_gated_delta_rule = _chunk_gated_delta_rule_dispatch
+        self._recurrent_gated_delta_rule = _recurrent_gated_delta_rule_dispatch
 
         # Inference state (set by TransformerDecoder._init_cache / _disable_cache)
         self.conv_state = None
@@ -792,15 +856,13 @@ class GatedDeltaNet(nn.Module):
                 self.conv_state.copy_(
                     F.pad(mixed_qkv, (self.conv_kernel_size - mixed_qkv.shape[-1], 0))[:, :, -self.conv_kernel_size :]
                 )
-            if self._causal_conv1d_fn is not None:
-                mixed_qkv = self._causal_conv1d_fn(
-                    x=mixed_qkv,
-                    weight=self.conv1d.weight.squeeze(1),
-                    bias=self.conv1d.bias,
-                    activation="silu",
-                )
-            else:
-                mixed_qkv = F.silu(self.conv1d(mixed_qkv)[:, :, :seq_len])
+            # The dispatcher always exists and owns both accelerated and fallback execution.
+            mixed_qkv = self._causal_conv1d_fn(
+                x=mixed_qkv,
+                weight=self.conv1d.weight.squeeze(1),
+                bias=self.conv1d.bias,
+                activation="silu",
+            )
 
         mixed_qkv = mixed_qkv.transpose(1, 2)  # (B, S, conv_dim)
 
