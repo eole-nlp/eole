@@ -44,6 +44,25 @@ def non_cuda_devices():
 
 
 class TestGatedDeltaNetDispatch(unittest.TestCase):
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA unavailable")
+    def test_cuda_prefill_passes_activation_by_keyword(self):
+        # Mirror the standalone causal-conv1d API, whose fourth argument is seq_idx.
+        def standalone_conv(x, weight, bias=None, seq_idx=None, *, activation=None):
+            self.assertIsNone(seq_idx)
+            output = F.conv1d(x, weight[:, None], bias, padding=2, groups=x.shape[1])[..., : x.shape[-1]]
+            return F.silu(output) if activation == "silu" else output
+
+        x = torch.randn(1, 16, 7, device="cuda")
+        weight = torch.randn(16, 3, device="cuda")
+        bias = torch.randn(16, device="cuda")
+        for activation in (None, "silu", "swish"):
+            with self.subTest(activation=activation):
+                with patch.object(gdn, "causal_conv1d_fn", side_effect=standalone_conv) as kernel:
+                    actual = gdn._causal_conv1d_dispatch(x, weight, bias, activation)
+                normalized = "silu" if activation == "swish" else activation
+                kernel.assert_called_once_with(x, weight, bias, activation=normalized)
+                torch.testing.assert_close(actual, standalone_conv(x, weight, bias, activation=normalized))
+
     def test_convolution_activation_normalization(self):
         self.assertIsNone(gdn._causal_conv1d_activation(None))
         self.assertEqual(gdn._causal_conv1d_activation("silu"), "silu")
@@ -183,7 +202,7 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
                 for name, reference in zip(
                     FAST_KERNELS,
                     (
-                        lambda x, w, b, a: F.silu(
+                        lambda x, w, b, *, activation=None: F.silu(
                             F.conv1d(x, w[:, None], b, padding=w.shape[-1] - 1, groups=x.shape[1])[..., : x.shape[-1]]
                         ),
                         gdn._torch_causal_conv1d_update,

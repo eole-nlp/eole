@@ -35,6 +35,51 @@ def _kernel_name(fn):
     return f"{module}.{name}" + (" (Triton JIT)" if module.startswith("fla.") else "")
 
 
+def _selected_gdn_kernel(layer, attr):
+    """Resolve built-in dispatchers for the layer's current device; preserve overrides."""
+    from eole.modules import gated_delta_net as gdn
+
+    fn = getattr(layer, attr)
+    dispatchers = {
+        "_causal_conv1d_fn": (gdn._causal_conv1d_dispatch, gdn.causal_conv1d_fn, None),
+        "_causal_conv1d_update": (
+            gdn._causal_conv1d_update_dispatch,
+            gdn.causal_conv1d_update,
+            gdn._torch_causal_conv1d_update,
+        ),
+        "_chunk_gated_delta_rule": (
+            gdn._chunk_gated_delta_rule_dispatch,
+            gdn.chunk_gated_delta_rule,
+            gdn._torch_chunk_gated_delta_rule,
+        ),
+        "_recurrent_gated_delta_rule": (
+            gdn._recurrent_gated_delta_rule_dispatch,
+            gdn.fused_recurrent_gated_delta_rule,
+            gdn._torch_recurrent_gated_delta_rule,
+        ),
+    }
+    dispatcher, accelerated, fallback = dispatchers[attr]
+    if fn is not dispatcher:
+        return fn
+    parameter = next(layer.parameters(), None)
+    if parameter is not None and parameter.is_cuda and accelerated is not None:
+        return accelerated
+    return fallback
+
+
+def _gdn_norm_name(layer):
+    norm = getattr(layer, "norm", None)
+    name = type(norm).__module__ + "." + type(norm).__name__
+    if getattr(norm, "_fla_backend", False):
+        parameter = next(layer.parameters(), None)
+        name += (
+            " (FLA; inference compile adapter)"
+            if parameter is not None and parameter.is_cuda
+            else " (PyTorch fallback)"
+        )
+    return name
+
+
 def inference_backend_summary(model, compile_enabled, compile_mode, speculative=False, num_drafts=0):
     """Return selected paths; graph capture and SDPA dispatch are runtime decisions."""
     from eole.modules.gated_delta_net import GatedDeltaNet
@@ -93,22 +138,12 @@ def inference_backend_summary(model, compile_enabled, compile_mode, speculative=
         ("_recurrent_gated_delta_rule", "GDN decode/verify/replay"),
     ):
         if gdn_layers:
-            selected = Counter(_kernel_name(getattr(layer, attr)) for layer in gdn_layers)
+            selected = Counter(_kernel_name(_selected_gdn_kernel(layer, attr)) for layer in gdn_layers)
             lines.append(
                 f"Inference {phase}: " + ", ".join(f"{name} [layers={count}]" for name, count in selected.items())
             )
     if gdn_layers:
-        norms = Counter(
-            type(getattr(layer, "norm", None)).__module__
-            + "."
-            + type(getattr(layer, "norm", None)).__name__
-            + (
-                " (FLA; inference compile adapter)"
-                if getattr(getattr(layer, "norm", None), "_fla_backend", False)
-                else ""
-            )
-            for layer in gdn_layers
-        )
+        norms = Counter(_gdn_norm_name(layer) for layer in gdn_layers)
         lines.append(
             "Inference GDN norm/gate: " + ", ".join(f"{name} [layers={count}]" for name, count in norms.items())
         )

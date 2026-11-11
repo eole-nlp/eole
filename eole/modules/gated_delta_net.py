@@ -275,9 +275,7 @@ def _torch_recurrent_gated_delta_rule(
     return core_attn_out, last_recurrent_state
 
 
-# Dispatch on the input, not package availability or the device at construction:
-# modules are commonly constructed on CPU before being moved to an accelerator.
-# Keep these boundaries shared by forward, cached decode and speculative replay.
+# Select kernels from the input device so dispatch follows module device moves.
 def _causal_conv1d_activation(activation):
     """Keep the PyTorch and optional GPU convolution activation contracts aligned."""
     if activation not in (None, "silu", "swish"):
@@ -288,7 +286,7 @@ def _causal_conv1d_activation(activation):
 def _causal_conv1d_dispatch(x, weight, bias=None, activation=None):
     activation = _causal_conv1d_activation(activation)
     if x.is_cuda and causal_conv1d_fn is not None:
-        return causal_conv1d_fn(x, weight, bias, activation)
+        return causal_conv1d_fn(x, weight, bias, activation=activation)
     output = F.conv1d(x, weight.unsqueeze(1), bias, padding=weight.shape[-1] - 1, groups=x.shape[1])
     output = output[..., : x.shape[-1]]
     return F.silu(output) if activation == "silu" else output
@@ -856,7 +854,6 @@ class GatedDeltaNet(nn.Module):
                 self.conv_state.copy_(
                     F.pad(mixed_qkv, (self.conv_kernel_size - mixed_qkv.shape[-1], 0))[:, :, -self.conv_kernel_size :]
                 )
-            # The dispatcher always exists and owns both accelerated and fallback execution.
             mixed_qkv = self._causal_conv1d_fn(
                 x=mixed_qkv,
                 weight=self.conv1d.weight.squeeze(1),
