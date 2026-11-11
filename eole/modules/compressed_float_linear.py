@@ -98,14 +98,24 @@ class CompressedFloatLinear(nn.Module):
     def fuse(cls, projections):
         if not all(isinstance(module, cls) for module in projections):
             raise ValueError("Mixed projection backends")
-        if any(module.qweight.dtype != torch.float8_e4m3fn for module in projections):
-            # Each NVFP4 projection retains its calibrated global scale.
-            return None
+        dtypes = {module.qweight.dtype for module in projections}
+        if len(dtypes) != 1:
+            raise ValueError("Mixed FP8 and NVFP4 projections")
+        fp4 = projections[0].qweight.dtype == torch.uint8
+        if fp4:
+            for name in ("weight_global_scale", "input_global_scale"):
+                scale = getattr(projections[0], name).float().reshape(-1)
+                if any(not torch.equal(getattr(module, name).float().reshape(-1), scale) for module in projections[1:]):
+                    # A single GEMM epilogue cannot preserve distinct global scales.
+                    return None
         if len({module.in_features for module in projections}) != 1:
             raise ValueError("Mismatched projection input dimensions")
         fused = cls(projections[0].in_features, sum(module.out_features for module in projections))
         fused.qweight = torch.cat([module.qweight for module in projections], dim=0)
-        fused.scales = torch.cat([module.scales.reshape(-1, 1) for module in projections], dim=0)
+        fused.scales = torch.cat([module.scales for module in projections], dim=0)
+        if fp4:
+            fused.weight_global_scale = projections[0].weight_global_scale.clone()
+            fused.input_global_scale = projections[0].input_global_scale.clone()
         if any(module.bias is not None for module in projections):
             bias = next(module.bias for module in projections if module.bias is not None)
             fused.bias = nn.Parameter(

@@ -211,6 +211,20 @@ class TestCompressedFloat(unittest.TestCase):
         wd = lut[codes] * layer.scales.float().repeat_interleave(16, dim=-1) / layer.weight_global_scale
         ref = xd @ wd.t()
         torch.testing.assert_close(layer(x).float(), ref, rtol=0.02, atol=0.25)
+        import copy
+
+        other = copy.deepcopy(layer)
+        other.qweight = other.qweight.roll(1, dims=0)
+        other.scales = other.scales.view(torch.uint8).roll(1, dims=0).view(torch.float8_e4m3fn)
+        other.post_init()
+        separate = torch.cat([layer(x), other(x)], dim=-1)
+        fused = CompressedFloatLinear.fuse([layer, other])
+        torch.testing.assert_close(fused(x), separate, rtol=0.01, atol=0.125)
+        for name in ("input_global_scale", "weight_global_scale"):
+            original = getattr(other, name).clone()
+            getattr(other, name).mul_(2)
+            self.assertIsNone(CompressedFloatLinear.fuse([layer, other]))
+            getattr(other, name).copy_(original)
         compiled = torch.compile(layer, fullgraph=True)
         expected = compiled(x).clone()
         graph = torch.cuda.CUDAGraph()
