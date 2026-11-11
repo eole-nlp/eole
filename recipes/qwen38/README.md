@@ -534,8 +534,9 @@ export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-NVFP4"
 
 Use the prediction YAMLs above with this model path. Runtime vocabulary
 quantization remains independent of the checkpoint's projection format.
-FP8 Q/K/V and GDN input projections support `fuse_kvq`; NVFP4 gate/up
-projections keep independent calibrated global scales and skip `fuse_gate`.
+FP8 Q/K/V and GDN input projections support `fuse_kvq`. NVFP4 gate/up
+projections support `fuse_gate` when both calibrated global scales match;
+otherwise they keep their independent projections.
 The KV cache remains floating-point; checkpoint FP8 KV-cache scales are not
 applied. FP32 normalization is unchanged.
 
@@ -543,6 +544,15 @@ FlashInfer may compile its GPU kernels on first use. To bound compilation
 parallelism on a desktop, set `MAX_JOBS=1 FLASHINFER_NVCC_THREADS=1`.
 The ModelOpt NVIDIA export and other NVFP4 configurations are not supported
 by this mixed-precision converter; unsupported schemes fail validation.
+
+This mixed export is not uniformly 4-bit: attention/GDN projections and the
+last eight MLP layers use FP8, and the vocabulary head stays BF16. Its decoder
+projections, scales and vocabulary head total about **20.37 GB**, compared with
+**15.14 GB** for the RedHat INT4 checkpoint with the same native vocabulary head
+(decimal GB; excludes embeddings, vision and attention/recurrent state). At
+batch size one this extra weight traffic can outweigh native FP4 arithmetic
+benefits. NVFP4 throughput claims against BF16/FP8 or at larger batch sizes
+do not establish a speedup over this INT4 checkpoint.
 
 Run a local greedy smoke test (add `--mode mtp` in place of `--mode none`
 to exercise the native MTP head):
