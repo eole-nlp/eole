@@ -129,6 +129,7 @@ setup(
         "pydantic",
     ],
     extras_require={
+        "nvfp4": ["flashinfer-python>=0.7.2,<0.8"],
         "ui": ["nvidia-ml-py>=12.0.0", "psutil>=5.9.0"],
         "translation": ["pypdf>=5.0.0"],
         "ocr": ["PyMuPDF>=1.24.0"],
