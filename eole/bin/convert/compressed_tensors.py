@@ -1,4 +1,4 @@
-"""Read symmetric grouped compressed-tensors INT4 as Eole's GPTQ layout.
+"""Read compressed-tensors INT4 and mixed NVFP4/FP8 checkpoints.
 
 Repacking changes only tensor layout, not quantized values or scales. No
 compressed-tensors runtime dependency is needed for conversion.
@@ -62,7 +62,11 @@ def repack_int4(packed, scales, shape, group_size):
     }
 
 
-class PackedCheckpoint(dict):
+class CompressedCheckpoint(dict):
+    """Lazy tensor view with raw checkpoint keys and source-key provenance."""
+
+
+class PackedCheckpoint(CompressedCheckpoint):
     """Lazy checkpoint view exposing GPTQ names without loading a whole shard."""
 
     def __init__(self, keys, read_tensor, group_size):
@@ -101,3 +105,75 @@ class PackedCheckpoint(dict):
                 self._prefix = prefix
             return self._converted[suffix]
         return self.read_tensor(key)
+
+
+def validate_float_config(config):
+    """Validate the static NVFP4 + per-channel FP8 mixed export we execute."""
+    if config.get("format") != "mixed-precision" or config.get("transform_config") or config.get("sparsity_config"):
+        raise ValueError("Unsupported compressed floating-point export")
+    formats = set()
+    for group in config.get("config_groups", {}).values():
+        w = group.get("weights") or {}
+        a = group.get("input_activations") or {}
+        fmt = group.get("format")
+        common = w.get("type") == "float" and w.get("symmetric") and not w.get("dynamic", False)
+        common = common and not w.get("block_structure") and w.get("actorder") in (None, "static")
+        common = common and not a.get("block_structure")
+        common = common and a.get("type") == "float" and a.get("symmetric") and not group.get("output_activations")
+        if fmt == "nvfp4-pack-quantized":
+            valid = (
+                w.get("num_bits") == 4
+                and w.get("group_size") == 16
+                and w.get("strategy") == "tensor_group"
+                and w.get("scale_dtype") == "torch.float8_e4m3fn"
+                and a.get("num_bits") == 4
+                and a.get("group_size") == 16
+                and a.get("strategy") == "tensor_group"
+                and a.get("dynamic") == "local"
+                and a.get("scale_dtype", "torch.float8_e4m3fn") == "torch.float8_e4m3fn"
+            )
+        elif fmt == "float-quantized":
+            valid = (
+                w.get("num_bits") == 8
+                and w.get("strategy") == "channel"
+                and a.get("num_bits") == 8
+                and a.get("strategy") == "token"
+                and a.get("dynamic") is True
+            )
+        else:
+            valid = False
+        if not common or not valid:
+            raise ValueError(f"Unsupported compressed floating-point group: {fmt}")
+        formats.add(fmt)
+    if "nvfp4-pack-quantized" not in formats:
+        raise ValueError("Expected an NVFP4 configuration group")
+
+
+class FloatCheckpoint(CompressedCheckpoint):
+    """Alias compressed floating codes/scales without altering their bytes."""
+
+    def __init__(self, keys, read_tensor, all_keys=None):
+        self.raw_keys = set(keys)
+        all_keys = set(all_keys) if all_keys is not None else self.raw_keys
+        self.read_tensor = read_tensor
+        self.aliases = {}
+        hidden = set()
+        for key in all_keys:
+            if not key.endswith(".weight_scale"):
+                continue
+            prefix = key.removesuffix(".weight_scale")
+            packed = prefix + ".weight_packed"
+            source = packed if packed in all_keys else prefix + ".weight"
+            companions = [key, prefix + ".weight_global_scale", prefix + ".input_global_scale"]
+            hidden.update([source, *companions])
+            if source in self.raw_keys:
+                self.aliases[prefix + ".qweight"] = source
+                self.aliases[prefix + ".scales"] = key
+                self.aliases.update({name: name for name in companions[1:] if name in all_keys})
+        dict.__init__(self, {key: None for key in (self.raw_keys - hidden) | self.aliases.keys()})
+
+    def source_keys(self, key):
+        return {self.aliases.get(key, key)}
+
+    def __getitem__(self, key):
+        return self.read_tensor(self.aliases.get(key, key))

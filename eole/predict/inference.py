@@ -33,6 +33,11 @@ class Inference(object):
     def _prepare_inference_projections(self, config):
         from eole.modules.hybrid_experts import prepare_hybrid_experts
 
+        if isinstance(self.model, torch.nn.Module):
+            for module in self.model.modules():
+                if getattr(module, "checkpoint_weight_layout", None) == "compressed_float":
+                    module.post_init()
+
         dense_quantization = getattr(config, "dense_quantization", "none")
         if dense_quantization != "none" and getattr(config, "parallel_gpu", 1) > 1:
             raise ValueError("Runtime dense quantization currently requires single-GPU inference")
