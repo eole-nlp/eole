@@ -115,7 +115,7 @@ setup(
         "rich",
         "sacrebleu",
         "safetensors",
-        "sentencepiece>=0.1.94,<=0.2.2",
+        "sentencepiece>=0.1.94,<=0.2.3",
         "six",
         "spacy",
         "subword-nmt>=0.3.7",
