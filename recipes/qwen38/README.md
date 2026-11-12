@@ -514,3 +514,56 @@ Beam search and other ineligible configurations retain their existing decoder
 path. The legacy compiled tensor-parallel beam path can still hang at worker
 shutdown; bound greedy/MTP decoding does not fix that separate path. Streaming
 inference remains limited to single-process mode.
+
+## Native NVFP4 / FP8 checkpoint
+
+`RedHatAI/Qwen3.8-27B-NVFP4` uses NVFP4 W4A4 MLP projections and FP8 W8A8
+attention projections, with native vision, vocabulary and MTP weights. This is
+a separate format from INT4 GPTQ; no conversion to integer codes is performed.
+The initial backend supports **single-GPU SM120 (RTX 5090)** inference with
+BF16 or FP16 activations. Install the optional FlashInfer dependency:
+
+```bash
+python -m pip install '.[nvfp4]'
+python eole/bin/main.py convert HF \
+  --model_dir RedHatAI/Qwen3.8-27B-NVFP4 \
+  --output "$EOLE_MODEL_DIR/Qwen3.8-27B-NVFP4" \
+  --nshards 4 --check-tensors
+export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-NVFP4"
+```
+
+Use the prediction YAMLs above with this model path. Runtime vocabulary
+quantization remains independent of the checkpoint's projection format.
+FP8 Q/K/V and GDN input projections support `fuse_kvq`. NVFP4 gate/up
+projections support `fuse_gate` when both calibrated global scales match;
+otherwise they keep their independent projections.
+The KV cache remains floating-point; checkpoint FP8 KV-cache scales are not
+applied. FP32 normalization is unchanged.
+
+FlashInfer may compile its GPU kernels on first use. To bound compilation
+parallelism on a desktop, set `MAX_JOBS=1 FLASHINFER_NVCC_THREADS=1`.
+The ModelOpt NVIDIA export and other NVFP4 configurations are not supported
+by this mixed-precision converter; unsupported schemes fail validation.
+
+This mixed export is not uniformly 4-bit: attention/GDN projections and the
+last eight MLP layers use FP8, and the vocabulary head stays BF16. Its decoder
+projections, scales and vocabulary head total about **20.37 GB**, compared with
+**15.14 GB** for the RedHat INT4 checkpoint with the same native vocabulary head
+(decimal GB; excludes embeddings, vision and attention/recurrent state). At
+batch size one this extra weight traffic can outweigh native FP4 arithmetic
+benefits. NVFP4 throughput claims against BF16/FP8 or at larger batch sizes
+do not establish a speedup over this INT4 checkpoint.
+
+Run a local greedy smoke test (add `--mode mtp` in place of `--mode none`
+to exercise the native MTP head):
+
+```bash
+MAX_JOBS=1 FLASHINFER_NVCC_THREADS=1 \
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+python recipes/qwen38/dflash2.py \
+  --model "$QWEN38_MODEL" --mode none --max-tokens 256 --repeats 2
+```
+
+Initial RTX 5090 measurements favor the existing INT4 checkpoint for
+single-sequence decoding. Native FP4/FP8 tensor-core projections benefit larger
+matrix batches; format support alone does not guarantee lower decode latency.

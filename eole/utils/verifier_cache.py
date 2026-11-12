@@ -77,7 +77,7 @@ def state_layout(model):
 
 def runtime_fingerprint(device):
     packages = {}
-    for name in ("triton", "fla-core", "flash-attn", "auto-round", "causal-conv1d"):
+    for name in ("triton", "fla-core", "flash-attn", "auto-round", "causal-conv1d", "flashinfer-python"):
         try:
             packages[name] = version(name)
         except PackageNotFoundError:

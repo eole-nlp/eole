@@ -242,11 +242,12 @@ def fuse_autoround_projections(projections, name="KVQ"):
     from eole.utils.logging import logger
 
     try:
-        from eole.modules.marlin_linear import MarlinQuantLinear
-
-        fused = MarlinQuantLinear.fuse(projections)
+        projection = next(module for module in projections if getattr(module, "supports_projection_fusion", False))
+        fused = type(projection).fuse(projections)
+        if fused is None:
+            return True, None
     except (ImportError, ValueError) as error:
-        logger.warning("Skipping Marlin %s fusion: %s", name, error)
+        logger.warning("Skipping %s fusion: %s", name, error)
         return True, None
     fused._runtime_dense_int8 = all(getattr(module, "_runtime_dense_int8", False) for module in projections)
     fused._projection_post_init_deferred = any(

@@ -477,6 +477,20 @@ class BaseModel(nn.Module):
                         module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
                         prefix=target_prefix(quant_target),
                     )
+            elif running_config.quant_type == "nvfp4":
+                from eole.modules.compressed_float_linear import replace_compressed_float_linear
+
+                if getattr(running_config, "parallel_gpu", 1) != 1:
+                    raise ValueError("NVFP4 inference currently requires a single GPU")
+                if running_config.compute_dtype not in (torch.float16, torch.bfloat16):
+                    raise ValueError("NVFP4 inference requires compute_dtype=fp16 or bf16")
+                for quant_target in quant_targets:
+                    replace_compressed_float_linear(
+                        quant_target,
+                        nonlora_to_quant,
+                        getattr(running_config, "quant_exclude_modules", []),
+                        target_prefix(quant_target),
+                    )
             elif running_config.quant_type == "gguf":
                 try:
                     from eole.modules.gguf_linear import replace_gguf_linear
@@ -739,6 +753,13 @@ class BaseModel(nn.Module):
                 module._sync_qtype_attr()
             return
 
+        if getattr(module, "checkpoint_weight_layout", None) == "compressed_float":
+            if is_buffer:
+                module.register_buffer(param_name, ckpt_t.contiguous())
+            else:
+                param.data = ckpt_t.contiguous()
+            return
+
         if getattr(module, "checkpoint_weight_layout", None) == "gptq":
             from eole.modules.quantization_loading import slice_gptq_checkpoint
 
@@ -819,6 +840,12 @@ class BaseModel(nn.Module):
 
     def _maybe_warn_missing_parameter(self, module_name, param_name, module, buffers_list):
         """Conditionally warn about a missing parameter with helpful context."""
+        if (
+            getattr(module, "checkpoint_weight_layout", None) == "compressed_float"
+            and module.qweight.dtype == torch.float8_e4m3fn
+            and param_name in ("weight_global_scale", "input_global_scale")
+        ):
+            return
         full_name = f"{module_name}.{param_name}"
         skip_patterns = ["lora", "slopes", "rope", "g_idx", "layer_scalar"]
         if any(p in full_name or p in param_name for p in skip_patterns):
