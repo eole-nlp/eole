@@ -791,3 +791,10 @@ def fp8_mm(
 @fp8_mm.register_fake
 def _fake_fp8_mm(x, weight, scale_x, scale_w, bf16):
     return x.new_empty((x.shape[0], weight.shape[0]), dtype=torch.bfloat16 if bf16 else torch.float16)
+
+
+def fp8_mma_supported(device):
+    """Check the selected compiled image once before capture, including PTX JIT."""
+    return bool(
+        _CPP_OPS_AVAILABLE and hasattr(_ops, "fp8_mma_supported") and _ops.fp8_mma_supported(torch.device(device).index)
+    )

@@ -658,3 +658,10 @@ The full incremental extension build took **12m05s** (including bindings and
 INT8/FP8 objects); the resulting complete extension is **43.7 MiB**. These are
 local measurements, not a clean-build estimate or the isolated FP8 size increase.
 The mixed backend remains SM120-only even with Marlin selected.
+
+The small-row FP8 path checks the **selected compiled CUDA image**, not only the
+physical GPU: pre-SM89 PTX JIT-compiled on a newer GPU uses the PyTorch FP8
+fallback. Direct calls to the custom operator reject that image before launch.
+The optional source also builds for SM75 without emitting unsupported async-copy
+instructions. Marlin FP8 requires an SM80+ compiled image. The one-time image
+probe runs during preparation, outside CUDA-graph capture.
