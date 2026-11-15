@@ -90,6 +90,7 @@ torch::Tensor moe_wna16_marlin_gemm(
 // ── Module ────────────────────────────────────────────────────────────────────
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+  m.attr("fp8_marlin_supported") = true;
   m.def("fp8_mm", &fp8_mm);
   m.def("int8_projection", &int8_projection_cuda);
   m.def("round_int8_inputs", &round_int8_inputs_cuda);
