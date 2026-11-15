@@ -11,16 +11,25 @@
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 #include <cstdint>
+#include <map>
+#include <mutex>
 
 namespace {
 
+// A runtime SM120 GPU can execute PTX compiled from an older target. Query
+// __CUDA_ARCH__ from the selected image instead of trusting the physical GPU.
+__global__ void compiled_fp8_arch(int* arch) {
+#ifdef __CUDA_ARCH__
+  *arch = __CUDA_ARCH__;
+#endif
+}
+
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 890
 __device__ __forceinline__ void mma(float (&d)[4], const uint32_t (&a)[4], uint32_t b0, uint32_t b1) {
-#if __CUDA_ARCH__ >= 890
   asm volatile("mma.sync.aligned.m16n8k32.row.col.f32.e4m3.e4m3.f32 "
                "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%0,%1,%2,%3};"
       : "+f"(d[0]), "+f"(d[1]), "+f"(d[2]), "+f"(d[3])
       : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]), "r"(b0), "r"(b1));
-#endif
 }
 
 __device__ __forceinline__ void async_copy16(uint8_t* dst,const uint8_t* src) {
@@ -76,6 +85,14 @@ __global__ void split_fp8(const uint8_t* __restrict__ x,const uint8_t* __restric
   }
 }
 
+#else
+// Keep older-target builds valid, but never silently produce zero projections.
+// The host preflight rejects this image before this defensive stub can launch.
+__global__ void split_fp8(const uint8_t*, const uint8_t*, float*, int, int, int) {
+  asm volatile("trap;");
+}
+#endif
+
 template<typename T> __global__ void finish_fp8(const float* __restrict__ partial,
                       const float* __restrict__ sa,const float* __restrict__ sb,
                       T* __restrict__ out,int M,int N) {
@@ -91,6 +108,38 @@ template<typename T> __global__ void finish_fp8(const float* __restrict__ partia
 
 }  // namespace
 
+// Resolve once per device during module preparation, outside CUDA capture.
+// Checking the selected image also catches old PTX JIT-compiled on a newer GPU.
+int64_t fp8_compiled_arch(int64_t device) {
+  c10::cuda::CUDAGuard guard(static_cast<c10::DeviceIndex>(device));
+  static std::mutex mutex;
+  static std::map<int64_t, int64_t> cache;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    auto found = cache.find(device);
+    if (found != cache.end()) return found->second;
+  }
+  auto stream = at::cuda::getCurrentCUDAStream();
+  cudaStreamCaptureStatus status;
+  C10_CUDA_CHECK(cudaStreamIsCapturing(stream, &status));
+  TORCH_CHECK(status == cudaStreamCaptureStatusNone,
+              "Initialize FP8 MMA support before CUDA graph capture");
+  auto value = torch::empty({1}, torch::TensorOptions().device(torch::kCUDA).dtype(torch::kInt));
+  compiled_fp8_arch<<<1, 1, 0, stream>>>(value.data_ptr<int>());
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  int arch = 0;
+  C10_CUDA_CHECK(cudaMemcpyAsync(&arch, value.data_ptr<int>(), sizeof(arch), cudaMemcpyDeviceToHost, stream));
+  C10_CUDA_CHECK(cudaStreamSynchronize(stream));
+  // Do not hold the cache mutex while waiting on a CUDA stream.
+  std::lock_guard<std::mutex> lock(mutex);
+  cache.emplace(device, arch);
+  return arch;
+}
+
+bool fp8_mma_supported(int64_t device) {
+  return fp8_compiled_arch(device) >= 890;
+}
+
 // Small-row E4M3 GEMM: four K splits, asynchronous shared-memory staging.
 torch::Tensor fp8_mm(torch::Tensor x,torch::Tensor w,torch::Tensor sa,torch::Tensor sb,bool bf16=true) {
   TORCH_CHECK(x.is_cuda() && w.is_cuda() && sa.is_cuda() && sb.is_cuda(),"CUDA tensors required");
@@ -103,6 +152,9 @@ torch::Tensor fp8_mm(torch::Tensor x,torch::Tensor w,torch::Tensor sa,torch::Ten
   TORCH_CHECK(sa.scalar_type()==at::kFloat && sb.scalar_type()==at::kFloat && sa.numel()==M && sb.numel()==N,"FP32 per-row scales required");
   auto prop=at::cuda::getCurrentDeviceProperties();
   TORCH_CHECK(prop->major*10+prop->minor>=89,"FP8 MMA requires SM89+");
+  TORCH_CHECK(fp8_mma_supported(x.get_device()),
+              "Eole FP8 MMA was compiled for a pre-SM89 target; rebuild with an SM89+ "
+              "CUDA target or use PyTorch scaled GEMM");
   auto partial=torch::empty({4,M,N},x.options().dtype(at::kFloat));
   auto out=torch::empty({M,N},x.options().dtype(bf16?at::kBFloat16:at::kHalf));
   auto stream=at::cuda::getCurrentCUDAStream();

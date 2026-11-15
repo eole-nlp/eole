@@ -7,7 +7,7 @@ is imported only for NVFP4 inference; small-row FP8 uses Eole CUDA MMA.
 import torch
 from torch import nn
 
-from eole.ops import fp8_mm, _DYNAMIC_QUANT_OPS_AVAILABLE
+from eole.ops import fp8_mm, fp8_mma_supported, _DYNAMIC_QUANT_OPS_AVAILABLE
 
 from eole.modules.quantization_selection import is_selected, is_excluded
 
@@ -101,7 +101,10 @@ class CompressedFloatLinear(nn.Module):
                 raise ValueError("FP8 requires E4M3 weights and one scale per output channel")
             self.scales = self.scales.float().reshape(-1, 1).contiguous()
             self.use_cuda_fp8 = (
-                _DYNAMIC_QUANT_OPS_AVAILABLE and self.in_features % 512 == 0 and self.out_features % 64 == 0
+                _DYNAMIC_QUANT_OPS_AVAILABLE
+                and self.in_features % 512 == 0
+                and self.out_features % 64 == 0
+                and fp8_mma_supported(self.qweight.device)
             )
 
     def prepare_marlin(self):
@@ -111,8 +114,10 @@ class CompressedFloatLinear(nn.Module):
         from eole import _ops
         from eole.modules.marlin_utils import marlin_permute_scales, marlin_make_workspace
 
-        if not getattr(_ops, "fp8_marlin_supported", False):
+        if not getattr(_ops, "fp8_marlin_supported", False) or not hasattr(_ops, "fp8_compiled_arch"):
             raise ValueError("Marlin FP8 requires rebuilt Eole CUDA kernels")
+        if _ops.fp8_compiled_arch(self.qweight.device.index) < 800:
+            raise ValueError("Marlin FP8 requires an SM80+ compiled CUDA image; rebuild the Eole kernels")
         if self.in_features % 128 or self.out_features % 64:
             raise ValueError("Marlin FP8 requires input/output widths divisible by 128/64")
         scales = marlin_permute_scales(self.scales.reshape(1, -1), self.in_features, self.out_features, -1)

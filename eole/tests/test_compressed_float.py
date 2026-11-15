@@ -13,6 +13,14 @@ from eole.modules.compressed_float_linear import CompressedFloatLinear
 
 
 class TestCompressedFloat(unittest.TestCase):
+    def test_old_extension_without_fp8_image_check_is_not_used(self):
+        from unittest.mock import patch
+        from eole.ops import fp8_mma_supported
+
+        with patch("eole.ops._CPP_OPS_AVAILABLE", True):
+            with patch("eole.ops._ops", SimpleNamespace(), create=True):
+                self.assertFalse(fp8_mma_supported(torch.device("cuda:0")))
+
     def test_marlin_is_opt_in_and_requires_matching_extension(self):
         from unittest.mock import patch
         from eole.config.inference import InferenceConfig
@@ -282,6 +290,21 @@ class TestSmallRowFP8(unittest.TestCase):
                 torch.testing.assert_close(output, actual, rtol=0, atol=0)
         torch._dynamo.reset()
 
+    def test_unsupported_compiled_image_uses_scaled_mm(self):
+        from unittest.mock import patch
+
+        layer = CompressedFloatLinear(512, 128).cuda()
+        layer.qweight = torch.randn(128, 512, device="cuda").to(torch.float8_e4m3fn)
+        layer.scales = torch.ones(128, 1, device="cuda")
+        with patch("eole.modules.compressed_float_linear.fp8_mma_supported", return_value=False):
+            layer.post_init()
+        self.assertFalse(layer.use_cuda_fp8)
+        x = torch.randn(3, 512, device="cuda", dtype=torch.bfloat16)
+        scale = x.float().abs().amax(-1, keepdim=True).clamp_min(1e-12) / 448
+        q = (x.float() / scale).clamp(-448, 448).to(torch.float8_e4m3fn)
+        expected = torch._scaled_mm(q, layer.qweight.t(), scale_a=scale, scale_b=layer.scales.t(), out_dtype=x.dtype)
+        torch.testing.assert_close(layer(x), expected, rtol=0, atol=0)
+
     def test_unsupported_width_uses_scaled_mm(self):
         layer = CompressedFloatLinear(256, 128).cuda()
         layer.qweight = torch.ones(128, 256, device="cuda").to(torch.float8_e4m3fn)
@@ -354,3 +377,14 @@ class TestMarlinFP8(unittest.TestCase):
         torch.testing.assert_close(layer.marlin_scales_fp16, expected_scales, rtol=0, atol=0)
         x = torch.ones(3, 128, device="cuda", dtype=torch.float16)
         torch.testing.assert_close(layer(x).float(), (128 * scales).expand(3, -1), rtol=0.003, atol=6e-8)
+
+    def test_marlin_rejects_pre_ampere_compiled_image(self):
+        from unittest.mock import patch
+
+        layer = CompressedFloatLinear(128, 128).cuda()
+        layer.qweight = torch.ones(128, 128, device="cuda").to(torch.float8_e4m3fn)
+        layer.scales = torch.ones(128, 1, device="cuda")
+        layer.post_init()
+        with patch("eole._ops.fp8_compiled_arch", return_value=750):
+            with self.assertRaisesRegex(ValueError, r"SM80\+ compiled CUDA image"):
+                layer.prepare_marlin()
