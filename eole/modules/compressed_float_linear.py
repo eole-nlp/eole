@@ -51,6 +51,8 @@ class CompressedFloatLinear(nn.Module):
         self.bias = nn.Parameter(torch.zeros(out_features)) if bias else None
         self.is_fp4 = False
         self.use_cuda_fp8 = False
+        for name in ("marlin_qweight", "marlin_scales_fp16", "marlin_scales_bf16", "marlin_workspace"):
+            self.register_buffer(name, None, persistent=False)
 
     def _apply(self, fn, recurse=True):
         # Module.to(dtype) must not cast FP8 weight codes or block scales. Probe
@@ -72,6 +74,8 @@ class CompressedFloatLinear(nn.Module):
     def post_init(self):
         if self.qweight.device.type != "cuda" or torch.cuda.get_device_capability(self.qweight.device) != (12, 0):
             raise ValueError("NVFP4/FP8 compressed inference currently requires an SM120 GPU")
+        if self.marlin_qweight is not None:
+            return
         self.is_fp4 = self.qweight.dtype == torch.uint8
         expected = (self.out_features, self.in_features // 2 if self.is_fp4 else self.in_features)
         if tuple(self.qweight.shape) != expected:
@@ -100,10 +104,39 @@ class CompressedFloatLinear(nn.Module):
                 _DYNAMIC_QUANT_OPS_AVAILABLE and self.in_features % 512 == 0 and self.out_features % 64 == 0
             )
 
+    def prepare_marlin(self):
+        """Pack after projection fusion; retain one GPU weight layout for all row counts."""
+        if self.is_fp4 or self.marlin_qweight is not None:
+            return
+        from eole import _ops
+        from eole.modules.marlin_utils import marlin_permute_scales, marlin_make_workspace
+
+        if not getattr(_ops, "fp8_marlin_supported", False):
+            raise ValueError("Marlin FP8 requires rebuilt Eole CUDA kernels")
+        if self.in_features % 128 or self.out_features % 64:
+            raise ValueError("Marlin FP8 requires input/output widths divisible by 128/64")
+        scales = marlin_permute_scales(self.scales.reshape(1, -1), self.in_features, self.out_features, -1)
+        # Marlin folds FP8 exponent conversion into the channel scales. Keep
+        # both tiny scale arrays so FP16/BF16 inputs and Module.to(dtype) work.
+        half = scales.half() * (2.0**8)
+        bfloat = scales.bfloat16() * (2.0**120)
+        if not bool(torch.isfinite(half).all() & torch.isfinite(bfloat).all()):
+            raise ValueError("FP8 channel scales exceed Marlin's FP16/BF16 exponent-bias range")
+        packed = self.qweight.view(torch.int32).t().contiguous()
+        empty = torch.empty(0, device=packed.device, dtype=torch.int32)
+        self.marlin_qweight = _ops.gptq_marlin_repack(packed, empty, self.in_features, self.out_features, 8)
+        self.marlin_scales_fp16, self.marlin_scales_bf16 = half, bfloat
+        self.marlin_workspace = marlin_make_workspace(packed.device)
+        # Packing permutes the existing FP8 codes; it does not requantize them.
+        self.qweight = self.qweight.new_empty(0)
+        self.use_cuda_fp8 = False
+
     @classmethod
     def fuse(cls, projections):
         if not all(isinstance(module, cls) for module in projections):
             raise ValueError("Mixed projection backends")
+        if any(module.marlin_qweight is not None for module in projections):
+            raise ValueError("Projection fusion must precede Marlin FP8 packing")
         dtypes = {module.qweight.dtype for module in projections}
         if len(dtypes) != 1:
             raise ValueError("Mixed FP8 and NVFP4 projections")
@@ -139,7 +172,25 @@ class CompressedFloatLinear(nn.Module):
     def forward(self, x):
         shape = x.shape
         x = x.reshape(-1, self.in_features).contiguous()
-        if self.is_fp4:
+        if self.marlin_qweight is not None:
+            from eole.modules.marlin_utils import apply_gptq_marlin_linear
+            from eole.modules.marlin_scalar_type import scalar_types
+
+            scales = self.marlin_scales_bf16 if x.dtype == torch.bfloat16 else self.marlin_scales_fp16
+            out = apply_gptq_marlin_linear(
+                x,
+                self.marlin_qweight,
+                scales,
+                None,
+                None,
+                None,
+                self.marlin_workspace,
+                scalar_types.float8_e4m3fn,
+                self.out_features,
+                self.in_features,
+                True,
+            )
+        elif self.is_fp4:
             out = nvfp4_linear(x, self.qweight, self.swizzled_scales, self.input_global_scale, self.alpha)
         else:
             scale = x.float().abs().amax(dim=-1, keepdim=True).clamp_min(1e-12) / 448.0

@@ -108,6 +108,16 @@ class Inference(object):
 
         if isinstance(self.model, torch.nn.Module):
             finalize_deferred_autoround_linear(self.model)
+            if getattr(config, "fp8_backend", "native") == "marlin":
+                count = 0
+                for module in self.model.modules():
+                    if getattr(module, "checkpoint_weight_layout", None) == "compressed_float":
+                        module.prepare_marlin()
+                        count += int(module.marlin_qweight is not None)
+                from eole.utils.logging import logger
+
+                logger.info("Marlin FP8 W8A16 projections: %d", count)
+                torch.cuda.empty_cache()
         # Release native dense/head weights before allocating bounded expert banks.
         prepare_hybrid_experts(self.model, config)
         if dense_quantization != "none":

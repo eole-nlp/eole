@@ -13,6 +13,16 @@ from eole.modules.compressed_float_linear import CompressedFloatLinear
 
 
 class TestCompressedFloat(unittest.TestCase):
+    def test_marlin_is_opt_in_and_requires_matching_extension(self):
+        from unittest.mock import patch
+        from eole.config.inference import InferenceConfig
+
+        self.assertEqual(InferenceConfig().fp8_backend, "native")
+        layer = CompressedFloatLinear(128, 64)
+        with patch("eole._ops", SimpleNamespace(fp8_marlin_supported=False), create=True):
+            with self.assertRaisesRegex(ValueError, "rebuilt Eole CUDA"):
+                layer.prepare_marlin()
+
     def test_aliases_preserve_codes_and_native_weights(self):
         tensors = {
             "a.weight_packed": torch.tensor([[0x81, 0x7F]], dtype=torch.uint8),
@@ -267,3 +277,55 @@ class TestSmallRowFP8(unittest.TestCase):
         layer.scales = torch.ones(128, 1, device="cuda")
         layer.post_init()
         self.assertFalse(layer.use_cuda_fp8)
+
+
+@unittest.skipUnless(
+    torch.cuda.is_available() and torch.cuda.get_device_capability() == (12, 0),
+    "SM120 required",
+)
+class TestMarlinFP8(unittest.TestCase):
+    def test_weight_only_reference_layout_and_capture(self):
+        torch.manual_seed(29)
+        layer = CompressedFloatLinear(512, 128).cuda()
+        layer.qweight = torch.randn(128, 512, device="cuda").to(torch.float8_e4m3fn)
+        layer.scales = torch.rand(128, 1, device="cuda") * 0.01 + 0.001
+        layer.post_init()
+        weight = layer.qweight.float().clone()
+        scales = layer.scales.clone()
+        layer.prepare_marlin()
+        self.assertEqual(layer.qweight.numel(), 0)
+        self.assertEqual(layer.marlin_qweight.numel() * 4, weight.numel())
+        layer.prepare_marlin()  # Idempotent setup.
+        with self.assertRaisesRegex(ValueError, "fusion must precede"):
+            CompressedFloatLinear.fuse([layer, layer])
+        for dtype in (torch.bfloat16, torch.float16):
+            layer.to(dtype=dtype)
+            for rows in (1, 3, 8, 16, 33, 128):
+                x = torch.randn(rows, 512, device="cuda", dtype=dtype)
+                expected = x.float() @ weight.t() * scales.t()
+                actual = layer(x)
+                rms = ((actual.float() - expected).square().mean() / expected.square().mean()).sqrt()
+                self.assertLess(rms.item(), 0.007)
+            compiled = torch.compile(layer, fullgraph=True)
+            torch.testing.assert_close(compiled(x), layer(x), rtol=0, atol=0)
+            graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(graph):
+                output = compiled(x)
+            x.normal_()
+            graph.replay()
+            torch.testing.assert_close(output, layer(x), rtol=0, atol=0)
+        torch._dynamo.reset()
+
+    def test_all_finite_fp8_codes(self):
+        codes = torch.arange(256, device="cuda", dtype=torch.int16)
+        codes = torch.where((codes & 127) == 127, 0, codes).to(torch.uint8)
+        weight = codes[:, None].expand(256, 128).contiguous().view(torch.float8_e4m3fn)
+        layer = CompressedFloatLinear(128, 256).cuda()
+        layer.qweight = weight
+        layer.scales = torch.full((256, 1), 0.01, device="cuda")
+        layer.post_init()
+        layer.prepare_marlin()
+        for dtype in (torch.bfloat16, torch.float16):
+            x = torch.ones(3, 128, device="cuda", dtype=dtype)
+            reference = (x.float() @ weight.float().t()) * 0.01
+            torch.testing.assert_close(layer(x).float(), reference, rtol=0.01, atol=1e-5)

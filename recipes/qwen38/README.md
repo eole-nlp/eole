@@ -578,15 +578,15 @@ matrix batches; format support alone does not guarantee lower decode latency.
 
 ### Matched single-sequence and batch-8 decoding
 
-RTX 5090, PyTorch 2.15.0+cu132, Triton 3.9.0, FLA 0.6.0,
-FlashAttention 2.8.3, FlashInfer 0.7.2, `TRITON_DEFAULT_FP_FUSION=1`.
-BF16 compute and vocabulary heads, greedy decoding without speculation,
-compile mode 0 and captured CUDA graphs, fusion enabled, context 1024 and
-prefill chunks of 128. Each fixture produces 128 tokens per sequence. Reported
-throughput is the median of two 96-step decoding windows after 16 initial steps;
-prefill and compilation are excluded. Batch 8 is a real eight-sequence batch,
-not eight independent HTTP clients. Figures are aggregate tokens/second; divide
-batch-8 figures by eight for per-sequence speed.
+RTX 5090, PyTorch 2.15.0+cu132, Triton 3.9.0, FLA 0.6.0, FlashAttention
+2.8.3, FlashInfer 0.7.2, `TRITON_DEFAULT_FP_FUSION=1`. BF16 compute and
+vocabulary heads, greedy/no speculation, compile mode 0 and CUDA graphs,
+fusion enabled, context 1024, prefill chunks 128 and expandable allocation.
+Code/English/translation are the existing recipe fixtures with thinking disabled.
+Each sequence generates 128 tokens. Throughput is the median of two steady
+96-step windows after 16 initial steps, excluding prefill, compilation and graph
+setup. Batch-8 figures are aggregate tokens/second for a true eight-sequence
+batch; divide by eight for per-sequence speed, not independent HTTP concurrency.
 
 | Checkpoint / FP8 backend | Batch | Code | English | Translation |
 |---|---:|---:|---:|---:|
@@ -594,40 +594,60 @@ batch-8 figures by eight for per-sequence speed.
 | RedHat INT4 / Marlin | 8 | 492.9 | 490.4 | 490.9 |
 | RedHat NVFP4 / previous ATen FP8 | 1 | 56.0 | 55.7 | 55.9 |
 | RedHat NVFP4 / previous ATen FP8 | 8 | 355.5 | 353.8 | 353.2 |
-| RedHat NVFP4 / CUDA FP8 | 1 | 62.1 | 61.9 | 62.2 |
-| RedHat NVFP4 / CUDA FP8 | 8 | 392.1 | 392.1 | 392.5 |
+| RedHat NVFP4 / CUDA W8A8 | 1 | 62.1 | 61.9 | 62.1 |
+| RedHat NVFP4 / Marlin W8A16 | 1 | 65.1 | 64.9 | 65.1 |
+| RedHat NVFP4 / CUDA W8A8 | 8 | 391.7 | 393.4 | 390.9 |
+| RedHat NVFP4 / Marlin W8A16 | 8 | 397.6 | 395.4 | 394.6 |
 
-The CUDA FP8 path improves this mixed checkpoint by about 11%; it does not
-surpass the INT4 checkpoint. The two checkpoints have different weight coverage
-and quantization. Reduction order also differs between FP8 kernels: these are
-speed measurements, not quality scores or a claim of bit-identical generation.
+CUDA W8A8 improves the mixed checkpoint by about 11% over its original ATen
+path. Marlin adds about 5% for a single sequence; its batch-8 gain is marginal,
+around 1%, and prefill is not uniformly faster. Native W8A8 remains the default.
+Neither backend surpasses the INT4 checkpoint here; the exports have different
+quantization and weight coverage. These are speed measurements, not quality
+scores or a claim of bit-identical generation. The native/Marlin pair was rerun
+together; INT4 and ATen rows retain the earlier same-settings controls. An INT4
+single-sequence rerun after the Marlin rebuild remained about 85 tok/s.
 
-Reproduce on each checkpoint (add `--fp8-torch-reference` for the previous
-FP8 path, and use `--batch 8` for the batched measurements):
+The default `fp8_backend: native` retains W8A8 and the small-row CUDA FP8
+kernel. `fp8_backend: marlin` is an opt-in W8A16 alternative: FP8 codes are
+repacked after fusion and the original GPU layout is released. Marlin handles
+both prefill and decoding, including attention/GDN and the last eight FP8 MLP
+layers. NVFP4 projections continue using FlashInfer. No full weight duplicate is
+retained; peak VRAM rises by only about 7 MiB for the scale arrays.
+
+Marlin removes FP8 activation rounding and applies channel scales in the compute
+dtype with its exponent-bias adjustment. This changes arithmetic and can change
+continuations, although the checkpoint's weight codes are not requantized.
+Normalization remains unchanged. The verifier cache distinguishes backend choices.
 
 ```bash
+MAX_JOBS=1 python setup.py build_ext --inplace
 CUDA_VISIBLE_DEVICES=0 PYTORCH_ALLOC_CONF=expandable_segments:True \
 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 TRITON_DEFAULT_FP_FUSION=1 \
 python recipes/qwen38/benchmark_batch_decode.py \
-  --model "$QWEN38_MODEL" --batch 1 --repeats 2 --output /tmp/qwen-batch1.json
+  --model "$QWEN38_MODEL" --batch 1 --fp8-backend marlin \
+  --repeats 2 --output /tmp/qwen-marlin-batch1.json
 ```
 
-Small-row projection measurements below include activation quantization and
-report median GPU microseconds across 30 warm graph replays. A 256 MiB eviction
-pass precedes each timed call, outside its timed interval. FP8 gate/up and down
-use the checkpoint's last eight FP8 layers; NVFP4 uses its earlier FP4 layers of
-the same shapes. INT8 is group-32 W8A8, measured at projection level against its
-previous Triton implementation; this is not a full INT8-model benchmark.
+Use `--fp8-backend native` for W8A8 and `--batch 8` for batching. Add
+`--fp8-torch-reference` with the native backend to compare against the original
+ATen FP8 path. For normal inference YAMLs, set `fp8_backend: marlin` at the root.
 
-| Projection (N × K) | Rows | INT8 Triton | INT8 CUDA | FP8 ATen | FP8 CUDA | NVFP4 CUDA |
+Projection figures below are GPU microseconds with activation preparation
+included, warm CUDA-graph replay, and a read-only 256 MiB cache eviction outside
+each timed interval. INT8 pairs use 30 measured repetitions; FP8 pairs use 40.
+NVFP4 uses earlier FP4 MLP layers of the same shapes as the last eight FP8 layers.
+INT8 is group-32 W8A8 measured against its previous Triton implementation;
+these are projection tests, not a full INT8-checkpoint benchmark.
+
+| Projection (N × K) | Rows | INT8 Triton | INT8 CUDA | FP8 CUDA W8A8 | FP8 Marlin W8A16 | NVFP4 CUDA |
 |---|---:|---:|---:|---:|---:|---:|
-| gdn_qkvz (16384 × 5120) | 1 | 59.4 | 59.4 | 63.5 | 63.5 | — |
-| gdn_qkvz (16384 × 5120) | 8 | 192.5 | 114.3 | 63.5 | 59.0 | — |
-| gate_up (34816 × 5120) | 1 | 116.7 | 118.4 | 180.2 | 139.3 | 67.6 |
-| gate_up (34816 × 5120) | 8 | 894.8 | 229.4 | 176.1 | 118.8 | 67.6 |
-| down (5120 × 17408) | 1 | 61.4 | 63.5 | 108.5 | 62.3 | 42.6 |
-| down (5120 × 17408) | 8 | 214.7 | 137.2 | 108.2 | 61.4 | 41.0 |
+| gdn_qkvz (16384 × 5120) | 1 | 59.4 | 59.4 | 63.5 | 55.3 | — |
+| gdn_qkvz (16384 × 5120) | 8 | 192.5 | 114.3 | 59.4 | 55.3 | — |
+| gate_up (34816 × 5120) | 1 | 116.7 | 118.4 | 138.8 | 112.6 | 67.6 |
+| gate_up (34816 × 5120) | 8 | 894.8 | 229.4 | 118.8 | 112.6 | 67.6 |
+| down (5120 × 17408) | 1 | 61.4 | 63.5 | 63.3 | 59.0 | 42.6 |
+| down (5120 × 17408) | 8 | 214.7 | 137.2 | 61.4 | 59.4 | 41.0 |
 
-The INT8 CUDA kernel reuses weights across up to eight rows; single-row speed
-is approximately unchanged. Both the INT8 rounding policy and FP8 checkpoint
-codes/scales are preserved. Normalization remains FP32 where previously used.
+The INT8 CUDA kernel shares weight loads across up to eight rows; single-row
+speed is approximately unchanged. Its activation rounding policy is preserved.

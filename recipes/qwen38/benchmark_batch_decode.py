@@ -21,12 +21,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True)
     parser.add_argument("--batch", type=int, choices=(1, 8), required=True)
+    parser.add_argument("--fp8-backend", choices=("native", "marlin"), default="native")
     parser.add_argument("--repeats", type=int, default=2)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--fp8-torch-reference", action="store_true", help="Compare against the previous scaled_mm path"
     )
     args = parser.parse_args()
+    if args.fp8_torch_reference and args.fp8_backend != "native":
+        parser.error("--fp8-torch-reference requires --fp8-backend native")
     if args.repeats < 1:
         parser.error("--repeats must be positive")
     if args.fp8_torch_reference:
@@ -63,6 +66,7 @@ def main():
         fuse_kvq=True,
         fuse_gate=True,
         vocabulary_quantization="none",
+        fp8_backend=args.fp8_backend,
     )
     engine = InferenceEnginePY(config)
     predictor = engine.predictor
