@@ -1,11 +1,13 @@
 """Native NVFP4/FP8 Linear weights from compressed-tensors checkpoints.
 
 Weight codes and checkpoint scales remain in their original precision. FlashInfer
-is imported only for NVFP4 inference; FP8 uses PyTorch's scaled GEMM.
+is imported only for NVFP4 inference; small-row FP8 uses Eole CUDA MMA.
 """
 
 import torch
 from torch import nn
+
+from eole.ops import fp8_mm, _DYNAMIC_QUANT_OPS_AVAILABLE
 
 from eole.modules.quantization_selection import is_selected, is_excluded
 
@@ -48,6 +50,7 @@ class CompressedFloatLinear(nn.Module):
         self.register_buffer("alpha", None, persistent=False)
         self.bias = nn.Parameter(torch.zeros(out_features)) if bias else None
         self.is_fp4 = False
+        self.use_cuda_fp8 = False
 
     def _apply(self, fn, recurse=True):
         # Module.to(dtype) must not cast FP8 weight codes or block scales. Probe
@@ -93,6 +96,9 @@ class CompressedFloatLinear(nn.Module):
             if self.qweight.dtype != torch.float8_e4m3fn or self.scales.numel() != self.out_features:
                 raise ValueError("FP8 requires E4M3 weights and one scale per output channel")
             self.scales = self.scales.float().reshape(-1, 1).contiguous()
+            self.use_cuda_fp8 = (
+                _DYNAMIC_QUANT_OPS_AVAILABLE and self.in_features % 512 == 0 and self.out_features % 64 == 0
+            )
 
     @classmethod
     def fuse(cls, projections):
@@ -138,9 +144,12 @@ class CompressedFloatLinear(nn.Module):
         else:
             scale = x.float().abs().amax(dim=-1, keepdim=True).clamp_min(1e-12) / 448.0
             quantized = (x.float() / scale).clamp(-448, 448).to(torch.float8_e4m3fn)
-            out = torch._scaled_mm(
-                quantized, self.qweight.t(), scale_a=scale, scale_b=self.scales.t(), out_dtype=x.dtype
-            )
+            if self.use_cuda_fp8 and 1 <= x.shape[0] <= 16 and x.dtype in (torch.bfloat16, torch.float16):
+                out = fp8_mm(quantized, self.qweight, scale, self.scales, x.dtype == torch.bfloat16)
+            else:
+                out = torch._scaled_mm(
+                    quantized, self.qweight.t(), scale_a=scale, scale_b=self.scales.t(), out_dtype=x.dtype
+                )
         if self.bias is not None:
             out = out + self.bias
         return out.reshape(*shape[:-1], self.out_features)

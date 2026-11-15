@@ -57,6 +57,8 @@ def get_ext_modules_and_cmdclass():
         "csrc/quantization/marlin/marlin_repack.cu",
         "csrc/quantization/marlin/marlin_dense.cu",
         "csrc/quantization/marlin/marlin_moe_wna16.cu",
+        "csrc/quantization/dynamic/fp8.cu",
+        "csrc/quantization/dynamic/int8.cu",
         "csrc/bindings.cpp",
     ]
 

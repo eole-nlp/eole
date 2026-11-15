@@ -42,10 +42,10 @@ class Inference(object):
         if dense_quantization != "none" and getattr(config, "parallel_gpu", 1) > 1:
             raise ValueError("Runtime dense quantization currently requires single-GPU inference")
         if dense_quantization == "w8a8":
-            from importlib.util import find_spec
+            from eole.ops import _DYNAMIC_QUANT_OPS_AVAILABLE
 
-            if find_spec("triton") is None:
-                raise ValueError("W8A8 decoder quantization requires Triton")
+            if not _DYNAMIC_QUANT_OPS_AVAILABLE:
+                raise ValueError("W8A8 decoder quantization requires rebuilt Eole CUDA kernels")
         from eole.modules.autoround_linear import finalize_deferred_autoround_linear
 
         vocabulary_quantization = getattr(config, "vocabulary_quantization", "none")
