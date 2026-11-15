@@ -116,7 +116,10 @@ class Inference(object):
                         count += int(module.marlin_qweight is not None)
                 from eole.utils.logging import logger
 
-                logger.info("Marlin FP8 W8A16 projections: %d", count)
+                if count:
+                    logger.info("Marlin FP8 W8A16 projections: %d", count)
+                else:
+                    logger.warning("fp8_backend=marlin selected, but this model has no FP8 projections; no effect")
                 torch.cuda.empty_cache()
         # Release native dense/head weights before allocating bounded expert banks.
         prepare_hybrid_experts(self.model, config)

@@ -118,7 +118,7 @@ class CompressedFloatLinear(nn.Module):
         scales = marlin_permute_scales(self.scales.reshape(1, -1), self.in_features, self.out_features, -1)
         # Marlin folds FP8 exponent conversion into the channel scales. Keep
         # both tiny scale arrays so FP16/BF16 inputs and Module.to(dtype) work.
-        half = scales.half() * (2.0**8)
+        half = (scales * (2.0**8)).half()
         bfloat = scales.bfloat16() * (2.0**120)
         if not bool(torch.isfinite(half).all() & torch.isfinite(bfloat).all()):
             raise ValueError("FP8 channel scales exceed Marlin's FP16/BF16 exponent-bias range")

@@ -698,3 +698,10 @@ these are projection tests, not a full INT8-checkpoint benchmark.
 
 The INT8 CUDA kernel shares weight loads across up to eight rows; single-row
 speed is approximately unchanged. Its activation rounding policy is preserved.
+
+Rebuilding the dense Marlin translation unit with FP8 dispatch took **9m49s**
+on the local Ryzen 5900X with `MAX_JOBS=1`, targeting both SM89 and SM120.
+The full incremental extension build took **12m05s** (including bindings and
+INT8/FP8 objects); the resulting complete extension is **43.7 MiB**. These are
+local measurements, not a clean-build estimate or the isolated FP8 size increase.
+The mixed backend remains SM120-only even with Marlin selected.
