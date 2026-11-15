@@ -233,3 +233,37 @@ class TestCompressedFloat(unittest.TestCase):
         graph.replay()
         torch.testing.assert_close(actual, expected, rtol=0, atol=0)
         torch.testing.assert_close(layer.half()(x.half()).float(), ref, rtol=0.02, atol=0.25)
+
+
+@unittest.skipUnless(torch.cuda.is_available() and torch.cuda.get_device_capability() == (12, 0), "SM120 required")
+class TestSmallRowFP8(unittest.TestCase):
+    def test_reference_tail_rows_and_graph(self):
+        from eole.ops import fp8_mm, _DYNAMIC_QUANT_OPS_AVAILABLE
+
+        self.assertTrue(_DYNAMIC_QUANT_OPS_AVAILABLE, "Rebuild Eole CUDA kernels")
+        torch.manual_seed(13)
+        for dtype in (torch.bfloat16, torch.float16):
+            weight = torch.randn(128, 512, device="cuda").to(torch.float8_e4m3fn)
+            scales_w = torch.rand(128, 1, device="cuda") + 0.1
+            for rows in (1, 3, 8, 16):
+                x = torch.randn(rows, 512, device="cuda").to(torch.float8_e4m3fn)
+                scales_x = torch.rand(rows, 1, device="cuda") + 0.1
+                expected = torch._scaled_mm(x, weight.t(), scale_a=scales_x, scale_b=scales_w.t(), out_dtype=dtype)
+                fn = torch.compile(
+                    lambda a: fp8_mm(a, weight, scales_x, scales_w, dtype == torch.bfloat16), fullgraph=True
+                )
+                actual = fn(x)
+                torch.testing.assert_close(actual, expected, rtol=0.01, atol=0.125)
+                graph = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(graph):
+                    output = fn(x)
+                graph.replay()
+                torch.testing.assert_close(output, actual, rtol=0, atol=0)
+        torch._dynamo.reset()
+
+    def test_unsupported_width_uses_scaled_mm(self):
+        layer = CompressedFloatLinear(256, 128).cuda()
+        layer.qweight = torch.ones(128, 256, device="cuda").to(torch.float8_e4m3fn)
+        layer.scales = torch.ones(128, 1, device="cuda")
+        layer.post_init()
+        self.assertFalse(layer.use_cuda_fp8)

@@ -1,6 +1,10 @@
 #include <torch/extension.h>
 #include <optional>
 
+torch::Tensor fp8_mm(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, bool);
+torch::Tensor int8_projection_cuda(torch::Tensor, torch::Tensor, torch::Tensor);
+torch::Tensor round_int8_inputs_cuda(torch::Tensor);
+
 // ── Forward declarations ──────────────────────────────────────────────────────
 
 void rms_norm(torch::Tensor& out, torch::Tensor& input, torch::Tensor& weight,
@@ -86,6 +90,9 @@ torch::Tensor moe_wna16_marlin_gemm(
 // ── Module ────────────────────────────────────────────────────────────────────
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+  m.def("fp8_mm", &fp8_mm);
+  m.def("int8_projection", &int8_projection_cuda);
+  m.def("round_int8_inputs", &round_int8_inputs_cuda);
 
   // RMS Norm
   m.def("rms_norm", &rms_norm,

@@ -581,6 +581,13 @@ export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-NVFP4"
 
 Use the prediction YAMLs above with this model path. Runtime vocabulary
 quantization remains independent of the checkpoint's projection format.
+Rebuild the Eole CUDA extension to enable its small-row FP8 E4M3 MMA kernel:
+`MAX_JOBS=1 python setup.py build_ext --inplace`. It handles 1–16 rows with
+input widths divisible by 512 and output widths divisible by 64. Other shapes,
+large prefill batches and older extensions retain PyTorch scaled GEMM. Dynamic
+per-token activation quantization and per-channel checkpoint scales are preserved.
+NVFP4 continues to use FlashInfer CUDA; no extra weight layout is retained.
+
 FP8 Q/K/V and GDN input projections support `fuse_kvq`. NVFP4 gate/up
 projections support `fuse_gate` when both calibrated global scales match;
 otherwise they keep their independent projections.
@@ -614,3 +621,60 @@ python recipes/qwen38/dflash2.py \
 Initial RTX 5090 measurements favor the existing INT4 checkpoint for
 single-sequence decoding. Native FP4/FP8 tensor-core projections benefit larger
 matrix batches; format support alone does not guarantee lower decode latency.
+
+
+### Matched single-sequence and batch-8 decoding
+
+RTX 5090, PyTorch 2.15.0+cu132, Triton 3.9.0, FLA 0.6.0,
+FlashAttention 2.8.3, FlashInfer 0.7.2, `TRITON_DEFAULT_FP_FUSION=1`.
+BF16 compute and vocabulary heads, greedy decoding without speculation,
+compile mode 0 and captured CUDA graphs, fusion enabled, context 1024 and
+prefill chunks of 128. Each fixture produces 128 tokens per sequence. Reported
+throughput is the median of two 96-step decoding windows after 16 initial steps;
+prefill and compilation are excluded. Batch 8 is a real eight-sequence batch,
+not eight independent HTTP clients. Figures are aggregate tokens/second; divide
+batch-8 figures by eight for per-sequence speed.
+
+| Checkpoint / FP8 backend | Batch | Code | English | Translation |
+|---|---:|---:|---:|---:|
+| RedHat INT4 / Marlin | 1 | 85.4 | 85.8 | 85.3 |
+| RedHat INT4 / Marlin | 8 | 492.9 | 490.4 | 490.9 |
+| RedHat NVFP4 / previous ATen FP8 | 1 | 56.0 | 55.7 | 55.9 |
+| RedHat NVFP4 / previous ATen FP8 | 8 | 355.5 | 353.8 | 353.2 |
+| RedHat NVFP4 / CUDA FP8 | 1 | 62.1 | 61.9 | 62.2 |
+| RedHat NVFP4 / CUDA FP8 | 8 | 392.1 | 392.1 | 392.5 |
+
+The CUDA FP8 path improves this mixed checkpoint by about 11%; it does not
+surpass the INT4 checkpoint. The two checkpoints have different weight coverage
+and quantization. Reduction order also differs between FP8 kernels: these are
+speed measurements, not quality scores or a claim of bit-identical generation.
+
+Reproduce on each checkpoint (add `--fp8-torch-reference` for the previous
+FP8 path, and use `--batch 8` for the batched measurements):
+
+```bash
+CUDA_VISIBLE_DEVICES=0 PYTORCH_ALLOC_CONF=expandable_segments:True \
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 TRITON_DEFAULT_FP_FUSION=1 \
+python recipes/qwen38/benchmark_batch_decode.py \
+  --model "$QWEN38_MODEL" --batch 1 --repeats 2 --output /tmp/qwen-batch1.json
+```
+
+Small-row projection measurements below include activation quantization and
+report median GPU microseconds across 30 warm graph replays. A 256 MiB eviction
+pass precedes each timed call, outside its timed interval. FP8 gate/up and down
+use the checkpoint's last eight FP8 layers; NVFP4 uses its earlier FP4 layers of
+the same shapes. INT8 is group-32 W8A8, measured at projection level against its
+previous Triton implementation; this is not a full INT8-model benchmark.
+
+| Projection (N × K) | Rows | INT8 Triton | INT8 CUDA | FP8 ATen | FP8 CUDA | NVFP4 CUDA |
+|---|---:|---:|---:|---:|---:|---:|
+| gdn_qkvz (16384 × 5120) | 1 | 59.4 | 59.4 | 63.5 | 63.5 | — |
+| gdn_qkvz (16384 × 5120) | 8 | 192.5 | 114.3 | 63.5 | 59.0 | — |
+| gate_up (34816 × 5120) | 1 | 116.7 | 118.4 | 180.2 | 139.3 | 67.6 |
+| gate_up (34816 × 5120) | 8 | 894.8 | 229.4 | 176.1 | 118.8 | 67.6 |
+| down (5120 × 17408) | 1 | 61.4 | 63.5 | 108.5 | 62.3 | 42.6 |
+| down (5120 × 17408) | 8 | 214.7 | 137.2 | 108.2 | 61.4 | 41.0 |
+
+The INT8 CUDA kernel reuses weights across up to eight rows; single-row speed
+is approximately unchanged. Both the INT8 rounding policy and FP8 checkpoint
+codes/scales are preserved. Normalization remains FP32 where previously used.

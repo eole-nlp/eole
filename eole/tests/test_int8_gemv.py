@@ -40,12 +40,12 @@ def reference(x, module):
 
 
 class TestW8A8Policy(unittest.TestCase):
-    def test_missing_triton_rejected_before_preparation(self):
+    def test_missing_cuda_kernels_rejected_before_preparation(self):
         from eole.predict.inference import Inference
 
-        with patch("importlib.util.find_spec", return_value=None):
+        with patch("eole.ops._DYNAMIC_QUANT_OPS_AVAILABLE", False):
             with patch("eole.modules.hybrid_experts.prepare_hybrid_experts") as prepare:
-                with self.assertRaisesRegex(ValueError, "Triton"):
+                with self.assertRaisesRegex(ValueError, "rebuilt Eole CUDA"):
                     Inference._prepare_inference_projections(
                         SimpleNamespace(model=nn.Module()), SimpleNamespace(dense_quantization="w8a8")
                     )
