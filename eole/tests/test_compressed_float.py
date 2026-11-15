@@ -23,6 +23,17 @@ class TestCompressedFloat(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "rebuilt Eole CUDA"):
                 layer.prepare_marlin()
 
+    def test_marlin_warns_when_no_fp8_projections(self):
+        from unittest.mock import patch
+        from eole.predict.inference import Inference
+        from eole.utils.logging import logger
+
+        target = SimpleNamespace(model=torch.nn.Module())
+        with patch("eole.modules.hybrid_experts.prepare_hybrid_experts"):
+            with self.assertLogs(logger, level="WARNING") as logged:
+                Inference._prepare_inference_projections(target, SimpleNamespace(fp8_backend="marlin"))
+        self.assertIn("no FP8 projections", logged.output[0])
+
     def test_aliases_preserve_codes_and_native_weights(self):
         tensors = {
             "a.weight_packed": torch.tensor([[0x81, 0x7F]], dtype=torch.uint8),
@@ -329,3 +340,17 @@ class TestMarlinFP8(unittest.TestCase):
             x = torch.ones(3, 128, device="cuda", dtype=dtype)
             reference = (x.float() @ weight.float().t()) * 0.01
             torch.testing.assert_close(layer(x).float(), reference, rtol=0.01, atol=1e-5)
+
+    def test_fp16_small_channel_scales(self):
+        from eole.modules.marlin_utils import marlin_permute_scales
+
+        layer = CompressedFloatLinear(128, 128).cuda()
+        layer.qweight = torch.ones(128, 128, device="cuda").to(torch.float8_e4m3fn)
+        scales = torch.tensor([1e-8, 1e-7, 1e-6, 1e-5, 3e-5, 6e-5, 1e-4, 1e-3], device="cuda").repeat(16)
+        layer.scales = scales[:, None]
+        layer.post_init()
+        layer.prepare_marlin()
+        expected_scales = marlin_permute_scales((scales * 256).half().reshape(1, -1), 128, 128, -1)
+        torch.testing.assert_close(layer.marlin_scales_fp16, expected_scales, rtol=0, atol=0)
+        x = torch.ones(3, 128, device="cuda", dtype=torch.float16)
+        torch.testing.assert_close(layer(x).float(), (128 * scales).expand(3, -1), rtol=0.003, atol=6e-8)
