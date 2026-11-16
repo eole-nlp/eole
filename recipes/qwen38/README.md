@@ -596,8 +596,9 @@ applied. FP32 normalization is unchanged.
 
 FlashInfer may compile its GPU kernels on first use. To bound compilation
 parallelism on a desktop, set `MAX_JOBS=1 FLASHINFER_NVCC_THREADS=1`.
-The ModelOpt NVIDIA export and other NVFP4 configurations are not supported
-by this mixed-precision converter; unsupported schemes fail validation.
+Static, symmetric ModelOpt NVFP4 exports with group size 16 are also supported
+(see below). Mixed ModelOpt FP8/NVFP4 exports, including the NVIDIA export,
+remain unsupported; unsupported schemes fail validation.
 
 This mixed export is not uniformly 4-bit: attention/GDN projections and the
 last eight MLP layers use FP8, and the vocabulary head stays BF16. Its decoder
@@ -712,3 +713,41 @@ fallback. Direct calls to the custom operator reject that image before launch.
 The optional source also builds for SM75 without emitting unsupported async-copy
 instructions. Marlin FP8 requires an SM80+ compiled image. The one-time image
 probe runs during preparation, outside CUDA-graph capture.
+
+
+### Gittensor ModelOpt NVFP4 checkpoint
+
+`gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090` was tested at revision
+`5b7a687fc8211a5d631c8ca6a593dd37eb26ce33`. This export quantizes all text
+projections and the vocabulary head to NVFP4, rather than mixing FP8 and NVFP4.
+Conversion preserves the packed codes and block scales and translates the
+ModelOpt global-scale convention without requantizing weights.
+
+```bash
+python -m eole.bin.main convert HF \
+  --model_dir gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090 \
+  --output "$EOLE_MODEL_DIR/Qwen3.8-27B-NVFP4-Gittensor" \
+  --nshards 4 --dtype bf16 --check-tensors
+```
+
+Use `vocabulary_quantization: none` to retain its already-NVFP4 vocabulary
+head. This checkpoint has no MTP weights. `fp8_backend` has no effect because
+there are no FP8 projections. Eole continues using floating-point KV caches;
+the checkpoint's FP8 KV-cache setting is not applied.
+
+Fresh RTX 5090 controls using the matched decoding procedure above (Torch
+2.15, compile mode 0, greedy, no speculation, 128 output tokens, two repeats):
+
+| Checkpoint / vocabulary head | Batch | Code tok/s | English tok/s | Translation tok/s |
+| --- | ---: | ---: | ---: | ---: |
+| RedHat INT4 / BF16 | 1 | 85.5 | 85.5 | 85.7 |
+| Gittensor NVFP4 / NVFP4 | 1 | 85.2 | 84.8 | 84.6 |
+| RedHat INT4 / BF16 | 8 | 493.8 | 493.3 | 490.8 |
+| Gittensor NVFP4 / NVFP4 | 8 | 482.7 | 480.8 | 479.9 |
+
+Batch-8 figures are aggregate throughput. Peak allocated VRAM was 18.53 GiB
+at batch 1 and 20.32 GiB at batch 8 for Gittensor, versus 18.43 and 20.22 GiB
+for INT4. The checkpoints have different quantization coverage and vocabulary
+head formats, so this compares complete checkpoints rather than isolated
+kernels. All 2,495 converted tensors passed source-equality checks; a generation
+smoke test passed, but these timings do not establish equivalent model quality.
