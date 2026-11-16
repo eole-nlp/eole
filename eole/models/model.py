@@ -478,8 +478,18 @@ class BaseModel(nn.Module):
                         prefix=target_prefix(quant_target),
                     )
             elif running_config.quant_type == "nvfp4":
-                from eole.modules.compressed_float_linear import replace_compressed_float_linear
+                from eole.modules.compressed_float_linear import replace_compressed_float_linear, CompressedFloatLinear
+                from eole.modules.quantization_selection import is_selected
 
+                # Vision checkpoints keep a native head unless conversion explicitly mapped it as packed.
+                if "generator" in nonlora_to_quant and is_selected(
+                    "generator", nonlora_to_quant, getattr(running_config, "quant_exclude_modules", [])
+                ):
+                    if self.share_decoder_embeddings:
+                        raise ValueError("Compressed vocabulary heads cannot share decoder embeddings")
+                    self.generator = CompressedFloatLinear(
+                        self.generator.in_features, self.generator.out_features, self.generator.bias is not None
+                    )
                 if getattr(running_config, "parallel_gpu", 1) != 1:
                     raise ValueError("NVFP4 inference currently requires a single GPU")
                 if running_config.compute_dtype not in (torch.float16, torch.bfloat16):

@@ -29,6 +29,8 @@ from eole.bin.convert.compressed_tensors import (
     CompressedCheckpoint,
     PackedCheckpoint,
     FloatCheckpoint,
+    ModelOptCheckpoint,
+    validate_modelopt_config,
     validate_config,
     validate_float_config,
 )
@@ -255,10 +257,13 @@ class HuggingfaceFiles:
         quant = self.config.get(
             "quantization_config", self.config.get("text_config", {}).get("quantization_config", {})
         )
-        if quant.get("quant_method") != "compressed-tensors":
+        modelopt = quant.get("quant_method") == "modelopt"
+        if quant.get("quant_method") != "compressed-tensors" and not modelopt:
             return checkpoint
-        floating = quant.get("format") == "mixed-precision"
-        if floating:
+        floating = quant.get("format") == "mixed-precision" or modelopt
+        if modelopt:
+            validate_modelopt_config(quant)
+        elif floating:
             validate_float_config(quant)
         else:
             group_size = validate_config(quant)
@@ -276,6 +281,8 @@ class HuggingfaceFiles:
                 source = checkpoint
             return get_weight(source, key)
 
+        if modelopt:
+            return ModelOptCheckpoint(keys, read_tensor, self.wmap["weight_map"] if self.wmap_path else None)
         return (
             FloatCheckpoint(keys, read_tensor, self.wmap["weight_map"] if self.wmap_path else None)
             if floating
@@ -685,9 +692,12 @@ def build_config_dict(hf):
                 if excluded_modules:
                     training_config["quant_exclude_modules"] = excluded_modules
             params = ["qweight", "qzeros", "scales"] + ["weight", "bias"]
-        elif quant_config.get("quant_method") == "compressed-tensors":
-            floating = quant_config.get("format") == "mixed-precision"
-            if floating:
+        elif quant_config.get("quant_method") in ("compressed-tensors", "modelopt"):
+            modelopt = quant_config.get("quant_method") == "modelopt"
+            floating = quant_config.get("format") == "mixed-precision" or modelopt
+            if modelopt:
+                group_size = validate_modelopt_config(quant_config)
+            elif floating:
                 validate_float_config(quant_config)
                 group_size = 16
             else:
@@ -704,9 +714,7 @@ def build_config_dict(hf):
                 }
             )
             if quant_config.get("kv_cache_scheme"):
-                logging.warning(
-                    "compressed-tensors KV-cache scales are not applied; Eole uses its floating-point cache"
-                )
+                logging.warning("Checkpoint KV-cache scales are not applied; Eole uses its floating-point cache")
             params = (
                 ["qweight", "scales", "weight_global_scale", "input_global_scale", "weight", "bias"]
                 if floating
@@ -730,7 +738,7 @@ def _compressed_quantized_modules(hf, model_config):
     keys = _collect_all_source_keys(hf)
     packed = {key.removesuffix(".weight_packed") for key in keys if key.endswith(".weight_packed")}
     quant = hf.config.get("quantization_config", hf.config.get("text_config", {}).get("quantization_config", {}))
-    floating = quant.get("format") == "mixed-precision"
+    floating = quant.get("format") == "mixed-precision" or quant.get("quant_method") == "modelopt"
     if floating:
         packed.update(key.removesuffix(".weight_scale") for key in keys if key.endswith(".weight_scale"))
     if not packed:
@@ -783,6 +791,13 @@ def _compressed_quantized_modules(hf, model_config):
                     and target.rstrip(".").rsplit(".", 1)[-1] in linear_names
                 ):
                     modules[source_module] = target_prefix + str(index - offset) + target[:-1]
+    generator = KEY_MAPS[hf.arch].get("generator.weight")
+    if floating and isinstance(generator, str) and generator.endswith(".weight"):
+        prefix = generator.removesuffix(".weight")
+        if prefix in packed:
+            if hf.config.get("tie_word_embeddings", False):
+                raise ValueError("Compressed vocabulary heads cannot share decoder embeddings")
+            modules[prefix] = "generator"
     unmapped = packed - modules.keys()
     if unmapped:
         raise ValueError("Unsupported packed weight mappings: " + ", ".join(sorted(unmapped)))
@@ -1198,6 +1213,33 @@ def build_shards(model_config, hf, args, params):
                     checkpoint = None
                 if checkpoint is None:
                     continue
+                prefix = srckey.removesuffix(".weight")
+                if (
+                    target == "generator.weight"
+                    and isinstance(checkpoint, FloatCheckpoint)
+                    and prefix + ".qweight" in checkpoint
+                ):
+                    if srcmap is not None:
+                        raise ValueError("Compressed vocabulary head does not support a source transformation")
+                    for param in ("qweight", "scales", "weight_global_scale", "input_global_scale"):
+                        source_key = prefix + "." + param
+                        value = get_weight(checkpoint, source_key)
+                        if value is None:
+                            continue
+                        target_key = "generator." + param
+                        eole_safetensor[target_key] = value
+                        consumed_src_keys.update(checkpoint.source_keys(source_key))
+                        conversion_details.append(
+                            dict(
+                                shard_path=output_path,
+                                eole_key=target_key,
+                                srckey=source_key,
+                                srcmap=None,
+                                context={},
+                                special=None,
+                            )
+                        )
+                    continue
                 w = get_weight(checkpoint, srckey)
                 if w is not None:
                     consumed_src_keys.add(srckey)
@@ -1278,6 +1320,15 @@ def build_shards(model_config, hf, args, params):
                 )
                 for section, hf_prefix, eole_prefix, layer_offset, source_layer_offset in prefix_mapping:
                     if hf_prefix is None:
+                        continue
+                    if section == "mtp":
+                        num_mtp = (
+                            model_config.get("decoder", {}).get("num_mtp_heads", model_config.get("num_mtp_heads", 0))
+                            or 0
+                        )
+                        if not layer_offset <= i < layer_offset + num_mtp:
+                            continue
+                    if section == "decoder" and i >= model_config["layers"]:
                         continue
                     key_map = KEY_MAPS[hf.arch].get(section, {})
                     for target, source in key_map.items():
