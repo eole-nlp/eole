@@ -168,6 +168,7 @@ class Model(object):
                 "slots",
                 "max_pending",
                 "prefill_chunk_size",
+                "prefill_idle_chunk_size",
                 "compiled",
             }:
                 raise ValueError("Invalid continuous serving options")

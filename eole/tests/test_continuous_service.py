@@ -157,6 +157,11 @@ class ContinuousServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "unavailable"):
             list(self.service.stream("closed", {}))
 
+    def test_idle_chunk_validation_fails_before_worker_start(self):
+        for value in (0, 64, "512"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "Idle prefill"):
+                ContinuousService(None, prefill_chunk_size=128, prefill_idle_chunk_size=value)
+
     def test_non_greedy_or_mutable_settings_are_rejected(self):
         for settings in ({"temperature": 0.7}, {"top_k": 20}, {"presence_penalty": 1}, {"max_length": 0}):
             with self.subTest(settings=settings), self.assertRaises(ValueError):

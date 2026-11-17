@@ -1,13 +1,26 @@
 # Codex-shaped serving baseline
 
 This recipe compares the existing serialized Responses API with an experimental,
-opt-in continuous backend. Default server behaviour is unchanged. The new backend
+opt-in continuous backend. Default execution stays serialized; disconnect cancellation changes as described
+below. The new backend
 requires a dedicated single-model, single-GPU, ordinary-greedy Responses server;
 it is not a general replacement for other Eole prediction/scoring/UI workflows.
 
 The workload uses the same Responses protocol as the [Codex integration](../codex/README.md),
 without launching Codex itself. It checks streaming load and a synthetic coding
 tool round trip. It is not a coding-quality benchmark or a full agent evaluation.
+
+## Streaming cancellation change
+
+This PR also intentionally changes **ordinary streaming routes**, independently
+of the continuous option: a disconnect or early consumer exit now signals
+cooperative generation cancellation, instead of only discarding delivery while
+the model continues generating. It applies to Responses, Chat, Anthropic and
+workspace callers using the shared streaming bridge. Cleanup still drains the
+worker; completed segments leave a caller-provided shared event unset. Supplying
+the event also enables the existing engine request-setting restoration for routes
+that previously supplied none, so their streaming overrides no longer leak into
+later requests.
 
 ## Run locally
 
@@ -131,19 +144,14 @@ python recipes/serving/check_continuous.py --model "$QWEN38_MODEL" \
   --benchmark --output /tmp/eole-continuous-core.json
 ```
 
-The probe checks four completed short Qwen requests against independent solo
-decoding, including different prompt lengths, a late arrival, queued admission,
-cancellation and reuse of the cancelled request's slot. On the RTX 5090 all four
-matched token-for-token (92 completed output tokens total). This finite check
-is not a universal cross-batch bit-identity guarantee.
+The probe now submits ten requests with 256-token budgets, including delayed
+arrivals, long prefills, queued/prefill/decode cancellation and repeated slot
+reuse. Seven complete, generating 1,558 tokens in the recorded run. It records
+actual prefill boundaries, arithmetic widths, token sequences and first-mismatch
+hidden/log-probability diagnostics. See the exactness findings below.
 
-The optional `--benchmark` probe measures core capacity without HTTP delivery;
-its results must not be compared directly with the compiled HTTP table below.
-
-The dedicated Responses backend below adds compiled step graphs, per-slot
-singleton graphs and bounded prefill chunks to this core. It owns the engine
-worker for the entire model lifetime; another predictor must never use the same
-engine concurrently.
+The dedicated service owns its engine worker for the entire model lifetime;
+another predictor must never run against that engine concurrently.
 
 ## Experimental compiled Responses server
 
@@ -157,7 +165,8 @@ python -m eole.bin.main serve -c recipes/serving/serve_continuous.yaml \
 
 Use the same benchmark command above. The YAML adds a model-level `continuous`
 section with four decode slots, a bounded 32-request pending budget and
-128-token prefill chunks. Startup compiles/captures the fixed bank and per-slot
+128-token active prefill chunks and a configurable 512-token idle chunk. Startup
+compiles/captures the fixed bank and per-slot
 singleton views before readiness. One active request uses a singleton graph;
 multiple active requests share the bank graph. Singleton views share cache
 storage rather than duplicating the KV bank. Initial preparation took 62 seconds
@@ -165,6 +174,12 @@ in the measured run, excluding model loading. Failed graph capture fails
 preparation rather than advertising a compiled backend while falling back.
 
 The worker alternates one decode round with at most one bounded prefill chunk.
+`continuous.prefill_chunk_size` caps chunks while any decode request is active;
+`continuous.prefill_idle_chunk_size` permits larger chunks when none is active.
+Omitting the idle option preserves the active chunk size. Set idle equal to active
+to keep prefill boundaries independent of whether another request is decoding;
+batching can still change floating-point results. It must be at least as
+large as the active value. The recipe uses 128 active / 512 idle tokens.
 Active requests continue decoding while a long prompt is prepared; incoming
 prefills currently run FIFO, one at a time. This is not priority scheduling of
 short prompts around other queued prefills. Cancellation handles queued,
@@ -184,43 +199,119 @@ carry much larger system/tool prompts; align context/output metadata and verify
 VRAM before running real coding tasks. The tests here do not establish coding
 quality or successful end-to-end Codex task completion.
 
-### Compiled HTTP results
+### Latest four-slot versus eight-slot HTTP measurements
 
-Same RTX 5090, target, native BF16 vocabulary head, prompts, 128-token output cap,
-client counts and two jobs per client as the baseline. The new backend uses
-128-token prefill chunks versus the baseline's 256. No speculation or prefix
-reuse. Values below include queueing, prefill, detokenization and HTTP delivery.
-These are initial small samples, not a broad throughput guarantee.
+Same RTX 5090, target, native BF16 vocabulary head, 4,096-token context capacity,
+no speculation/prefix reuse, 128-token output cap and two jobs per client.
+Both continuous profiles use 128 active / 512 idle prefill tokens. The earlier
+serialized baseline uses 256-token chunks. All figures include queueing, prefill,
+detokenization and HTTP delivery. These are small initial samples, not a general
+speed guarantee or coding-quality evaluation.
 
-| Workload | Clients | Serialized tok/s | Continuous tok/s | First-output p95, old → new (s) | Job p95, old → new (s) |
+| Workload | Clients | Serialized tok/s | 4 slots tok/s | 8 slots tok/s | First-output p95, 4 / 8 slots (s) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Text | 1 | 67.9 | 74.4 | 0.23 → 0.19 | 1.90 → 1.72 |
-| Text | 2 | 68.3 | 107.3 | 2.10 → 0.39 | 3.76 → 2.48 |
-| Text | 4 | 67.3 | 183.4 | 5.97 → 0.79 | 7.66 → 3.07 |
-| Text | 8 | 67.3 | 184.7 | 13.66 → 3.84 | 15.35 → 6.60 |
-| Tool loop | 1 | 55.3 | 59.2 | 0.69 → 0.65 | 2.79 → 2.60 |
-| Tool loop | 2 | 56.0 | 78.4 | 2.70 → 1.14 | 5.52 → 4.19 |
-| Tool loop | 4 | 55.6 | 111.8 | 6.69 → 2.51 | 11.19 → 6.44 |
-| Tool loop | 8 | 56.2 | 113.9 | 14.14 → 5.22 | 22.02 → 12.42 |
+| Text | 1 | 67.9 | 73.6 | 73.8 | 0.19 / 0.20 |
+| Text | 2 | 68.3 | 106.6 | 101.9 | 0.40 / 0.42 |
+| Text | 4 | 67.3 | 182.6 | 174.1 | 0.77 / 0.82 |
+| Text | 8 | 67.3 | 184.5 | 270.2 | 3.81 / 1.66 |
+| Tool loop | 1 | 55.3 | 67.2 | 66.9 | 0.48 / 0.49 |
+| Tool loop | 2 | 56.0 | 85.7 | 82.3 | 0.98 / 1.00 |
+| Tool loop | 4 | 55.6 | 114.7 | 109.6 | 2.30 / 2.48 |
+| Tool loop | 8 | 56.2 | 115.3 | 141.9 | 5.22 / 5.19 |
 
-All tool-call arguments and call IDs passed the benchmark checks. A live fairness
-check recorded 20 short-request output events during a long request's 1.92-second
-prefill window. The long stream was then closed after its first text event,
-and a following request completed in 0.31 seconds. Unlike the earlier baseline
-probe, this used a valid output budget and a confirmed live stream. A live
-non-greedy request was rejected with HTTP 400.
+Eight slots help when eight clients are busy, but are slightly slower at two or
+four clients because partly occupied multi-request banks still execute all rows.
+Singleton graphs preserve the one-client path. Keep four slots as the recipe
+default; use eight for measured higher concurrency and adequate memory.
 
-The compiled mixed-arrival diagnostic uses the same prefill chunk boundaries in
-its solo oracle. Chunking itself can change floating-point results; an unchunked
-oracle is not a valid exact-output reference for this test. Run it with:
+### Measured VRAM: context and head precision matter
+
+These numbers include the INT4 target and its **native BF16 vocabulary head**,
+with a **4,096-token context allocated in every slot**. Serving peaks cover the
+short text/tool workload above; they are not bounds for arbitrary long prompts.
+
+| Slots | Startup allocated (GiB) | Serving peak allocated (GiB) | Serving peak reserved (GiB) | Sampled whole-device peak (GiB) |
+| --- | ---: | ---: | ---: | ---: |
+| 4 | 19.61 | 20.13 | 20.61 | 21.47 |
+| 8 | 20.91 | 21.44 | 21.95 | 22.82 |
+
+PyTorch allocated/reserved figures exclude some CUDA/library allocations;
+whole-device values were sampled with nvidia-smi every 0.5 seconds and may miss
+brief spikes. Leave headroom for display use, library versions and larger
+prefills. Eight slots were tested on the 32-GiB RTX 5090; a 24-GiB device would
+be tight and was not validated by this run.
+
+For this checkpoint, 16 full-attention layers × 4 KV heads × 256 dimensions ×
+K/V × 2-byte BF16 = **64 KiB per context token per slot**. Eight slots therefore
+allocate 2 GiB of KV at 4K context, 16 GiB at 32K, or 32 GiB at 64K, before
+weights, GDN state, graphs and temporary buffers. Do not use the 4K memory result
+to size a long-context Codex server. This backend is not paged.
+
+### Idle prefill sizing
+
+A separate idle probe encoded a 1,817-token prompt once, then timed cache
+allocation, prefill/admission and the first token, with no HTTP/tokenization.
+Each size had one warmup and two measured repeats; means are below:
+
+| Idle chunk | Warmed seconds to first token |
+| --- | ---: |
+| 128 | 1.270 |
+| 256 | 0.677 |
+| 512 | 0.466 |
+| 1024 | 0.460 |
+
+512 removes most of the small-chunk overhead; 1024 saved only about another 1%
+here. The active-decode chunk remains 128. Reproduce with `--prefill-sweep` on
+`check_continuous.py`. This short-context result does not establish performance
+for tens of thousands of tokens.
+
+### Longer correctness findings: solo bit-identity is not guaranteed
+
+The earlier 92-token check was too small to support a broad equality claim.
+The expanded test ran ten requests, cancelled three in queued/prefill/decode
+states, and completed seven for **1,558 generated tokens**. All references replay
+the request's actual prefill chunks.
+
+- Against compiled **single-row** free generation, four of seven continuations
+  diverged, first at token indices 67, 147, 177 and 64 (zero-based). Against an
+  eager singleton reference, first divergences also differed. Thus selecting
+  matching compilation alone does not ensure cross-batch identical output.
+- At the first compiled-solo divergences, final-hidden relative RMS differences
+  were roughly 0.7–1.2%; each decision involved the same two leading candidates,
+  with rounded log-probability ties in one path. This is evidence consistent
+  with width-dependent numerical differences, not a model-quality measurement.
+- A separate **state-isolation control** replayed the actual token prefixes with
+  the same slot, batch width and prefill boundaries, but removed other live
+  requests. All **1,558 target decisions matched**. This checks isolation under
+  matching arithmetic; it is not independent single-row free generation and
+  does not prove universal absence of state bugs.
+
+The probe records widths, tokens and first-mismatch diagnostics. By default a
+mismatch fails the run. `--allow-divergence` explicitly permits saving a numerical
+comparison without a failing exit; do not treat that flag as an equality pass.
 
 ```bash
+# Cross-batch comparison: numerical divergence can occur.
 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
-python recipes/serving/check_continuous.py --compiled-step \
-  --model "$QWEN38_MODEL" --output /tmp/eole-continuous-check.json
+python recipes/serving/check_continuous.py --compiled-step --slots 4 --tokens 256 \
+  --prefill-idle-chunk-size 512 --allow-divergence \
+  --model "$QWEN38_MODEL" --output /tmp/eole-solo-comparison.json
+
+# Strict isolated-state comparison with matching arithmetic schedule.
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+python recipes/serving/check_continuous.py --compiled-step --reference-mode isolation \
+  --slots 4 --tokens 256 --prefill-idle-chunk-size 512 \
+  --model "$QWEN38_MODEL" --output /tmp/eole-state-isolation.json
 ```
 
-The HTTP path remains experimental. Broader long-context/long-output correctness,
-real Codex workloads, more hardware and larger latency samples remain necessary
-before making it a default. No native Eole extension rebuild is required; startup
-still prepares runtime-specific torch.compile programs and CUDA graphs.
+The uniform-table RoPE regressions compare legacy 2-D and repeated 3-D tables
+for multiple rows and tokens, in CUDA FP16/BF16 and the PyTorch/compiled-dispatch
+branch. Greedy selection still uses the existing `log_softmax().argmax()` rule:
+removing log-softmax is mathematically valid but can change decisions through
+low-precision rounding/ties, so it is not folded into this serving change.
+Tokenization remains on the worker and decisions still synchronize with the
+CPU once per tick; those remain profiling opportunities.
+
+The HTTP path remains experimental. Broader contexts, hardware and actual Codex
+coding tasks remain unqualified. No native Eole extension rebuild is required;
+startup still prepares runtime-specific torch.compile programs and CUDA graphs.

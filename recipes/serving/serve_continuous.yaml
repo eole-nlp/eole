@@ -8,6 +8,7 @@ models:
       slots: 4
       max_pending: 32
       prefill_chunk_size: 128
+      prefill_idle_chunk_size: 512
       compiled: true
     config:
       compute_dtype: bf16

@@ -29,14 +29,31 @@ class StreamRequest:
 class ContinuousService:
     """Own the engine worker until close; ordinary engine entry points must not run."""
 
-    def __init__(self, engine, slots=4, max_pending=32, prefill_chunk_size=128, compiled=True, runner_factory=None):
+    def __init__(
+        self,
+        engine,
+        slots=4,
+        max_pending=32,
+        prefill_chunk_size=128,
+        compiled=True,
+        runner_factory=None,
+        prefill_idle_chunk_size=None,
+    ):
         if any(not isinstance(value, int) or value < 1 for value in (slots, max_pending, prefill_chunk_size)):
             raise ValueError("Continuous serving limits must be positive integers")
+        if prefill_idle_chunk_size is not None and (
+            not isinstance(prefill_idle_chunk_size, int) or prefill_idle_chunk_size < prefill_chunk_size
+        ):
+            raise ValueError("Idle prefill chunk must be at least as large as the active chunk")
         if not isinstance(compiled, bool):
             raise ValueError("compiled must be a boolean")
         self.engine = engine
         self.options = dict(
-            slots=slots, max_pending=max_pending, prefill_chunk_size=prefill_chunk_size, compiled=compiled
+            slots=slots,
+            max_pending=max_pending,
+            prefill_chunk_size=prefill_chunk_size,
+            compiled=compiled,
+            prefill_idle_chunk_size=prefill_idle_chunk_size,
         )
         self.runner_factory = runner_factory or ContinuousGreedy
         self.queue = Queue(maxsize=max_pending)
@@ -45,6 +62,7 @@ class ContinuousService:
         self.stopping = Event()
         self.ready = Event()
         self.error = None
+        self.memory = {}
         self.future = None
 
     @staticmethod
@@ -130,12 +148,22 @@ class ContinuousService:
     @torch.inference_mode()
     def run(self):
         runner = None
+        memory_device = None
         jobs = {}
         try:
             started = perf_counter()
             logger.info("Preparing continuous decode slots and graphs before readiness…")
             runner = self.runner_factory(self.engine.predictor, **self.options)
             logger.info("Continuous serving ready in %.2f s: %s", perf_counter() - started, self.options)
+            memory_device = getattr(getattr(runner, "next_tokens", None), "device", None)
+            if memory_device is not None and memory_device.type == "cuda":
+                self.memory.update(
+                    startup_allocated_gib=torch.cuda.memory_allocated(memory_device) / 2**30,
+                    startup_reserved_gib=torch.cuda.memory_reserved(memory_device) / 2**30,
+                    startup_peak_allocated_gib=torch.cuda.max_memory_allocated(memory_device) / 2**30,
+                )
+                torch.cuda.reset_peak_memory_stats(memory_device)
+                logger.info("Continuous serving startup VRAM: %s", self.memory)
             self.ready.set()
             while not self.stopping.is_set():
                 try:
@@ -186,6 +214,15 @@ class ContinuousService:
                     self._finish(self.queue.get_nowait(), "failed", error)
                 except Empty:
                     break
+            if memory_device is not None and memory_device.type == "cuda":
+                try:
+                    self.memory.update(
+                        serving_peak_allocated_gib=torch.cuda.max_memory_allocated(memory_device) / 2**30,
+                        serving_peak_reserved_gib=torch.cuda.max_memory_reserved(memory_device) / 2**30,
+                    )
+                    logger.info("Continuous serving peak VRAM: %s", self.memory)
+                except Exception as exc:
+                    logger.warning("Could not read serving VRAM statistics: %s", exc)
             if runner is not None:
                 try:
                     runner.close()

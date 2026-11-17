@@ -25,11 +25,14 @@ class GreedyRequest:
     slot: int | None = None
     cache: RequestCache | None = None
     prefilled: int = 0
+    prefill_chunks: list = field(default_factory=list)
 
 
 class ContinuousGreedy:
     @torch.inference_mode()
-    def __init__(self, predictor, slots=4, max_pending=32, prefill_chunk_size=256, compiled=False):
+    def __init__(
+        self, predictor, slots=4, max_pending=32, prefill_chunk_size=256, compiled=False, prefill_idle_chunk_size=None
+    ):
         self.predictor = predictor
         self.model = predictor.model
         self.decoder = self.model.decoder
@@ -51,6 +54,11 @@ class ContinuousGreedy:
             raise ValueError("Multidimensional rotary positions are not supported")
         self.prefilling = None
         self.prefill_chunk_size = prefill_chunk_size
+        self.prefill_idle_chunk_size = (
+            prefill_chunk_size if prefill_idle_chunk_size is None else prefill_idle_chunk_size
+        )
+        if not isinstance(self.prefill_idle_chunk_size, int) or self.prefill_idle_chunk_size < prefill_chunk_size:
+            raise ValueError("Idle prefill chunk must be an integer at least as large as the active chunk")
         if (
             any(
                 getattr(predictor, name, 0)
@@ -228,7 +236,8 @@ class ContinuousGreedy:
                 self.prefilling.status = "prefilling"
         request = self.prefilling
         if request is not None:
-            end = min(request.prefilled + self.prefill_chunk_size, request.prompt.size(1))
+            chunk = self.prefill_chunk_size if self.active else self.prefill_idle_chunk_size
+            end = min(request.prefilled + chunk, request.prompt.size(1))
             ids = request.prompt[:, request.prefilled : end]
             emb = self.model.tgt_emb(ids, step=request.prefilled)
             mask = torch.zeros(1, 1, ids.size(1), device=emb.device, dtype=torch.bool)
@@ -239,6 +248,7 @@ class ContinuousGreedy:
                 request.cache.bind()
             hidden, _ = self.decoder._forward_eager(emb, tgt_pad_mask=mask)
             request.cache = RequestCache.take(self.decoder)
+            request.prefill_chunks.append(end - request.prefilled)
             request.prefilled = end
             if end == request.prompt.size(1):
                 token = self.model.generator(hidden[:, -1]).log_softmax(-1).argmax(-1).item()

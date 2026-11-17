@@ -107,6 +107,24 @@ class RequestCacheTests(unittest.TestCase):
             for index in range(2):
                 torch.testing.assert_close(actual[index], torch.cat([r[index] for r in separate]))
 
+    def test_broadcast_uniform_rotary_tables_match_legacy_and_compiled_pytorch(self):
+        torch.manual_seed(73)
+        for interleave in (False, True):
+            q, k = torch.randn(3, 4, 4, 16), torch.randn(3, 4, 2, 16)
+            theta = torch.randn(4, 4)
+            table = torch.cat((theta.cos(), theta.sin()), -1)
+            rows = table[None].expand(3, -1, -1).contiguous()
+            with patch("eole.modules.rope._CPP_OPS_AVAILABLE", False):
+                old = apply_rotary_emb(q.clone(), k.clone(), table, interleave)
+                new = apply_rotary_emb(q.clone(), k.clone(), rows, interleave)
+                function = torch.compile(
+                    lambda a, b, c: apply_rotary_emb(a, b, c, interleave), backend="eager", fullgraph=True
+                )
+                compiled = function(q.clone(), k.clone(), rows)
+            for index in range(2):
+                torch.testing.assert_close(new[index], old[index], rtol=0, atol=0)
+                torch.testing.assert_close(compiled[index], old[index], rtol=0, atol=0)
+
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
 class RequestRotaryCudaTests(unittest.TestCase):
@@ -130,3 +148,21 @@ class RequestRotaryCudaTests(unittest.TestCase):
                 ]
                 for index in range(2):
                     torch.testing.assert_close(actual[index], torch.cat([r[index] for r in separate]), rtol=0, atol=0)
+
+    def test_uniform_cuda_tables_match_legacy_for_multiple_rows_and_tokens(self):
+        from eole.modules.rope import _CPP_OPS_AVAILABLE
+
+        if not _CPP_OPS_AVAILABLE:
+            self.skipTest("Eole extension unavailable")
+        torch.manual_seed(75)
+        for dtype in (torch.float16, torch.bfloat16):
+            for interleave in (False, True):
+                q = torch.randn(3, 4, 4, 64, device="cuda", dtype=dtype)
+                k = torch.randn(3, 4, 2, 64, device="cuda", dtype=dtype)
+                theta = torch.randn(4, 16, device="cuda")
+                table = torch.cat((theta.cos(), theta.sin()), -1).to(dtype)
+                rows = table[None].expand(3, -1, -1).contiguous()
+                old = apply_rotary_emb(q.clone(), k.clone(), table, interleave)
+                new = apply_rotary_emb(q.clone(), k.clone(), rows, interleave)
+                for index in range(2):
+                    torch.testing.assert_close(new[index], old[index], rtol=0, atol=0)
