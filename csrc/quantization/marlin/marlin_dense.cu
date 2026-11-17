@@ -211,6 +211,16 @@ MarlinFuncPtr get_marlin_kernel(
   ENUMERATE_U8B128_BF16(4)
   ENUMERATE_U8B128_BF16(8)
 
+  // FP8 weight-only, native FP16/BF16 activations and per-channel scales.
+#define DISPATCH_FP8_FP16(TH,TM_,TN_,TK_,M8_) \
+  if (MATCH(FP16_ID,vllm::kFE4M3fn.id(),FP16_ID,FP16_ID,TH,TM_,TN_,TK_,M8_,-1,false)) return K(FP16_ID,vllm::kFE4M3fn.id(),FP16_ID,FP16_ID,TH,TM_,TN_,TK_,M8_,-1,false);
+#define DISPATCH_FP8_BF16(TH,TM_,TN_,TK_,M8_) \
+  if (MATCH(BF16_ID,vllm::kFE4M3fn.id(),BF16_ID,BF16_ID,TH,TM_,TN_,TK_,M8_,-1,false)) return K(BF16_ID,vllm::kFE4M3fn.id(),BF16_ID,BF16_ID,TH,TM_,TN_,TK_,M8_,-1,false);
+  MARLIN_FOR_EACH_SHAPE(DISPATCH_FP8_FP16)
+  MARLIN_FOR_EACH_SHAPE(DISPATCH_FP8_BF16)
+#undef DISPATCH_FP8_FP16
+#undef DISPATCH_FP8_BF16
+
   // ── Asymmetric (u4 with zero-points, fp16 only / is_zp_float=false) ──────
   // group_blocks=4 is the most common for AWQ/GPTQ asymmetric
 #define ENUMERATE_U4_FP16_ZP(GB) \

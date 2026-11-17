@@ -514,3 +514,193 @@ Beam search and other ineligible configurations retain their existing decoder
 path. The legacy compiled tensor-parallel beam path can still hang at worker
 shutdown; bound greedy/MTP decoding does not fix that separate path. Streaming
 inference remains limited to single-process mode.
+
+## Native NVFP4 / FP8 checkpoint
+
+`RedHatAI/Qwen3.8-27B-NVFP4` uses NVFP4 W4A4 MLP projections and FP8 W8A8
+attention projections, with native vision, vocabulary and MTP weights. This is
+a separate format from INT4 GPTQ; no conversion to integer codes is performed.
+The initial backend supports **single-GPU SM120 (RTX 5090)** inference with
+BF16 or FP16 activations. Install the optional FlashInfer dependency:
+
+```bash
+python -m pip install '.[nvfp4]'
+python eole/bin/main.py convert HF \
+  --model_dir RedHatAI/Qwen3.8-27B-NVFP4 \
+  --output "$EOLE_MODEL_DIR/Qwen3.8-27B-NVFP4" \
+  --nshards 4 --check-tensors
+export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-NVFP4"
+```
+
+Use the prediction YAMLs above with this model path. Runtime vocabulary
+quantization remains independent of the checkpoint's projection format.
+Rebuild the Eole CUDA extension to enable its small-row FP8 E4M3 MMA kernel:
+`MAX_JOBS=1 python setup.py build_ext --inplace`. It handles 1–16 rows with
+input widths divisible by 512 and output widths divisible by 64. Other shapes,
+large prefill batches and older extensions retain PyTorch scaled GEMM. Dynamic
+per-token activation quantization and per-channel checkpoint scales are preserved.
+NVFP4 continues to use FlashInfer CUDA; no extra weight layout is retained.
+
+FP8 Q/K/V and GDN input projections support `fuse_kvq`. NVFP4 gate/up
+projections support `fuse_gate` when both calibrated global scales match;
+otherwise they keep their independent projections.
+The KV cache remains floating-point; checkpoint FP8 KV-cache scales are not
+applied. FP32 normalization is unchanged.
+
+FlashInfer may compile its GPU kernels on first use. To bound compilation
+parallelism on a desktop, set `MAX_JOBS=1 FLASHINFER_NVCC_THREADS=1`.
+Static, symmetric ModelOpt NVFP4 exports with group size 16 are also supported
+(see below). Mixed ModelOpt FP8/NVFP4 exports, including the NVIDIA export,
+remain unsupported; unsupported schemes fail validation.
+
+This mixed export is not uniformly 4-bit: attention/GDN projections and the
+last eight MLP layers use FP8, and the vocabulary head stays BF16. Its decoder
+projections, scales and vocabulary head total about **20.37 GB**, compared with
+**15.14 GB** for the RedHat INT4 checkpoint with the same native vocabulary head
+(decimal GB; excludes embeddings, vision and attention/recurrent state). At
+batch size one this extra weight traffic can outweigh native FP4 arithmetic
+benefits. NVFP4 throughput claims against BF16/FP8 or at larger batch sizes
+do not establish a speedup over this INT4 checkpoint.
+
+Run a local greedy smoke test (add `--mode mtp` in place of `--mode none`
+to exercise the native MTP head):
+
+```bash
+MAX_JOBS=1 FLASHINFER_NVCC_THREADS=1 \
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+python recipes/qwen38/dflash2.py \
+  --model "$QWEN38_MODEL" --mode none --max-tokens 256 --repeats 2
+```
+
+Initial RTX 5090 measurements favor the existing INT4 checkpoint for
+single-sequence decoding. Native FP4/FP8 tensor-core projections benefit larger
+matrix batches; format support alone does not guarantee lower decode latency.
+
+
+### Matched single-sequence and batch-8 decoding
+
+RTX 5090, PyTorch 2.15.0+cu132, Triton 3.9.0, FLA 0.6.0, FlashAttention
+2.8.3, FlashInfer 0.7.2, `TRITON_DEFAULT_FP_FUSION=1`. BF16 compute and
+vocabulary heads, greedy/no speculation, compile mode 0 and CUDA graphs,
+fusion enabled, context 1024, prefill chunks 128 and expandable allocation.
+Code/English/translation are the existing recipe fixtures with thinking disabled.
+Each sequence generates 128 tokens. Throughput is the median of two steady
+96-step windows after 16 initial steps, excluding prefill, compilation and graph
+setup. Batch-8 figures are aggregate tokens/second for a true eight-sequence
+batch; divide by eight for per-sequence speed, not independent HTTP concurrency.
+
+| Checkpoint / FP8 backend | Batch | Code | English | Translation |
+|---|---:|---:|---:|---:|
+| RedHat INT4 / Marlin | 1 | 85.4 | 85.8 | 85.3 |
+| RedHat INT4 / Marlin | 8 | 492.9 | 490.4 | 490.9 |
+| RedHat NVFP4 / previous ATen FP8 | 1 | 56.0 | 55.7 | 55.9 |
+| RedHat NVFP4 / previous ATen FP8 | 8 | 355.5 | 353.8 | 353.2 |
+| RedHat NVFP4 / CUDA W8A8 | 1 | 62.1 | 61.9 | 62.1 |
+| RedHat NVFP4 / Marlin W8A16 | 1 | 65.1 | 64.9 | 65.1 |
+| RedHat NVFP4 / CUDA W8A8 | 8 | 391.7 | 393.4 | 390.9 |
+| RedHat NVFP4 / Marlin W8A16 | 8 | 397.6 | 395.4 | 394.6 |
+
+CUDA W8A8 improves the mixed checkpoint by about 11% over its original ATen
+path. Marlin adds about 5% for a single sequence; its batch-8 gain is marginal,
+around 1%, and prefill is not uniformly faster. Native W8A8 remains the default.
+Neither backend surpasses the INT4 checkpoint here; the exports have different
+quantization and weight coverage. These are speed measurements, not quality
+scores or a claim of bit-identical generation. The native/Marlin pair was rerun
+together; INT4 and ATen rows retain the earlier same-settings controls. An INT4
+single-sequence rerun after the Marlin rebuild remained about 85 tok/s.
+
+The default `fp8_backend: native` retains W8A8 and the small-row CUDA FP8
+kernel. `fp8_backend: marlin` is an opt-in W8A16 alternative: FP8 codes are
+repacked after fusion and the original GPU layout is released. Marlin handles
+both prefill and decoding, including attention/GDN and the last eight FP8 MLP
+layers. NVFP4 projections continue using FlashInfer. No full weight duplicate is
+retained; peak VRAM rises by only about 7 MiB for the scale arrays.
+
+Marlin removes FP8 activation rounding and applies channel scales in the compute
+dtype with its exponent-bias adjustment. This changes arithmetic and can change
+continuations, although the checkpoint's weight codes are not requantized.
+Normalization remains unchanged. The verifier cache distinguishes backend choices.
+
+```bash
+MAX_JOBS=1 python setup.py build_ext --inplace
+CUDA_VISIBLE_DEVICES=0 PYTORCH_ALLOC_CONF=expandable_segments:True \
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 TRITON_DEFAULT_FP_FUSION=1 \
+python recipes/qwen38/benchmark_batch_decode.py \
+  --model "$QWEN38_MODEL" --batch 1 --fp8-backend marlin \
+  --repeats 2 --output /tmp/qwen-marlin-batch1.json
+```
+
+Use `--fp8-backend native` for W8A8 and `--batch 8` for batching. Add
+`--fp8-torch-reference` with the native backend to compare against the original
+ATen FP8 path. For normal inference YAMLs, set `fp8_backend: marlin` at the root.
+
+Projection figures below are GPU microseconds with activation preparation
+included, warm CUDA-graph replay, and a read-only 256 MiB cache eviction outside
+each timed interval. INT8 pairs use 30 measured repetitions; FP8 pairs use 40.
+NVFP4 uses earlier FP4 MLP layers of the same shapes as the last eight FP8 layers.
+INT8 is group-32 W8A8 measured against its previous Triton implementation;
+these are projection tests, not a full INT8-checkpoint benchmark.
+
+| Projection (N × K) | Rows | INT8 Triton | INT8 CUDA | FP8 CUDA W8A8 | FP8 Marlin W8A16 | NVFP4 CUDA |
+|---|---:|---:|---:|---:|---:|---:|
+| gdn_qkvz (16384 × 5120) | 1 | 59.4 | 59.4 | 63.5 | 55.3 | — |
+| gdn_qkvz (16384 × 5120) | 8 | 192.5 | 114.3 | 59.4 | 55.3 | — |
+| gate_up (34816 × 5120) | 1 | 116.7 | 118.4 | 138.8 | 112.6 | 67.6 |
+| gate_up (34816 × 5120) | 8 | 894.8 | 229.4 | 118.8 | 112.6 | 67.6 |
+| down (5120 × 17408) | 1 | 61.4 | 63.5 | 63.3 | 59.0 | 42.6 |
+| down (5120 × 17408) | 8 | 214.7 | 137.2 | 61.4 | 59.4 | 41.0 |
+
+The INT8 CUDA kernel shares weight loads across up to eight rows; single-row
+speed is approximately unchanged. Its activation rounding policy is preserved.
+
+Rebuilding the dense Marlin translation unit with FP8 dispatch took **9m49s**
+on the local Ryzen 5900X with `MAX_JOBS=1`, targeting both SM89 and SM120.
+The full incremental extension build took **12m05s** (including bindings and
+INT8/FP8 objects); the resulting complete extension is **43.7 MiB**. These are
+local measurements, not a clean-build estimate or the isolated FP8 size increase.
+The mixed backend remains SM120-only even with Marlin selected.
+
+The small-row FP8 path checks the **selected compiled CUDA image**, not only the
+physical GPU: pre-SM89 PTX JIT-compiled on a newer GPU uses the PyTorch FP8
+fallback. Direct calls to the custom operator reject that image before launch.
+The optional source also builds for SM75 without emitting unsupported async-copy
+instructions. Marlin FP8 requires an SM80+ compiled image. The one-time image
+probe runs during preparation, outside CUDA-graph capture.
+
+
+### Gittensor ModelOpt NVFP4 checkpoint
+
+`gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090` was tested at revision
+`5b7a687fc8211a5d631c8ca6a593dd37eb26ce33`. This export quantizes all text
+projections and the vocabulary head to NVFP4, rather than mixing FP8 and NVFP4.
+Conversion preserves the packed codes and block scales and translates the
+ModelOpt global-scale convention without requantizing weights.
+
+```bash
+python -m eole.bin.main convert HF \
+  --model_dir gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090 \
+  --output "$EOLE_MODEL_DIR/Qwen3.8-27B-NVFP4-Gittensor" \
+  --nshards 4 --dtype bf16 --check-tensors
+```
+
+Use `vocabulary_quantization: none` to retain its already-NVFP4 vocabulary
+head. This checkpoint has no MTP weights. `fp8_backend` has no effect because
+there are no FP8 projections. Eole continues using floating-point KV caches;
+the checkpoint's FP8 KV-cache setting is not applied.
+
+Fresh RTX 5090 controls using the matched decoding procedure above (Torch
+2.15, compile mode 0, greedy, no speculation, 128 output tokens, two repeats):
+
+| Checkpoint / vocabulary head | Batch | Code tok/s | English tok/s | Translation tok/s |
+| --- | ---: | ---: | ---: | ---: |
+| RedHat INT4 / BF16 | 1 | 85.5 | 85.5 | 85.7 |
+| Gittensor NVFP4 / NVFP4 | 1 | 85.2 | 84.8 | 84.6 |
+| RedHat INT4 / BF16 | 8 | 493.8 | 493.3 | 490.8 |
+| Gittensor NVFP4 / NVFP4 | 8 | 482.7 | 480.8 | 479.9 |
+
+Batch-8 figures are aggregate throughput. Peak allocated VRAM was 18.53 GiB
+at batch 1 and 20.32 GiB at batch 8 for Gittensor, versus 18.43 and 20.22 GiB
+for INT4. The checkpoints have different quantization coverage and vocabulary
+head formats, so this compares complete checkpoints rather than isolated
+kernels. All 2,495 converted tensors passed source-equality checks; a generation
+smoke test passed, but these timings do not establish equivalent model quality.

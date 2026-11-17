@@ -36,8 +36,10 @@ class _ScalarTypes:
 
         kU4B8   = {  4, 4, false, "uint4b8"  }   ← symmetric int4
         kU8B128 = {  5, 8, false, "uint8b128" }   ← symmetric int8
+        kFE4M3fn = {1003, 8, true, "fp8_e4m3"}   ← FP8 weight-only
     """
 
+    float8_e4m3fn = ScalarType(_id=1003, size_bits=8)
     uint4b8 = ScalarType(_id=4, size_bits=4)  # symmetric 4-bit
     uint8b128 = ScalarType(_id=5, size_bits=8)  # symmetric 8-bit
 

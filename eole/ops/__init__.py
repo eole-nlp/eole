@@ -773,3 +773,28 @@ __all__ = [
     "moe_wna16_marlin_gemm",
     "_sdpa",
 ]
+
+
+# These operators are opaque to torch.compile in both eager and compiled runs.
+_DYNAMIC_QUANT_OPS_AVAILABLE = _CPP_OPS_AVAILABLE and all(
+    hasattr(_ops, name) for name in ("fp8_mm", "int8_projection", "round_int8_inputs")
+)
+
+
+@custom_op("eole::fp8_mm", mutates_args=())
+def fp8_mm(
+    x: torch.Tensor, weight: torch.Tensor, scale_x: torch.Tensor, scale_w: torch.Tensor, bf16: bool
+) -> torch.Tensor:
+    return _ops.fp8_mm(x, weight, scale_x, scale_w, bf16)
+
+
+@fp8_mm.register_fake
+def _fake_fp8_mm(x, weight, scale_x, scale_w, bf16):
+    return x.new_empty((x.shape[0], weight.shape[0]), dtype=torch.bfloat16 if bf16 else torch.float16)
+
+
+def fp8_mma_supported(device):
+    """Check the selected compiled image once before capture, including PTX JIT."""
+    return bool(
+        _CPP_OPS_AVAILABLE and hasattr(_ops, "fp8_mma_supported") and _ops.fp8_mma_supported(torch.device(device).index)
+    )

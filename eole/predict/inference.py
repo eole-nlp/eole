@@ -33,14 +33,19 @@ class Inference(object):
     def _prepare_inference_projections(self, config):
         from eole.modules.hybrid_experts import prepare_hybrid_experts
 
+        if isinstance(self.model, torch.nn.Module):
+            for module in self.model.modules():
+                if getattr(module, "checkpoint_weight_layout", None) == "compressed_float":
+                    module.post_init()
+
         dense_quantization = getattr(config, "dense_quantization", "none")
         if dense_quantization != "none" and getattr(config, "parallel_gpu", 1) > 1:
             raise ValueError("Runtime dense quantization currently requires single-GPU inference")
         if dense_quantization == "w8a8":
-            from importlib.util import find_spec
+            from eole.ops import _DYNAMIC_QUANT_OPS_AVAILABLE
 
-            if find_spec("triton") is None:
-                raise ValueError("W8A8 decoder quantization requires Triton")
+            if not _DYNAMIC_QUANT_OPS_AVAILABLE:
+                raise ValueError("W8A8 decoder quantization requires rebuilt Eole CUDA kernels")
         from eole.modules.autoround_linear import finalize_deferred_autoround_linear
 
         vocabulary_quantization = getattr(config, "vocabulary_quantization", "none")
@@ -103,6 +108,19 @@ class Inference(object):
 
         if isinstance(self.model, torch.nn.Module):
             finalize_deferred_autoround_linear(self.model)
+            if getattr(config, "fp8_backend", "native") == "marlin":
+                count = 0
+                for module in self.model.modules():
+                    if getattr(module, "checkpoint_weight_layout", None) == "compressed_float":
+                        module.prepare_marlin()
+                        count += int(module.marlin_qweight is not None)
+                from eole.utils.logging import logger
+
+                if count:
+                    logger.info("Marlin FP8 W8A16 projections: %d", count)
+                else:
+                    logger.warning("fp8_backend=marlin selected, but this model has no FP8 projections; no effect")
+                torch.cuda.empty_cache()
         # Release native dense/head weights before allocating bounded expert banks.
         prepare_hybrid_experts(self.model, config)
         if dense_quantization != "none":

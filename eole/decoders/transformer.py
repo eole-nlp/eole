@@ -474,6 +474,7 @@ class TransformerDecoder(DecoderBase):
                 for key in (
                     "fuse_kvq",
                     "fuse_gate",
+                    "fp8_backend",
                     "quant_type",
                     "w_bit",
                     "group_size",

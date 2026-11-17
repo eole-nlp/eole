@@ -57,6 +57,8 @@ def get_ext_modules_and_cmdclass():
         "csrc/quantization/marlin/marlin_repack.cu",
         "csrc/quantization/marlin/marlin_dense.cu",
         "csrc/quantization/marlin/marlin_moe_wna16.cu",
+        "csrc/quantization/dynamic/fp8.cu",
+        "csrc/quantization/dynamic/int8.cu",
         "csrc/bindings.cpp",
     ]
 
@@ -129,6 +131,7 @@ setup(
         "pydantic",
     ],
     extras_require={
+        "nvfp4": ["flashinfer-python>=0.7.2,<0.8"],
         "ui": ["nvidia-ml-py>=12.0.0", "psutil>=5.9.0"],
         "translation": ["pypdf>=5.0.0"],
         "ocr": ["PyMuPDF>=1.24.0"],

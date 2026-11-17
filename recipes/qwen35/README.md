@@ -468,7 +468,8 @@ and inspect the recorded output lengths as well as throughput.
 
 Use `dense_quantization: w8a8` instead of `int8` to additionally quantize the
 selected projections' activations dynamically, in groups of 32. This requires
-Triton and the Eole CUDA extension on a single NVIDIA GPU. The vocabulary head,
+the rebuilt Eole CUDA extension on a single NVIDIA GPU. Small-row INT8
+projections and activation rounding use CUDA DP4A kernels. The vocabulary head,
 routed experts, routers, normalization and separate MTP/drafter modules keep
 their independent precision settings.
 

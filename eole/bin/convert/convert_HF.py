@@ -25,7 +25,15 @@ from tokenizers import Tokenizer
 from tokenizers.processors import TemplateProcessing
 
 # Eole Imports
-from eole.bin.convert.compressed_tensors import PackedCheckpoint, validate_config
+from eole.bin.convert.compressed_tensors import (
+    CompressedCheckpoint,
+    PackedCheckpoint,
+    FloatCheckpoint,
+    ModelOptCheckpoint,
+    validate_modelopt_config,
+    validate_config,
+    validate_float_config,
+)
 from eole.bin import BaseBin, register_bin
 from eole.config import recursive_model_fields_set, recursive_update_dict
 from eole.constants import DefaultTokens, TORCH_DTYPES, PositionEncodingType
@@ -249,9 +257,16 @@ class HuggingfaceFiles:
         quant = self.config.get(
             "quantization_config", self.config.get("text_config", {}).get("quantization_config", {})
         )
-        if quant.get("quant_method") != "compressed-tensors":
+        modelopt = quant.get("quant_method") == "modelopt"
+        if quant.get("quant_method") != "compressed-tensors" and not modelopt:
             return checkpoint
-        group_size = validate_config(quant)
+        floating = quant.get("format") == "mixed-precision" or modelopt
+        if modelopt:
+            validate_modelopt_config(quant)
+        elif floating:
+            validate_float_config(quant)
+        else:
+            group_size = validate_config(quant)
         if isinstance(checkpoint, dict):
             keys = set(checkpoint)
         else:
@@ -266,7 +281,13 @@ class HuggingfaceFiles:
                 source = checkpoint
             return get_weight(source, key)
 
-        return PackedCheckpoint(keys, read_tensor, group_size)
+        if modelopt:
+            return ModelOptCheckpoint(keys, read_tensor, self.wmap["weight_map"] if self.wmap_path else None)
+        return (
+            FloatCheckpoint(keys, read_tensor, self.wmap["weight_map"] if self.wmap_path else None)
+            if floating
+            else PackedCheckpoint(keys, read_tensor, group_size)
+        )
 
     def checkpoint(self, ckpt):
         if self.wmap_path:
@@ -279,8 +300,19 @@ class HuggingfaceFiles:
         """Return the checkpoint containing *tensor_name*, including companions."""
         if self.wmap_path:
             checkpoint_name = self.wmap["weight_map"].get(tensor_name)
-            if checkpoint_name is None and tensor_name.rsplit(".", 1)[-1] in ("qweight", "qzeros", "scales", "g_idx"):
-                checkpoint_name = self.wmap["weight_map"].get(tensor_name.rsplit(".", 1)[0] + ".weight_packed")
+            if tensor_name.rsplit(".", 1)[-1] in (
+                "qweight",
+                "qzeros",
+                "scales",
+                "g_idx",
+                "weight_global_scale",
+                "input_global_scale",
+            ):
+                prefix = tensor_name.rsplit(".", 1)[0]
+                owner = self.wmap["weight_map"].get(prefix + ".weight_packed")
+                if owner is None and prefix + ".weight_scale" in self.wmap["weight_map"]:
+                    owner = self.wmap["weight_map"].get(prefix + ".weight")
+                checkpoint_name = owner or checkpoint_name
             if checkpoint_name:
                 return self.get_load_ckpt(self.base_dir, checkpoint_name)
         for checkpoint_path in self.model_paths:
@@ -660,12 +692,20 @@ def build_config_dict(hf):
                 if excluded_modules:
                     training_config["quant_exclude_modules"] = excluded_modules
             params = ["qweight", "qzeros", "scales"] + ["weight", "bias"]
-        elif quant_config.get("quant_method") == "compressed-tensors":
-            group_size = validate_config(quant_config)
+        elif quant_config.get("quant_method") in ("compressed-tensors", "modelopt"):
+            modelopt = quant_config.get("quant_method") == "modelopt"
+            floating = quant_config.get("format") == "mixed-precision" or modelopt
+            if modelopt:
+                group_size = validate_modelopt_config(quant_config)
+            elif floating:
+                validate_float_config(quant_config)
+                group_size = 16
+            else:
+                group_size = validate_config(quant_config)
             modules = _compressed_quantized_modules(hf, model_config)
             training_config.update(
                 {
-                    "quant_type": "autoround",
+                    "quant_type": "nvfp4" if floating else "autoround",
                     "w_bit": 4,
                     "group_size": group_size,
                     "autoround_packing_format": "auto_round:auto_gptq",
@@ -674,10 +714,12 @@ def build_config_dict(hf):
                 }
             )
             if quant_config.get("kv_cache_scheme"):
-                logging.warning(
-                    "compressed-tensors KV-cache scales are not applied; Eole uses its floating-point cache"
-                )
-            params = ["qweight", "qzeros", "scales", "g_idx", "weight", "bias"]
+                logging.warning("Checkpoint KV-cache scales are not applied; Eole uses its floating-point cache")
+            params = (
+                ["qweight", "scales", "weight_global_scale", "input_global_scale", "weight", "bias"]
+                if floating
+                else ["qweight", "qzeros", "scales", "g_idx", "weight", "bias"]
+            )
         else:
             raise ValueError("Can convert only awq, autoround, gptq or supported compressed-tensors models")
     else:
@@ -695,6 +737,10 @@ def build_config_dict(hf):
 def _compressed_quantized_modules(hf, model_config):
     keys = _collect_all_source_keys(hf)
     packed = {key.removesuffix(".weight_packed") for key in keys if key.endswith(".weight_packed")}
+    quant = hf.config.get("quantization_config", hf.config.get("text_config", {}).get("quantization_config", {}))
+    floating = quant.get("format") == "mixed-precision" or quant.get("quant_method") == "modelopt"
+    if floating:
+        packed.update(key.removesuffix(".weight_scale") for key in keys if key.endswith(".weight_scale"))
     if not packed:
         raise ValueError("compressed-tensors checkpoint contains no packed Linear weights")
     linear_names = {
@@ -711,7 +757,7 @@ def _compressed_quantized_modules(hf, model_config):
         "in_proj_b",
         "out_proj",
     }
-    if any(module + ".weight" in keys for module in packed):
+    if not floating and any(module + ".weight" in keys for module in packed):
         raise ValueError("Packed and floating-point weights coexist for the same module")
     modules = {}
     for section, prefix, target_prefix in (
@@ -745,6 +791,13 @@ def _compressed_quantized_modules(hf, model_config):
                     and target.rstrip(".").rsplit(".", 1)[-1] in linear_names
                 ):
                     modules[source_module] = target_prefix + str(index - offset) + target[:-1]
+    generator = KEY_MAPS[hf.arch].get("generator.weight")
+    if floating and isinstance(generator, str) and generator.endswith(".weight"):
+        prefix = generator.removesuffix(".weight")
+        if prefix in packed:
+            if hf.config.get("tie_word_embeddings", False):
+                raise ValueError("Compressed vocabulary heads cannot share decoder embeddings")
+            modules[prefix] = "generator"
     unmapped = packed - modules.keys()
     if unmapped:
         raise ValueError("Unsupported packed weight mappings: " + ", ".join(sorted(unmapped)))
@@ -869,8 +922,12 @@ def get_shards_map(model_config, hf, nshards):
     shard_checkpoints = [set() for _ in range(nshards)]
 
     # Check if a layer key belongs to the current shard
-    def is_layer_in_range(key, prefix, layer_range):
-        return prefix and key.startswith(prefix) and int(key.split(".")[len(prefix.split(".")) - 1]) in layer_range
+    def is_layer_in_range(key, prefix, layer_range, offset=0):
+        return (
+            prefix
+            and key.startswith(prefix)
+            and int(key.split(".")[len(prefix.split(".")) - 1]) + offset in layer_range
+        )
 
     # Loop over the weightmap and distribute checkpoints to the appropriate shards
     for key, ckpt in weightmap.items():
@@ -878,7 +935,12 @@ def get_shards_map(model_config, hf, nshards):
             if (
                 is_layer_in_range(key, hf.decoder_layer_prefix, layer_range)
                 or is_layer_in_range(key, hf.encoder_layer_prefix, layer_range)
-                or is_layer_in_range(key, hf.mtp_layer_prefix, layer_range)
+                or is_layer_in_range(
+                    key,
+                    hf.mtp_layer_prefix,
+                    layer_range,
+                    mtp_layer_start if hf.mtp_layer_prefix == "mtp.layers." else 0,
+                )
             ):
                 shard_checkpoints[shard].add(ckpt)
 
@@ -908,6 +970,7 @@ class _StreamingTensorStore:
         torch.int16: "I16",
         torch.int8: "I8",
         torch.uint8: "U8",
+        torch.float8_e4m3fn: "F8_E4M3",
     }
 
     def __init__(self, tmp_path: str):
@@ -984,7 +1047,7 @@ def _collect_all_source_keys(hf):
         for checkpoint_path in hf.extra_model_paths:
             ckpt = hf.get_load_ckpt(*os.path.split(checkpoint_path))
             if isinstance(ckpt, dict):
-                all_keys.update(ckpt.raw_keys if isinstance(ckpt, PackedCheckpoint) else ckpt.keys())
+                all_keys.update(ckpt.raw_keys if isinstance(ckpt, CompressedCheckpoint) else ckpt.keys())
             else:
                 with safetensors.safe_open(ckpt, framework="pt", device="cpu") as f:
                     all_keys.update(f.keys())
@@ -994,7 +1057,7 @@ def _collect_all_source_keys(hf):
         for checkpoint_path in hf.model_paths:
             ckpt = hf.get_load_ckpt(*os.path.split(checkpoint_path))
             if isinstance(ckpt, dict):
-                all_keys.update(ckpt.raw_keys if isinstance(ckpt, PackedCheckpoint) else ckpt.keys())
+                all_keys.update(ckpt.raw_keys if isinstance(ckpt, CompressedCheckpoint) else ckpt.keys())
             else:
                 with safetensors.safe_open(ckpt, framework="pt", device="cpu") as f:
                     all_keys.update(f.keys())
@@ -1077,7 +1140,10 @@ def check_conversion_equality(hf, conversion_details, target_dtype):
             src = src.unsqueeze(0)
 
         # Cast to the same dtype that was applied during conversion.
-        if target_dtype is not None and src.is_floating_point():
+        compressed_float = isinstance(ckpt, FloatCheckpoint) and srckey.endswith(
+            (".qweight", ".scales", ".weight_global_scale", ".input_global_scale")
+        )
+        if target_dtype is not None and src.is_floating_point() and not compressed_float:
             src = src.to(target_dtype)
 
         # Load the corresponding tensor from the saved output shard.
@@ -1088,7 +1154,14 @@ def check_conversion_equality(hf, conversion_details, target_dtype):
             tgt = f.get_tensor(eole_key)
 
         # Element-wise comparison.
-        if not torch.equal(src, tgt):
+        equal = (
+            src.dtype == tgt.dtype
+            and src.shape == tgt.shape
+            and torch.equal(src.view(torch.uint8), tgt.view(torch.uint8))
+            if src.dtype == torch.float8_e4m3fn
+            else torch.equal(src, tgt)
+        )
+        if not equal:
             mismatches.append((eole_key, "values differ between source (after transform) and output"))
 
     if mismatches:
@@ -1139,6 +1212,33 @@ def build_shards(model_config, hf, args, params):
                 else:
                     checkpoint = None
                 if checkpoint is None:
+                    continue
+                prefix = srckey.removesuffix(".weight")
+                if (
+                    target == "generator.weight"
+                    and isinstance(checkpoint, FloatCheckpoint)
+                    and prefix + ".qweight" in checkpoint
+                ):
+                    if srcmap is not None:
+                        raise ValueError("Compressed vocabulary head does not support a source transformation")
+                    for param in ("qweight", "scales", "weight_global_scale", "input_global_scale"):
+                        source_key = prefix + "." + param
+                        value = get_weight(checkpoint, source_key)
+                        if value is None:
+                            continue
+                        target_key = "generator." + param
+                        eole_safetensor[target_key] = value
+                        consumed_src_keys.update(checkpoint.source_keys(source_key))
+                        conversion_details.append(
+                            dict(
+                                shard_path=output_path,
+                                eole_key=target_key,
+                                srckey=source_key,
+                                srcmap=None,
+                                context={},
+                                special=None,
+                            )
+                        )
                     continue
                 w = get_weight(checkpoint, srckey)
                 if w is not None:
@@ -1221,6 +1321,15 @@ def build_shards(model_config, hf, args, params):
                 for section, hf_prefix, eole_prefix, layer_offset, source_layer_offset in prefix_mapping:
                     if hf_prefix is None:
                         continue
+                    if section == "mtp":
+                        num_mtp = (
+                            model_config.get("decoder", {}).get("num_mtp_heads", model_config.get("num_mtp_heads", 0))
+                            or 0
+                        )
+                        if not layer_offset <= i < layer_offset + num_mtp:
+                            continue
+                    if section == "decoder" and i >= model_config["layers"]:
+                        continue
                     key_map = KEY_MAPS[hf.arch].get(section, {})
                     for target, source in key_map.items():
                         for param in params:
@@ -1245,7 +1354,7 @@ def build_shards(model_config, hf, args, params):
                             if w is not None:
                                 consumed_src_keys.update(
                                     checkpoint.source_keys(full_srckey)
-                                    if isinstance(checkpoint, PackedCheckpoint)
+                                    if isinstance(checkpoint, CompressedCheckpoint)
                                     else {full_srckey}
                                 )
                                 if srcmap is not None:
@@ -1268,7 +1377,13 @@ def build_shards(model_config, hf, args, params):
                                     ).contiguous()
                                 else:
                                     context = {}
-                                if target_dtype is not None and w.is_floating_point():
+                                compressed_float = isinstance(checkpoint, FloatCheckpoint) and param in (
+                                    "qweight",
+                                    "scales",
+                                    "weight_global_scale",
+                                    "input_global_scale",
+                                )
+                                if target_dtype is not None and w.is_floating_point() and not compressed_float:
                                     w = w.to(target_dtype)
                                 target1 = target
                                 if target.endswith("."):
