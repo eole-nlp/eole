@@ -35,7 +35,7 @@ class FakeModel:
         self.messages, self.kwargs = messages, kwargs
         return " ".join(str(m.get("content", "")) for m in messages)
 
-    def infer_list_stream(self, prompt, settings, generation_stats=None):
+    def infer_list_stream(self, prompt, settings, generation_stats=None, cancel_event=None):
         self.settings = settings
         for chunk in self.chunks:
             yield chunk

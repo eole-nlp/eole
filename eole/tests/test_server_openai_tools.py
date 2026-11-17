@@ -14,7 +14,7 @@ class _FakeModel:
         self.response = "".join(self.chunks)
         self.render_calls = []
         self.infer_calls = []
-        self.engine = SimpleNamespace(infer_list_stream=lambda inputs, settings: iter(self.chunks))
+        self.engine = SimpleNamespace(infer_list_stream=lambda inputs, settings, cancel_event=None: iter(self.chunks))
 
     def apply_chat_template(self, messages, tools=None, tool_choice=None, enable_thinking=False, reasoning_effort=None):
         self.render_calls.append((messages, tools, tool_choice, enable_thinking, reasoning_effort))

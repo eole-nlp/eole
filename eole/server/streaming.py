@@ -11,23 +11,22 @@ async def inference_stream(
 ):
     """Yield an async chunk iterator and drain its worker when the consumer exits.
 
-    Without an explicit cancel_event, disconnects stop delivery only. With
-    one, signal cooperative cancellation and still drain the worker before
-    releasing request-local state.
+    Disconnects signal cooperative cancellation and drain the worker before
+    releasing request-local state. Callers may supply a shared cancellation
+    event for multi-segment jobs; completed segments leave it unset.
     The engine's persistent single-worker pool still owns inference scheduling.
     """
     loop = asyncio.get_running_loop()
     queue = asyncio.Queue()
     cancelled = threading.Event()
+    cancel_event = cancel_event if cancel_event is not None else threading.Event()
     completed = False
 
     def produce():
         try:
-            kwargs = {"settings": settings}
+            kwargs = {"settings": settings, "cancel_event": cancel_event}
             if generation_stats is not None:
                 kwargs["generation_stats"] = generation_stats
-            if cancel_event is not None:
-                kwargs["cancel_event"] = cancel_event
             if preserve_special_tokens:
                 kwargs["preserve_special_tokens"] = True
             for chunk in engine.infer_list_stream(prompt, **kwargs):
@@ -54,6 +53,6 @@ async def inference_stream(
         yield chunks()
     finally:
         cancelled.set()
-        if cancel_event is not None and not completed:
+        if not completed:
             cancel_event.set()
         await asyncio.shield(worker)

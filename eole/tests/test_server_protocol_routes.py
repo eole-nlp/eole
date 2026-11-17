@@ -12,7 +12,7 @@ from eole.server.app import create_app
 def make_client():
     class FakeModel:
         loaded = True
-        engine = SimpleNamespace(infer_list_stream=lambda prompt, settings: iter(["Hello"]))
+        engine = SimpleNamespace(infer_list_stream=lambda prompt, settings, cancel_event=None: iter(["Hello"]))
 
         def get_model_limits(self):
             return 128, 1024
