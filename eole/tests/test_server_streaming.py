@@ -120,3 +120,40 @@ class TestInferenceStream(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancellation_drains_worker(self):
         await self.check_early_exit(cancel=True)
+
+
+class TestStreamingSettingsRestoration(unittest.IsolatedAsyncioTestCase):
+    async def test_bridge_restores_engine_overrides_after_completion_and_disconnect(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import Mock
+        from eole.inference_engine import InferenceEnginePY
+        from eole.predict.streamer import GenerationCancelled
+
+        for disconnect in (False, True):
+            with self.subTest(disconnect=disconnect), ThreadPoolExecutor(1) as pool:
+                engine = InferenceEnginePY.__new__(InferenceEnginePY)
+                engine.config = SimpleNamespace(world_size=1)
+                engine.vocabs = {"tgt": SimpleNamespace(ids_to_tokens=["hello", "<eos>"])}
+                engine.transform_pipe = None
+                engine.logger = Mock()
+                engine._thread_pool = pool
+                engine.predictor = SimpleNamespace(model=Mock(), _tgt_eos_idx=[1], max_length=50)
+                engine._build_inference_iterator = lambda **kwargs: iter([])
+
+                def predict(_iterator, settings, streamer):
+                    engine.predictor.max_length = settings["max_length"]
+                    streamer.put([0])
+                    if disconnect:
+                        if not streamer.cancel_event.wait(2):
+                            raise RuntimeError("disconnect did not reach inference worker")
+                        raise GenerationCancelled()
+                    streamer.end()
+
+                engine._predict = predict
+                async with inference_stream(engine, "hello", {"max_length": 7}) as chunks:
+                    if disconnect:
+                        async for _ in chunks:
+                            break
+                    else:
+                        self.assertEqual([part async for part in chunks], ["hello"])
+                self.assertEqual(engine.predictor.max_length, 50)
