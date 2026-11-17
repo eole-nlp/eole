@@ -6,6 +6,7 @@ Qwen tool blocks are buffered individually; ordinary text streams immediately.
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 import time
 import uuid
 
@@ -369,6 +370,11 @@ class ResponseEvents:
         return self.event("response.failed", response=self.response)
 
 
+@asynccontextmanager
+async def unlocked():
+    yield
+
+
 def register_responses(app, server):
     locks = {}
 
@@ -433,7 +439,15 @@ def register_responses(app, server):
                 settings["temperature"] = 1.0
         if request.top_p is not None:
             settings["top_p"] = request.top_p
-        lock = locks.setdefault(request.model, asyncio.Lock())
+        continuous = getattr(model.engine, "continuous", None)
+        if continuous is not None:
+            try:
+                continuous.validate(settings)
+            except ValueError as exc:
+                return JSONResponse(
+                    status_code=400, content={"error": {"type": "invalid_request_error", "message": str(exc)}}
+                )
+        lock = locks.setdefault(request.model, asyncio.Lock()) if continuous is None else unlocked()
 
         async def events():
             state, parser = ResponseEvents(request, schemas, custom), OutputParser()

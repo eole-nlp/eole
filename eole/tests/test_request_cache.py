@@ -69,6 +69,18 @@ class RequestCacheTests(unittest.TestCase):
                 torch.testing.assert_close(value[:1], original[name])
                 self.assertTrue(value[1].eq(99).all())
 
+    def test_singleton_view_updates_only_its_owned_bank_row(self):
+        decoder = self.decoder()
+        bank = self.allocate(decoder, 3)
+        view = bank.row(2)
+        view.bind()
+        decoder.cache_seqlens.add_(4)
+        decoder.transformer_layers[0].linear_attn.recurrent_state.fill_(7)
+        self.assertEqual(bank.metadata["cache_seqlens"].tolist(), [0, 0, 4])
+        state = bank.layers[0][1]["recurrent_state"]
+        self.assertEqual(state[:2].count_nonzero(), 0)
+        self.assertTrue(state[2].eq(7).all())
+
     def test_incompatible_admission_does_not_partially_mutate(self):
         decoder = self.decoder()
         bank = self.allocate(decoder, 2)

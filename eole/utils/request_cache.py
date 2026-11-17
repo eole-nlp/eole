@@ -59,6 +59,19 @@ class RequestCache:
             for name, value in state.items():
                 setattr(attention, name, value)
 
+    def row(self, slot):
+        """A storage-sharing single-row view for low-concurrency decode graphs."""
+        if not 0 <= slot < self.metadata["cache_seqlens"].numel():
+            raise ValueError("Invalid request cache row")
+        metadata = dict(self.metadata)
+        for name in ("cache_seqlens", "left_pad_attn_mask"):
+            metadata[name] = metadata[name][slot : slot + 1]
+        layers = [
+            (attention, {name: value[slot : slot + 1] for name, value in state.items()})
+            for attention, state in self.layers
+        ]
+        return type(self)(self.decoder, metadata, layers)
+
     @torch.no_grad()
     def copy_row(self, slot, source):
         """Admit one prefilled request into a fixed-capacity decode bank.

@@ -1,11 +1,9 @@
 # Codex-shaped serving baseline
 
-This recipe measures the existing Responses API under concurrent load before
-adding continuous batching to HTTP. **It does not enable HTTP continuous batching.**
-An isolated eager core probe is available below. Streaming
-requests currently wait on a per-model Responses lock and a single inference
-worker. Non-streaming Chat requests can use whole-request batching; that is not
-a scheduler that admits new requests between decode steps.
+This recipe compares the existing serialized Responses API with an experimental,
+opt-in continuous backend. Default server behaviour is unchanged. The new backend
+requires a dedicated single-model, single-GPU, ordinary-greedy Responses server;
+it is not a general replacement for other Eole prediction/scoring/UI workflows.
 
 The workload uses the same Responses protocol as the [Codex integration](../codex/README.md),
 without launching Codex itself. It checks streaming load and a synthetic coding
@@ -92,17 +90,15 @@ All text and final patch requests reached the short output cap. The first tool
 call completed and its name/arguments/call ID were checked. Increasing client
 count did not increase GPU throughput; it increased waiting time. That establishes
 a scheduling bottleneck rather than evidence for another projection-kernel change.
-A live cancellation check closed a 1,024-token stream after its first text delta;
-the following short request completed in 0.33 seconds.
+See the valid live cancellation/fairness checks for the continuous backend below.
 
-## Next scheduler milestone
+## Scheduler design
 
-The scheduler must own the one inference worker, not run simultaneous forwards
-against the current shared decoder. Introduce request-owned KV caches, GDN
-convolution/recurrent state, token history, positions, stopping criteria and
-cancellation before removing endpoint serialization. The current decoder builds
-ordinary rotary positions from `cache_seqlens[0]`; mixed-age decode rows need
-per-request positions and equivalence tests before they can share a batch.
+The scheduler owns the one inference worker rather than running simultaneous
+forwards against a shared decoder. Request-owned KV/GDN state, positions, token
+histories, stopping criteria and cancellation allow admission and retirement at
+decode boundaries. An explicit step path supplies per-row rotary positions;
+ordinary predictor dispatch retains its existing behaviour.
 
 Start with single-GPU, greedy, text-only ordinary decoding, bounded admission
 and prefill chunks that yield between decode rounds. Retire completed/cancelled
@@ -141,26 +137,90 @@ cancellation and reuse of the cancelled request's slot. On the RTX 5090 all four
 matched token-for-token (92 completed output tokens total). This finite check
 is not a universal cross-batch bit-identity guarantee.
 
-An initial **eager-only**, single-pass bank-capacity probe gave:
+The optional `--benchmark` probe measures core capacity without HTTP delivery;
+its results must not be compared directly with the compiled HTTP table below.
 
-| Slots | Total output tokens | Aggregate output tok/s |
-| --- | ---: | ---: |
-| 1 | 128 | 24.9 |
-| 2 | 207 | 37.3 |
-| 4 | 414 | 71.0 |
-| 8 | 779 | 120.1 |
+The dedicated Responses backend below adds compiled step graphs, per-slot
+singleton graphs and bounded prefill chunks to this core. It owns the engine
+worker for the entire model lifetime; another predictor must never use the same
+engine concurrently.
 
-Each cell submits twice as many jobs as slots, cycling three short prompts with
-a 64-token output budget. EOS changes total output counts. These rates include
-prefill/admission, exclude model loading and initial correctness checks, and
-have no HTTP or detokenization cost. They are **not comparable to the compiled
-HTTP baseline or the front-page decode table**. The eight-slot runner processes
-all eight rows even when some slots are inactive; this establishes batching
-and state ownership, not an optimized scheduler or a latency improvement.
+## Experimental compiled Responses server
 
-Remaining before HTTP integration: compiled step graphs with stable bank
-bindings, bounded/fair chunked prefill, streaming delivery and request-local
-settings on the worker, and lifecycle/error handling with model unload. A
-single-request regression benchmark and mixed-age correctness checks must pass
-before replacing endpoint locks. The eager runner is not automatically used
-by any public endpoint and must not run alongside another predictor forward.
+Start this instead of the baseline server, on the same localhost port:
+
+```bash
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+python -m eole.bin.main serve -c recipes/serving/serve_continuous.yaml \
+  --host 127.0.0.1 --port 5019
+```
+
+Use the same benchmark command above. The YAML adds a model-level `continuous`
+section with four decode slots, a bounded 32-request pending budget and
+128-token prefill chunks. Startup compiles/captures the fixed bank and per-slot
+singleton views before readiness. One active request uses a singleton graph;
+multiple active requests share the bank graph. Singleton views share cache
+storage rather than duplicating the KV bank. Initial preparation took 62 seconds
+in the measured run, excluding model loading. Failed graph capture fails
+preparation rather than advertising a compiled backend while falling back.
+
+The worker alternates one decode round with at most one bounded prefill chunk.
+Active requests continue decoding while a long prompt is prepared; incoming
+prefills currently run FIFO, one at a time. This is not priority scheduling of
+short prompts around other queued prefills. Cancellation handles queued,
+partially prefilled and decoding requests. Completion returns admission capacity.
+A worker failure fails all affected streams and requires a model reload. Server
+shutdown stops the worker, closes graphs and unloads the model before process exit.
+
+Only text-only greedy Responses requests are qualified. Sampling, penalties,
+MTP/DFlash2, prefix reuse, tensor parallelism and general scoring/prediction calls
+are unsupported in this mode. Use `temperature: 0` or the greedy server default;
+unsupported request settings are rejected. The server must contain one model and
+must not use `model_policy: single`, whose global lease would serialize requests.
+Existing server YAMLs without `continuous` keep their current paths.
+
+This small-context recipe is for protocol/load testing. Actual Codex sessions can
+carry much larger system/tool prompts; align context/output metadata and verify
+VRAM before running real coding tasks. The tests here do not establish coding
+quality or successful end-to-end Codex task completion.
+
+### Compiled HTTP results
+
+Same RTX 5090, target, native BF16 vocabulary head, prompts, 128-token output cap,
+client counts and two jobs per client as the baseline. The new backend uses
+128-token prefill chunks versus the baseline's 256. No speculation or prefix
+reuse. Values below include queueing, prefill, detokenization and HTTP delivery.
+These are initial small samples, not a broad throughput guarantee.
+
+| Workload | Clients | Serialized tok/s | Continuous tok/s | First-output p95, old → new (s) | Job p95, old → new (s) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Text | 1 | 67.9 | 74.4 | 0.23 → 0.19 | 1.90 → 1.72 |
+| Text | 2 | 68.3 | 107.3 | 2.10 → 0.39 | 3.76 → 2.48 |
+| Text | 4 | 67.3 | 183.4 | 5.97 → 0.79 | 7.66 → 3.07 |
+| Text | 8 | 67.3 | 184.7 | 13.66 → 3.84 | 15.35 → 6.60 |
+| Tool loop | 1 | 55.3 | 59.2 | 0.69 → 0.65 | 2.79 → 2.60 |
+| Tool loop | 2 | 56.0 | 78.4 | 2.70 → 1.14 | 5.52 → 4.19 |
+| Tool loop | 4 | 55.6 | 111.8 | 6.69 → 2.51 | 11.19 → 6.44 |
+| Tool loop | 8 | 56.2 | 113.9 | 14.14 → 5.22 | 22.02 → 12.42 |
+
+All tool-call arguments and call IDs passed the benchmark checks. A live fairness
+check recorded 20 short-request output events during a long request's 1.92-second
+prefill window. The long stream was then closed after its first text event,
+and a following request completed in 0.31 seconds. Unlike the earlier baseline
+probe, this used a valid output budget and a confirmed live stream. A live
+non-greedy request was rejected with HTTP 400.
+
+The compiled mixed-arrival diagnostic uses the same prefill chunk boundaries in
+its solo oracle. Chunking itself can change floating-point results; an unchunked
+oracle is not a valid exact-output reference for this test. Run it with:
+
+```bash
+EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+python recipes/serving/check_continuous.py --compiled-step \
+  --model "$QWEN38_MODEL" --output /tmp/eole-continuous-check.json
+```
+
+The HTTP path remains experimental. Broader long-context/long-output correctness,
+real Codex workloads, more hardware and larger latency samples remain necessary
+before making it a default. No native Eole extension rebuild is required; startup
+still prepares runtime-specific torch.compile programs and CUDA graphs.

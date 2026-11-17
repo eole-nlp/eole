@@ -19,12 +19,14 @@ def main():
     parser.add_argument("--model", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--benchmark", action="store_true", help="Also time eager banks at 1/2/4/8 slots")
+    parser.add_argument("--compiled-step", action="store_true")
+    parser.add_argument("--prefill-chunk-size", type=int, default=16)
     args = parser.parse_args()
 
     from eole import EOLE_TORCH_COMPILE
 
-    if EOLE_TORCH_COMPILE:
-        raise ValueError("Use EOLE_TORCH_COMPILE=0 for this eager core probe")
+    if EOLE_TORCH_COMPILE != args.compiled_step:
+        raise ValueError("Set EOLE_TORCH_COMPILE=1 with --compiled-step, otherwise use 0")
 
     cfg = PredictConfig(
         model_path=args.model,
@@ -64,13 +66,23 @@ def main():
     def solo(prompt, budget):
         p.model.decoder._disable_cache()
         src = torch.tensor([prompt], device="cuda")
-        src_len = torch.tensor([len(prompt)], device="cuda")
         result = []
         for index in range(budget):
             inputs = src if index == 0 else torch.tensor([[result[-1]]], device="cuda")
-            scores, _ = p._decode_and_generate(
-                inputs, None, src_len=src_len, step=0 if index == 0 else len(prompt) + index - 1
-            )
+            if index == 0:
+                p.model.decoder._disable_cache()
+                for offset in range(0, src.size(1), args.prefill_chunk_size):
+                    part = src[:, offset : offset + args.prefill_chunk_size]
+                    emb = p.model.tgt_emb(part, step=offset)
+                    mask = torch.zeros(1, 1, part.size(1), device=emb.device, dtype=torch.bool)
+                    if offset == 0:
+                        p.model.decoder._init_cache(emb, mask)
+                    hidden, _ = p.model.decoder._forward_eager(emb, tgt_pad_mask=mask)
+            else:
+                emb = p.model.tgt_emb(inputs, step=len(prompt) + index - 1)
+                mask = torch.zeros(1, 1, 1, device=emb.device, dtype=torch.bool)
+                hidden, _ = p.model.decoder._forward_eager(emb, tgt_pad_mask=mask)
+            scores = p.model.generator(hidden[:, -1]).log_softmax(-1)
             token = scores.argmax(-1).item()
             result.append(token)
             if token in p._tgt_eos_idx:
@@ -82,7 +94,9 @@ def main():
         for name, prompt, budget in [("a", ids[0], 32), ("c", ids[2], 24), ("d", ids[1], 16), ("e", ids[2], 20)]:
             expected[name] = solo(prompt, budget)
         print("SOLO_READY", flush=True)
-        runner = ContinuousGreedy(p, slots=2, max_pending=8)
+        runner = ContinuousGreedy(
+            p, slots=2, max_pending=8, prefill_chunk_size=args.prefill_chunk_size, compiled=args.compiled_step
+        )
         runner.submit("a", ids[0], 32)
         runner.submit("b", ids[1], 48)
         runner.submit("d", ids[1], 16)
@@ -98,7 +112,7 @@ def main():
             timeline.append(
                 dict(tick=tick, events=events, active={str(k): v.request_id for k, v in runner.active.items()})
             )
-            if not runner.pending and not runner.active:
+            if not runner.has_work:
                 break
         torch.cuda.synchronize()
         comparisons = {}
@@ -113,6 +127,10 @@ def main():
                 status=runner.requests[name].status,
             )
         report = dict(
+            compiled_step=args.compiled_step,
+            captured_batch=bool(runner.step_graph and runner.step_graph.graph),
+            captured_single=[bool(g and g.graph) for g in runner.single_graphs],
+            prefill_chunk_size=args.prefill_chunk_size,
             comparisons=comparisons,
             cancelled=runner.requests["b"].status,
             timeline=timeline,
@@ -132,12 +150,14 @@ def main():
         if args.benchmark:
             report["eager_banks"] = []
             for slots in (1, 2, 4, 8):
-                runner = ContinuousGreedy(p, slots=slots)
+                runner = ContinuousGreedy(
+                    p, slots=slots, prefill_chunk_size=args.prefill_chunk_size, compiled=args.compiled_step
+                )
                 for i in range(slots * 2):
                     runner.submit(str(i), ids[i % len(ids)], 64)
                 torch.cuda.synchronize()
                 start = time.perf_counter()
-                while runner.pending or runner.active:
+                while runner.has_work:
                     runner.tick()
                 torch.cuda.synchronize()
                 seconds = time.perf_counter() - start

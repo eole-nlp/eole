@@ -1,7 +1,7 @@
 """Bounded, fixed-slot ordinary-greedy decoding prototype.
 
-One inference worker owns this runner and all model forwards. This is not wired
-into HTTP endpoints yet: prefill is still synchronous, and decode is eager.
+One inference worker owns this runner and all model forwards. The opt-in Responses service uses this core.
+Prefill yields between bounded chunks; compiled step graphs are optional.
 Requests may join/leave between ticks without copying the bank on every step.
 """
 
@@ -23,17 +23,20 @@ class GreedyRequest:
     tokens: list = field(default_factory=list)
     status: str = "queued"
     slot: int | None = None
+    cache: RequestCache | None = None
+    prefilled: int = 0
 
 
 class ContinuousGreedy:
-    def __init__(self, predictor, slots=4, max_pending=32):
+    @torch.inference_mode()
+    def __init__(self, predictor, slots=4, max_pending=32, prefill_chunk_size=256, compiled=False):
         self.predictor = predictor
         self.model = predictor.model
         self.decoder = self.model.decoder
         self.worker = get_ident()
         self.closed = False
         self.vocab_size = self.model.tgt_emb.embeddings.num_embeddings
-        if slots < 1 or max_pending < 1:
+        if slots < 1 or max_pending < 1 or prefill_chunk_size < 1:
             raise ValueError("Slot and queue limits must be positive")
         if predictor.self_speculative_decoding or getattr(predictor, "dflash2", None) is not None:
             raise ValueError("Continuous prototype requires speculation disabled")
@@ -46,6 +49,26 @@ class ContinuousGreedy:
             for layer in self.decoder.transformer_layers
         ):
             raise ValueError("Multidimensional rotary positions are not supported")
+        self.prefilling = None
+        self.prefill_chunk_size = prefill_chunk_size
+        if (
+            any(
+                getattr(predictor, name, 0)
+                for name in (
+                    "min_length",
+                    "presence_penalty",
+                    "frequency_penalty",
+                    "block_ngram_repeat",
+                    "ban_unk_token",
+                )
+            )
+            or predictor.beam_size != 1
+            or predictor.n_best != 1
+            or predictor.top_k != 1
+        ):
+            raise ValueError("Continuous serving requires unconstrained batch-one greedy defaults")
+        if getattr(self.decoder, "_prefill_cache", None) is not None:
+            raise ValueError("Continuous prefix reuse is not implemented; set prefill_cache_size=0")
         self.pending = deque()
         self.active = {}
         self.requests = {}
@@ -63,6 +86,51 @@ class ContinuousGreedy:
         self.next_tokens = torch.zeros(slots, 1, device=emb.device, dtype=torch.long)
         self.eos = set(predictor._tgt_eos_idx)
         self.capacity = self.bank.metadata["cache_len_tgt"]
+        self.step_graph = None
+        self.row_caches = [self.bank.row(slot) for slot in range(slots)]
+        self.single_graphs = [None] * slots
+        if compiled:
+            from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
+            from eole.utils.decoder_graph import DecoderGraph
+
+            if not EOLE_TORCH_COMPILE or EOLE_COMPILE_MODE != "0":
+                raise ValueError("Compiled continuous steps require EOLE_TORCH_COMPILE=1 and mode 0")
+            function = torch.compile(
+                self._step,
+                fullgraph=True,
+                dynamic=False,
+                options={
+                    "triton.cudagraphs": False,
+                    "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
+                },
+            )
+            self.step_graph = DecoderGraph(function, function)
+            programs = [(self.bank, self.step_graph, emb)]
+            if slots > 1:
+                for slot, cache in enumerate(self.row_caches):
+                    graph = DecoderGraph(function, function)
+                    self.single_graphs[slot] = graph
+                    programs.append((cache, graph, emb[:1]))
+            with torch.inference_mode():
+                for cache, graph, inputs in programs:
+                    cache.bind()
+                    mask = torch.zeros(inputs.size(0), 1, 1, device=emb.device, dtype=torch.bool)
+                    for _ in range(3):
+                        graph(inputs, tgt_pad_mask=mask)
+                    if graph.graph is None:
+                        raise RuntimeError("Continuous decode graph capture did not succeed")
+                for _, state in self.bank.layers:
+                    for value in state.values():
+                        value.zero_()
+                self.bank.metadata["cache_seqlens"].zero_()
+            torch.cuda.synchronize()
+
+    def _step(self, emb, *, tgt_pad_mask):
+        return self.decoder.forward_step(emb)
+
+    @property
+    def has_work(self):
+        return bool(self.active or self.pending or self.prefilling)
 
     def _check_worker(self):
         if get_ident() != self.worker:
@@ -89,9 +157,13 @@ class ContinuousGreedy:
     def cancel(self, request_id):
         self._check_worker()
         request = self.requests[request_id]
-        if request.status in ("queued", "running"):
+        if request.status in ("queued", "prefilling", "running"):
             request.status = "cancelled"
-            if request.slot is not None:
+            if request is self.prefilling:
+                self.prefilling = None
+                request.cache = None
+                request.slot = None
+            elif request.slot is not None:
                 self.active.pop(request.slot)
                 request.slot = None
             else:
@@ -101,7 +173,7 @@ class ContinuousGreedy:
     def forget(self, request_id):
         self._check_worker()
         request = self.requests[request_id]
-        if request.status in ("queued", "running"):
+        if request.status in ("queued", "prefilling", "running"):
             raise ValueError("Cannot release an active request")
         del self.requests[request_id]
 
@@ -122,37 +194,62 @@ class ContinuousGreedy:
         if self.closed:
             raise RuntimeError("Continuous runner is closed")
         events = []
-        for slot in range(self.slots):
-            if slot in self.active or not self.pending:
-                continue
-            request = self.pending.popleft()
-            # Detach previous references before _init_cache can reuse/zero them.
-            self.decoder._disable_cache()
-            emb = self.model.tgt_emb(request.prompt, step=0)
-            mask = torch.zeros(1, 1, request.prompt.size(1), device=emb.device, dtype=torch.bool)
-            self.decoder._init_cache(emb, mask)
-            hidden, _ = self.decoder(emb, step=0, tgt_pad_mask=mask)
-            scores = self.model.generator(hidden[:, -1])
-            token = scores.log_softmax(-1).argmax(-1).item()
-            source = RequestCache.take(self.decoder)
-            self.bank.copy_row(slot, source)
-            self.next_tokens[slot, 0] = token
-            request.status, request.slot = "running", slot
-            self.active[slot] = request
-            self._emit(request, token, events)
         if self.active:
-            self.bank.bind()
-            for slot in range(self.slots):
-                if slot not in self.active:
-                    self.decoder.cache_seqlens[slot] = 0
-            emb = self.model.tgt_emb(self.next_tokens, step=1)
-            hidden, _ = self.decoder.forward_step(emb)
-            scores = self.model.generator(hidden[:, -1])
-            predicted = scores.log_softmax(-1).argmax(-1)
-            self.next_tokens.copy_(predicted[:, None])
-            for slot, token in enumerate(predicted.tolist()):
+            if len(self.active) == 1 and self.slots > 1:
+                slot = next(iter(self.active))
+                cache, graph = self.row_caches[slot], self.single_graphs[slot]
+                inputs = self.next_tokens[slot : slot + 1]
+                slots = [slot]
+            else:
+                cache, graph = self.bank, self.step_graph
+                inputs = self.next_tokens
+                slots = range(self.slots)
+                for slot in range(self.slots):
+                    if slot not in self.active:
+                        self.bank.metadata["cache_seqlens"][slot] = 0
+            cache.bind()
+            emb = self.model.tgt_emb(inputs, step=1)
+            if graph is None:
+                hidden, _ = self.decoder.forward_step(emb)
+            else:
+                mask = torch.zeros(inputs.size(0), 1, 1, device=emb.device, dtype=torch.bool)
+                hidden, _ = graph(emb, tgt_pad_mask=mask)
+            predicted = self.model.generator(hidden[:, -1]).log_softmax(-1).argmax(-1)
+            inputs.copy_(predicted[:, None])
+            for slot, token in zip(slots, predicted.tolist()):
                 if slot in self.active:
                     self._emit(self.active[slot], token, events)
+        # At most one bounded prefill chunk follows each decode round.
+        if self.prefilling is None and self.pending:
+            free = next((slot for slot in range(self.slots) if slot not in self.active), None)
+            if free is not None:
+                self.prefilling = self.pending.popleft()
+                self.prefilling.slot = free
+                self.prefilling.status = "prefilling"
+        request = self.prefilling
+        if request is not None:
+            end = min(request.prefilled + self.prefill_chunk_size, request.prompt.size(1))
+            ids = request.prompt[:, request.prefilled : end]
+            emb = self.model.tgt_emb(ids, step=request.prefilled)
+            mask = torch.zeros(1, 1, ids.size(1), device=emb.device, dtype=torch.bool)
+            if request.cache is None:
+                self.decoder._disable_cache()
+                self.decoder._init_cache(emb, mask)
+            else:
+                request.cache.bind()
+            hidden, _ = self.decoder._forward_eager(emb, tgt_pad_mask=mask)
+            request.cache = RequestCache.take(self.decoder)
+            request.prefilled = end
+            if end == request.prompt.size(1):
+                token = self.model.generator(hidden[:, -1]).log_softmax(-1).argmax(-1).item()
+                slot = request.slot
+                self.bank.copy_row(slot, request.cache)
+                request.cache = None
+                self.next_tokens[slot, 0] = token
+                self.active[slot] = request
+                request.status = "running"
+                self.prefilling = None
+                self._emit(request, token, events)
         return events
 
     def close(self):
@@ -164,4 +261,12 @@ class ContinuousGreedy:
         self.pending.clear()
         self.active.clear()
         self.bank = None
+        self.row_caches = []
+        for graph in self.single_graphs:
+            if graph is not None:
+                graph.reset()
+        self.single_graphs = []
+        self.prefilling = None
+        if self.step_graph is not None:
+            self.step_graph.reset()
         self.closed = True

@@ -18,6 +18,7 @@ class ContinuousAdmissionTests(unittest.TestCase):
         runner.closed = False
         runner.vocab_size = 10
         runner.capacity = 16
+        runner.prefilling = None
         runner.pending = deque()
         runner.active = {}
         runner.requests = {}
@@ -38,6 +39,18 @@ class ContinuousAdmissionTests(unittest.TestCase):
         self.assertNotIn("first", runner.requests)
         with self.assertRaisesRegex(ValueError, "active"):
             runner.forget("second")
+
+    def test_cancelling_partial_prefill_releases_its_cache(self):
+        runner = self.runner()
+        request = runner.submit("partial", [1, 2], 4)
+        runner.pending.popleft()
+        request.status, request.slot, request.cache = "prefilling", 0, object()
+        runner.prefilling = request
+        runner.cancel("partial")
+        self.assertEqual(request.status, "cancelled")
+        self.assertIsNone(request.slot)
+        self.assertIsNone(request.cache)
+        self.assertIsNone(runner.prefilling)
 
     def test_invalid_ids_and_capacity_are_rejected_before_forward(self):
         for prompt, budget in (([10], 1), ([-1], 1), ([1.5], 1), ([1], 16), ([], 1)):

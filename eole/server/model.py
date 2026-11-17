@@ -48,6 +48,9 @@ class Server(object):
             raise ValueError("model_policy must be single or keep_loaded")
         self.workspace = server_config.get("workspace", {})
         self.knowledge_config = server_config.get("knowledge", {})
+        if any(m.get("continuous") is not None for m in server_config["models"]):
+            if len(server_config["models"]) != 1 or self.model_policy == "single":
+                raise ValueError("Continuous serving requires a dedicated single-model server without single policy")
         defaults = self.workspace.get("models", {})
         ids = {model["id"] for model in server_config["models"]}
         if set(defaults) - {"chat", "translate", "ocr", "knowledge"} or set(defaults.values()) - ids:
@@ -69,6 +72,7 @@ class Server(object):
                 translation_config=model.get("translation", {}),
                 warmup=model.get("warmup", False),
                 dflash2_config=model.get("dflash2", {}),
+                continuous_config=model.get("continuous"),
             )
             if model.get("preload", False):
                 self.models[model_id].load()
@@ -156,7 +160,17 @@ class Model(object):
         translation_config=None,
         warmup=False,
         dflash2_config=None,
+        continuous_config=None,
     ):
+        self.continuous_config = continuous_config
+        if continuous_config is not None:
+            if not isinstance(continuous_config, dict) or set(continuous_config) - {
+                "slots",
+                "max_pending",
+                "prefill_chunk_size",
+                "compiled",
+            }:
+                raise ValueError("Invalid continuous serving options")
         self.loaded = False
         self.engine = None
         self.model_id = model_id
@@ -346,7 +360,9 @@ class Model(object):
         self.get_config()
         self.engine = InferenceEnginePY(self.config)
         try:
-            if self.warmup_on_load:
+            if self.continuous_config is not None:
+                self.engine.start_continuous(**self.continuous_config)
+            elif self.warmup_on_load:
                 self.warmup()
         except Exception:
             self.engine.terminate()
@@ -572,6 +588,9 @@ class Model(object):
         # Ensure model is loaded (sync operation)
         if not self.loaded:
             self.load()
+
+        if getattr(self.engine, "continuous", None) is not None:
+            raise ValueError("Continuous mode reserves this engine for Responses streaming")
 
         # Ensure batch processor is running (async operation)
         await self.ensure_batch_processor()
