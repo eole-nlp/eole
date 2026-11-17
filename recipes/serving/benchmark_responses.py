@@ -145,7 +145,20 @@ def summarize(rows, seconds):
     tokens = sum(t["output_tokens"] for t in turns)
     decoded = [t["decode"] for t in turns if t["decode"].get("decode_tokens_per_second") is not None]
     decode_tokens = sum(d["decode_tokens"] for d in decoded)
+    drafted = sum(d.get("mtp_drafted_tokens", 0) for d in decoded)
+    accepted = sum(d.get("mtp_accepted_tokens", 0) for d in decoded)
+    cycles = sum(d.get("mtp_cycles", 0) for d in decoded)
+    positions = [d.get("mtp_accepted_by_position", []) for d in decoded]
+    by_position = [
+        sum(row[i] if i < len(row) else 0 for row in positions) for i in range(max(map(len, positions), default=0))
+    ]
     return dict(
+        mtp_drafted_tokens=drafted,
+        mtp_accepted_tokens=accepted,
+        mtp_acceptance=accepted / drafted if drafted else None,
+        mtp_cycles=cycles,
+        mtp_accepted_by_position=by_position,
+        mtp_acceptance_by_position=[n / cycles for n in by_position] if cycles else [],
         decode_tokens=decode_tokens,
         request_decode_p50_tokens_per_second=percentile([d["decode_tokens_per_second"] for d in decoded], 0.5),
         request_decode_p10_tokens_per_second=percentile([d["decode_tokens_per_second"] for d in decoded], 0.1),

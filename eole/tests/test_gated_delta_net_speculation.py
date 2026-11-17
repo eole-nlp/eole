@@ -35,6 +35,51 @@ class TestGatedDeltaNetSpeculation(unittest.TestCase):
             layer.head_v_dim,
         )
 
+    def test_cached_prefill_chunks_preserve_convolution_history(self):
+        torch.manual_seed(41)
+        full = self._new_layer()
+        chunked = self._new_layer()
+        chunked.load_state_dict(full.state_dict())
+        self._init_state(full)
+        chunked.conv_state = full.conv_state.clone()
+        chunked.recurrent_state = full.recurrent_state.clone()
+        inputs = torch.randn(1, 9, full.hidden_size)
+        expected = full(inputs)
+        actual = torch.cat([chunked(part) for part in inputs.split(3, dim=1)], dim=1)
+        torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-5)
+        torch.testing.assert_close(chunked.conv_state, full.conv_state)
+        torch.testing.assert_close(chunked.recurrent_state, full.recurrent_state, atol=1e-5, rtol=1e-5)
+
+    def test_grouped_row_prefixes_match_sequential_state(self):
+        torch.manual_seed(42)
+        for counts in ([0, 1, 3], [1, 2, 3], [0, 0, 0], [3, 3, 3]):
+            references, batched = [], []
+            for _ in range(2):
+                layer = self._new_layer()
+                self._init_state(layer, batch=3)
+                copy = self._new_layer()
+                copy.load_state_dict(layer.state_dict())
+                copy.conv_state = layer.conv_state.clone()
+                copy.recurrent_state = layer.recurrent_state.clone()
+                references.append(layer)
+                batched.append(copy)
+            inputs = torch.randn(3, 3, references[0].hidden_size)
+            for layer in batched:
+                layer.begin_speculation(3)
+                layer(inputs)
+                layer.end_speculation()
+            GatedDeltaNet.commit_speculation_group(batched, counts)
+            for reference, actual in zip(references, batched):
+                for row, count in enumerate(counts):
+                    original_conv, original_recurrent = reference.conv_state, reference.recurrent_state
+                    reference.conv_state = original_conv[row : row + 1]
+                    reference.recurrent_state = original_recurrent[row : row + 1]
+                    for token in inputs[row : row + 1, :count].split(1, dim=1):
+                        reference(token)
+                    reference.conv_state, reference.recurrent_state = original_conv, original_recurrent
+                torch.testing.assert_close(actual.conv_state, reference.conv_state, atol=1e-6, rtol=1e-6)
+                torch.testing.assert_close(actual.recurrent_state, reference.recurrent_state, atol=1e-5, rtol=1e-5)
+
     def test_commit_full_chunk_matches_sequential_decode(self):
         torch.manual_seed(41)
         sequential = self._new_layer()

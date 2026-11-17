@@ -84,6 +84,24 @@ class TestResponsesAPI(unittest.TestCase):
         self.assertEqual(metrics["decode_seconds"], 2)
         self.assertEqual(metrics["decode_tokens_per_second"], 3)
 
+    def test_mtp_metrics_are_opt_in(self):
+        self.model.stats = dict(
+            output_tokens=7,
+            stream_first_token_time=100.0,
+            stream_last_token_time=102.0,
+            speculation_mode="mtp",
+            mtp_drafted_tokens=9,
+            mtp_accepted_tokens=3,
+            mtp_acceptance=1 / 3,
+            mtp_cycles=3,
+            mtp_accepted_by_position=[2, 1, 0],
+        )
+        self.assertNotIn("eole_metrics", self.post().json())
+        metrics = self.events(eole_metrics=True)[-1]["response"]["eole_metrics"]
+        self.assertEqual(metrics["mtp_accepted_by_position"], [2, 1, 0])
+        self.assertEqual(metrics["mtp_drafted_tokens"], 9)
+        self.assertEqual(metrics["speculation_mode"], "mtp")
+
     def test_function_tool_round_trip(self):
         self.model.chunks = list(
             "<think>hidden</think><tool_call><function=add>"

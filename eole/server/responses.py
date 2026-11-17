@@ -374,6 +374,21 @@ class ResponseEvents:
                 "decode_seconds": seconds,
                 "decode_tokens_per_second": tokens / seconds if seconds and seconds > 0 else None,
             }
+            if stats.get("speculation_mode") == "mtp":
+                self.response["eole_metrics"].update(
+                    {
+                        key: stats[key]
+                        for key in (
+                            "speculation_mode",
+                            "mtp_drafted_tokens",
+                            "mtp_accepted_tokens",
+                            "mtp_acceptance",
+                            "mtp_cycles",
+                            "mtp_accepted_by_position",
+                        )
+                        if key in stats
+                    }
+                )
         events.append(self.event("response.incomplete" if incomplete else "response.completed", response=self.response))
         return events
 
