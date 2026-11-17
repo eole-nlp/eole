@@ -1,6 +1,7 @@
 """FastAPI application construction and native Eole routes."""
 
 from typing import List, Union
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Body
 from pydantic import BaseModel, Field, model_validator
@@ -99,14 +100,26 @@ def create_app(config_file):
     """
     Create and configure the FastAPI application.
     """
+    server = Server()
+
+    @asynccontextmanager
+    async def lifespan(app):
+        try:
+            yield
+        finally:
+            # A persistent scheduler task must stop before executor shutdown.
+            for model_id, model in server.models.items():
+                if getattr(getattr(model, "engine", None), "continuous", None) is not None:
+                    await server.unload_model(model_id)
+
     app = FastAPI(
+        lifespan=lifespan,
         title="Eole Inference Server",
         version=eole.__version__,
         summary="A simple inference server to expose various models.",
         description="",  # TODO
     )
 
-    server = Server()
     server.start(config_file)
     app.add_middleware(ModelLifecycleMiddleware, server=server)
 

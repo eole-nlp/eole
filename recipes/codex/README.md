@@ -36,6 +36,10 @@ The smoke test checks JSON text, typed SSE text, typed function arguments, and
 an add-tool/result round trip. It executes only a synthetic integer addition;
 it does not run generated shell commands.
 
+For concurrent streaming and synthetic tool-loop measurements, see the
+[serving baseline](../serving/README.md). It documents current serialization and
+provides a reproducible 1/2/4/8-client load test.
+
 ## Create an isolated Codex configuration
 
 ```bash

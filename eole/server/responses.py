@@ -6,6 +6,7 @@ Qwen tool blocks are buffered individually; ordinary text streams immediately.
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 import time
 import uuid
 
@@ -29,6 +30,7 @@ class ResponsesRequest(BaseModel):
     tools: list[dict] = Field(default_factory=list)
     tool_choice: str | dict = "auto"
     stream: bool = False
+    eole_metrics: bool = False
     store: bool = False
     previous_response_id: str | None = None
     max_output_tokens: int | None = Field(default=None, gt=0)
@@ -341,7 +343,7 @@ class ResponseEvents:
         events.append(self.event("response.output_item.done", output_index=index, item=item))
         return events
 
-    def finish(self, input_tokens, output_tokens, incomplete=False):
+    def finish(self, input_tokens, output_tokens, incomplete=False, generation_stats=None):
         events = self.close_text()
         if (
             not incomplete
@@ -361,12 +363,28 @@ class ResponseEvents:
                 "output_tokens_details": {"reasoning_tokens": 0},
             },
         )
+        if self.request.eole_metrics:
+            stats = generation_stats or {}
+            first = stats.get("stream_first_token_time")
+            last = stats.get("stream_last_token_time")
+            seconds = last - first if first is not None and last is not None else None
+            tokens = max(0, output_tokens - 1)
+            self.response["eole_metrics"] = {
+                "decode_tokens": tokens,
+                "decode_seconds": seconds,
+                "decode_tokens_per_second": tokens / seconds if seconds and seconds > 0 else None,
+            }
         events.append(self.event("response.incomplete" if incomplete else "response.completed", response=self.response))
         return events
 
     def fail(self, exc):
         self.response.update(status="failed", output=self.output, error={"code": "server_error", "message": str(exc)})
         return self.event("response.failed", response=self.response)
+
+
+@asynccontextmanager
+async def unlocked():
+    yield
 
 
 def register_responses(app, server):
@@ -433,7 +451,15 @@ def register_responses(app, server):
                 settings["temperature"] = 1.0
         if request.top_p is not None:
             settings["top_p"] = request.top_p
-        lock = locks.setdefault(request.model, asyncio.Lock())
+        continuous = getattr(model.engine, "continuous", None)
+        if continuous is not None:
+            try:
+                continuous.validate(settings)
+            except ValueError as exc:
+                return JSONResponse(
+                    status_code=400, content={"error": {"type": "invalid_request_error", "message": str(exc)}}
+                )
+        lock = locks.setdefault(request.model, asyncio.Lock()) if continuous is None else unlocked()
 
         async def events():
             state, parser = ResponseEvents(request, schemas, custom), OutputParser()
@@ -458,7 +484,9 @@ def register_responses(app, server):
                                 yield event
                         output_tokens = generation_stats.get("output_tokens", model.count_tokens("".join(raw)))
                         incomplete = not generation_stats.get("stopped_on_eos", False) and output_tokens >= budget
-                        for event in state.finish(input_tokens, output_tokens, incomplete=incomplete):
+                        for event in state.finish(
+                            input_tokens, output_tokens, incomplete=incomplete, generation_stats=generation_stats
+                        ):
                             yield event
                     except Exception as exc:
                         yield state.fail(exc)

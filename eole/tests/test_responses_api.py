@@ -74,6 +74,16 @@ class TestResponsesAPI(unittest.TestCase):
         self.assertEqual(events[-1]["response"]["output"][0]["content"][0]["text"], "".join(deltas))
         self.assertEqual(self.post().json()["output"][0]["content"][0]["text"], "".join(deltas))
 
+    def test_decode_metrics_are_opt_in_and_use_server_token_times(self):
+        self.model.stats = dict(output_tokens=7, stream_first_token_time=100.0, stream_last_token_time=102.0)
+        self.assertNotIn("eole_metrics", self.post().json())
+        metrics = self.events(eole_metrics=True)[-1]["response"]["eole_metrics"]
+        self.assertNotIn("decode_start", metrics)
+        self.assertNotIn("decode_end", metrics)
+        self.assertEqual(metrics["decode_tokens"], 6)
+        self.assertEqual(metrics["decode_seconds"], 2)
+        self.assertEqual(metrics["decode_tokens_per_second"], 3)
+
     def test_function_tool_round_trip(self):
         self.model.chunks = list(
             "<think>hidden</think><tool_call><function=add>"

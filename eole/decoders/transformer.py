@@ -1161,6 +1161,24 @@ class TransformerDecoder(DecoderBase):
             return self._forward_chunked_prefill(emb, src_ids=src_ids, **kwargs)
         return self._forward_eager(emb, **kwargs)
 
+    def forward_step(self, emb):
+        """One ordinary decode token per independently positioned cache row.
+
+        Serving schedulers own admission and cache bounds. This explicit path
+        requires FlashAttention and never changes ordinary predictor dispatch.
+        """
+        if self.training or self.cache_seqlens is None or not self.flash or emb.size(1) != 1:
+            raise ValueError("Independent decode steps require initialized FlashAttention inference caches")
+        if emb.size(0) != self.cache_seqlens.numel():
+            raise ValueError("Independent decode batch does not match its cache rows")
+        if self.with_cross_attn or getattr(self, "_speculative_forward", False):
+            raise ValueError("Independent decode steps support ordinary decoder-only inference")
+        return self._forward_eager(
+            emb,
+            tgt_pad_mask=torch.zeros(emb.size(0), 1, 1, dtype=torch.bool, device=emb.device),
+            _decode_positions=self.cache_seqlens,
+        )
+
     def _forward_eager(self, emb, **kwargs):
         """
         Decode a sequence using transformer layers.
@@ -1219,7 +1237,11 @@ class TransformerDecoder(DecoderBase):
             # training
             current_step = 0
 
-        pos_ids_1d = current_step + torch.arange(S, device=emb.device)
+        decode_positions = kwargs.pop("_decode_positions", None)
+        if decode_positions is not None:
+            pos_ids_1d = decode_positions[:, None] + torch.arange(S, device=emb.device)
+        else:
+            pos_ids_1d = current_step + torch.arange(S, device=emb.device)
         position_embeddings = self.rope.cos_sin
 
         if self.rope_local is not None:

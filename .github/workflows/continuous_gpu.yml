@@ -1,0 +1,69 @@
+name: Continuous decoder GPU tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Reviewed repository ref or commit to test
+        default: main
+        required: true
+        type: string
+      python:
+        description: Python executable in a prepared Torch / FlashAttention / FLA environment
+        default: python3
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - eole/decoders/**
+      - eole/modules/**
+      - eole/ops.py
+      - eole/config/**
+      - eole/predict/continuous.py
+      - eole/utils/request_cache.py
+      - eole/utils/decoder_graph.py
+      - eole/tests/test_continuous_gpu.py
+      - eole/tests/test_request_cache.py
+      - csrc/**
+      - .github/workflows/continuous_gpu.yml
+
+permissions:
+  contents: read
+
+jobs:
+  gpu:
+    # Fork code never runs automatically on a privileged self-hosted GPU host.
+    # Enable automatic same-repository PR runs only after configuring the runner.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (vars.EOLE_GPU_CI == 'true' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, linux, x64, gpu]
+    timeout-minutes: 45
+    env:
+      GPU_PYTHON: ${{ inputs.python || 'python3' }}
+      EOLE_TORCH_COMPILE: '1'
+      EOLE_COMPILE_MODE: '0'
+      EOLE_REQUIRE_GPU_TESTS: '1'
+      EOLE_SKIP_CUDA_BUILD: '0'
+      TRITON_DEFAULT_FP_FUSION: '1'
+      MAX_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || inputs.source_ref }}
+          persist-credentials: false
+      - name: Verify GPU environment and create isolated test environment
+        run: |
+          "$GPU_PYTHON" -c 'import torch, flash_attn, fla; assert torch.cuda.is_available(), "CUDA GPU required"'
+          "$GPU_PYTHON" -m venv --system-site-packages "$RUNNER_TEMP/eole-gpu-tests"
+          echo "TEST_PYTHON=$RUNNER_TEMP/eole-gpu-tests/bin/python" >> "$GITHUB_ENV"
+          arch=$("$GPU_PYTHON" -c 'import torch; major, minor = torch.cuda.get_device_capability(); print(f"{major}.{minor}")')
+          echo "TORCH_CUDA_ARCH_LIST=$arch" >> "$GITHUB_ENV"
+      - name: Install this checkout and build matching native ops
+        run: |
+          "$TEST_PYTHON" -m pip install --no-deps --no-build-isolation -e .
+      - name: Compare real decoder states, logits and scheduler output
+        run: |
+          "$TEST_PYTHON" -m unittest -v \
+            eole.tests.test_continuous_gpu \
+            eole.tests.test_request_cache.RequestRotaryCudaTests

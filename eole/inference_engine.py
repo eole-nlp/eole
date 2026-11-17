@@ -190,6 +190,7 @@ class InferenceEnginePY(InferenceEngine):
     """
 
     def __init__(self, config):
+        self.continuous = None
         super().__init__(config)
         self.logger = init_logger(config.log_file)
         t0 = time()
@@ -202,6 +203,14 @@ class InferenceEnginePY(InferenceEngine):
             self._initialize_single_process()
 
         self.logger.info("Build and loading model took %.2f sec." % (time() - t0))
+
+    def start_continuous(self, **options):
+        if self.config.world_size > 1 or self.continuous is not None:
+            raise ValueError("Continuous serving requires one fresh single-process engine")
+        from eole.server.continuous import ContinuousService
+
+        self.continuous = ContinuousService(self, **options)
+        self.continuous.start()
 
     def _initialize_multiprocessing(self):
         """Initialize multiprocessing components for parallel inference."""
@@ -286,6 +295,8 @@ class InferenceEnginePY(InferenceEngine):
     ) -> Tuple[List[List[float]], Optional[List[List[float]]], List[List[str]]]:
         """Run prediction on inference iterator."""
         settings = settings or {}
+        if getattr(self, "continuous", None) is not None:
+            raise ValueError("This engine is reserved for continuous Responses serving")
         self.predictor.update_settings(**settings)
 
         scores, estims, preds = self.predictor._predict(
@@ -300,6 +311,8 @@ class InferenceEnginePY(InferenceEngine):
 
     def _score(self, infer_iter, settings: Optional[Dict[str, Any]] = None):
         """Run scoring on inference iterator."""
+        if getattr(self, "continuous", None) is not None:
+            raise ValueError("This engine is reserved for continuous Responses serving")
         settings = settings or {}
         self.predictor.update_settings(**settings)
 
@@ -350,6 +363,10 @@ class InferenceEnginePY(InferenceEngine):
                 print(chunk, end="", flush=True)
             print()
         """
+        if getattr(self, "continuous", None) is not None:
+            yield from self.continuous.stream(src, settings, generation_stats, cancel_event, preserve_special_tokens)
+            return
+
         from eole.predict.streamer import GenerationStreamer, GenerationCancelled
         from time import perf_counter
 
@@ -414,6 +431,8 @@ class InferenceEnginePY(InferenceEngine):
                     generation_stats.update(
                         queue_seconds=started - submitted,
                         output_tokens=streamer.token_count,
+                        stream_first_token_time=streamer.first_token_time,
+                        stream_last_token_time=streamer.last_token_time,
                         stopped_on_eos=streamer.last_token_id in streamer.eos_token_ids,
                         cancelled=streamer.cancelled,
                         decode_seconds=seconds if timings else None,
@@ -555,6 +574,9 @@ class InferenceEnginePY(InferenceEngine):
 
     def terminate(self):
         """Terminate all worker processes and the inference thread pool."""
+        if getattr(self, "continuous", None) is not None:
+            self.continuous.close()
+            self.continuous = None
         if hasattr(self, "_thread_pool"):
             self._thread_pool.shutdown(wait=True)
 

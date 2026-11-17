@@ -160,13 +160,18 @@ def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bo
         num_tok = B * S
         query_ = query.view(num_tok, -1, D)
         key_ = key.view(num_tok, -1, D)
-        positions = torch.arange(S, device=query.device).repeat(B)
+        if cos_sin.ndim == 3:
+            # Independently positioned decode rows: one table entry per token.
+            cos_sin = cos_sin.reshape(B * S, -1)
+            positions = torch.arange(B * S, device=query.device)
+        else:
+            positions = torch.arange(S, device=query.device).repeat(B)
         # cuda ops change query key in-place
         rotary_embedding(positions, query_, key_, D, cos_sin, not interleave)
         return query_.view(B, S, -1, D), key_.view(B, S, -1, D)
 
     else:
-        Rd = cos_sin.size(1)
+        Rd = cos_sin.size(-1)
         q_rot, q_pass = query[..., :Rd], query[..., Rd:]
         k_rot, k_pass = key[..., :Rd], key[..., Rd:]
 
@@ -182,8 +187,12 @@ def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bo
             k1, k2 = k_rot[..., :half], k_rot[..., half:]
 
         # Broadcast cos/sin to match
-        cos = cos_sin[None, :, None, : Rd // 2]
-        sin = cos_sin[None, :, None, Rd // 2 :]
+        if cos_sin.ndim == 3:
+            cos = cos_sin[:, :, None, : Rd // 2]
+            sin = cos_sin[:, :, None, Rd // 2 :]
+        else:
+            cos = cos_sin[None, :, None, : Rd // 2]
+            sin = cos_sin[None, :, None, Rd // 2 :]
 
         # Apply rotation (same formula for both modes)
         qr = q1 * cos - q2 * sin
