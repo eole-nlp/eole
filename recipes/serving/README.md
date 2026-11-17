@@ -6,10 +6,10 @@ The workload uses the [Codex integration](../codex/README.md) protocol without
 launching Codex, executing generated code or reading user files. It measures
 serving performance, not coding-task quality.
 
-## Shared server prerequisite
+## Shared server behavior
 
-The shared server changes are reviewed separately in [#518](https://github.com/eole-nlp/eole/pull/518),
-which should merge first. Independently of continuous batching, streaming routes signal
+The shared server changes are already on main via [#518](https://github.com/eole-nlp/eole/pull/518).
+Independently of continuous batching, streaming routes signal
 cooperative generation cancellation on disconnect/early consumer exit, instead
 of only stopping delivery. Responses, Chat, Anthropic and workspace callers
 using the bridge are affected. Cleanup drains the worker. Completed segments
