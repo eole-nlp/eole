@@ -78,6 +78,8 @@ class TestResponsesAPI(unittest.TestCase):
         self.model.stats = dict(output_tokens=7, stream_first_token_time=100.0, stream_last_token_time=102.0)
         self.assertNotIn("eole_metrics", self.post().json())
         metrics = self.events(eole_metrics=True)[-1]["response"]["eole_metrics"]
+        self.assertNotIn("decode_start", metrics)
+        self.assertNotIn("decode_end", metrics)
         self.assertEqual(metrics["decode_tokens"], 6)
         self.assertEqual(metrics["decode_seconds"], 2)
         self.assertEqual(metrics["decode_tokens_per_second"], 3)

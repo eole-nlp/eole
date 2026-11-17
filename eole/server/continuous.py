@@ -72,11 +72,25 @@ class ContinuousService:
             raise ValueError("Continuous serving supports ordinary greedy text generation only")
         if settings.get("top_k", 1) != 1 and settings.get("temperature", 1) != 0:
             raise ValueError("Continuous serving requires greedy selection (top_k=1 or temperature=0)")
+        if settings.get("top_p", 0) not in (0, 1):
+            raise ValueError("Continuous serving does not support nucleus sampling; use top_p=0 or 1")
         # No request-local RNG, penalties, speculation or mutable predictor settings.
         if settings.get("temperature", 1) != 0 and settings.get("temperature", 1) != 1:
             raise ValueError("Continuous serving supports temperature=0 or the greedy default only")
         if not isinstance(settings.get("max_length", 1), int) or settings.get("max_length", 1) < 1:
             raise ValueError("max_length must be a positive integer")
+
+    @staticmethod
+    def _prompt_ids(batch):
+        source, lengths = batch.get("src"), batch.get("srclen")
+        if not isinstance(source, torch.Tensor) or not isinstance(lengths, torch.Tensor):
+            raise ValueError("Continuous admission requires source and srclen tensors")
+        if source.ndim != 2 or source.size(0) != 1 or lengths.shape != (1,):
+            raise ValueError("Continuous admission requires exactly one source sequence")
+        if lengths.item() != source.size(1) or source.size(1) == 0:
+            raise ValueError("Continuous admission requires a nonempty unpadded source sequence")
+        # EOS/turn-boundary IDs can legitimately occur inside a formatted prompt.
+        return source[0].tolist()
 
     def start(self):
         self.future = self.engine._thread_pool.submit(self.run)
@@ -179,7 +193,7 @@ class ContinuousService:
                         try:
                             iterator = self.engine._build_inference_iterator(src=[request.prompt])
                             batch, _ = next(iter(iterator))
-                            ids = batch["src"][0].tolist()
+                            ids = self._prompt_ids(batch)
                             runner.submit(
                                 request.request_id,
                                 ids,

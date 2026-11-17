@@ -138,18 +138,6 @@ def percentile(values, quantile):
     return values[max(0, math.ceil(len(values) * quantile) - 1)] if values else None
 
 
-def interval_union_seconds(intervals):
-    """Count overlapping server decode windows once, never sum request rates."""
-    total = 0.0
-    right = None
-    for start, end in sorted(intervals):
-        if end < start:
-            raise ValueError("Decode interval ends before it starts")
-        total += max(0, end - max(start, right if right is not None else start))
-        right = max(right if right is not None else end, end)
-    return total
-
-
 def summarize(rows, seconds):
     turns = [turn for row in rows for turn in row["turns"]]
     first = [t["first_output_seconds"] for t in turns if t["first_output_seconds"] is not None]
@@ -157,11 +145,8 @@ def summarize(rows, seconds):
     tokens = sum(t["output_tokens"] for t in turns)
     decoded = [t["decode"] for t in turns if t["decode"].get("decode_tokens_per_second") is not None]
     decode_tokens = sum(d["decode_tokens"] for d in decoded)
-    decode_window = interval_union_seconds([(d["decode_start"], d["decode_end"]) for d in decoded])
     return dict(
         decode_tokens=decode_tokens,
-        decode_window_seconds=decode_window,
-        aggregate_decode_tokens_per_second=decode_tokens / decode_window if decode_window else None,
         request_decode_p50_tokens_per_second=percentile([d["decode_tokens_per_second"] for d in decoded], 0.5),
         request_decode_p10_tokens_per_second=percentile([d["decode_tokens_per_second"] for d in decoded], 0.1),
         jobs_per_minute=len(rows) * 60 / seconds,

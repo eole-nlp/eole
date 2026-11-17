@@ -101,7 +101,9 @@ class ContinuousServiceTests(unittest.TestCase):
             predictor=SimpleNamespace(_tgt_eos_idx=[9], max_length=2),
             vocabs=None,
             transform_pipe=None,
-            _build_inference_iterator=lambda src: iter([({"src": torch.tensor([[1, 2]])}, 0)]),
+            _build_inference_iterator=lambda src: iter(
+                [({"src": torch.tensor([[1, 2]]), "srclen": torch.tensor([2])}, 0)]
+            ),
         )
         self.service = ContinuousService(engine, runner_factory=Runner)
         self.patch = patch("eole.server.continuous.GenerationStreamer", Streamer)
@@ -208,3 +210,59 @@ class ContinuousResponsesTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual([r.status_code for r in responses], [200, 200])
         self.assertEqual([r.json()["status"] for r in responses], ["completed", "completed"])
+
+
+class ContinuousContractTests(unittest.TestCase):
+    def test_greedy_top_p_endpoints_are_allowed_and_nucleus_values_rejected(self):
+        for value in (0, 0.0, 1, 1.0):
+            ContinuousService.validate({"top_p": value})
+        for value in (0.9, -1, 2, float("nan")):
+            with self.assertRaisesRegex(ValueError, "nucleus"):
+                ContinuousService.validate({"top_p": value})
+
+    def test_admission_rejects_changed_collation_instead_of_generating_from_padding(self):
+        self.assertEqual(
+            ContinuousService._prompt_ids({"src": torch.tensor([[1, 2, 1]]), "srclen": torch.tensor([3])}), [1, 2, 1]
+        )
+        for source, lengths in (([[1, 2, 0]], [2]), ([[0, 1, 2]], [2]), ([[1], [2]], [1, 1]), ([[]], [0])):
+            with self.assertRaisesRegex(ValueError, "source sequence"):
+                ContinuousService._prompt_ids({"src": torch.tensor(source), "srclen": torch.tensor(lengths)})
+
+    def test_missing_source_lengths_have_a_clear_admission_error(self):
+        with self.assertRaisesRegex(ValueError, "srclen"):
+            ContinuousService._prompt_ids({"src": torch.tensor([[1]])})
+
+
+class ContinuousSamplingRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_nucleus_sampling_is_rejected_before_streaming_generation(self):
+        from fastapi import FastAPI
+        import httpx
+        from eole.server.responses import register_responses
+        from eole.tests.test_responses_api import FakeModel
+
+        model = FakeModel()
+        model.continuous = SimpleNamespace(validate=ContinuousService.validate)
+
+        def unexpected(*args, **kwargs):
+            raise AssertionError("Unsupported sampling reached generation")
+
+        model.infer_list_stream = unexpected
+
+        async def load(_):
+            pass
+
+        app = FastAPI()
+        register_responses(app, SimpleNamespace(models={"test": model}, maybe_load_model=load))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            for stream in (False, True):
+                response = await client.post(
+                    "/v1/responses",
+                    json={
+                        "model": "test",
+                        "input": "hello",
+                        "top_p": 0.9,
+                        "stream": stream,
+                    },
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("nucleus", response.json()["error"]["message"])

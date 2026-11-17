@@ -370,8 +370,6 @@ class ResponseEvents:
             seconds = last - first if first is not None and last is not None else None
             tokens = max(0, output_tokens - 1)
             self.response["eole_metrics"] = {
-                "decode_start": first,
-                "decode_end": last,
                 "decode_tokens": tokens,
                 "decode_seconds": seconds,
                 "decode_tokens_per_second": tokens / seconds if seconds and seconds > 0 else None,

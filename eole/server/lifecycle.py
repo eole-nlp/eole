@@ -1,5 +1,7 @@
 """Serialize API inference with workspace model switching when requested."""
 
+from fastapi.responses import JSONResponse
+
 
 class ModelLifecycleMiddleware:
     """Hold the model lease until the entire streaming response has drained.
@@ -18,6 +20,31 @@ class ModelLifecycleMiddleware:
         guarded = api_path in ("/infer", "/unload_model", "/openai/chat/completions") or (
             api_path.startswith("/v1/") and api_path != "/v1/models"
         )
+        generation_path = api_path in {
+            "/infer",
+            "/openai/chat/completions",
+            "/v1/chat/completions",
+            "/v1/messages",
+        } or path.startswith("/ui/")
+        if scope["type"] == "http" and scope.get("method") == "POST" and generation_path:
+            continuous = any(
+                getattr(model, "continuous_config", None) is not None
+                or getattr(getattr(model, "engine", None), "continuous", None) is not None
+                for model in getattr(self.server, "models", {}).values()
+            )
+            if continuous:
+                response = JSONResponse(
+                    status_code=409,
+                    content={
+                        "error": {
+                            "type": "invalid_request_error",
+                            "code": "continuous_responses_only",
+                            "message": "This continuous-mode server supports generation through /v1/responses only",
+                        }
+                    },
+                )
+                await response(scope, receive, send)
+                return
         if scope["type"] == "http" and getattr(self.server, "model_policy", "keep_loaded") == "single" and guarded:
             async with self.server.model_lock:
                 await self.app(scope, receive, send)

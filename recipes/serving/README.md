@@ -6,9 +6,10 @@ The workload uses the [Codex integration](../codex/README.md) protocol without
 launching Codex, executing generated code or reading user files. It measures
 serving performance, not coding-task quality.
 
-## Streaming cancellation change
+## Shared server prerequisite
 
-Independently of continuous batching, shared streaming routes now signal
+The shared server changes are reviewed separately in [#518](https://github.com/eole-nlp/eole/pull/518),
+which should merge first. Independently of continuous batching, streaming routes signal
 cooperative generation cancellation on disconnect/early consumer exit, instead
 of only stopping delivery. Responses, Chat, Anthropic and workspace callers
 using the bridge are affected. Cleanup drains the worker. Completed segments
@@ -55,7 +56,7 @@ is not saved. Stop the server with Ctrl+C to release its GPU model.
 ## What each metric measures
 
 The scripts request the Eole-specific `eole_metrics: true` extension. Terminal
-Responses then contain server token timings; default Responses payloads remain
+Responses then contain server-measured decode durations and counts; default Responses payloads remain
 unchanged. A mismatched old server or missing timings fails the benchmark.
 Model token counts and timestamps include terminal EOS when generated.
 
@@ -352,3 +353,57 @@ measured RTX 5090 configurations. Larger contexts, other hardware and actual
 Codex coding-task quality remain outside this qualification. No native Eole
 extension rebuild is required; startup still prepares runtime-specific
 torch.compile programs and CUDA graphs.
+
+
+## Automated GPU correctness tests
+
+`eole.tests.test_continuous_gpu` uses small, explicitly initialized Eole decoders
+with real FlashAttention and FLA kernels, not a fake runner or downloaded weights.
+Both attention-only and GDN models compare mixed-position batched logits and
+KV/recurrent/convolution state against independent ordinary decoding with BF16
+tolerances. Tests exercise admission into occupied rows, late arrivals, partial
+prefill cancellation, slot reuse, compiled replay and the inference-mode contract.
+The random-weight scheduler fixture also checks its emitted tokens against solo
+inference; this does not assert universal bit-identity on arbitrary checkpoints.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
+EOLE_REQUIRE_GPU_TESTS=1 python -m unittest -v \
+  eole.tests.test_continuous_gpu \
+  eole.tests.test_request_cache.RequestRotaryCudaTests
+```
+
+This requires matching Eole CUDA ops, FlashAttention and FLA in the environment.
+`EOLE_REQUIRE_GPU_TESTS=1` fails if CUDA or the required compile configuration is
+missing, rather than allowing the GPU job to pass with skipped tests. Ordinary
+CPU CI still skips the CUDA integration cases.
+
+The **Continuous decoder GPU tests** Actions workflow is prepared for a self-hosted
+Linux x64 runner labelled `gpu`, with a compatible Torch/FlashAttention/FLA Python
+environment and CUDA toolkit. It builds this checkout's ops in an isolated venv
+for the attached GPU. No GPU runner is currently configured: the tests have run
+locally, and GPU CI is not yet an active check. After registering that runner,
+maintainers can dispatch reviewed refs manually. Set the repository Actions
+variable `EOLE_GPU_CI=true` to enable automatic same-repository PR runs. Fork code
+never runs automatically on the self-hosted host; manual dispatch is for reviewed
+code only. The workflow must be available on the default branch before dispatch.
+
+## Runtime contracts
+
+Compilation keeps normal Dynamo guards. Captured CUDA graphs require model flags,
+parameter/cache storage and layouts to remain fixed for the worker lifetime;
+change model configuration through unload/reload, not mutation during replay.
+The bank still runs all rows when at least two requests are active. Idle-row cost
+is a documented trade-off; per-step KV gathering/compaction is outside this change.
+
+Requests with `0 < top_p < 1` are rejected; 0 disables nucleus filtering and 1
+keeps the full distribution before greedy selection. Admission requires exactly
+one nonempty unpadded source sequence, checked against the collator's `srclen`.
+Formatted prompt EOS/turn-boundary IDs remain valid. Other generation routes,
+including Chat, Anthropic, native inference and workspace POST routes, return a
+clear 409 before model loading or SSE headers on a continuous-only server.
+
+Cooperative cancellation cannot interrupt a hard-hung CUDA kernel. The worker
+must retain ownership of state while it runs; a timeout must not release that
+state for another request. A hard device hang requires an external process
+supervisor to restart the server. There is no in-process CUDA-hang recovery here.

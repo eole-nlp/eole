@@ -1,4 +1,4 @@
-"""Bounded, fixed-slot ordinary-greedy decoding prototype.
+"""Bounded, fixed-slot ordinary-greedy decoding.
 
 One inference worker owns this runner and all model forwards. The opt-in Responses service uses this core.
 Prefill yields between bounded chunks; compiled step graphs are optional.
@@ -73,6 +73,7 @@ class ContinuousGreedy:
             or predictor.beam_size != 1
             or predictor.n_best != 1
             or predictor.top_k != 1
+            or getattr(predictor, "top_p", 0) not in (0, 1)
         ):
             raise ValueError("Continuous serving requires unconstrained batch-one greedy defaults")
         if getattr(self.decoder, "_prefill_cache", None) is not None:
@@ -109,7 +110,6 @@ class ContinuousGreedy:
                 dynamic=False,
                 options={
                     "triton.cudagraphs": False,
-                    "guard_filter_fn": lambda guards: [g.guard_type == "TENSOR_MATCH" for g in guards],
                 },
             )
             self.step_graph = DecoderGraph(function, function)
