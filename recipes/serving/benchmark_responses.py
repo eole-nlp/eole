@@ -32,7 +32,7 @@ async def request(session, url, payload):
     started = perf_counter()
     arrivals = []
     final = None
-    async with session.post(url, json=payload) as response:
+    async with session.post(url, json={**payload, "eole_metrics": True}) as response:
         if response.status != 200:
             raise RuntimeError(f"HTTP {response.status}: {(await response.text())[:500]}")
         async for event in read_events(response.content):
@@ -54,12 +54,20 @@ async def request(session, url, payload):
     tokens = final.get("usage", {}).get("output_tokens")
     if not isinstance(tokens, int) or tokens < 0:
         raise RuntimeError("Terminal response must report output_tokens; SSE chunks are not tokens")
+    metrics = final.get("eole_metrics")
+    if metrics is None:
+        raise RuntimeError("Missing server decode timings; use the matching Eole server revision")
+    if metrics.get("decode_tokens") != max(0, tokens - 1):
+        raise RuntimeError("Decode token count must exclude exactly the first generated token")
+    if tokens > 1 and (not metrics.get("decode_seconds") or metrics["decode_seconds"] <= 0):
+        raise RuntimeError("Missing or invalid first-to-last-token decode duration")
     return final, dict(
         seconds=elapsed,
         first_output_seconds=arrivals[0] if arrivals else None,
         output_tokens=tokens,
         input_tokens=final.get("usage", {}).get("input_tokens"),
         status=final["status"],
+        decode=metrics,
         output_events=len(arrivals),
         inter_chunk_seconds=[b - a for a, b in zip(arrivals, arrivals[1:])],
     )
@@ -130,17 +138,38 @@ def percentile(values, quantile):
     return values[max(0, math.ceil(len(values) * quantile) - 1)] if values else None
 
 
+def interval_union_seconds(intervals):
+    """Count overlapping server decode windows once, never sum request rates."""
+    total = 0.0
+    right = None
+    for start, end in sorted(intervals):
+        if end < start:
+            raise ValueError("Decode interval ends before it starts")
+        total += max(0, end - max(start, right if right is not None else start))
+        right = max(right if right is not None else end, end)
+    return total
+
+
 def summarize(rows, seconds):
     turns = [turn for row in rows for turn in row["turns"]]
     first = [t["first_output_seconds"] for t in turns if t["first_output_seconds"] is not None]
     gaps = [gap for t in turns for gap in t["inter_chunk_seconds"]]
     tokens = sum(t["output_tokens"] for t in turns)
+    decoded = [t["decode"] for t in turns if t["decode"].get("decode_tokens_per_second") is not None]
+    decode_tokens = sum(d["decode_tokens"] for d in decoded)
+    decode_window = interval_union_seconds([(d["decode_start"], d["decode_end"]) for d in decoded])
     return dict(
+        decode_tokens=decode_tokens,
+        decode_window_seconds=decode_window,
+        aggregate_decode_tokens_per_second=decode_tokens / decode_window if decode_window else None,
+        request_decode_p50_tokens_per_second=percentile([d["decode_tokens_per_second"] for d in decoded], 0.5),
+        request_decode_p10_tokens_per_second=percentile([d["decode_tokens_per_second"] for d in decoded], 0.1),
+        jobs_per_minute=len(rows) * 60 / seconds,
         jobs=len(rows),
         requests=len(turns),
         output_tokens=tokens,
         wall_seconds=seconds,
-        aggregate_output_tokens_per_second=tokens / seconds,
+        end_to_end_output_tokens_per_second=tokens / seconds,
         first_output_p50_seconds=percentile(first, 0.5),
         first_output_p95_seconds=percentile(first, 0.95),
         request_p95_seconds=percentile([t["seconds"] for t in turns], 0.95),

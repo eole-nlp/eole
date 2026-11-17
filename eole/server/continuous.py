@@ -128,6 +128,8 @@ class ContinuousService:
             seconds = last - first if first is not None and last is not None else 0
             request.stats.update(
                 output_tokens=count,
+                stream_first_token_time=first,
+                stream_last_token_time=last,
                 stopped_on_eos=status == "stop",
                 cancelled=status == "cancelled",
                 first_token_seconds=first - request.submitted if first is not None else None,

@@ -431,6 +431,8 @@ class InferenceEnginePY(InferenceEngine):
                     generation_stats.update(
                         queue_seconds=started - submitted,
                         output_tokens=streamer.token_count,
+                        stream_first_token_time=streamer.first_token_time,
+                        stream_last_token_time=streamer.last_token_time,
                         stopped_on_eos=streamer.last_token_id in streamer.eos_token_ids,
                         cancelled=streamer.cancelled,
                         decode_seconds=seconds if timings else None,

@@ -51,6 +51,13 @@ def terminal(output=None):
     return {
         "type": "response.completed",
         "response": {
+            "eole_metrics": {
+                "decode_start": 10.0,
+                "decode_end": 11.0,
+                "decode_tokens": 6,
+                "decode_seconds": 1.0,
+                "decode_tokens_per_second": 6.0,
+            },
             "status": "completed",
             "output": output or [],
             "usage": {"input_tokens": 123, "output_tokens": 7},
@@ -72,6 +79,41 @@ class BenchmarkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["output_events"], 2)
         self.assertEqual(len(stats["inter_chunk_seconds"]), 1)
         self.assertLessEqual(stats["first_output_seconds"], stats["seconds"])
+
+    def test_summary_keeps_decode_and_job_rates_separate(self):
+        def turn(start, end, count):
+            return dict(
+                output_tokens=count + 1,
+                first_output_seconds=1,
+                seconds=4,
+                status="completed",
+                inter_chunk_seconds=[],
+                decode=dict(
+                    decode_start=start,
+                    decode_end=end,
+                    decode_tokens=count,
+                    decode_tokens_per_second=count / (end - start),
+                ),
+            )
+
+        rows = [dict(seconds=5, turns=[turn(1, 3, 20)]), dict(seconds=5, turns=[turn(2, 4, 20)])]
+        stats = benchmark.summarize(rows, 10)
+        self.assertAlmostEqual(stats["aggregate_decode_tokens_per_second"], 40 / 3)
+        self.assertEqual(stats["request_decode_p50_tokens_per_second"], 10)
+        self.assertEqual(stats["jobs_per_minute"], 12)
+        self.assertEqual(stats["end_to_end_output_tokens_per_second"], 4.2)
+
+    def test_overlapping_decode_windows_count_once(self):
+        self.assertEqual(benchmark.interval_union_seconds([(1, 4), (2, 3), (3, 5), (7, 9)]), 6)
+        self.assertEqual(benchmark.interval_union_seconds([]), 0)
+        with self.assertRaises(ValueError):
+            benchmark.interval_union_seconds([(2, 1)])
+
+    async def test_missing_decode_metrics_fails(self):
+        event = terminal()
+        del event["response"]["eole_metrics"]
+        with self.assertRaisesRegex(RuntimeError, "decode timings"):
+            await benchmark.request(Session([event]), "", {})
 
     async def test_missing_terminal_or_usage_fails(self):
         with self.assertRaisesRegex(RuntimeError, "terminal"):
