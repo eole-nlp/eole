@@ -59,23 +59,31 @@ Responses then contain server token timings; default Responses payloads remain
 unchanged. A mismatched old server or missing timings fails the benchmark.
 Model token counts and timestamps include terminal EOS when generated.
 
-- **Per-request decode tok/s:** `(generated tokens - 1) / (last token time - first
-  token time)`, measured at server token emission. It excludes that request's
-  queue/prefill and first token, following our usual first-to-last-token decode
-  definition. The table reports per-request p50; p10 and individual records are
-  saved. All percentiles use the nearest-rank convention. Under load, pauses for
-  other requests' prefills are inside this interval and reduce the client's speed.
-- **Aggregate decode-window tok/s:** sum of those decode-token counts divided by
-  the **union** of their server decode intervals. Overlapping intervals count
-  once; rates are not simply added. Gaps with no measured request decoding are
-  excluded. Interleaved prefill while a request is decoding still counts. This
-  measures concurrent decode-window capacity, not isolated GPU kernel throughput.
-  Server monotonic timestamps must come from one server/host per cell.
+- **Per-request decode p50:** the median token-delivery rate across individual
+  model requests, including tool-call and final-answer requests in multi-turn
+  workloads. Each rate is `(generated tokens - 1) / (last server token time - first
+  server token time)`. It excludes that request's initial queue/prefill and first
+  token, but includes pauses while other requests are prefilled or decoded.
+  It describes typical token delivery under load, not isolated decoder capacity.
+  Serialized requests can decode quickly after a long wait; continuous requests
+  share the GPU and can finish whole workflows sooner despite slower delivery.
+  Percentiles use the nearest-rank convention; p10 and individual records are saved.
 - **First visible output p95:** client HTTP submission to first text/reasoning or
   tool-argument delta. This includes queue/prefill/delivery; tool blocks are
   buffered, so it is **not** pure first-model-token or prefill latency.
-- **Job latency / jobs per minute:** complete wall time, including all prefills,
-  queues, tool delays, delivery and final drain. Use these for full agent loops.
+- **Jobs/min:** complete workflows finished per minute across all clients;
+  higher is better. Wall time includes queueing, all prefills, generation,
+  simulated tool delays, HTTP delivery and final drain. A short-text job is one
+  request, a short-tool job is a tool call followed by an answer, and a multi-turn
+  or 12K-input job is three model/tool exchanges followed by a final answer.
+- **Job p95:** the completion time within which 95% of measured jobs finished,
+  from each job's submission through its final response. Lower is better.
+  For example, 31.60 seconds means 95% finished within about 32 seconds. Small
+  samples do not establish production latency guarantees.
+
+Combined decode-window throughput is omitted from comparisons: interleaved
+prefills enter the active windows in continuous mode but are outside them in
+serialized mode, so that metric does not isolate decoder capacity consistently.
 
 JSON additionally retains `end_to_end_output_tokens_per_second`, explicitly named
 as such. It is **not decode speed and is not shown as the headline tok/s metric**.
@@ -104,20 +112,20 @@ the metric definition is identical to the front-page decode benchmark.
 Two jobs per client; 128-token output cap. Prompts request a small Python function
 and tests, with distinct job IDs. This is the decode-heavy concurrency probe.
 
-| Profile | Clients | Per-request decode p50 (tok/s) | Aggregate decode window (tok/s) | First visible output p95 (s) | Job p95 (s) | Jobs/min |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Serialized | 1 | 78.4 | 78.6 | 0.22 | 1.90 | 31.76 |
-| Serialized | 2 | 78.5 | 78.5 | 2.14 | 3.80 | 31.73 |
-| Serialized | 4 | 78.4 | 78.6 | 5.93 | 7.61 | 31.81 |
-| Serialized | 8 | 78.7 | 78.7 | 13.53 | 15.18 | 31.88 |
-| 4 slots | 1 | 81.8 | 81.9 | 0.20 | 1.75 | 34.35 |
-| 4 slots | 2 | 58.4 | 115.6 | 0.39 | 2.41 | 50.10 |
-| 4 slots | 4 | 54.0 | 189.4 | 0.80 | 3.11 | 85.43 |
-| 4 slots | 8 | 46.0 | 188.3 | 3.80 | 6.56 | 86.46 |
-| 8 slots | 1 | 82.2 | 82.2 | 0.20 | 1.75 | 34.40 |
-| 8 slots | 2 | 55.5 | 110.1 | 0.41 | 2.54 | 47.76 |
-| 8 slots | 4 | 51.4 | 181.8 | 0.80 | 3.20 | 82.31 |
-| 8 slots | 8 | 41.5 | 284.3 | 1.62 | 4.82 | 128.56 |
+| Profile | Clients | Per-request decode p50 (tok/s) | First visible output p95 (s) | Job p95 (s) | Jobs/min |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Serialized | 1 | 78.4 | 0.22 | 1.90 | 31.76 |
+| Serialized | 2 | 78.5 | 2.14 | 3.80 | 31.73 |
+| Serialized | 4 | 78.4 | 5.93 | 7.61 | 31.81 |
+| Serialized | 8 | 78.7 | 13.53 | 15.18 | 31.88 |
+| 4 slots | 1 | 81.8 | 0.20 | 1.75 | 34.35 |
+| 4 slots | 2 | 58.4 | 0.39 | 2.41 | 50.10 |
+| 4 slots | 4 | 54.0 | 0.80 | 3.11 | 85.43 |
+| 4 slots | 8 | 46.0 | 3.80 | 6.56 | 86.46 |
+| 8 slots | 1 | 82.2 | 0.20 | 1.75 | 34.40 |
+| 8 slots | 2 | 55.5 | 0.41 | 2.54 | 47.76 |
+| 8 slots | 4 | 51.4 | 0.80 | 3.20 | 82.31 |
+| 8 slots | 8 | 41.5 | 1.62 | 4.82 | 128.56 |
 
 ## Short tool loop: two requests per job
 
@@ -125,20 +133,20 @@ Request `read_fixture(counter.py)`, check its name/arguments/call ID, wait
 50 ms, return an in-memory fixture, then request a patch and tests. No code
 is executed. Two jobs per client, 128-token cap per request.
 
-| Profile | Clients | Per-request decode p50 (tok/s) | Aggregate decode window (tok/s) | First visible output p95 (s) | Job p95 (s) | Jobs/min |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Serialized | 1 | 65.9 | 76.1 | 0.70 | 2.79 | 21.68 |
-| Serialized | 2 | 66.0 | 76.4 | 2.65 | 5.42 | 22.26 |
-| Serialized | 4 | 66.2 | 76.4 | 6.51 | 10.81 | 22.31 |
-| Serialized | 8 | 65.9 | 75.9 | 14.08 | 21.86 | 22.04 |
-| 4 slots | 1 | 82.8 | 82.9 | 0.48 | 2.28 | 26.28 |
-| 4 slots | 2 | 56.0 | 101.9 | 0.89 | 3.56 | 34.92 |
-| 4 slots | 4 | 43.0 | 134.9 | 1.59 | 5.24 | 51.83 |
-| 4 slots | 8 | 18.5 | 133.2 | 4.48 | 10.55 | 51.64 |
-| 8 slots | 1 | 82.6 | 82.6 | 0.49 | 2.30 | 26.16 |
-| 8 slots | 2 | 52.9 | 96.3 | 0.90 | 3.76 | 33.04 |
-| 8 slots | 4 | 39.8 | 126.5 | 1.88 | 5.68 | 48.56 |
-| 8 slots | 8 | 15.7 | 170.0 | 4.02 | 9.16 | 65.57 |
+| Profile | Clients | Per-request decode p50 (tok/s) | First visible output p95 (s) | Job p95 (s) | Jobs/min |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Serialized | 1 | 65.9 | 0.70 | 2.79 | 21.68 |
+| Serialized | 2 | 66.0 | 2.65 | 5.42 | 22.26 |
+| Serialized | 4 | 66.2 | 6.51 | 10.81 | 22.31 |
+| Serialized | 8 | 65.9 | 14.08 | 21.86 | 22.04 |
+| 4 slots | 1 | 82.8 | 0.48 | 2.28 | 26.28 |
+| 4 slots | 2 | 56.0 | 0.89 | 3.56 | 34.92 |
+| 4 slots | 4 | 43.0 | 1.59 | 5.24 | 51.83 |
+| 4 slots | 8 | 18.5 | 4.48 | 10.55 | 51.64 |
+| 8 slots | 1 | 82.6 | 0.49 | 2.30 | 26.16 |
+| 8 slots | 2 | 52.9 | 0.90 | 3.76 | 33.04 |
+| 8 slots | 4 | 39.8 | 1.88 | 5.68 | 48.56 |
+| 8 slots | 8 | 15.7 | 4.02 | 9.16 | 65.57 |
 
 ## Longer multi-turn agents
 
@@ -151,20 +159,20 @@ completion and disconnects after real text. Cancelled partial tokens are
 excluded from rates; their elapsed work remains in job wall time and may
 stall other clients. Tool/protocol failures fail the run.
 
-| Profile | Clients | Per-request decode p50 (tok/s) | Aggregate decode window (tok/s) | First visible output p95 (s) | Job p95 (s) | Jobs/min |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Serialized | 1 | 64.6 | 70.9 | 1.54 | 8.12 | 8.86 |
-| Serialized | 2 | 64.6 | 70.7 | 3.37 | 14.58 | 9.58 |
-| Serialized | 4 | 64.5 | 70.8 | 7.78 | 25.88 | 9.82 |
-| Serialized | 8 | 64.6 | 70.5 | 14.71 | 47.78 | 9.79 |
-| 4 slots | 1 | 82.0 | 81.9 | 1.15 | 6.53 | 10.76 |
-| 4 slots | 2 | 38.4 | 49.2 | 2.32 | 11.50 | 12.58 |
-| 4 slots | 4 | 18.0 | 43.3 | 4.52 | 19.03 | 13.91 |
-| 4 slots | 8 | 11.1 | 45.4 | 7.72 | 34.49 | 14.16 |
-| 8 slots | 1 | 81.9 | 81.9 | 1.16 | 6.54 | 10.73 |
-| 8 slots | 2 | 45.2 | 48.2 | 2.32 | 11.59 | 12.61 |
-| 8 slots | 4 | 17.2 | 43.1 | 4.42 | 19.12 | 13.87 |
-| 8 slots | 8 | 8.6 | 43.9 | 7.98 | 31.60 | 14.75 |
+| Profile | Clients | Per-request decode p50 (tok/s) | First visible output p95 (s) | Job p95 (s) | Jobs/min |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Serialized | 1 | 64.6 | 1.54 | 8.12 | 8.86 |
+| Serialized | 2 | 64.6 | 3.37 | 14.58 | 9.58 |
+| Serialized | 4 | 64.5 | 7.78 | 25.88 | 9.82 |
+| Serialized | 8 | 64.6 | 14.71 | 47.78 | 9.79 |
+| 4 slots | 1 | 82.0 | 1.15 | 6.53 | 10.76 |
+| 4 slots | 2 | 38.4 | 2.32 | 11.50 | 12.58 |
+| 4 slots | 4 | 18.0 | 4.52 | 19.03 | 13.91 |
+| 4 slots | 8 | 11.1 | 7.72 | 34.49 | 14.16 |
+| 8 slots | 1 | 81.9 | 1.16 | 6.54 | 10.73 |
+| 8 slots | 2 | 45.2 | 2.32 | 11.59 | 12.61 |
+| 8 slots | 4 | 17.2 | 4.42 | 19.12 | 13.87 |
+| 8 slots | 8 | 8.6 | 7.98 | 31.60 | 14.75 |
 
 Active generations pause while the GPU prefills other requests. That lowers
 per-request decode speed under continuous load, while improved prefill/decode
@@ -181,10 +189,10 @@ python recipes/serving/benchmark_agentic.py --concurrency 4 --duration 30 \
   --context-lines 600 --max-tokens 128 --output /tmp/eole-stress.json
 ```
 
-| Profile | Clients | Per-request decode p50 (tok/s) | Aggregate decode window (tok/s) | First visible output p95 (s) | Job p95 (s) | Jobs/min |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Serialized | 4 | 63.2 | 69.2 | 13.13 | 47.43 | 5.01 |
-| 4 slots | 4 | 9.6 | 23.1 | 11.04 | 39.17 | 6.07 |
+| Profile | Clients | Per-request decode p50 (tok/s) | First visible output p95 (s) | Job p95 (s) | Jobs/min |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Serialized | 4 | 63.2 | 13.13 | 47.43 | 5.01 |
+| 4 slots | 4 | 9.6 | 11.04 | 39.17 | 6.07 |
 
 ## Memory and fixed context capacity
 
