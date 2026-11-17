@@ -58,6 +58,7 @@ async def request(session, url, payload):
         seconds=elapsed,
         first_output_seconds=arrivals[0] if arrivals else None,
         output_tokens=tokens,
+        input_tokens=final.get("usage", {}).get("input_tokens"),
         status=final["status"],
         output_events=len(arrivals),
         inter_chunk_seconds=[b - a for a, b in zip(arrivals, arrivals[1:])],

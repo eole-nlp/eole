@@ -1,4 +1,4 @@
-# Experimental dedicated Responses server; no concurrent ordinary predictor calls.
+# Dedicated greedy Responses server; no concurrent ordinary predictor calls.
 models_root: ${EOLE_MODEL_DIR}
 models:
   - id: qwen3.8-27B
@@ -7,7 +7,7 @@ models:
     continuous:
       slots: 4
       max_pending: 32
-      prefill_chunk_size: 128
+      prefill_chunk_size: 256
       prefill_idle_chunk_size: 512
       compiled: true
     config:

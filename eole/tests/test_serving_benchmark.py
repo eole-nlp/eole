@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 path = Path(__file__).resolve().parents[2] / "recipes/serving/benchmark_responses.py"
 spec = importlib.util.spec_from_file_location("serving_benchmark", path)
@@ -52,7 +53,7 @@ def terminal(output=None):
         "response": {
             "status": "completed",
             "output": output or [],
-            "usage": {"output_tokens": 7},
+            "usage": {"input_tokens": 123, "output_tokens": 7},
         },
     }
 
@@ -67,6 +68,7 @@ class BenchmarkTests(unittest.IsolatedAsyncioTestCase):
         ]
         _, stats = await benchmark.request(Session(events), "http://local/responses", {})
         self.assertEqual(stats["output_tokens"], 7)
+        self.assertEqual(stats["input_tokens"], 123)
         self.assertEqual(stats["output_events"], 2)
         self.assertEqual(len(stats["inter_chunk_seconds"]), 1)
         self.assertLessEqual(stats["first_output_seconds"], stats["seconds"])
@@ -100,3 +102,61 @@ class BenchmarkTests(unittest.IsolatedAsyncioTestCase):
         args = SimpleNamespace(model="test", base_url="http://local/v1", max_tokens=128, tool_delay=0)
         with self.assertRaisesRegex(RuntimeError, "read_fixture"):
             await benchmark.job(session, args, 1, "tool")
+
+
+# Load the sibling benchmark with its CLI-style import resolved explicitly.
+
+agent_spec = importlib.util.spec_from_file_location("agentic_benchmark", path.with_name("benchmark_agentic.py"))
+agentic = importlib.util.module_from_spec(agent_spec)
+with patch.dict("sys.modules", benchmark_responses=benchmark):
+    agent_spec.loader.exec_module(agentic)
+
+
+class AgenticBenchmarkTests(unittest.IsolatedAsyncioTestCase):
+    async def test_repeated_tool_turns_keep_history_and_call_ids(self):
+        calls = [
+            dict(type="function_call", name="read_fixture", call_id=f"call_{i}", arguments='{"path":"counter.py"}')
+            for i in range(3)
+        ]
+        session = Session(*([terminal([call])] for call in calls), [terminal()])
+        args = SimpleNamespace(
+            model="test", base_url="http://local/v1", max_tokens=128, context_lines=100, tool_rounds=3, tool_delay=0
+        )
+        row = await agentic.agent(session, args, 1, 0)
+        self.assertEqual(len(row["turns"]), 4)
+        self.assertEqual(row["scenario"], "long")
+        final_history = session.payloads[-1]["input"]
+        outputs = [item for item in final_history if item.get("type") == "function_call_output"]
+        self.assertEqual([item["call_id"] for item in outputs], [f"call_{i}" for i in range(3)])
+        self.assertEqual(session.payloads[-1]["tool_choice"], "none")
+        self.assertIn("helper_0099", final_history[0]["content"])
+
+    async def test_disconnect_waits_for_real_text_and_closes_response(self):
+        closed = []
+
+        class ClosingResponse(Response):
+            async def __aexit__(self, *args):
+                closed.append(True)
+
+        class ClosingSession:
+            def post(self, *args, **kwargs):
+                return ClosingResponse(
+                    [{"type": "response.created"}, {"type": "response.output_text.delta", "delta": "hello"}]
+                )
+
+        result = await agentic.cancelled_request(ClosingSession(), "", {})
+        self.assertTrue(result["cancelled"])
+        self.assertEqual(closed, [True])
+
+    async def test_cancellation_probe_rejects_terminal_without_text(self):
+        with self.assertRaisesRegex(RuntimeError, "no text"):
+            await agentic.cancelled_request(Session([terminal()]), "", {})
+
+    async def test_agent_rejects_missing_prompt_usage(self):
+        event = terminal()
+        del event["response"]["usage"]["input_tokens"]
+        args = SimpleNamespace(
+            model="test", base_url="http://local/v1", max_tokens=128, context_lines=4, tool_rounds=0, tool_delay=0
+        )
+        with self.assertRaisesRegex(RuntimeError, "input_tokens"):
+            await agentic.agent(Session([event]), args, 0, 0)
