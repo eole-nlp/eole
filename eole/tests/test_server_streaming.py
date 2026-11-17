@@ -38,10 +38,24 @@ class TestInferenceStream(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(signal.is_set())
         self.assertTrue(finished.is_set())
 
+    async def test_implicit_cancel_stops_disconnected_request(self):
+        finished = threading.Event()
+
+        def generate(prompt, settings, cancel_event):
+            yield "first"
+            if not cancel_event.wait(2):
+                raise RuntimeError("disconnected request kept generating")
+            finished.set()
+
+        async with inference_stream(SimpleNamespace(infer_list_stream=generate), "", {}) as chunks:
+            async for _ in chunks:
+                break
+        self.assertTrue(finished.is_set())
+
     async def test_chunks_and_generation_stats(self):
         stats = {}
 
-        def generate(prompt, settings, generation_stats):
+        def generate(prompt, settings, generation_stats, cancel_event):
             self.assertEqual((prompt, settings), ("prompt", {"max_length": 3}))
             yield "a"
             yield "b"
@@ -54,7 +68,7 @@ class TestInferenceStream(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats, {"output_tokens": 2, "stopped_on_eos": True})
 
     async def test_worker_error_is_propagated(self):
-        def generate(prompt, settings):
+        def generate(prompt, settings, cancel_event):
             yield "first"
             raise RuntimeError("inference failed")
 
@@ -67,7 +81,7 @@ class TestInferenceStream(unittest.IsolatedAsyncioTestCase):
         release, finished = threading.Event(), threading.Event()
         received = asyncio.Event()
 
-        def generate(prompt, settings):
+        def generate(prompt, settings, cancel_event):
             try:
                 yield "first"
                 if not release.wait(5):

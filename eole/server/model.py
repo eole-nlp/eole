@@ -228,6 +228,8 @@ class Model(object):
             # Group by settings and is_chat flag (only batch compatible requests)
             groups = {}
             for req in batch:
+                if req.future.done():
+                    continue
                 key = settings_key(req.settings, req.is_chat)
                 if key not in groups:
                     groups[key] = []
@@ -273,7 +275,8 @@ class Model(object):
                 for req, (start_idx, end_idx) in zip(reqs, request_boundaries):
                     req_scores = scores[start_idx:end_idx]
                     req_preds = preds[start_idx:end_idx]
-                    req.future.set_result((req_scores, req_preds))
+                    if not req.future.done():
+                        req.future.set_result((req_scores, req_preds))
 
         except Exception as e:
             logger.error(f"Error processing batch: {e}")
@@ -294,14 +297,14 @@ class Model(object):
             try:
                 req = await self.request_queue.get()
                 batch.append(req)
-                deadline = time.time() + self.batch_timeout
+                deadline = time.monotonic() + self.batch_timeout
             except Exception:
                 continue
 
             # Collect more requests until timeout or batch full
-            while len(batch) < self.batch_size and time.time() < deadline:
+            while len(batch) < self.batch_size and time.monotonic() < deadline:
                 try:
-                    timeout = max(0, deadline - time.time())
+                    timeout = max(0, deadline - time.monotonic())
                     req = await asyncio.wait_for(self.request_queue.get(), timeout=timeout)
                     batch.append(req)
                 except asyncio.TimeoutError:
@@ -562,7 +565,7 @@ class Model(object):
 
         return rendered_output
 
-    async def infer_async(self, inputs, settings={}, is_chat=False):
+    async def infer_async(self, inputs, settings=None, is_chat=False):
         """
         Queue inference request and wait for result.
         """
@@ -574,6 +577,8 @@ class Model(object):
         await self.ensure_batch_processor()
 
         future = asyncio.Future()
-        req = QueuedRequest(inputs=inputs, settings=settings, is_chat=is_chat, future=future, timestamp=time.time())
+        req = QueuedRequest(
+            inputs=inputs, settings=dict(settings or {}), is_chat=is_chat, future=future, timestamp=time.time()
+        )
         await self.request_queue.put(req)
         return await future
