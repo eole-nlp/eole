@@ -1,7 +1,8 @@
 # Codex-shaped serving baseline
 
 This recipe measures the existing Responses API under concurrent load before
-adding continuous batching. **It does not enable continuous batching.** Streaming
+adding continuous batching to HTTP. **It does not enable HTTP continuous batching.**
+An isolated eager core probe is available below. Streaming
 requests currently wait on a per-model Responses lock and a single inference
 worker. Non-streaming Chat requests can use whole-request batching; that is not
 a scheduler that admits new requests between decode steps.
@@ -110,3 +111,56 @@ single-request path and reject unsupported settings explicitly. Paged KV storage
 batched speculation and broader sampling can follow after isolation, mixed-length
 correctness, cancellation and fairness are demonstrated. Reuse this recipe to
 compare latency and aggregate throughput at every milestone.
+
+
+## Eager continuous core probe
+
+`eole.predict.continuous.ContinuousGreedy` is an isolated fixed-slot runner owned
+by one inference worker. Requests can join, finish or cancel between ticks;
+freed slots admit waiting work. A `RequestCache` transfers ownership of KV,
+convolution and GDN recurrent tensors, positions and padding metadata without
+copying the bank on each decode step. Admission copies a separately prefilled
+request into its slot once, overwriting the previous occupant's complete state.
+Completed handles can be released with `forget()` after output consumption.
+Ordinary predictor dispatch and HTTP serialization remain unchanged.
+
+The explicit decoder `forward_step` uses each row's cache position for rotary
+embeddings. Existing uniform-position calls retain their previous table path.
+Both CUDA rotary and the PyTorch/compilation branch accept per-row tables.
+No kernel rebuild is required for these Python changes.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=0 \
+python recipes/serving/check_continuous.py --model "$QWEN38_MODEL" \
+  --benchmark --output /tmp/eole-continuous-core.json
+```
+
+The probe checks four completed short Qwen requests against independent solo
+decoding, including different prompt lengths, a late arrival, queued admission,
+cancellation and reuse of the cancelled request's slot. On the RTX 5090 all four
+matched token-for-token (92 completed output tokens total). This finite check
+is not a universal cross-batch bit-identity guarantee.
+
+An initial **eager-only**, single-pass bank-capacity probe gave:
+
+| Slots | Total output tokens | Aggregate output tok/s |
+| --- | ---: | ---: |
+| 1 | 128 | 24.9 |
+| 2 | 207 | 37.3 |
+| 4 | 414 | 71.0 |
+| 8 | 779 | 120.1 |
+
+Each cell submits twice as many jobs as slots, cycling three short prompts with
+a 64-token output budget. EOS changes total output counts. These rates include
+prefill/admission, exclude model loading and initial correctness checks, and
+have no HTTP or detokenization cost. They are **not comparable to the compiled
+HTTP baseline or the front-page decode table**. The eight-slot runner processes
+all eight rows even when some slots are inactive; this establishes batching
+and state ownership, not an optimized scheduler or a latency improvement.
+
+Remaining before HTTP integration: compiled step graphs with stable bank
+bindings, bounded/fair chunked prefill, streaming delivery and request-local
+settings on the worker, and lifecycle/error handling with model unload. A
+single-request regression benchmark and mixed-age correctness checks must pass
+before replacing endpoint locks. The eager runner is not automatically used
+by any public endpoint and must not run alongside another predictor forward.
