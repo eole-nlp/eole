@@ -68,6 +68,7 @@ class MTPProgram:
 class ContinuousMTP(ContinuousGreedy):
     request_type = MTPRequest
     supports_mtp = True
+    speculation = "mtp"
 
     @torch.inference_mode()
     def __init__(

@@ -31,6 +31,15 @@ class GreedyRequest:
 class ContinuousGreedy:
     request_type = GreedyRequest
     supports_mtp = False
+    speculation = None
+
+    @staticmethod
+    def _speculation_mode(predictor):
+        if getattr(predictor, "dflash2", None) is not None:
+            return "dflash2"
+        if getattr(predictor, "self_speculative_decoding", False):
+            return "mtp"
+        return None
 
     @torch.inference_mode()
     def __init__(
@@ -44,10 +53,9 @@ class ContinuousGreedy:
         self.vocab_size = self.model.tgt_emb.embeddings.num_embeddings
         if slots < 1 or max_pending < 1 or prefill_chunk_size < 1:
             raise ValueError("Slot and queue limits must be positive")
-        if (predictor.self_speculative_decoding and not self.supports_mtp) or getattr(
-            predictor, "dflash2", None
-        ) is not None:
-            raise ValueError("Continuous prototype requires speculation disabled")
+        mode = self._speculation_mode(predictor)
+        if mode is not None and mode != self.speculation:
+            raise ValueError(f"Continuous runner does not support {mode} speculation")
         if getattr(predictor, "parallel_gpu", 1) != 1 or self.decoder.with_cross_attn:
             raise ValueError("Continuous prototype requires single-GPU decoder-only inference")
         if self.decoder.position_encoding_type != PositionEncodingType.Rotary or self.decoder.dynamic_shapes:

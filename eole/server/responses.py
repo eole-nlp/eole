@@ -374,7 +374,7 @@ class ResponseEvents:
                 "decode_seconds": seconds,
                 "decode_tokens_per_second": tokens / seconds if seconds and seconds > 0 else None,
             }
-            if stats.get("speculation_mode") == "mtp":
+            if stats.get("speculation_mode") in ("mtp", "dflash2"):
                 self.response["eole_metrics"].update(
                     {
                         key: stats[key]
