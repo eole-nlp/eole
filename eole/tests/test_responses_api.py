@@ -102,6 +102,24 @@ class TestResponsesAPI(unittest.TestCase):
         self.assertEqual(metrics["mtp_drafted_tokens"], 9)
         self.assertEqual(metrics["speculation_mode"], "mtp")
 
+    def test_dflash2_metrics_are_opt_in(self):
+        self.model.stats = dict(
+            output_tokens=7,
+            stream_first_token_time=100.0,
+            stream_last_token_time=102.0,
+            speculation_mode="dflash2",
+            mtp_drafted_tokens=42,
+            mtp_accepted_tokens=18,
+            mtp_acceptance=3 / 7,
+            mtp_cycles=6,
+            mtp_accepted_by_position=[5, 4, 3, 2, 1, 0],
+        )
+        self.assertNotIn("eole_metrics", self.post().json())
+        metrics = self.events(eole_metrics=True)[-1]["response"]["eole_metrics"]
+        self.assertEqual(metrics["speculation_mode"], "dflash2")
+        self.assertEqual(metrics["mtp_drafted_tokens"], 42)
+        self.assertEqual(metrics["mtp_acceptance"], 3 / 7)
+
     def test_function_tool_round_trip(self):
         self.model.chunks = list(
             "<think>hidden</think><tool_call><function=add>"

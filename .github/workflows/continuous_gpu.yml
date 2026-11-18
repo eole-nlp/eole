@@ -68,4 +68,5 @@ jobs:
           "$TEST_PYTHON" -m unittest -v \
             eole.tests.test_continuous_gpu \
             eole.tests.test_continuous_mtp_gpu \
+            eole.tests.test_continuous_dflash2_gpu \
             eole.tests.test_request_cache.RequestRotaryCudaTests

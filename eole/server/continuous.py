@@ -55,6 +55,10 @@ class ContinuousService:
             compiled=compiled,
             prefill_idle_chunk_size=prefill_idle_chunk_size,
         )
+        if runner_factory is None and getattr(engine.predictor, "dflash2", None) is not None:
+            from eole.predict.continuous_dflash2 import ContinuousDFlash2
+
+            runner_factory = ContinuousDFlash2
         if runner_factory is None and getattr(engine.predictor, "self_speculative_decoding", False):
             from eole.predict.continuous_mtp import ContinuousMTP
 
