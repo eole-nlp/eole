@@ -29,6 +29,9 @@ class GreedyRequest:
 
 
 class ContinuousGreedy:
+    request_type = GreedyRequest
+    supports_mtp = False
+
     @torch.inference_mode()
     def __init__(
         self, predictor, slots=4, max_pending=32, prefill_chunk_size=256, compiled=False, prefill_idle_chunk_size=None
@@ -41,7 +44,9 @@ class ContinuousGreedy:
         self.vocab_size = self.model.tgt_emb.embeddings.num_embeddings
         if slots < 1 or max_pending < 1 or prefill_chunk_size < 1:
             raise ValueError("Slot and queue limits must be positive")
-        if predictor.self_speculative_decoding or getattr(predictor, "dflash2", None) is not None:
+        if (predictor.self_speculative_decoding and not self.supports_mtp) or getattr(
+            predictor, "dflash2", None
+        ) is not None:
             raise ValueError("Continuous prototype requires speculation disabled")
         if getattr(predictor, "parallel_gpu", 1) != 1 or self.decoder.with_cross_attn:
             raise ValueError("Continuous prototype requires single-GPU decoder-only inference")
@@ -157,7 +162,7 @@ class ContinuousGreedy:
         if any(not isinstance(token, int) or not 0 <= token < self.vocab_size for token in prompt_ids):
             raise ValueError("Prompt contains an invalid token ID")
         prompt = torch.tensor([prompt_ids], dtype=torch.long, device=self.next_tokens.device)
-        request = GreedyRequest(request_id, prompt, max_tokens)
+        request = self.request_type(request_id, prompt, max_tokens)
         self.requests[request_id] = request
         self.pending.append(request)
         return request
@@ -203,30 +208,37 @@ class ContinuousGreedy:
             raise RuntimeError("Continuous runner is closed")
         events = []
         if self.active:
-            if len(self.active) == 1 and self.slots > 1:
-                slot = next(iter(self.active))
-                cache, graph = self.row_caches[slot], self.single_graphs[slot]
-                inputs = self.next_tokens[slot : slot + 1]
-                slots = [slot]
-            else:
-                cache, graph = self.bank, self.step_graph
-                inputs = self.next_tokens
-                slots = range(self.slots)
-                for slot in range(self.slots):
-                    if slot not in self.active:
-                        self.bank.metadata["cache_seqlens"][slot] = 0
-            cache.bind()
-            emb = self.model.tgt_emb(inputs, step=1)
-            if graph is None:
-                hidden, _ = self.decoder.forward_step(emb)
-            else:
-                mask = torch.zeros(inputs.size(0), 1, 1, device=emb.device, dtype=torch.bool)
-                hidden, _ = graph(emb, tgt_pad_mask=mask)
-            predicted = self.model.generator(hidden[:, -1]).log_softmax(-1).argmax(-1)
-            inputs.copy_(predicted[:, None])
-            for slot, token in zip(slots, predicted.tolist()):
-                if slot in self.active:
-                    self._emit(self.active[slot], token, events)
+            self._decode_active(events)
+        self._prefill_one(events)
+        return events
+
+    def _decode_active(self, events):
+        if len(self.active) == 1 and self.slots > 1:
+            slot = next(iter(self.active))
+            cache, graph = self.row_caches[slot], self.single_graphs[slot]
+            inputs = self.next_tokens[slot : slot + 1]
+            slots = [slot]
+        else:
+            cache, graph = self.bank, self.step_graph
+            inputs = self.next_tokens
+            slots = range(self.slots)
+            for slot in range(self.slots):
+                if slot not in self.active:
+                    self.bank.metadata["cache_seqlens"][slot] = 0
+        cache.bind()
+        emb = self.model.tgt_emb(inputs, step=1)
+        if graph is None:
+            hidden, _ = self.decoder.forward_step(emb)
+        else:
+            mask = torch.zeros(inputs.size(0), 1, 1, device=emb.device, dtype=torch.bool)
+            hidden, _ = graph(emb, tgt_pad_mask=mask)
+        predicted = self.model.generator(hidden[:, -1]).log_softmax(-1).argmax(-1)
+        inputs.copy_(predicted[:, None])
+        for slot, token in zip(slots, predicted.tolist()):
+            if slot in self.active:
+                self._emit(self.active[slot], token, events)
+
+    def _prefill_one(self, events):
         # At most one bounded prefill chunk follows each decode round.
         if self.prefilling is None and self.pending:
             free = next((slot for slot in range(self.slots) if slot not in self.active), None)
@@ -239,28 +251,34 @@ class ContinuousGreedy:
             chunk = self.prefill_chunk_size if self.active else self.prefill_idle_chunk_size
             end = min(request.prefilled + chunk, request.prompt.size(1))
             ids = request.prompt[:, request.prefilled : end]
-            emb = self.model.tgt_emb(ids, step=request.prefilled)
-            mask = torch.zeros(1, 1, ids.size(1), device=emb.device, dtype=torch.bool)
-            if request.cache is None:
-                self.decoder._disable_cache()
-                self.decoder._init_cache(emb, mask)
-            else:
-                request.cache.bind()
-            hidden, _ = self.decoder._forward_eager(emb, tgt_pad_mask=mask)
-            request.cache = RequestCache.take(self.decoder)
+            hidden = self._prefill_chunk(request, ids)
             request.prefill_chunks.append(end - request.prefilled)
             request.prefilled = end
             if end == request.prompt.size(1):
                 token = self.model.generator(hidden[:, -1]).log_softmax(-1).argmax(-1).item()
-                slot = request.slot
-                self.bank.copy_row(slot, request.cache)
-                request.cache = None
-                self.next_tokens[slot, 0] = token
-                self.active[slot] = request
-                request.status = "running"
-                self.prefilling = None
-                self._emit(request, token, events)
-        return events
+                self._admit(request, token, events)
+
+    def _prefill_chunk(self, request, ids):
+        emb = self.model.tgt_emb(ids, step=request.prefilled)
+        mask = torch.zeros(1, 1, ids.size(1), device=emb.device, dtype=torch.bool)
+        if request.cache is None:
+            self.decoder._disable_cache()
+            self.decoder._init_cache(emb, mask)
+        else:
+            request.cache.bind()
+        hidden, _ = self.decoder._forward_eager(emb, tgt_pad_mask=mask)
+        request.cache = RequestCache.take(self.decoder)
+        return hidden
+
+    def _admit(self, request, token, events):
+        slot = request.slot
+        self.bank.copy_row(slot, request.cache)
+        request.cache = None
+        self.next_tokens[slot, 0] = token
+        self.active[slot] = request
+        request.status = "running"
+        self.prefilling = None
+        self._emit(request, token, events)
 
     def close(self):
         self._check_worker()

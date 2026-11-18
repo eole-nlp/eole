@@ -1,4 +1,4 @@
-"""Opt-in ordinary-greedy streaming service on one persistent inference worker."""
+"""Opt-in greedy streaming service on one persistent inference worker."""
 
 from dataclasses import dataclass, field
 from queue import Empty, Full, Queue
@@ -55,6 +55,10 @@ class ContinuousService:
             compiled=compiled,
             prefill_idle_chunk_size=prefill_idle_chunk_size,
         )
+        if runner_factory is None and getattr(engine.predictor, "self_speculative_decoding", False):
+            from eole.predict.continuous_mtp import ContinuousMTP
+
+            runner_factory = ContinuousMTP
         self.runner_factory = runner_factory or ContinuousGreedy
         self.queue = Queue(maxsize=max_pending)
         self.admission = BoundedSemaphore(slots + max_pending)
@@ -74,7 +78,7 @@ class ContinuousService:
             raise ValueError("Continuous serving requires greedy selection (top_k=1 or temperature=0)")
         if settings.get("top_p", 0) not in (0, 1):
             raise ValueError("Continuous serving does not support nucleus sampling; use top_p=0 or 1")
-        # No request-local RNG, penalties, speculation or mutable predictor settings.
+        # Speculation is selected once at startup, never through mutable request settings.
         if settings.get("temperature", 1) != 0 and settings.get("temperature", 1) != 1:
             raise ValueError("Continuous serving supports temperature=0 or the greedy default only")
         if not isinstance(settings.get("max_length", 1), int) or settings.get("max_length", 1) < 1:
@@ -151,15 +155,20 @@ class ContinuousService:
                 decode_tokens=max(0, count - 1),
                 decode_tokens_per_second=(count - 1) / seconds if seconds > 0 else None,
                 total_seconds=now - request.submitted,
-                speculation_mode="off",
-                mtp_active=False,
             )
+            request.stats.setdefault("speculation_mode", "off")
+            request.stats.setdefault("mtp_active", False)
         request.error = error
         if request.admitted:
             request.admitted = False
             self.admission.release()
         request.streamer.end()
         request.done.set()
+
+    @staticmethod
+    def _collect_statistics(runner, request):
+        if request.stats is not None and hasattr(runner, "statistics"):
+            request.stats.update(runner.statistics(request.request_id))
 
     @torch.inference_mode()
     def run(self):
@@ -206,6 +215,7 @@ class ContinuousService:
                 for identifier, request in list(jobs.items()):
                     if request.streamer.cancelled:
                         runner.cancel(identifier)
+                        self._collect_statistics(runner, request)
                         runner.forget(identifier)
                         jobs.pop(identifier)
                         self._finish(request, "cancelled")
@@ -215,6 +225,7 @@ class ContinuousService:
                         request.streamer.put([token])
                         if status != "running":
                             jobs.pop(identifier)
+                            self._collect_statistics(runner, request)
                             runner.forget(identifier)
                             self._finish(request, status)
         except Exception as exc:

@@ -36,7 +36,7 @@ class ContinuousDecoderGpuTests(unittest.TestCase):
         if not _CPP_OPS_AVAILABLE:
             raise RuntimeError("GPU integration tests require the matching Eole CUDA extension")
 
-    def fixture(self, gdn=False, compiled=False):
+    def fixture(self, gdn=False, compiled=False, mtp=False):
         torch.manual_seed(139)
         config = TransformerDecoderConfig(
             layers=2,
@@ -66,6 +66,17 @@ class ContinuousDecoderGpuTests(unittest.TestCase):
         )
         model.tgt_emb = Embeddings(128, 32, 0, position_encoding_type=PositionEncodingType.Rotary)
         model.generator = nn.Linear(128, 32, bias=False)
+        if mtp:
+            from eole.modules.mtp import MTPHead
+
+            model.mtp_heads = nn.ModuleList(
+                [
+                    MTPHead(
+                        config.model_copy(update={"mtp_emb_norm": True}),
+                        running_config=InferenceConfig(self_attn_backend="flash"),
+                    )
+                ]
+            )
         # Eole's skip_init projections must be explicitly initialized in fixtures.
         with torch.no_grad():
             for name, parameter in model.named_parameters():
@@ -78,7 +89,8 @@ class ContinuousDecoderGpuTests(unittest.TestCase):
         model.to(device="cuda", dtype=torch.bfloat16).eval()
         predictor = SimpleNamespace(
             model=model,
-            self_speculative_decoding=False,
+            self_speculative_decoding=mtp,
+            self_speculative_num_tokens=3,
             parallel_gpu=1,
             beam_size=1,
             n_best=1,
@@ -86,7 +98,12 @@ class ContinuousDecoderGpuTests(unittest.TestCase):
             _tgt_eos_idx=[],
             max_length=6,
         )
-        runner = ContinuousGreedy(predictor, slots=3, prefill_chunk_size=2, compiled=compiled)
+        factory = ContinuousGreedy
+        if mtp:
+            from eole.predict.continuous_mtp import ContinuousMTP
+
+            factory = ContinuousMTP
+        runner = factory(predictor, slots=3, prefill_chunk_size=2, compiled=compiled)
         return model, runner
 
     def prefill(self, model, ids):
@@ -107,7 +124,7 @@ class ContinuousDecoderGpuTests(unittest.TestCase):
         )
         return hidden.clone()
 
-    def assert_state(self, actual, expected, slot):
+    def assert_state(self, actual, expected, slot, atol=0.02):
         torch.testing.assert_close(
             actual.metadata["cache_seqlens"][slot : slot + 1], expected.metadata["cache_seqlens"], rtol=0, atol=0
         )
@@ -117,7 +134,7 @@ class ContinuousDecoderGpuTests(unittest.TestCase):
                 a, b = tensor[slot : slot + 1], reference[name]
                 if name in ("kcache", "vcache"):
                     a, b = a[:, :length], b[:, :length]
-                torch.testing.assert_close(a, b, rtol=0.03, atol=0.02, msg=name)
+                torch.testing.assert_close(a, b, rtol=0.03, atol=atol, msg=name)
 
     @torch.inference_mode()
     def check_numerics(self, gdn, compiled):

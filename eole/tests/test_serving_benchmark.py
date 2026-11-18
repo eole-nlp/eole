@@ -99,6 +99,30 @@ class BenchmarkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["jobs_per_minute"], 12)
         self.assertEqual(stats["end_to_end_output_tokens_per_second"], 4.2)
 
+    def test_summary_pools_mtp_counts_instead_of_mean_percentages(self):
+        turns = []
+        for drafted, accepted, cycles, positions in ((3, 3, 1, [1, 1, 1]), (27, 9, 9, [7, 2, 0])):
+            turns.append(
+                dict(
+                    output_tokens=11,
+                    first_output_seconds=1,
+                    seconds=2,
+                    status="completed",
+                    inter_chunk_seconds=[],
+                    decode=dict(
+                        decode_tokens=10,
+                        decode_tokens_per_second=10,
+                        mtp_drafted_tokens=drafted,
+                        mtp_accepted_tokens=accepted,
+                        mtp_cycles=cycles,
+                        mtp_accepted_by_position=positions,
+                    ),
+                )
+            )
+        stats = benchmark.summarize([dict(seconds=5, turns=turns)], 5)
+        self.assertEqual(stats["mtp_acceptance"], 12 / 30)
+        self.assertEqual(stats["mtp_acceptance_by_position"], [0.8, 0.3, 0.1])
+
     async def test_missing_decode_metrics_fails(self):
         event = terminal()
         del event["response"]["eole_metrics"]

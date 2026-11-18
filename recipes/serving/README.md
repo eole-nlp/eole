@@ -1,7 +1,7 @@
 # Greedy Responses serving: decode speed and agent latency
 
 This is an opt-in fixed-slot continuous backend for a **dedicated single-model,
-single-GPU, greedy text Responses server**. Existing YAMLs stay serialized.
+single-GPU, greedy text Responses server**, with optional recurrent Qwen MTP. Existing YAMLs stay serialized.
 The workload uses the [Codex integration](../codex/README.md) protocol without
 launching Codex, executing generated code or reading user files. It measures
 serving performance, not coding-task quality.
@@ -35,6 +35,10 @@ python -m eole.bin.main serve -c recipes/serving/serve.yaml \
 # After stopping the baseline with Ctrl+C, start continuous serving instead:
 python -m eole.bin.main serve -c recipes/serving/serve_continuous.yaml \
   --host 127.0.0.1 --port 5019
+
+# Or, after stopping it, use the same scheduler with three MTP drafts:
+python -m eole.bin.main serve -c recipes/serving/serve_continuous_mtp.yaml \
+  --host 127.0.0.1 --port 5019
 ```
 
 Wait for readiness, then run in another terminal (`aiohttp` required):
@@ -52,6 +56,85 @@ python recipes/serving/benchmark_agentic.py \
 Both scripts default to `http://127.0.0.1:5019/v1`, model `qwen3.8-27B` and a
 600-second HTTP timeout. For authentication use `--api-key-env NAME`; its value
 is not saved. Stop the server with Ctrl+C to release its GPU model.
+
+## Batched MTP
+
+`self_speculative_decoding: true` selects recurrent Qwen MTP for the continuous
+backend; `self_speculative_num_tokens` sets the draft count. There is no second
+serving flag. The supplied MTP YAML uses three drafts and a native BF16 vocabulary
+head. This requires exactly one recurrent Qwen MTP head, CUDA FlashAttention,
+fixed-capacity one-dimensional RoPE, greedy text and one GPU. DFlash2 and sampling
+are not supported by this backend.
+
+Preparation compiles and captures the fixed-width verifier and recurrent drafter
+before readiness, for both the full slot bank and singleton rows.
+The verifier uses the same local artifact cache as standalone MTP, with
+separate entries for the continuous verifier's singleton and bank layouts.
+The cache follows `speculative_verifier_cache` and `EOLE_VERIFIER_CACHE_DIR`.
+Startup loads compatible artifacts and captures fresh CUDA graphs for the
+current process before serving requests. Each request
+owns its target KV/GDN state, MTP KV prefix and pending verified context. Acceptance
+and EOS/output-budget truncation happen independently per row. A grouped replay
+commits only each row's accepted GDN prefix; cancellation and slot reuse discard
+that request's state. Extra physical KV slots are verifier scratch and do not
+reduce the configured context budget. The standalone MTP drafting loop is unchanged.
+
+The target validates every proposed token. BF16 batched/multi-token kernels can
+round differently from single-token decoding, including near-tie argmax changes;
+this does not promise bit-identical output or establish a quality score.
+
+With `eole_metrics: true`, terminal responses additionally report proposed and
+accepted draft counts, acceptance by draft position and verifier cycles. Acceptance
+is accepted emitted drafts divided by **all computed proposals**, including
+proposals discarded at an EOS/output boundary. Benchmark summaries pool counts
+across requests rather than averaging individual acceptance percentages.
+
+## Paired continuous MTP measurements
+
+RTX 5090, Torch 2.15.0+cu132, Triton 3.9.0, FLA 0.6.0, FlashAttention 2.8.3,
+compile mode 0 and FP fusion enabled. Both profiles use the same INT4 Qwen3.8-27B
+checkpoint, **native BF16 vocabulary head**, four slots, 4K capacity per slot,
+256 active / 512 idle prefill, gate/KVQ fusion and no prefix reuse. MTP uses three
+drafts. Preparation and one HTTP warmup are excluded from measured cells.
+
+Each pair is **ordinary → MTP**. Short jobs use two repeats per client and a
+128-token cap per request. Multi-turn jobs use the existing three-tool-round
+scenario, 454–2,938 input tokens, 30 seconds of admission followed by drain,
+100–400 ms tool delays and intentional disconnects. Both profiles include the
+GDN convolution-history fix for chunked prefill introduced with batched MTP.
+
+| Workload | Clients | Per-request decode p50 (tok/s) | Jobs/min | Job p95 (s) | MTP acceptance |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Short text | 1 | 82.5 → 170.7 | 34.73 → 63.98 | 1.74 → 0.94 | 84.3% |
+| Short text | 4 | 53.6 → 95.8 | 85.10 → 135.19 | 3.12 → 2.28 | 82.5% |
+| Short text | 8 | 45.8 → 74.8 | 85.74 → 139.94 | 6.65 → 4.53 | 82.3% |
+| Short tool loop | 1 | 82.9 → 164.8 | 26.17 → 43.35 | 2.31 → 1.39 | 83.3% |
+| Short tool loop | 4 | 43.1 → 42.5 | 50.93 → 59.11 | 5.33 → 4.50 | 81.4% |
+| Short tool loop | 8 | 18.3 → 24.3 | 49.90 → 68.66 | 10.91 → 8.36 | 81.1% |
+| Multi-turn tools | 4 | 17.5 → 30.5 | 13.88 → 15.02 | 18.88 → 17.10 | 86.2% |
+| Multi-turn tools | 8 | 11.1 → 30.0 | 14.20 → 15.35 | 34.26 → 31.65 | 85.9% |
+
+These are small serving samples, not coding-quality measurements. At four clients,
+short-text jobs/min improved 59%; the longer tool workloads improved about 8%.
+The latter remain dominated by interleaved prefill/tool work: faster decode does
+not imply the same percentage gain in complete workflows. At four clients the
+short-tool decode p50 was slightly lower with MTP even though job p95 and jobs/min
+improved. All simulated tool/protocol checks passed; the two multi-turn cells
+included one and two intentional disconnects respectively.
+
+Sampled whole-device serving peaks were 22.39 / 23.41 GiB
+(`nvidia-smi`, 0.5 s samples). These depend on the workload and configuration.
+
+On the same four-slot setup, a fresh process with both saved verifier artifacts
+reached readiness in **19.0 s**, versus **49.0 s** with only the PyTorch compiler
+cache. Graph preparation fell from 35.9 to 5.9 s. Creating both artifacts took
+134.1 s to readiness in a run with existing PyTorch compilation caches.
+The original first compile in the paired benchmark took 230.7 s before artifact
+support was added. Those first-start runs had different compiler cache states.
+After loading the artifacts, short-text decode p50 at 1/4/8 clients was
+167.2 / 96.8 / 75.6 tok/s, with identical pooled acceptance counts to the
+original run.
+
 
 ## What each metric measures
 
@@ -93,7 +176,7 @@ end-to-end definition; they must not be read as decode-only results.
 Inter-chunk gaps are also not per-token latency: a tool call may arrive in one
 SSE event. Server timings avoid that buffering error.
 
-## Fresh measurement setup
+## Earlier ordinary-only measurement setup
 
 Measured 17 November 2026: RTX 5090, PyTorch 2.15.0+cu132, Triton 3.9.0, FLA 0.6.0, FlashAttention 2.8.3,
 compile mode 0, FP fusion enabled, INT4 Qwen3.8-27B target and **native BF16
@@ -287,7 +370,7 @@ graphs and unloads the model. A worker failure fails affected streams and requir
 reload. Queued, prefilling and decoding cancellation retire/release capacity.
 
 Only greedy text Responses are supported. Sampling, penalties, images,
-MTP/DFlash2, prefix reuse, tensor parallelism and general prediction/scoring are
+DFlash2, non-recurrent MTP variants, prefix reuse, tensor parallelism and general prediction/scoring are
 rejected. Use `temperature: 0` or greedy defaults. The server must contain one
 model and must not use `model_policy: single`, whose lease would serialize it.
 Another ordinary predictor must not run on the worker-owned engine concurrently.
@@ -363,6 +446,10 @@ Both attention-only and GDN models compare mixed-position batched logits and
 KV/recurrent/convolution state against independent ordinary decoding with BF16
 tolerances. Tests exercise admission into occupied rows, late arrivals, partial
 prefill cancellation, slot reuse, compiled replay and the inference-mode contract.
+The MTP suite additionally checks recurrent drafts against standalone MTP,
+different per-row GDN commit lengths, EOS, context boundaries, cancellation and
+reuse with compiled verification. CPU tests compare grouped commits to independent
+sequential prefixes and check convolution history across prefill chunks.
 The random-weight scheduler fixture also checks its emitted tokens against solo
 inference; this does not assert universal bit-identity on arbitrary checkpoints.
 
@@ -370,6 +457,7 @@ inference; this does not assert universal bit-identity on arbitrary checkpoints.
 CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \
 EOLE_REQUIRE_GPU_TESTS=1 python -m unittest -v \
   eole.tests.test_continuous_gpu \
+  eole.tests.test_continuous_mtp_gpu \
   eole.tests.test_request_cache.RequestRotaryCudaTests
 ```
 

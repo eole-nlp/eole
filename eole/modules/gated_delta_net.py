@@ -592,6 +592,11 @@ class GatedDeltaNet(nn.Module):
         """
         if not layers:
             return
+        if isinstance(n_kept, (list, tuple)):
+            if len(set(n_kept)) == 1 and n_kept[0] > 0:
+                n_kept = n_kept[0]
+            else:
+                return GatedDeltaNet._commit_speculation_rows(layers, n_kept)
 
         specs = [layer._spec_buffers for layer in layers]
         seq_len = specs[0]["query"].size(1)
@@ -708,6 +713,86 @@ class GatedDeltaNet(nn.Module):
         if recurrent_states.dtype != recurrent_dtype:
             recurrent_states = recurrent_states.to(recurrent_dtype)
             recurrent_sources = [recurrent_states[i * batch_size : (i + 1) * batch_size] for i in range(len(layers))]
+        torch._foreach_copy_([layer.conv_state for layer in layers], conv_sources)
+        torch._foreach_copy_([layer.recurrent_state for layer in layers], recurrent_sources)
+
+    @staticmethod
+    @torch.no_grad()
+    def _commit_speculation_rows(layers, counts):
+        """Replay different accepted prefixes without a decoder pass or state history.
+
+        After a row's prefix, g=0 and beta=0 make recurrence updates identities.
+        Thus a fixed-width replay can commit heterogeneous row lengths in one
+        FLA call, with no per-token recurrent-state snapshots.
+        """
+        specs = [layer._spec_buffers for layer in layers]
+        batch, span = specs[0]["query"].shape[:2]
+        if len(counts) != batch or any(not isinstance(n, int) or not 0 <= n <= span for n in counts):
+            raise ValueError("One accepted prefix in [0, verifier span] is required per cache row")
+        if not any(counts):
+            return
+        if any(
+            layer.recurrent_state.shape != layers[0].recurrent_state.shape
+            or layer.recurrent_state.dtype != layers[0].recurrent_state.dtype
+            or layer.recurrent_state.device != layers[0].recurrent_state.device
+            or any(
+                spec[name].shape != specs[0][name].shape
+                or spec[name].dtype != specs[0][name].dtype
+                or spec[name].device != specs[0][name].device
+                for name in ("query", "key", "value", "g", "beta")
+            )
+            for layer, spec in zip(layers, specs)
+        ):
+            for layer in layers:
+                GatedDeltaNet._commit_speculation_rows([layer], counts)
+            return
+        lengths = torch.tensor(counts, device=layers[0].recurrent_state.device, dtype=torch.long)
+        recurrent = None
+        if any(0 < n < span for n in counts):
+            owner = layers[0]
+            signature = (
+                len(layers),
+                tuple(owner.recurrent_state.shape),
+                owner.recurrent_state.dtype,
+                owner.recurrent_state.device,
+                span,
+            )
+            if getattr(owner, "_row_commit_signature", None) != signature:
+                owner._row_commit_buffers = {
+                    name: torch.empty((len(layers) * batch, *value.shape[1:]), dtype=value.dtype, device=value.device)
+                    for name, value in specs[0].items()
+                    if name in ("query", "key", "value", "g", "beta")
+                }
+                owner._row_commit_buffers["state"] = torch.empty(
+                    (len(layers) * batch, *owner.recurrent_state.shape[1:]),
+                    dtype=owner.recurrent_state.dtype,
+                    device=owner.recurrent_state.device,
+                )
+                owner._row_commit_signature = signature
+            packed = owner._row_commit_buffers
+            for name in ("query", "key", "value", "g", "beta"):
+                torch.cat([spec[name] for spec in specs], dim=0, out=packed[name])
+            torch.cat([layer.recurrent_state for layer in layers], dim=0, out=packed["state"])
+            mask = torch.arange(span, device=lengths.device)[None, :, None] < lengths.repeat(len(layers))[:, None, None]
+            _, recurrent = owner._recurrent_gated_delta_rule(
+                packed["query"],
+                packed["key"],
+                packed["value"],
+                torch.where(mask, packed["g"], 0.0),
+                torch.where(mask, packed["beta"], 0.0),
+                initial_state=packed["state"],
+                output_final_state=True,
+                use_qk_l2norm_in_kernel=True,
+            )
+            recurrent = recurrent.to(owner.recurrent_state.dtype)
+        conv_sources, recurrent_sources = [], []
+        for index, (layer, spec) in enumerate(zip(layers, specs)):
+            indices = lengths[:, None, None] + torch.arange(layer.conv_kernel_size, device=lengths.device)
+            conv_sources.append(spec["conv_extended"].gather(2, indices.expand(-1, layer.conv_dim, -1)))
+            partial = layer.recurrent_state if recurrent is None else recurrent[index * batch : (index + 1) * batch]
+            source = torch.where(lengths[:, None, None, None].eq(span), spec["final_recurrent_state"], partial)
+            source = torch.where(lengths[:, None, None, None].eq(0), layer.recurrent_state, source)
+            recurrent_sources.append(source)
         torch._foreach_copy_([layer.conv_state for layer in layers], conv_sources)
         torch._foreach_copy_([layer.recurrent_state for layer in layers], recurrent_sources)
 
@@ -849,17 +934,21 @@ class GatedDeltaNet(nn.Module):
                 )
                 mixed_qkv = F.silu(conv_out[:, :, 1:]).to(hidden_states.dtype)
         else:
-            if self.conv_state is not None:
-                # save state for next step
-                self.conv_state.copy_(
-                    F.pad(mixed_qkv, (self.conv_kernel_size - mixed_qkv.shape[-1], 0))[:, :, -self.conv_kernel_size :]
-                )
+            # Cached prefill can arrive in several chunks. Include the raw
+            # convolution history, just as single-token updates do. Initial
+            # cache state is zero, so the first chunk uses the same padding.
+            history = self.conv_kernel_size if self.conv_state is not None else 0
+            if history:
+                mixed_qkv = torch.cat((self.conv_state, mixed_qkv.to(self.conv_state.dtype)), dim=-1)
+                self.conv_state.copy_(mixed_qkv[:, :, -history:])
             mixed_qkv = self._causal_conv1d_fn(
                 x=mixed_qkv,
                 weight=self.conv1d.weight.squeeze(1),
                 bias=self.conv1d.bias,
                 activation="silu",
             )
+            if history:
+                mixed_qkv = mixed_qkv[:, :, history:]
 
         mixed_qkv = mixed_qkv.transpose(1, 2)  # (B, S, conv_dim)
 

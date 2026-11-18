@@ -27,6 +27,10 @@ def verifier_forward(model, emb, *, tgt_pad_mask):
     return model._forward_verify_graph(emb, tgt_pad_mask=tgt_pad_mask)
 
 
+def continuous_verifier_forward(model, emb, *, tgt_pad_mask):
+    return model._forward_eager(emb, tgt_pad_mask=tgt_pad_mask, _decode_positions=model.cache_seqlens)
+
+
 def compile_verifier(model):
     return torch.compile(
         model._forward_verify_graph,
@@ -138,10 +142,11 @@ def save_atomic(compiled, path, references):
 class CachedVerifier:
     """Resolve once per model; bind new request buffers through the model argument."""
 
-    def __init__(self, model, directory):
+    def __init__(self, model, directory, *, continuous=False):
         self.model = model
         self.directory = Path(os.path.expandvars(directory)).expanduser()
         self.functions = {}
+        self.continuous = continuous
 
     def _bind(self, compiled):
         model = self.model
@@ -154,12 +159,21 @@ class CachedVerifier:
 
     def _resolve(self, emb, mask):
         model = self.model
-        fallback = compile_verifier(model)
+        if self.continuous:
+
+            def forward(emb, *, tgt_pad_mask):
+                return continuous_verifier_forward(model, emb, tgt_pad_mask=tgt_pad_mask)
+
+            fallback = torch.compile(forward, fullgraph=True, dynamic=False, options={"triton.cudagraphs": False})
+        else:
+            fallback = compile_verifier(model)
         if not hasattr(fallback, "aot_compile") or not hasattr(torch.compiler, "load_compiled_function"):
             logger.warning("Persistent MTP verifier unavailable in this PyTorch; using ordinary compilation.")
             return fallback
         try:
             identity = cache_identity(model, emb, mask)
+            if self.continuous:
+                identity["mode"] = "continuous"
             encoded = json.dumps(identity, sort_keys=True, default=str).encode()
             key = hashlib.sha256(encoded).hexdigest()
             directory = self.directory / key
@@ -179,7 +193,7 @@ class CachedVerifier:
                         logger.warning("Cannot reuse local MTP verifier; recompiling: %s", exc)
                 logger.info("Compiling full MTP verification chunk for this runtime (%s)…", key[:12])
                 candidate = torch.compile(
-                    verifier_forward,
+                    continuous_verifier_forward if self.continuous else verifier_forward,
                     fullgraph=True,
                     dynamic=False,
                     options={
