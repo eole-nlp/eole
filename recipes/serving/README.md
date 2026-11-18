@@ -67,7 +67,12 @@ fixed-capacity one-dimensional RoPE, greedy text and one GPU. DFlash2 and sampli
 are not supported by this backend.
 
 Preparation compiles and captures the fixed-width verifier and recurrent drafter
-before readiness, for both the full slot bank and singleton rows. Each request
+before readiness, for both the full slot bank and singleton rows.
+The verifier uses the same local artifact cache as standalone MTP, with
+separate entries for the continuous verifier's singleton and bank layouts.
+The cache follows `speculative_verifier_cache` and `EOLE_VERIFIER_CACHE_DIR`.
+Startup loads compatible artifacts and captures fresh CUDA graphs for the
+current process before serving requests. Each request
 owns its target KV/GDN state, MTP KV prefix and pending verified context. Acceptance
 and EOS/output-budget truncation happen independently per row. A grouped replay
 commits only each row's accepted GDN prefix; cancellation and slot reuse discard
@@ -117,14 +122,19 @@ short-tool decode p50 was slightly lower with MTP even though job p95 and jobs/m
 improved. All simulated tool/protocol checks passed; the two multi-turn cells
 included one and two intentional disconnects respectively.
 
-First model/process preparation took 43.5 s ordinary versus 230.7 s MTP, including
-30.5 / 217.5 s of graph preparation. It happens before server readiness, not on
-the first request. Sampled whole-device serving peaks were 22.39 / 23.41 GiB
-(`nvidia-smi`, 0.5 s samples); these are observations, not arbitrary-input bounds.
-A repeat MTP process startup using the populated compiler cache took 49.0 s,
-including 35.9 s of graph preparation. Compilation/cache state affects startup
-time. See the metric definitions below;
-token-delivery rates include pauses for other requests' prefills.
+Sampled whole-device serving peaks were 22.39 / 23.41 GiB
+(`nvidia-smi`, 0.5 s samples). These depend on the workload and configuration.
+
+On the same four-slot setup, a fresh process with both saved verifier artifacts
+reached readiness in **19.0 s**, versus **49.0 s** with only the PyTorch compiler
+cache. Graph preparation fell from 35.9 to 5.9 s. Creating both artifacts took
+134.1 s to readiness in a run with existing PyTorch compilation caches.
+The original first compile in the paired benchmark took 230.7 s before artifact
+support was added. Those first-start runs had different compiler cache states.
+After loading the artifacts, short-text decode p50 at 1/4/8 clients was
+167.2 / 96.8 / 75.6 tok/s, with identical pooled acceptance counts to the
+original run.
+
 
 ## What each metric measures
 

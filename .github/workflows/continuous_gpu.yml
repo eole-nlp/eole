@@ -22,6 +22,7 @@ on:
       - eole/predict/continuous*.py
       - eole/utils/request_cache.py
       - eole/utils/decoder_graph.py
+      - eole/utils/verifier_cache.py
       - eole/tests/test_continuous*gpu.py
       - eole/tests/test_request_cache.py
       - csrc/**

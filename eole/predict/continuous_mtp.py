@@ -14,6 +14,7 @@ from eole.modules.gated_delta_net import GatedDeltaNet
 from eole.utils.decoder_graph import DecoderGraph
 from eole.utils.logging import logger
 from eole.utils.request_cache import RequestCache
+from eole.utils.verifier_cache import CachedVerifier
 
 
 def verified_prefix(targets, proposals, remaining, eos):
@@ -96,6 +97,8 @@ class ContinuousMTP(ContinuousGreedy):
         self.mtp = self._new_state(slots)
         self.linear_layers = [m for m in self.decoder.modules() if isinstance(m, GatedDeltaNet)]
         self.programs = []
+        directory = self.decoder._verifier_cache_directory
+        cached = CachedVerifier(self.decoder, directory, continuous=True) if compiled and directory else None
         for cache, mtp in [(self.bank, self.mtp)] + [
             (self.row_caches[i], self.mtp.row(i)) for i in range(slots) if slots > 1
         ]:
@@ -110,7 +113,7 @@ class ContinuousMTP(ContinuousGreedy):
                 if not EOLE_TORCH_COMPILE or EOLE_COMPILE_MODE != "0":
                     raise ValueError("Compiled continuous MTP requires compile mode 0")
                 logger.info("Preparing continuous MTP graphs for %d decode rows…", mtp.lengths.numel())
-                program.verifier = self._compile(self._verify_step)
+                program.verifier = DecoderGraph(cached, cached) if cached else self._compile(self._verify_step)
                 program.drafter = self._compile(self._draft_step)
                 self._bind(program)
                 self.decoder._speculative_forward = True
