@@ -63,8 +63,7 @@ is not saved. Stop the server with Ctrl+C to release its GPU model.
 backend; `self_speculative_num_tokens` sets the draft count. There is no second
 serving flag. The supplied MTP YAML uses three drafts and a native BF16 vocabulary
 head. This requires exactly one recurrent Qwen MTP head, CUDA FlashAttention,
-fixed-capacity one-dimensional RoPE, greedy text and one GPU. DFlash2 and sampling
-are not supported by this backend.
+fixed-capacity one-dimensional RoPE, greedy text and one GPU.
 
 Preparation compiles and captures the fixed-width verifier and recurrent drafter
 before readiness, for both the full slot bank and singleton rows.
@@ -88,6 +87,16 @@ accepted draft counts, acceptance by draft position and verifier cycles. Accepta
 is accepted emitted drafts divided by **all computed proposals**, including
 proposals discarded at an EOS/output boundary. Benchmark summaries pool counts
 across requests rather than averaging individual acceptance percentages.
+
+## Batched DFlash2
+
+For a dedicated continuous server with a compatible DFlash2 checkpoint, set
+`dflash2_model` in the model config. The drafter checkpoint sets the block
+size. Use compiled mode 0 for the drafter bank graph. Once two or more requests
+are decoding, the bank drafts each slot in one replay, with independent
+positions and committed feature counts. A single active request keeps the
+singleton graph. Both graphs share the slot's ring storage, so requests can
+move between the two paths as other jobs arrive and finish.
 
 ## Paired continuous MTP measurements
 
@@ -370,7 +379,7 @@ graphs and unloads the model. A worker failure fails affected streams and requir
 reload. Queued, prefilling and decoding cancellation retire/release capacity.
 
 Only greedy text Responses are supported. Sampling, penalties, images,
-DFlash2, non-recurrent MTP variants, prefix reuse, tensor parallelism and general prediction/scoring are
+Non-recurrent MTP variants, prefix reuse, tensor parallelism and general prediction/scoring are
 rejected. Use `temperature: 0` or greedy defaults. The server must contain one
 model and must not use `model_policy: single`, whose lease would serialize it.
 Another ordinary predictor must not run on the worker-owned engine concurrently.

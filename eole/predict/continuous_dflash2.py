@@ -65,7 +65,13 @@ class ContinuousDFlash2(ContinuousGreedy):
         self._pad_cache(self.bank)
         self.row_caches = [self.bank.row(i) for i in range(slots)]
         self._extend_rope(self.capacity + self.span)
-        self.adapters = [self._prepare_adapter(copy(adapter)) for _ in range(slots)]
+        self.draft_bank = None
+        if slots > 1 and isinstance(adapter, DFlash2GraphAdapter):
+            self.draft_bank = self._prepare_adapter(copy(adapter), batch=slots)
+        self.adapters = []
+        for slot in range(slots):
+            ring = self.draft_bank.row_ring(slot) if self.draft_bank is not None else None
+            self.adapters.append(self._prepare_adapter(copy(adapter), ring=ring))
         self.programs = []
         self.host_seqlens = [0] * slots
         for cache in [self.bank] + self.row_caches:
@@ -83,7 +89,7 @@ class ContinuousDFlash2(ContinuousGreedy):
                 value.zero_()
         self.bank.metadata["cache_seqlens"].zero_()
 
-    def _prepare_adapter(self, adapter):
+    def _prepare_adapter(self, adapter, *, batch=1, ring=None):
         """Give this per-row copy fresh drafter state under shared weights."""
         for name in (
             "_graph",
@@ -101,7 +107,7 @@ class ContinuousDFlash2(ContinuousGreedy):
             import weakref
 
             object.__setattr__(adapter, "_target_ref", weakref.ref(self.model))
-            if not adapter.prepare_draft_graph():
+            if not adapter.prepare_draft_graph(batch=batch, ring=ring):
                 raise RuntimeError("Continuous DFlash2 drafter capture failed")
         return adapter
 
@@ -209,21 +215,29 @@ class ContinuousDFlash2(ContinuousGreedy):
                     program.cache.metadata["cache_seqlens"][slot] = 0
         self._bind(program)
         mask = torch.zeros(len(slots), 1, self.span, device=self.next_tokens.device, dtype=torch.bool)
-        drafts = []
-        starts = []
-        for row, slot in enumerate(slots):
-            if slot not in active:
-                drafts.append(torch.zeros(1, self.num_drafts, dtype=torch.long, device=self.next_tokens.device))
-                starts.append(0)
-                continue
-            request = active[slot]
-            adapter = self.adapters[slot]
-            start = self.host_seqlens[slot]
-            adapter.set_context(request.drafter_context, request.context_start)
-            proposed = adapter.draft(self.model, self.next_tokens[slot : slot + 1], start, self.num_drafts)
-            drafts.append(torch.cat(proposed, 1))
-            starts.append(start)
-        draft_tensor = torch.cat(drafts, 0)
+        starts = [self.host_seqlens[slot] if slot in active else 0 for slot in slots]
+        if self.draft_bank is not None and len(active) > 1:
+            for row, slot in enumerate(slots):
+                request = active.get(slot)
+                if request is None:
+                    self.draft_bank.stage_row(row, None, 0, 0)
+                    continue
+                self.adapters[slot].stage_context(
+                    self.draft_bank, row, request.drafter_context, starts[row], request.context_start
+                )
+            draft_tensor = self.draft_bank.replay(self.next_tokens)
+        else:
+            drafts = []
+            for row, slot in enumerate(slots):
+                request = active.get(slot)
+                if request is None:
+                    drafts.append(self.next_tokens.new_zeros(1, self.num_drafts))
+                    continue
+                adapter = self.adapters[slot]
+                adapter.set_context(request.drafter_context, request.context_start)
+                proposed = adapter.draft(self.model, self.next_tokens[slot : slot + 1], starts[row], self.num_drafts)
+                drafts.append(torch.cat(proposed, 1))
+            draft_tensor = torch.cat(drafts, 0)
         inputs = torch.cat((self.next_tokens[slots], draft_tensor), 1)
         emb = self.model.tgt_emb(inputs)
         for layer in self.linear_layers:
@@ -293,6 +307,9 @@ class ContinuousDFlash2(ContinuousGreedy):
             if graph is not None:
                 graph.reset()
         self.adapters = []
+        if self.draft_bank is not None:
+            self.draft_bank._graph.reset()
+            self.draft_bank = None
         for program in self.programs:
             if program.verifier is not None:
                 program.verifier.reset()

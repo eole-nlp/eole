@@ -32,8 +32,9 @@ class Norm(nn.Module):
 
 def rotary_tables(positions, dim, theta, dtype):
     inv = 1.0 / theta ** (torch.arange(0, dim, 2, device=positions.device, dtype=torch.float32) / dim)
-    phase = positions.float()[:, None] * inv[None, :]
-    phase = torch.cat((phase, phase), -1)[None, None]
+    phase = positions.float().unsqueeze(-1) * inv
+    phase = torch.cat((phase, phase), -1)
+    phase = phase[None, None] if positions.ndim == 1 else phase[:, None]
     return phase.cos().to(dtype), phase.sin().to(dtype)
 
 
