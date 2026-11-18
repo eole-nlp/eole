@@ -20,11 +20,11 @@ from eole.predict.continuous_mtp import verified_prefix
 from eole.utils.decoder_graph import DecoderGraph
 from eole.utils.logging import logger
 from eole.utils.request_cache import RequestCache
+from eole.utils.verifier_cache import CachedVerifier
 
 
 @dataclass
 class DFlash2Request(GreedyRequest):
-    drafter_chunks: list = field(default_factory=list)
     drafter_context: torch.Tensor | None = None
     context_start: int = 0
     drafted: int = 0
@@ -106,26 +106,18 @@ class ContinuousDFlash2(ContinuousGreedy):
         return adapter
 
     def _prepare_verifier_graphs(self):
-        # The verifier is compiled with fullgraph Inductor and only then
-        # captured. Raw eager capture is unfaithful here: Inductor
-        # parameterizes attention launches from device tensors, while the
-        # eager path bakes host-derived launch configuration at record time.
-        # Fresh fullgraph compilation also cannot inline the GDN library's
-        # torch.compiler.disable()'d kernels on current torch (a constraint
-        # the recurrent MTP runner avoids through its cached verifier
-        # artifact); when compilation raises, fall back to the uncaptured
-        # eager verifier, which is slower but correct.
+        from eole import EOLE_COMPILE_MODE, EOLE_TORCH_COMPILE
+
+        if not EOLE_TORCH_COMPILE or EOLE_COMPILE_MODE != "0":
+            raise ValueError("Compiled continuous DFlash2 requires compile mode 0")
+        directory = self.decoder._verifier_cache_directory
+        cached = CachedVerifier(self.decoder, directory, continuous=True) if directory else None
         logger.info("Preparing continuous DFlash2 verifiers for %d programs…", len(self.programs))
         for program in self.programs:
-            try:
-                program.verifier = DecoderGraph(self._compile(self._verify_step), self._verify_step)
-            except Exception as exception:  # noqa: BLE001
-                logger.warning("Continuous DFlash2 verifier compilation failed; using eager verification: %s", exception)
-                program.verifier = None
-        for program in self.programs:
-            if program.verifier is None:
-                continue
+            program.verifier = DecoderGraph(cached, cached) if cached else self._compile(self._verify_step)
             self._bind(program)
+            for layer in self.linear_layers:
+                layer.begin_speculation(self.span)
             self.decoder._speculative_forward = True
             rows = program.cache.metadata["cache_seqlens"].numel()
             dtype = next(self.model.parameters()).dtype
@@ -136,12 +128,7 @@ class ContinuousDFlash2(ContinuousGreedy):
                     program.verifier(emb, tgt_pad_mask=mask)
                     program.cache.metadata["cache_seqlens"].zero_()
                 if program.verifier.graph is None:
-                    logger.warning("Continuous DFlash2 verifier capture failed; using eager verification")
-                    program.verifier.reset()
-                    program.verifier = None
-            except Exception as exception:  # noqa: BLE001
-                logger.warning("Continuous DFlash2 verifier capture failed; using eager verification: %s", exception)
-                program.verifier = None
+                    raise RuntimeError("Continuous DFlash2 verifier capture failed")
             finally:
                 self.decoder._speculative_forward = False
                 for layer in self.linear_layers:
@@ -158,9 +145,7 @@ class ContinuousDFlash2(ContinuousGreedy):
             layer._spec_buffers = spec
 
     def _verify_step(self, emb, *, tgt_pad_mask):
-        return self.decoder._forward_eager(
-            emb, tgt_pad_mask=tgt_pad_mask, _decode_positions=self.decoder.cache_seqlens
-        )
+        return self.decoder._forward_eager(emb, tgt_pad_mask=tgt_pad_mask, _decode_positions=self.decoder.cache_seqlens)
 
     def _pad_cache(self, cache):
         if cache.metadata["cache_len_tgt"] != self.capacity:
@@ -196,21 +181,21 @@ class ContinuousDFlash2(ContinuousGreedy):
         self._pad_cache(request.cache)
         features = attns.get("dflash2_features")
         if features is not None:
-            request.drafter_chunks.append(features)
+            prior = request.drafter_context
+            if prior is not None and features.size(1) < self.window:
+                features = torch.cat((prior[:, -(self.window - features.size(1)) :], features), dim=1)
+            request.drafter_context = features
+
         return hidden
 
     def _admit(self, request, token, events):
         slot = request.slot
-        features = torch.cat(request.drafter_chunks, 1)
-        request.drafter_chunks = []
-        if features.size(1) > self.window:
-            features = features[:, -self.window :]
-        request.drafter_context = features
+        features = request.drafter_context
         request.context_start = request.prefilled - features.size(1)
         request.accepted_by_position = [0] * self.num_drafts
         self.adapters[slot].reset()
         super()._admit(request, token, events)
-        self.host_seqlens[slot] = int(self.bank.metadata["cache_seqlens"][slot])
+        self.host_seqlens[slot] = request.prefilled
 
     def _decode_active(self, events):
         active = dict(self.active)
@@ -284,7 +269,6 @@ class ContinuousDFlash2(ContinuousGreedy):
     def cancel(self, request_id):
         super().cancel(request_id)
         request = self.requests[request_id]
-        request.drafter_chunks = []
         request.drafter_context = None
 
     def statistics(self, request_id):
@@ -315,7 +299,12 @@ class ContinuousDFlash2(ContinuousGreedy):
         self.programs.clear()
         for layer in self.linear_layers:
             layer._spec_buffers = None
-            for name in ("_row_commit_buffers", "_row_commit_signature", "_spec_replay_buffers", "_spec_replay_signature"):
+            for name in (
+                "_row_commit_buffers",
+                "_row_commit_signature",
+                "_spec_replay_buffers",
+                "_spec_replay_signature",
+            ):
                 if hasattr(layer, name):
                     delattr(layer, name)
         super().close()

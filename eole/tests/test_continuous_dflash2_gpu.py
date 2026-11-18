@@ -4,7 +4,6 @@ import unittest
 from types import SimpleNamespace
 
 import torch
-from torch import nn
 
 from eole import EOLE_TORCH_COMPILE
 from eole.modules.dflash2 import DFlash2Adapter
@@ -124,6 +123,7 @@ class ContinuousDFlash2GpuTests(unittest.TestCase):
             self.skipTest("compiled path requires EOLE_TORCH_COMPILE=1")
         model, runner = self._runner(compiled=True, gdn=True)
         try:
+            self.assertTrue(all(program.verifier.graph is not None for program in runner.programs))
             ids = list(range(3, 15))
             request = runner.submit("gdn", ids, 7)
             for _ in range(100):
@@ -131,9 +131,7 @@ class ContinuousDFlash2GpuTests(unittest.TestCase):
                     break
                 runner.tick()
                 if request.status == "running":
-                    self.assertEqual(
-                        runner.host_seqlens[request.slot], request.prefilled + len(request.tokens) - 1
-                    )
+                    self.assertEqual(runner.host_seqlens[request.slot], request.prefilled + len(request.tokens) - 1)
             # Multi-token BF16 convolution/recurrent kernels can change argmax
             # at near ties; check every emitted token against solo logits under
             # its actual prefix (same standard as the continuous MTP suite).
@@ -160,9 +158,7 @@ class ContinuousDFlash2GpuTests(unittest.TestCase):
                 for key, request in requests.items():
                     slot = request.slot
                     if slot is not None and request.status == "running":
-                        self.assertEqual(
-                            runner.host_seqlens[slot], request.prefilled + len(request.tokens) - 1, key
-                        )
+                        self.assertEqual(runner.host_seqlens[slot], request.prefilled + len(request.tokens) - 1, key)
             for key, request in requests.items():
                 self.assertEqual(request.tokens, expected[key], key)
         finally:
