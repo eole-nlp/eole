@@ -226,11 +226,28 @@ class TestDFlash2(unittest.TestCase):
                     for layer, (key, value) in zip(reference.layers, model._context_kv):
                         expected_key, expected_value, positions = layer.self_attn.cache
                         indices = positions.remainder(reference.cfg.sliding_window)
-                        torch.testing.assert_close(model._context_positions[indices], positions)
+                        torch.testing.assert_close(model._context_positions[0, indices], positions)
                         torch.testing.assert_close(key.index_select(2, indices), expected_key, atol=0.03, rtol=0.02)
                         torch.testing.assert_close(value.index_select(2, indices), expected_value, atol=0.03, rtol=0.02)
                 self.assertIs(model._graph.graph, graph)
                 self.assertEqual(pointers, [buffer.data_ptr() for pair in model._context_kv for buffer in pair])
+
+    @unittest.skipUnless(torch.cuda.is_available(), "Batched drafter RoPE requires CUDA")
+    def test_batched_rope_matches_independent_rows(self):
+        from eole.modules.dflash2 import Norm, normalize_rotary, rotary_tables
+
+        positions = torch.tensor([[0, 1, 2, 3], [12, 13, 14, 15]], device="cuda")
+        x = torch.randn(2, 3, 2, 128, device="cuda", dtype=torch.bfloat16)
+        norm = Norm(128, 1e-6).to(x)
+        with torch.no_grad():
+            tables = rotary_tables(positions, 128, 10000.0, x.dtype)
+            for span in (slice(None, 2), slice(2, None)):
+                actual = normalize_rotary(x, norm, tuple(t[..., span, :] for t in tables))
+                separate = [
+                    normalize_rotary(x[row : row + 1], norm, rotary_tables(positions[row, span], 128, 10000.0, x.dtype))
+                    for row in range(x.size(0))
+                ]
+                torch.testing.assert_close(actual, torch.cat(separate), atol=0, rtol=0)
 
     @unittest.skipUnless(torch.cuda.is_available(), "Ring writes require CUDA")
     def test_arbitrary_block_ring_writes_preserve_uncommitted_slots(self):
@@ -240,23 +257,26 @@ class TestDFlash2(unittest.TestCase):
         for block in (7, 8, 9, 10, 11):
             for count in (0, 1, block - 1, block):
                 with self.subTest(block=block, count=count):
-                    start = window - 2  # Include ring wraparound.
-                    control = torch.tensor([0, 0, start, count], device="cuda")
-                    positions = torch.full((window,), -1, device="cuda", dtype=torch.int64)
-                    key = torch.arange(block * heads * dim, device="cuda").reshape(1, block, heads, dim)
+                    starts = (window - 2, 2 * window - 1, 0)
+                    counts = (count, max(0, count - 1), 0)
+                    batch = len(starts)
+                    control = torch.tensor([[0, 0, start, kept] for start, kept in zip(starts, counts)], device="cuda")
+                    positions = torch.full((batch, window), -1, device="cuda", dtype=torch.int64)
+                    key = torch.arange(batch * block * heads * dim, device="cuda").reshape(batch, block, heads, dim)
                     key = key.transpose(1, 2).float()
                     value = key + 1000
-                    kc = torch.full((1, heads, window, dim), -1.0, device="cuda")
+                    kc = torch.full((batch, heads, window, dim), -1.0, device="cuda")
                     vc = kc.clone()
                     expected_positions = positions.clone()
                     expected_k, expected_v = kc.clone(), vc.clone()
-                    indices = (start + torch.arange(count, device="cuda")) % window
-                    expected_positions[indices] = start + torch.arange(count, device="cuda")
-                    expected_k[:, :, indices] = key[:, :, :count]
-                    expected_v[:, :, indices] = value[:, :, :count]
-                    put_positions[(1,)](positions, control, window, block)
-                    put_kv[(heads * block,)](
-                        key, value, kc, vc, control, *key.stride()[:3], *value.stride()[:3], window, block, dim
+                    for row, (start, kept) in enumerate(zip(starts, counts)):
+                        indices = (start + torch.arange(kept, device="cuda")) % window
+                        expected_positions[row, indices] = start + torch.arange(kept, device="cuda")
+                        expected_k[row, :, indices] = key[row, :, :kept]
+                        expected_v[row, :, indices] = value[row, :, :kept]
+                    put_positions[(1, batch)](positions, control, window, block)
+                    put_kv[(heads * block, batch)](
+                        key, value, kc, vc, control, *key.stride()[:3], *value.stride()[:3], window, block, dim, heads
                     )
                     torch.testing.assert_close(positions, expected_positions, atol=0, rtol=0)
                     torch.testing.assert_close(kc, expected_k, atol=0, rtol=0)

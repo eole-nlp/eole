@@ -150,6 +150,11 @@ class ContinuousDFlash2GpuTests(unittest.TestCase):
     def test_all_slots_run_together_and_drift_none(self):
         model, runner = self._runner(compiled=bool(EOLE_TORCH_COMPILE))
         try:
+            if EOLE_TORCH_COMPILE:
+                self.assertIsNotNone(runner.draft_bank._graph.graph)
+                for slot, adapter in enumerate(runner.adapters):
+                    positions, _ = runner.draft_bank.row_ring(slot)
+                    self.assertEqual(adapter._context_positions.data_ptr(), positions.data_ptr())
             prompts = {f"row{i}": [10 + 3 * i, 11 + 3 * i, 12 + 3 * i] for i in range(3)}
             expected = {key: self.solo(model, ids, 6) for key, ids in prompts.items()}
             requests = {key: runner.submit(key, ids, 6) for key, ids in prompts.items()}

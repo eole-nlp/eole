@@ -15,6 +15,7 @@ def _norm_rope(
     SX0: tl.constexpr,
     SX1: tl.constexpr,
     SX2: tl.constexpr,
+    TABLE_STRIDE: tl.constexpr,
     H: tl.constexpr,
     T: tl.constexpr,
     D: tl.constexpr,
@@ -33,8 +34,8 @@ def _norm_rope(
     z = (z.to(tl.float32) * tl.load(W + d).to(tl.float32)).to(Y.dtype.element_ty)
     partner = tl.gather(z, (d + D // 2) % D, 0).to(tl.float32)
     partner = tl.where(d < D // 2, -partner, partner)
-    c = tl.load(C + t * D + d).to(tl.float32)
-    s = tl.load(S + t * D + d).to(tl.float32)
+    c = tl.load(C + b * TABLE_STRIDE + t * D + d).to(tl.float32)
+    s = tl.load(S + b * TABLE_STRIDE + t * D + d).to(tl.float32)
     a = (z.to(tl.float32) * c).to(Y.dtype.element_ty)
     v = (partner * s).to(Y.dtype.element_ty)
     tl.store(Y + row * D + d, a.to(tl.float32) + v.to(tl.float32))
@@ -51,6 +52,7 @@ def norm_rope(x, weight, eps, tables):
         tables[1],
         out,
         *x.stride()[:3],
+        tables[0].stride(0) if tables[0].size(0) > 1 else 0,
         h,
         t,
         d,
@@ -65,9 +67,10 @@ def norm_rope(x, weight, eps, tables):
 def put_positions(P, C, W: tl.constexpr, T: tl.constexpr):
     # Triton ranges need a power-of-two extent, but the model block does not.
     t = tl.arange(0, triton.next_power_of_2(T))
-    start = tl.load(C + 2)
-    count = tl.load(C + 3)
-    tl.store(P + (start + t) % W, start + t, (t < T) & (t < count))
+    b = tl.program_id(1)
+    start = tl.load(C + b * 4 + 2)
+    count = tl.load(C + b * 4 + 3)
+    tl.store(P + b * W + (start + t) % W, start + t, (t < T) & (t < count))
 
 
 @triton.jit
@@ -86,15 +89,17 @@ def put_kv(
     W: tl.constexpr,
     T: tl.constexpr,
     D: tl.constexpr,
+    H: tl.constexpr,
 ):
     row = tl.program_id(0)
     h = row // T
     t = row % T
     d = tl.arange(0, D)
-    start = tl.load(C + 2)
-    count = tl.load(C + 3)
-    kval = tl.load(K + h * KS1 + t * KS2 + d)
-    vval = tl.load(V + h * VS1 + t * VS2 + d)
-    dst = (h * W + (start + t) % W) * D + d
+    b = tl.program_id(1)
+    start = tl.load(C + b * 4 + 2)
+    count = tl.load(C + b * 4 + 3)
+    kval = tl.load(K + b * KS0 + h * KS1 + t * KS2 + d)
+    vval = tl.load(V + b * VS0 + h * VS1 + t * VS2 + d)
+    dst = ((b * H + h) * W + (start + t) % W) * D + d
     tl.store(KC + dst, kval, t < count)
     tl.store(VC + dst, vval, t < count)
