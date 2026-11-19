@@ -38,6 +38,7 @@ class ContinuousService:
         compiled=True,
         runner_factory=None,
         prefill_idle_chunk_size=None,
+        prefix_cache_entries=0,
     ):
         if any(not isinstance(value, int) or value < 1 for value in (slots, max_pending, prefill_chunk_size)):
             raise ValueError("Continuous serving limits must be positive integers")
@@ -64,6 +65,12 @@ class ContinuousService:
 
             runner_factory = ContinuousMTP
         self.runner_factory = runner_factory or ContinuousGreedy
+        if type(prefix_cache_entries) is not int or prefix_cache_entries < 0:
+            raise ValueError("prefix_cache_entries must be a nonnegative integer")
+        if prefix_cache_entries:
+            if getattr(self.runner_factory, "speculation", None) != "dflash2":
+                raise ValueError("Continuous prefix caching requires DFlash2")
+            self.options["prefix_cache_entries"] = prefix_cache_entries
         self.queue = Queue(maxsize=max_pending)
         self.admission = BoundedSemaphore(slots + max_pending)
         self.lock = Lock()

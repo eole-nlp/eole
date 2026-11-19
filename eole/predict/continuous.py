@@ -90,7 +90,7 @@ class ContinuousGreedy:
         ):
             raise ValueError("Continuous serving requires unconstrained batch-one greedy defaults")
         if getattr(self.decoder, "_prefill_cache", None) is not None:
-            raise ValueError("Continuous prefix reuse is not implemented; set prefill_cache_size=0")
+            raise ValueError("Continuous serving requires prefill_cache_size=0")
         self.pending = deque()
         self.active = {}
         self.requests = {}
@@ -254,6 +254,7 @@ class ContinuousGreedy:
                 self.prefilling = self.pending.popleft()
                 self.prefilling.slot = free
                 self.prefilling.status = "prefilling"
+                self._start_prefill(self.prefilling)
         request = self.prefilling
         if request is not None:
             chunk = self.prefill_chunk_size if self.active else self.prefill_idle_chunk_size
@@ -265,6 +266,9 @@ class ContinuousGreedy:
             if end == request.prompt.size(1):
                 token = self.model.generator(hidden[:, -1]).log_softmax(-1).argmax(-1).item()
                 self._admit(request, token, events)
+
+    def _start_prefill(self, request):
+        """Initialize request-specific state before slicing the first chunk."""
 
     def _prefill_chunk(self, request, ids):
         emb = self.model.tgt_emb(ids, step=request.prefilled)

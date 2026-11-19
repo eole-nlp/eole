@@ -380,6 +380,7 @@ class ResponseEvents:
                         key: stats[key]
                         for key in (
                             "speculation_mode",
+                            "reused_prefix_tokens",
                             "mtp_drafted_tokens",
                             "mtp_accepted_tokens",
                             "mtp_acceptance",
