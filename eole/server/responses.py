@@ -374,13 +374,14 @@ class ResponseEvents:
                 "decode_seconds": seconds,
                 "decode_tokens_per_second": tokens / seconds if seconds and seconds > 0 else None,
             }
+            if "reused_prefix_tokens" in stats:
+                self.response["eole_metrics"]["reused_prefix_tokens"] = stats["reused_prefix_tokens"]
             if stats.get("speculation_mode") in ("mtp", "dflash2"):
                 self.response["eole_metrics"].update(
                     {
                         key: stats[key]
                         for key in (
                             "speculation_mode",
-                            "reused_prefix_tokens",
                             "mtp_drafted_tokens",
                             "mtp_accepted_tokens",
                             "mtp_acceptance",

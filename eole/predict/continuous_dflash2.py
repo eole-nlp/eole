@@ -7,7 +7,6 @@ writes are discarded by rewinding the row's position counter, like the
 continuous MTP runner, and committed target features draft the next block.
 """
 
-from collections import OrderedDict
 from copy import copy
 from dataclasses import dataclass, field
 
@@ -28,8 +27,6 @@ from eole.utils.verifier_cache import CachedVerifier
 class DFlash2Request(GreedyRequest):
     drafter_context: torch.Tensor | None = None
     context_start: int = 0
-    prompt_ids: tuple = ()
-    reused_prefix_tokens: int = 0
     drafted: int = 0
     accepted: int = 0
     cycles: int = 0
@@ -58,10 +55,6 @@ class ContinuousDFlash2(ContinuousGreedy):
         prefill_idle_chunk_size=None,
         prefix_cache_entries=0,
     ):
-        if type(prefix_cache_entries) is not int or prefix_cache_entries < 0:
-            raise ValueError("prefix_cache_entries must be a nonnegative integer")
-        self.prefix_cache_entries = prefix_cache_entries
-        self.prompt_cache = OrderedDict()
         adapter = getattr(predictor, "dflash2", None)
         if adapter is None:
             raise ValueError("Continuous DFlash2 requires a DFlash2 drafter (dflash2_model)")
@@ -73,7 +66,15 @@ class ContinuousDFlash2(ContinuousGreedy):
         self.linear_layers = [m for m in predictor.model.decoder.modules() if isinstance(m, GatedDeltaNet)]
         # The base compiled single-token step graph is unused; verification is
         # captured separately below.
-        super().__init__(predictor, slots, max_pending, prefill_chunk_size, False, prefill_idle_chunk_size)
+        super().__init__(
+            predictor,
+            slots,
+            max_pending,
+            prefill_chunk_size,
+            False,
+            prefill_idle_chunk_size,
+            prefix_cache_entries=prefix_cache_entries,
+        )
         self.decoder._dflash2_layer_ids = tuple(adapter.target_layer_ids)
         self.decoder._dflash2_window = self.window
         self._pad_cache(self.bank)
@@ -188,20 +189,11 @@ class ContinuousDFlash2(ContinuousGreedy):
             tail = torch.cat((cos, sin), -1)[old.size(0) :].to(old.dtype)
             rope.cos_sin = torch.cat((old, tail), 0)
 
-    def submit(self, request_id, prompt_ids, max_tokens):
-        request = super().submit(request_id, prompt_ids, max_tokens)
-        if self.prefix_cache_entries:
-            request.prompt_ids = tuple(prompt_ids)
-        return request
+    def _save_prefill_state(self, request):
+        return request.drafter_context
 
-    def _start_prefill(self, request):
-        ids = request.prompt_ids
-        matches = (prefix for prefix in self.prompt_cache if len(prefix) < len(ids) and ids[: len(prefix)] == prefix)
-        prefix = max(matches, key=len, default=None)
-        if prefix is not None:
-            # Move ownership. Prefilling the suffix mutates this state.
-            request.cache, request.drafter_context = self.prompt_cache.pop(prefix)
-            request.prefilled = request.reused_prefix_tokens = len(prefix)
+    def _restore_prefill_state(self, request, state):
+        request.drafter_context = state
 
     def _prefill_chunk(self, request, ids):
         emb = self.model.tgt_emb(ids, step=request.prefilled)
@@ -229,13 +221,7 @@ class ContinuousDFlash2(ContinuousGreedy):
         request.context_start = request.prefilled - features.size(1)
         request.accepted_by_position = [0] * self.num_drafts
         self.adapters[slot].reset()
-        cache = request.cache
         super()._admit(request, token, events)
-        if self.prefix_cache_entries:
-            self.prompt_cache[request.prompt_ids] = (cache, features)
-            self.prompt_cache.move_to_end(request.prompt_ids)
-            if len(self.prompt_cache) > self.prefix_cache_entries:
-                self.prompt_cache.popitem(last=False)
         self.host_seqlens[slot] = request.prefilled
 
     def _decode_active(self, events):
@@ -326,7 +312,7 @@ class ContinuousDFlash2(ContinuousGreedy):
             return {}
         return dict(
             speculation_mode="dflash2",
-            reused_prefix_tokens=request.reused_prefix_tokens,
+            **super().statistics(request_id),
             mtp_active=request.cycles > 0,
             mtp_drafted_tokens=request.drafted,
             mtp_accepted_tokens=request.accepted,
@@ -337,7 +323,6 @@ class ContinuousDFlash2(ContinuousGreedy):
 
     @torch.inference_mode()
     def close(self):
-        self.prompt_cache.clear()
         for adapter in self.adapters:
             adapter.reset()
             graph = getattr(adapter, "_graph", None)

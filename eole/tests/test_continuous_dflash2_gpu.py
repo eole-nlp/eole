@@ -121,7 +121,15 @@ class ContinuousDFlash2GpuTests(unittest.TestCase):
 
     @torch.inference_mode()
     def test_cached_prompt_consumed_only_for_exact_extension(self):
-        _, runner = self._runner(compiled=False, gdn=True, prefix_cache_entries=1)
+        for mode in ("greedy", "mtp", "dflash2"):
+            with self.subTest(mode=mode):
+                if mode == "dflash2":
+                    _, runner = self._runner(compiled=False, gdn=True, prefix_cache_entries=1)
+                else:
+                    _, runner = self.tools.fixture(gdn=True, mtp=mode == "mtp", prefix_cache_entries=1)
+                self._check_cached_prompt_extension(runner)
+
+    def _check_cached_prompt_extension(self, runner):
         prefix = list(range(3, 23))
         extended = prefix + [23, 24]
         try:

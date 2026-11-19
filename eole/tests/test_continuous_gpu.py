@@ -36,7 +36,7 @@ class ContinuousDecoderGpuTests(unittest.TestCase):
         if not _CPP_OPS_AVAILABLE:
             raise RuntimeError("GPU integration tests require the matching Eole CUDA extension")
 
-    def fixture(self, gdn=False, compiled=False, mtp=False):
+    def fixture(self, gdn=False, compiled=False, mtp=False, prefix_cache_entries=0):
         torch.manual_seed(139)
         config = TransformerDecoderConfig(
             layers=2,
@@ -103,7 +103,9 @@ class ContinuousDecoderGpuTests(unittest.TestCase):
             from eole.predict.continuous_mtp import ContinuousMTP
 
             factory = ContinuousMTP
-        runner = factory(predictor, slots=3, prefill_chunk_size=2, compiled=compiled)
+        runner = factory(
+            predictor, slots=3, prefill_chunk_size=2, compiled=compiled, prefix_cache_entries=prefix_cache_entries
+        )
         return model, runner
 
     def prefill(self, model, ids):

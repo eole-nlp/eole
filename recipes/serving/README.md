@@ -98,13 +98,15 @@ positions and committed feature counts. A single active request keeps the
 singleton graph. Both graphs share the slot's ring storage, so requests can
 move between the two paths as other jobs arrive and finish.
 
+## Continuous prompt prefix reuse
+
 Set `continuous.prefix_cache_entries` to a positive count to retain that many
-prefilled DFlash2 prompt states. Use it on a dedicated server for trusted
+prefilled prompt states with ordinary greedy decoding, MTP, or DFlash2. Use it on a dedicated server for trusted
 clients because cache hits can change request timing across clients. The default
 is zero. A hit requires the complete saved prompt to match a strict prefix of
 the new prompt. The matching entry moves to the new request, which prefills only
 the suffix. Each retained entry holds one full-capacity target KV and GDN cache
-plus the drafter's trailing features. Set the count with that VRAM cost in mind.
+plus MTP prefix KV and the last target hidden state, or DFlash2 trailing features, when enabled. Set the count with that VRAM cost in mind.
 With `eole_metrics: true`, `reused_prefix_tokens` reports the skipped input tokens.
 
 In a paired RTX 5090 run with eight clients, four decode slots, 4K context,

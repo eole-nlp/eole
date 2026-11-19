@@ -68,8 +68,6 @@ class ContinuousService:
         if type(prefix_cache_entries) is not int or prefix_cache_entries < 0:
             raise ValueError("prefix_cache_entries must be a nonnegative integer")
         if prefix_cache_entries:
-            if getattr(self.runner_factory, "speculation", None) != "dflash2":
-                raise ValueError("Continuous prefix caching requires DFlash2")
             self.options["prefix_cache_entries"] = prefix_cache_entries
         self.queue = Queue(maxsize=max_pending)
         self.admission = BoundedSemaphore(slots + max_pending)
