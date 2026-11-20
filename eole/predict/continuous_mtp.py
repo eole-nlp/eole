@@ -72,7 +72,15 @@ class ContinuousMTP(ContinuousGreedy):
 
     @torch.inference_mode()
     def __init__(
-        self, predictor, slots=4, max_pending=32, prefill_chunk_size=256, compiled=False, prefill_idle_chunk_size=None
+        self,
+        predictor,
+        slots=4,
+        max_pending=32,
+        prefill_chunk_size=256,
+        compiled=False,
+        prefill_idle_chunk_size=None,
+        *,
+        prefix_cache_entries=0
     ):
         heads = getattr(predictor.model, "mtp_heads", [])
         if len(heads) != 1 or getattr(heads[0], "emb_norm", None) is None:
@@ -83,7 +91,15 @@ class ContinuousMTP(ContinuousGreedy):
         self.span = self.num_drafts + 1
         self.head = heads[0]
         self.attention = self.head.layer.self_attn
-        super().__init__(predictor, slots, max_pending, prefill_chunk_size, False, prefill_idle_chunk_size)
+        super().__init__(
+            predictor,
+            slots,
+            max_pending,
+            prefill_chunk_size,
+            False,
+            prefill_idle_chunk_size,
+            prefix_cache_entries=prefix_cache_entries,
+        )
         if (
             self.decoder.rope_local is not None
             or getattr(self.decoder.rope, "mode", "1d") != "1d"
@@ -232,7 +248,6 @@ class ContinuousMTP(ContinuousGreedy):
         self._pad_cache(request.cache)
         if request.mtp is None:
             request.mtp = self._new_state(1)
-            request.accepted_by_position = [0] * self.num_drafts
         paired = hidden[:, :-1] if request.last_hidden is None else torch.cat((request.last_hidden, hidden[:, :-1]), 1)
         tokens = ids[:, 1:] if request.last_hidden is None else ids
         if tokens.size(1):
@@ -248,6 +263,12 @@ class ContinuousMTP(ContinuousGreedy):
         request.last_hidden = hidden[:, -1:].clone()
         return hidden
 
+    def _save_prefill_state(self, request):
+        return request.mtp, request.last_hidden
+
+    def _restore_prefill_state(self, request, state):
+        request.mtp, request.last_hidden = state
+
     def _admit(self, request, token, events):
         slot = request.slot
         self.mtp.keys[slot : slot + 1].copy_(request.mtp.keys)
@@ -256,8 +277,9 @@ class ContinuousMTP(ContinuousGreedy):
         self.mtp.hidden[slot, 0].copy_(request.last_hidden[0, 0])
         self.mtp.tokens[slot, 0] = token
         self.mtp.counts[slot] = 1
-        request.mtp, request.last_hidden = None, None
+        request.accepted_by_position = [0] * self.num_drafts
         super()._admit(request, token, events)
+        request.mtp, request.last_hidden = None, None
 
     def _decode_active(self, events):
         active = dict(self.active)
@@ -326,6 +348,7 @@ class ContinuousMTP(ContinuousGreedy):
         if request is None:
             return {}
         return dict(
+            **super().statistics(request_id),
             speculation_mode="mtp",
             mtp_active=request.cycles > 0,
             mtp_drafted_tokens=request.drafted,

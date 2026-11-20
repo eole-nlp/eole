@@ -76,7 +76,7 @@ class ContinuousDFlash2GpuTests(unittest.TestCase):
             hidden = self.tools.ordinary_step(model, cache, token)
         return result
 
-    def _runner(self, compiled, gdn=False):
+    def _runner(self, compiled, gdn=False, prefix_cache_entries=0):
         model, discardable = self.tools.fixture(gdn=gdn, compiled=compiled, mtp=False)
         discardable.close()
         cfg = tiny_drafter()
@@ -95,7 +95,9 @@ class ContinuousDFlash2GpuTests(unittest.TestCase):
                 else:
                     parameter.zero_()
         predictor = self.attach(model, drafter)
-        runner = ContinuousDFlash2(predictor, slots=3, prefill_chunk_size=2, compiled=compiled)
+        runner = ContinuousDFlash2(
+            predictor, slots=3, prefill_chunk_size=2, compiled=compiled, prefix_cache_entries=prefix_cache_entries
+        )
         return model, runner
 
     @torch.inference_mode()
@@ -116,6 +118,44 @@ class ContinuousDFlash2GpuTests(unittest.TestCase):
                         self.assertEqual(request.status, "length")
                 finally:
                     runner.close()
+
+    @torch.inference_mode()
+    def test_cached_prompt_consumed_only_for_exact_extension(self):
+        for mode in ("greedy", "mtp", "dflash2"):
+            with self.subTest(mode=mode):
+                if mode == "dflash2":
+                    _, runner = self._runner(compiled=False, gdn=True, prefix_cache_entries=1)
+                else:
+                    _, runner = self.tools.fixture(gdn=True, mtp=mode == "mtp", prefix_cache_entries=1)
+                self._check_cached_prompt_extension(runner)
+
+    def _check_cached_prompt_extension(self, runner):
+        prefix = list(range(3, 23))
+        extended = prefix + [23, 24]
+        try:
+            first = runner.submit("first", prefix, 3)
+            while runner.has_work:
+                runner.tick()
+            self.assertEqual(first.reused_prefix_tokens, 0)
+            hit = runner.submit("hit", extended, 6)
+            while runner.has_work:
+                runner.tick()
+            self.assertEqual(hit.reused_prefix_tokens, len(prefix))
+            self.assertEqual(hit.prefill_chunks, [2])
+            self.assertEqual(list(runner.prompt_cache), [tuple(extended)])
+            cold = runner.submit("cold", extended, 6)
+            while runner.has_work:
+                runner.tick()
+            self.assertEqual(cold.reused_prefix_tokens, 0)
+            self.assertEqual(cold.tokens, hit.tokens)
+            different = [2] + extended[1:] + [25, 26]
+            miss = runner.submit("miss", different, 1)
+            while runner.has_work:
+                runner.tick()
+            self.assertEqual(miss.reused_prefix_tokens, 0)
+            self.assertEqual(list(runner.prompt_cache), [tuple(different)])
+        finally:
+            runner.close()
 
     @torch.inference_mode()
     def test_gdn_commit_and_host_seqlens_stay_consistent(self):

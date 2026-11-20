@@ -14,6 +14,7 @@ class ContinuousAdmissionTests(unittest.TestCase):
     def runner(self):
         # Exercise host controls independently of device allocation/forwards.
         runner = object.__new__(ContinuousGreedy)
+        runner.prefix_cache_entries = 0
         runner.worker = get_ident()
         runner.closed = False
         runner.vocab_size = 10

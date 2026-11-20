@@ -5,7 +5,7 @@ Prefill yields between bounded chunks; compiled step graphs are optional.
 Requests may join/leave between ticks without copying the bank on every step.
 """
 
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from threading import get_ident
 
@@ -25,6 +25,8 @@ class GreedyRequest:
     slot: int | None = None
     cache: RequestCache | None = None
     prefilled: int = 0
+    prompt_ids: tuple = ()
+    reused_prefix_tokens: int = 0
     prefill_chunks: list = field(default_factory=list)
 
 
@@ -43,8 +45,20 @@ class ContinuousGreedy:
 
     @torch.inference_mode()
     def __init__(
-        self, predictor, slots=4, max_pending=32, prefill_chunk_size=256, compiled=False, prefill_idle_chunk_size=None
+        self,
+        predictor,
+        slots=4,
+        max_pending=32,
+        prefill_chunk_size=256,
+        compiled=False,
+        prefill_idle_chunk_size=None,
+        *,
+        prefix_cache_entries=0,
     ):
+        if type(prefix_cache_entries) is not int or prefix_cache_entries < 0:
+            raise ValueError("prefix_cache_entries must be a nonnegative integer")
+        self.prefix_cache_entries = prefix_cache_entries
+        self.prompt_cache = OrderedDict()
         self.predictor = predictor
         self.model = predictor.model
         self.decoder = self.model.decoder
@@ -90,7 +104,7 @@ class ContinuousGreedy:
         ):
             raise ValueError("Continuous serving requires unconstrained batch-one greedy defaults")
         if getattr(self.decoder, "_prefill_cache", None) is not None:
-            raise ValueError("Continuous prefix reuse is not implemented; set prefill_cache_size=0")
+            raise ValueError("Continuous serving requires prefill_cache_size=0")
         self.pending = deque()
         self.active = {}
         self.requests = {}
@@ -171,6 +185,8 @@ class ContinuousGreedy:
             raise ValueError("Prompt contains an invalid token ID")
         prompt = torch.tensor([prompt_ids], dtype=torch.long, device=self.next_tokens.device)
         request = self.request_type(request_id, prompt, max_tokens)
+        if self.prefix_cache_entries:
+            request.prompt_ids = tuple(prompt_ids)
         self.requests[request_id] = request
         self.pending.append(request)
         return request
@@ -254,6 +270,7 @@ class ContinuousGreedy:
                 self.prefilling = self.pending.popleft()
                 self.prefilling.slot = free
                 self.prefilling.status = "prefilling"
+                self._start_prefill(self.prefilling)
         request = self.prefilling
         if request is not None:
             chunk = self.prefill_chunk_size if self.active else self.prefill_idle_chunk_size
@@ -265,6 +282,28 @@ class ContinuousGreedy:
             if end == request.prompt.size(1):
                 token = self.model.generator(hidden[:, -1]).log_softmax(-1).argmax(-1).item()
                 self._admit(request, token, events)
+
+    def _start_prefill(self, request):
+        ids = request.prompt_ids
+        matches = (prefix for prefix in self.prompt_cache if len(prefix) < len(ids) and ids[: len(prefix)] == prefix)
+        prefix = max(matches, key=len, default=None)
+        if prefix is not None:
+            # Move ownership. Prefilling the suffix mutates this state.
+            request.cache, state = self.prompt_cache.pop(prefix)
+            self._restore_prefill_state(request, state)
+            request.prefilled = request.reused_prefix_tokens = len(prefix)
+
+    def _save_prefill_state(self, request):
+        return None
+
+    def _restore_prefill_state(self, request, state):
+        pass
+
+    def statistics(self, request_id):
+        request = self.requests.get(request_id)
+        if request is not None:
+            return dict(reused_prefix_tokens=request.reused_prefix_tokens)
+        return {}
 
     def _prefill_chunk(self, request, ids):
         emb = self.model.tgt_emb(ids, step=request.prefilled)
@@ -281,6 +320,11 @@ class ContinuousGreedy:
     def _admit(self, request, token, events):
         slot = request.slot
         self.bank.copy_row(slot, request.cache)
+        if self.prefix_cache_entries:
+            self.prompt_cache[request.prompt_ids] = (request.cache, self._save_prefill_state(request))
+            self.prompt_cache.move_to_end(request.prompt_ids)
+            if len(self.prompt_cache) > self.prefix_cache_entries:
+                self.prompt_cache.popitem(last=False)
         request.cache = None
         self.next_tokens[slot, 0] = token
         self.active[slot] = request
@@ -294,6 +338,7 @@ class ContinuousGreedy:
             self.cancel(request_id)
         self.decoder._disable_cache()
         self.requests.clear()
+        self.prompt_cache.clear()
         self.pending.clear()
         self.active.clear()
         self.bank = None

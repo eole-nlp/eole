@@ -46,7 +46,14 @@ class ContinuousDFlash2(ContinuousGreedy):
 
     @torch.inference_mode()
     def __init__(
-        self, predictor, slots=4, max_pending=32, prefill_chunk_size=256, compiled=False, prefill_idle_chunk_size=None
+        self,
+        predictor,
+        slots=4,
+        max_pending=32,
+        prefill_chunk_size=256,
+        compiled=False,
+        prefill_idle_chunk_size=None,
+        prefix_cache_entries=0,
     ):
         adapter = getattr(predictor, "dflash2", None)
         if adapter is None:
@@ -59,7 +66,15 @@ class ContinuousDFlash2(ContinuousGreedy):
         self.linear_layers = [m for m in predictor.model.decoder.modules() if isinstance(m, GatedDeltaNet)]
         # The base compiled single-token step graph is unused; verification is
         # captured separately below.
-        super().__init__(predictor, slots, max_pending, prefill_chunk_size, False, prefill_idle_chunk_size)
+        super().__init__(
+            predictor,
+            slots,
+            max_pending,
+            prefill_chunk_size,
+            False,
+            prefill_idle_chunk_size,
+            prefix_cache_entries=prefix_cache_entries,
+        )
         self.decoder._dflash2_layer_ids = tuple(adapter.target_layer_ids)
         self.decoder._dflash2_window = self.window
         self._pad_cache(self.bank)
@@ -173,6 +188,12 @@ class ContinuousDFlash2(ContinuousGreedy):
             cos, sin = rope.forward_1d(size)
             tail = torch.cat((cos, sin), -1)[old.size(0) :].to(old.dtype)
             rope.cos_sin = torch.cat((old, tail), 0)
+
+    def _save_prefill_state(self, request):
+        return request.drafter_context
+
+    def _restore_prefill_state(self, request, state):
+        request.drafter_context = state
 
     def _prefill_chunk(self, request, ids):
         emb = self.model.tgt_emb(ids, step=request.prefilled)
@@ -291,6 +312,7 @@ class ContinuousDFlash2(ContinuousGreedy):
             return {}
         return dict(
             speculation_mode="dflash2",
+            **super().statistics(request_id),
             mtp_active=request.cycles > 0,
             mtp_drafted_tokens=request.drafted,
             mtp_accepted_tokens=request.accepted,

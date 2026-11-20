@@ -98,6 +98,32 @@ positions and committed feature counts. A single active request keeps the
 singleton graph. Both graphs share the slot's ring storage, so requests can
 move between the two paths as other jobs arrive and finish.
 
+## Continuous prompt prefix reuse
+
+Set `continuous.prefix_cache_entries` to a positive count to retain that many
+prefilled prompt states with ordinary greedy decoding, MTP, or DFlash2. Use it on a dedicated server for trusted
+clients because cache hits can change request timing across clients. The default
+is zero. A hit requires the complete saved prompt to match a strict prefix of
+the new prompt. The matching entry moves to the new request, which prefills only
+the suffix. Each retained entry holds one full-capacity target KV and GDN cache
+plus MTP prefix KV and the last target hidden state, or DFlash2 trailing features, when enabled. Set the count with that VRAM cost in mind.
+With `eole_metrics: true`, `reused_prefix_tokens` reports the skipped input tokens.
+
+In a paired RTX 5090 run with eight clients, four decode slots, 4K context,
+Qwen3.8-27B INT4, a native BF16 vocabulary head and an INT8 DFlash2 drafter
+(seven drafts), the three-tool-round workload produced these results:
+
+| Retained prompts | Jobs/min | Job p95 (s) | Peak device memory (GiB) |
+| ---: | ---: | ---: | ---: |
+| 0 | 17.61 | 28.65 | 26.31 |
+| 8 | 37.75 | 14.19 | 29.78 |
+
+With eight entries, 94 of 128 completed model turns reused a prefix and skipped
+71.5% of input tokens. Median prefill start to first token fell from 0.90 to
+0.09 s. Both runs admitted jobs for 45 seconds and then drained. Device memory
+was sampled every 0.5 s. Use `benchmark_agentic.py --concurrency 8 --duration 45
+--context-lines 120 --tool-rounds 3 --max-tokens 128` to reproduce the workload.
+
 ## Paired continuous MTP measurements
 
 RTX 5090, Torch 2.15.0+cu132, Triton 3.9.0, FLA 0.6.0, FlashAttention 2.8.3,
@@ -379,7 +405,7 @@ graphs and unloads the model. A worker failure fails affected streams and requir
 reload. Queued, prefilling and decoding cancellation retire/release capacity.
 
 Only greedy text Responses are supported. Sampling, penalties, images,
-Non-recurrent MTP variants, prefix reuse, tensor parallelism and general prediction/scoring are
+Non-recurrent MTP variants, tensor parallelism and general prediction/scoring are
 rejected. Use `temperature: 0` or greedy defaults. The server must contain one
 model and must not use `model_policy: single`, whose lease would serialize it.
 Another ordinary predictor must not run on the worker-owned engine concurrently.
