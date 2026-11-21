@@ -63,6 +63,10 @@ def configure_fp8_cache(decoder, parameter, scales):
     """Configure the target attention layers before the continuous bank is allocated."""
     from math import isfinite
 
+    if parameter.device.type != "cuda":
+        raise ValueError("FP8 KV requires CUDA")
+    if decoder.dynamic_shapes or decoder.with_cross_attn or decoder._prefill_cache is not None:
+        raise ValueError("FP8 KV requires a fixed decoder-only cache with prefill_cache_size=0")
     import flashinfer  # noqa: F401
 
     if torch.cuda.get_device_capability(parameter.device) < (8, 9):
