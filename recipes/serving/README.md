@@ -530,3 +530,27 @@ Cooperative cancellation cannot interrupt a hard-hung CUDA kernel. The worker
 must retain ownership of state while it runs; a timeout must not release that
 state for another request. A hard device hang requires an external process
 supervisor to restart the server. There is no in-process CUDA-hang recovery here.
+
+## FP8 target KV cache
+
+Set `kv_cache_dtype: fp8_e4m3` in the model's `continuous` settings to store the
+target attention cache in E4M3 on CUDA compute capability 8.9 or newer.
+For example, add this inside the model's `continuous` block:
+
+```yaml
+continuous:
+  slots: 1
+  kv_cache_dtype: fp8_e4m3
+```
+
+The default `native` keeps the model's compute dtype. FP8 uses the FlashAttention
+configuration with FlashInfer installed for prompt prefill and a length-aware
+Triton split-KV kernel for decode and verification. The CUDA tests use FlashInfer 0.7.2. This path requires full-window
+attention, head dimension 64, 128 or 256, and verification blocks of up to 16 tokens.
+
+An optional `kv_cache_scales` list contains a `[key_scale, value_scale]` pair for
+each decoder layer. Use `null` for GDN layers. Omitted scales default to one.
+Supply scales calibrated for your checkpoint when available. The cache stores
+values divided by their scales and uses the corresponding scales on reads.
+Target K/V storage is halved. GDN and drafter state retain their existing dtype,
+and split attention uses temporary reduction buffers.

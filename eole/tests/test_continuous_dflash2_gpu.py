@@ -76,7 +76,7 @@ class ContinuousDFlash2GpuTests(unittest.TestCase):
             hidden = self.tools.ordinary_step(model, cache, token)
         return result
 
-    def _runner(self, compiled, gdn=False, prefix_cache_entries=0):
+    def _runner(self, compiled, gdn=False, prefix_cache_entries=0, **runner_options):
         model, discardable = self.tools.fixture(gdn=gdn, compiled=compiled, mtp=False)
         discardable.close()
         cfg = tiny_drafter()
@@ -96,7 +96,12 @@ class ContinuousDFlash2GpuTests(unittest.TestCase):
                     parameter.zero_()
         predictor = self.attach(model, drafter)
         runner = ContinuousDFlash2(
-            predictor, slots=3, prefill_chunk_size=2, compiled=compiled, prefix_cache_entries=prefix_cache_entries
+            predictor,
+            slots=3,
+            prefill_chunk_size=2,
+            compiled=compiled,
+            prefix_cache_entries=prefix_cache_entries,
+            **runner_options,
         )
         return model, runner
 

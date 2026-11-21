@@ -39,6 +39,8 @@ class ContinuousService:
         runner_factory=None,
         prefill_idle_chunk_size=None,
         prefix_cache_entries=0,
+        kv_cache_dtype="native",
+        kv_cache_scales=None,
     ):
         if any(not isinstance(value, int) or value < 1 for value in (slots, max_pending, prefill_chunk_size)):
             raise ValueError("Continuous serving limits must be positive integers")
@@ -69,6 +71,8 @@ class ContinuousService:
             raise ValueError("prefix_cache_entries must be a nonnegative integer")
         if prefix_cache_entries:
             self.options["prefix_cache_entries"] = prefix_cache_entries
+        if kv_cache_dtype != "native" or kv_cache_scales is not None:
+            self.options.update(kv_cache_dtype=kv_cache_dtype, kv_cache_scales=kv_cache_scales)
         self.queue = Queue(maxsize=max_pending)
         self.admission = BoundedSemaphore(slots + max_pending)
         self.lock = Lock()

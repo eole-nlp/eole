@@ -170,6 +170,8 @@ class Model(object):
                 "prefill_chunk_size",
                 "prefill_idle_chunk_size",
                 "prefix_cache_entries",
+                "kv_cache_dtype",
+                "kv_cache_scales",
                 "compiled",
             }:
                 raise ValueError("Invalid continuous serving options")

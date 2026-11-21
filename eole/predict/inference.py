@@ -268,6 +268,19 @@ class Inference(object):
             else max(1, int(getattr(config, "self_speculative_num_tokens", 1)))
         )
 
+        self.fp8_target_kv = getattr(config, "kv_cache_dtype", "native") == "fp8_e4m3"
+        scales = getattr(config, "kv_cache_scales", None)
+        if self.fp8_target_kv:
+            from eole.modules.fp8_kv import configure_fp8_cache
+
+            if self.parallel_gpu != 1 or config.batch_size != 1 or config.beam_size != 1:
+                raise ValueError("FP8 KV requires a single GPU, batch_size=1, and beam_size=1")
+            if self.self_speculative_decoding and self.self_speculative_num_tokens > 15:
+                raise ValueError("FP8 KV supports verification blocks of at most 16 tokens")
+            configure_fp8_cache(self.model.decoder, next(self.model.parameters()), scales)
+        elif scales is not None:
+            raise ValueError("kv_cache_scales requires kv_cache_dtype=fp8_e4m3")
+
     def _log_inference_backends(self, speculative=False):
         from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
         from eole.utils.inference_backends import inference_backend_summary

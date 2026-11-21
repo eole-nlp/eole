@@ -514,3 +514,24 @@ Beam search and other ineligible configurations retain their existing decoder
 path. The legacy compiled tensor-parallel beam path can still hang at worker
 shutdown; bound greedy/MTP decoding does not fix that separate path. Streaming
 inference remains limited to single-process mode.
+
+## FP8 KV cache for standalone inference
+
+For single-GPU text inference with FP8 target KV, add these settings to the
+prediction YAML and run the usual `eole predict -c …` command:
+
+```yaml
+kv_cache_dtype: fp8_e4m3
+dynamic_shapes: false
+batch_size: 1
+beam_size: 1
+self_attn_backend: flash
+prefill_cache_size: 0
+```
+
+Use an unpadded text input and a context limit large enough for the input,
+output budget and any speculative verifier scratch. FP8 KV requires FlashInfer,
+Triton and an NVIDIA GPU with compute capability 8.9 or newer. Optional calibrated
+`kv_cache_scales` uses one `[key_scale, value_scale]` pair per decoder layer,
+with `null` for GDN layers. See the [serving recipe](../serving/README.md#fp8-target-kv-cache)
+for the continuous server settings.
