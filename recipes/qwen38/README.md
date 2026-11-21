@@ -543,11 +543,14 @@ evaluate the resulting scales.
 ```bash
 EOLE_TORCH_COMPILE=0 python recipes/qwen38/calibrate_fp8_kv.py \
   --model "$QWEN38_MODEL" --prompts calibration-prompts.json \
-  --context-length 8192 --output kv-scales.json
+  --context-length 8192 --output kv-scales.json --report kv-ranges.json
 ```
 
 Copy the resulting `kv_cache_scales` list into your prediction YAML or the
 model's `continuous` block. The script measures post-RoPE K and projected V
 ranges during native-cache prefill. Each scale allows 10% headroom above the
-largest magnitude seen in the calibration prompts. Evaluate the scales on held-out
+largest magnitude seen in the calibration prompts. The optional report lists the
+exact maximum and sampled p50, p95, p99 and p99.9 absolute magnitudes for K
+and V in each attention layer. A large gap can flag a layer whose scale is
+driven by outliers. Evaluate the scales on held-out
 prompts representative of the lengths and tasks you serve.

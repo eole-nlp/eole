@@ -92,7 +92,7 @@ def _split(
         acc = tl.full((M, D), 0, tl.float32)
         for i in range(start, tl.minimum(start + CHUNK, length + T), N):
             pos = i + n
-            offset = ((row * C + pos[:, None]) * HK + head) * D + d[None, :]
+            offset = ((row.to(tl.int64) * C + pos[:, None]) * HK + head) * D + d[None, :]
             valid = (pos < length + T) & (pos < C)
             k = tl.where(valid[:, None], tl.load(K + offset, valid[:, None]).to(tl.float32), 0.0) * KS
             v = tl.where(valid[:, None], tl.load(V + offset, valid[:, None]).to(tl.float32), 0.0) * VS
