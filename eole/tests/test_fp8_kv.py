@@ -8,12 +8,12 @@ import torch
 from eole.modules.fp8_kv import fp8_kv_attention
 
 
-@unittest.skipUnless(torch.cuda.is_available() and importlib.util.find_spec("flashinfer"), "requires CUDA FlashInfer")
+@unittest.skipUnless(torch.cuda.is_available() and importlib.util.find_spec("triton"), "requires CUDA Triton")
 class TestFP8KV(unittest.TestCase):
     @torch.inference_mode()
     def test_decode_and_verify_replay_after_rewind(self):
         torch.manual_seed(39)
-        capacity, heads, kv_heads, dim = 128, 8, 2, 128
+        capacity, heads, kv_heads, dim = 2048, 8, 2, 128
         dtype = torch.bfloat16
         for width in (1, 4, 8):
             with self.subTest(width=width):
@@ -22,26 +22,30 @@ class TestFP8KV(unittest.TestCase):
                 ]
                 updates = [torch.randn(2, width, kv_heads, dim, device="cuda", dtype=dtype) for _ in range(2)]
                 query = torch.randn(2, width, heads, dim, device="cuda", dtype=dtype)
-                lengths = torch.tensor([33, 76], device="cuda", dtype=torch.int32)
+                lengths = torch.tensor([509, 1021], device="cuda", dtype=torch.int32)
                 compiled = torch.compile(fp8_kv_attention, fullgraph=True, options={"triton.cudagraphs": False})
+                scales = (0.017, 0.031)
                 for _ in range(2):
-                    compiled(query, *cache, *updates, lengths, dim**-0.5)
+                    compiled(query, *cache, *updates, lengths, dim**-0.5, *scales)
                 torch.cuda.synchronize()
                 graph = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(graph):
-                    result = compiled(query, *cache, *updates, lengths, dim**-0.5)
+                    result = compiled(query, *cache, *updates, lengths, dim**-0.5, *scales)
                 # Replay at new unequal offsets, including an overwrite after rejection.
-                for offsets in ([33, 76], [34, 55], [34, 56]):
+                for offsets in ([509, 1021], [510, 995], [510, 996]):
                     lengths.copy_(torch.tensor(offsets))
                     updates[0].normal_()
                     graph.replay()
                     for row, start in enumerate(offsets):
-                        for actual, update in zip(cache, updates):
+                        for actual, update, scale in zip(cache, updates, scales):
                             torch.testing.assert_close(
                                 actual[row, start : start + width].float(),
-                                update[row].to(torch.float8_e4m3fn).float(),
+                                (update[row].float() / scale).to(torch.float8_e4m3fn).float(),
                             )
-                        k, v = [x[row, : start + width].to(dtype).transpose(0, 1)[None] for x in cache]
+                        k, v = [
+                            (x[row, : start + width].float() * scale).to(dtype).transpose(0, 1)[None]
+                            for x, scale in zip(cache, scales)
+                        ]
                         mask = torch.arange(start + width, device="cuda") <= (
                             start + torch.arange(width, device="cuda")[:, None]
                         )

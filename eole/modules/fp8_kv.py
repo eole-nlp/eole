@@ -1,7 +1,8 @@
 """Prototype fixed-capacity FP8 KV attention for unpadded causal sequences.
 
 The caller owns the positions, including advancing and rolling back speculative
-writes. The FA2 masking path reads FP8 directly but schedules the full capacity.
+writes. Each layer supplies separate positive K and V scales. Lengths are
+int32 device positions and must leave room for the complete input block.
 """
 
 import torch
@@ -16,28 +17,43 @@ def fp8_kv_attention(
     value: torch.Tensor,
     lengths: torch.Tensor,
     scale: float,
+    key_scale: float = 1.0,
+    value_scale: float = 1.0,
 ) -> torch.Tensor:
-    import flashinfer
+    from math import isfinite
 
-    steps = torch.arange(query.size(1), device=query.device)
-    positions = lengths[:, None] + steps
-    slots = torch.arange(key_cache.size(1), device=query.device)
-    output = []
-    for row in range(query.size(0)):
-        for cache, update in ((key_cache, key), (value_cache, value)):
-            # Byte views allow writes on PyTorch builds without FP8 index_copy.
-            quantized = update[row].clamp(-448, 448).to(torch.float8_e4m3fn)
-            cache[row].view(torch.uint8).index_copy_(0, positions[row].long(), quantized.view(torch.uint8))
-        visible = slots[None, :] <= positions[row, :, None]
-        mask = flashinfer.packbits(visible.flatten(), bitorder="little")
-        output.append(
-            flashinfer.single_prefill_with_kv_cache(
-                query[row], key_cache[row], value_cache[row], packed_custom_mask=mask, backend="fa2", sm_scale=scale
-            )
-        )
-    return torch.stack(output)
+    from eole.triton.fp8_kv import append, split_attention
+
+    if (
+        key_cache.dtype != torch.float8_e4m3fn
+        or value_cache.dtype != key_cache.dtype
+        or not key_cache.is_contiguous()
+        or not value_cache.is_contiguous()
+    ):
+        raise ValueError("FP8 attention requires contiguous E4M3 cache tensors")
+    if any(not isfinite(x) or x <= 0 for x in (key_scale, value_scale)):
+        raise ValueError("FP8 cache scales must be finite and positive")
+    batch, tokens, heads, dim = query.shape
+    kv_heads = key_cache.size(2)
+    if (
+        query.dtype not in (torch.bfloat16, torch.float16)
+        or not 1 <= tokens <= 16
+        or dim not in (64, 128, 256)
+        or not kv_heads
+        or heads % kv_heads != 0
+        or key_cache.shape != value_cache.shape
+        or key_cache.shape != (batch, key_cache.size(1), kv_heads, dim)
+        or key.shape != (batch, tokens, kv_heads, dim)
+        or value.shape != key.shape
+        or lengths.shape != (batch,)
+        or lengths.dtype != torch.int32
+        or not lengths.is_contiguous()
+    ):
+        raise ValueError("Unsupported FP8 decode attention layout")
+    append(key, value, key_cache, value_cache, lengths, key_scale, value_scale)
+    return split_attention(query.contiguous(), key_cache, value_cache, lengths, scale, key_scale, value_scale)
 
 
 @fp8_kv_attention.register_fake
-def _(query, key_cache, value_cache, key, value, lengths, scale):
+def _(query, key_cache, value_cache, key, value, lengths, scale, key_scale=1.0, value_scale=1.0):
     return torch.empty_like(query)
