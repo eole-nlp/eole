@@ -535,3 +535,19 @@ Triton and an NVIDIA GPU with compute capability 8.9 or newer. Optional calibrat
 `kv_cache_scales` uses one `[key_scale, value_scale]` pair per decoder layer,
 with `null` for GDN layers. See the [serving recipe](../serving/README.md#fp8-target-kv-cache)
 for the continuous server settings.
+
+To estimate scales, pass representative, preformatted prompts as a JSON array
+of strings. Keep the calibration inputs separate from the prompts used to
+evaluate the resulting scales.
+
+```bash
+EOLE_TORCH_COMPILE=0 python recipes/qwen38/calibrate_fp8_kv.py \
+  --model "$QWEN38_MODEL" --prompts calibration-prompts.json \
+  --context-length 8192 --output kv-scales.json
+```
+
+Copy the resulting `kv_cache_scales` list into your prediction YAML or the
+model's `continuous` block. The script measures post-RoPE K and projected V
+ranges during native-cache prefill. Each scale allows 10% headroom above the
+largest magnitude seen in the calibration prompts. Evaluate the scales on held-out
+prompts representative of the lengths and tasks you serve.

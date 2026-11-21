@@ -14,6 +14,18 @@ from eole.modules.fp8_kv import fp8_kv_attention
 )
 class TestFP8KV(unittest.TestCase):
     @torch.inference_mode()
+    def test_append_leaves_invalid_rows_unchanged(self):
+        query = torch.ones(3, 2, 4, 64, device="cuda", dtype=torch.bfloat16)
+        key = query[:, :, :2]
+        caches = [torch.zeros((3, 8, 2, 64), device="cuda", dtype=torch.float8_e4m3fn) for _ in range(2)]
+        lengths = torch.tensor([7, -1, 6], device="cuda", dtype=torch.int32)
+        output = fp8_kv_attention(query, *caches, key, key, lengths, 64**-0.5)
+        for cache in caches:
+            self.assertEqual(cache[:2].float().count_nonzero().item(), 0)
+            torch.testing.assert_close(cache[2, -2:].float(), key[2].float())
+        self.assertEqual(output[:2].count_nonzero().item(), 0)
+
+    @torch.inference_mode()
     def test_decode_and_verify_replay_after_rewind(self):
         torch.manual_seed(39)
         capacity, heads, kv_heads, dim = 2048, 16, 4, 256

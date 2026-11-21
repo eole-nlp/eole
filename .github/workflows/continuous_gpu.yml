@@ -27,6 +27,7 @@ on:
       - eole/tests/test_dflash2.py
       - eole/triton/dflash2.py
       - eole/triton/fp8_kv.py
+      - eole/modules/fp8_kv.py
       - eole/tests/test_fp8_kv.py
       - eole/tests/test_request_cache.py
       - csrc/**

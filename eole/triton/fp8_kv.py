@@ -5,7 +5,7 @@ import triton
 import triton.language as tl
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["KS", "VS"])
 def _append(
     K,
     V,
@@ -15,19 +15,21 @@ def _append(
     T: tl.constexpr,
     C: tl.constexpr,
     HD: tl.constexpr,
-    KS: tl.constexpr,
-    VS: tl.constexpr,
+    KS,
+    VS,
     BLOCK: tl.constexpr,
 ):
     token = tl.program_id(0)
     row = token // T
-    position = tl.load(L + row) + token % T
+    length = tl.load(L + row)
+    position = length.to(tl.int64) + token % T
     d = tl.program_id(1) * BLOCK + tl.arange(0, BLOCK)
     key = tl.load(K + token * HD + d, d < HD, 0).to(tl.float32) / KS
     value = tl.load(V + token * HD + d, d < HD, 0).to(tl.float32) / VS
     dst = (row * C + position) * HD + d
-    tl.store(KC + dst, tl.minimum(tl.maximum(key, -448.0), 448.0), d < HD)
-    tl.store(VC + dst, tl.minimum(tl.maximum(value, -448.0), 448.0), d < HD)
+    valid = (d < HD) & (length >= 0) & (length <= C - T)
+    tl.store(KC + dst, tl.minimum(tl.maximum(key, -448.0), 448.0), valid)
+    tl.store(VC + dst, tl.minimum(tl.maximum(value, -448.0), 448.0), valid)
 
 
 def append(key, value, key_cache, value_cache, lengths, key_scale, value_scale):
@@ -49,7 +51,7 @@ def append(key, value, key_cache, value_cache, lengths, key_scale, value_scale):
     )
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["SM", "KS", "VS"])
 def _split(
     Q,
     K,
@@ -66,9 +68,9 @@ def _split(
     CHUNK: tl.constexpr,
     M: tl.constexpr,
     N: tl.constexpr,
-    SM: tl.constexpr,
-    KS: tl.constexpr,
-    VS: tl.constexpr,
+    SM,
+    KS,
+    VS,
 ):
     row = tl.program_id(0)
     head = tl.program_id(1) % HK
@@ -76,7 +78,7 @@ def _split(
     split = tl.program_id(2)
     start = split * CHUNK
     length = tl.load(L + row)
-    if start < length + T:
+    if length >= 0 and length <= C - T and start < length + T:
         group: tl.constexpr = H // HK
         m = query_tile * M + tl.arange(0, M)
         n = tl.arange(0, N)
@@ -120,18 +122,20 @@ def _merge(
     S: tl.constexpr,
     CHUNK: tl.constexpr,
     BLOCK_S: tl.constexpr,
+    C: tl.constexpr,
 ):
     row = tl.program_id(0)
     token = row // H % T
     length = tl.load(L + row // (T * H))
     s = tl.arange(0, BLOCK_S)
     d = tl.arange(0, D)
-    valid = (s < S) & (s * CHUNK <= length + token)
+    valid = (s < S) & (s * CHUNK <= length + token) & (length >= 0) & (length <= C - T)
     offset = row * S + s
     lse = tl.load(LSE + offset, valid, -float("inf"))
-    weights = tl.exp(lse - tl.max(lse, 0))
+    max_lse = tl.max(lse, 0)
+    weights = tl.exp(lse - tl.where(max_lse == -float("inf"), 0.0, max_lse))
     partial = tl.load(PART + offset[:, None] * D + d[None, :], valid[:, None], 0)
-    result = tl.sum(partial * weights[:, None], 0) / tl.sum(weights, 0)
+    result = tl.sum(partial * weights[:, None], 0) / tl.maximum(tl.sum(weights, 0), 1e-20)
     tl.store(OUT + row * D + d, result)
 
 
@@ -166,6 +170,6 @@ def split_attention(query, key_cache, value_cache, lengths, scale, key_scale, va
         value_scale,
     )
     _merge[(batch * tokens * heads,)](
-        partial, lse, lengths, result, tokens, heads, dim, splits, chunk, triton.next_power_of_2(splits)
+        partial, lse, lengths, result, tokens, heads, dim, splits, chunk, triton.next_power_of_2(splits), capacity
     )
     return result
