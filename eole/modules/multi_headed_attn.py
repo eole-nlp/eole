@@ -529,21 +529,37 @@ class SelfMHA(MultiHeadedAttention):
                 )
             else:
                 # Fast path with flash_attn_with_kvcache
-                context = self.flash_attn_with_kvcache(
-                    query,
-                    self.kcache[:, :, :, :],
-                    self.vcache[:, :, :, :],
-                    key,
-                    value,
-                    rotary_cos=None,
-                    rotary_sin=None,
-                    cache_seqlens=cache_seqlens,
-                    cache_leftpad=self.cache_leftpad,
-                    softmax_scale=self.scale,
-                    causal=query.size(1) > 1,
-                    rotary_interleaved=self.rotary_interleave,
-                    window_size=self.window_size,
-                )
+                fp8_scales = getattr(self, "_fp8_kv_scales", None)
+                if fp8_scales is not None:
+                    from eole.modules.fp8_kv import fp8_kv_attention, prefill
+
+                    attention = fp8_kv_attention if query.size(1) <= 16 else prefill
+                    context = attention(
+                        query,
+                        self.kcache,
+                        self.vcache,
+                        key,
+                        value,
+                        cache_seqlens,
+                        self.dim_per_head**-0.5 if self.scale is None else self.scale,
+                        *fp8_scales
+                    )
+                else:
+                    context = self.flash_attn_with_kvcache(
+                        query,
+                        self.kcache[:, :, :, :],
+                        self.vcache[:, :, :, :],
+                        key,
+                        value,
+                        rotary_cos=None,
+                        rotary_sin=None,
+                        cache_seqlens=cache_seqlens,
+                        cache_leftpad=self.cache_leftpad,
+                        softmax_scale=self.scale,
+                        causal=query.size(1) > 1,
+                        rotary_interleaved=self.rotary_interleave,
+                        window_size=self.window_size,
+                    )
                 context = blhd_to_bld(context)
                 if self.q_gating and hasattr(self, "_attn_gate"):
                     context = context * self._attn_gate

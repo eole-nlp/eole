@@ -1504,9 +1504,10 @@ class TransformerDecoder(DecoderBase):
                 heads_kv = attention.heads_kv // attention.parallel_gpu
                 shape = (b, self.cache_len_tgt, heads_kv, attention.dim_per_head)
                 shapes = {"kcache": shape, "vcache": shape}
+            cache_dtype = torch.float8_e4m3fn if getattr(attention, "_fp8_kv_scales", None) else dtype
             for name, shape in shapes.items():
                 if hybrid_storage is not None:
-                    cache = hybrid_storage.zeros((index, name), shape, dtype=dtype, device=device)
+                    cache = hybrid_storage.zeros((index, name), shape, dtype=cache_dtype, device=device)
                     setattr(attention, name, cache)
                 else:
                     cache = getattr(attention, name, None)
@@ -1514,12 +1515,12 @@ class TransformerDecoder(DecoderBase):
                         layer.layer_type != "linear_attention"
                         and isinstance(cache, torch.Tensor)
                         and cache.shape == shape
-                        and cache.dtype == dtype
+                        and cache.dtype == cache_dtype
                         and cache.device == device
                     ):
                         cache.zero_()
                     else:
-                        setattr(attention, name, torch.zeros(shape, dtype=dtype, device=device))
+                        setattr(attention, name, torch.zeros(shape, dtype=cache_dtype, device=device))
             if layer.layer_type != "linear_attention":
                 attention.cache_leftpad = cache_leftpad
                 if layer.context_attn:

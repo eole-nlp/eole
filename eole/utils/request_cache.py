@@ -72,6 +72,14 @@ class RequestCache:
         ]
         return type(self)(self.decoder, metadata, layers)
 
+    @staticmethod
+    def pad_kv(tensor, extra):
+        # Byte padding preserves FP8 bits and works on builds without FP8 pad.
+        dtype = tensor.dtype
+        if dtype == torch.float8_e4m3fn:
+            tensor = tensor.view(torch.uint8)
+        return torch.nn.functional.pad(tensor, (0, 0, 0, 0, 0, extra)).view(dtype)
+
     @torch.no_grad()
     def copy_row(self, slot, source):
         """Admit one prefilled request into a fixed-capacity decode bank.

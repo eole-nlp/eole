@@ -71,13 +71,14 @@ def _split(
     VS: tl.constexpr,
 ):
     row = tl.program_id(0)
-    head = tl.program_id(1)
+    head = tl.program_id(1) % HK
+    query_tile = tl.program_id(1) // HK
     split = tl.program_id(2)
     start = split * CHUNK
     length = tl.load(L + row)
     if start < length + T:
         group: tl.constexpr = H // HK
-        m = tl.arange(0, M)
+        m = query_tile * M + tl.arange(0, M)
         n = tl.arange(0, N)
         d = tl.arange(0, D)
         token = m // group
@@ -142,7 +143,9 @@ def split_attention(query, key_cache, value_cache, lengths, scale, key_scale, va
     partial = torch.empty((batch, tokens, heads, splits, dim), device=query.device, dtype=torch.float32)
     lse = torch.empty(partial.shape[:-1], device=query.device, dtype=torch.float32)
     result = torch.empty_like(query)
-    _split[(batch, kv_heads, splits)](
+    query_rows = tokens * (heads // kv_heads)
+    tile = min(32, max(16, triton.next_power_of_2(query_rows)))
+    _split[(batch, kv_heads * triton.cdiv(query_rows, tile), splits)](
         query,
         key_cache,
         value_cache,
@@ -156,7 +159,7 @@ def split_attention(query, key_cache, value_cache, lengths, scale, key_scale, va
         capacity,
         splits,
         chunk,
-        max(16, triton.next_power_of_2(tokens * heads // kv_heads)),
+        tile,
         32,
         scale,
         key_scale,

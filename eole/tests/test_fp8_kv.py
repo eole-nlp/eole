@@ -8,14 +8,17 @@ import torch
 from eole.modules.fp8_kv import fp8_kv_attention
 
 
-@unittest.skipUnless(torch.cuda.is_available() and importlib.util.find_spec("triton"), "requires CUDA Triton")
+@unittest.skipUnless(
+    torch.cuda.is_available() and importlib.util.find_spec("triton") and torch.cuda.get_device_capability() >= (8, 9),
+    "requires FP8 CUDA and Triton",
+)
 class TestFP8KV(unittest.TestCase):
     @torch.inference_mode()
     def test_decode_and_verify_replay_after_rewind(self):
         torch.manual_seed(39)
-        capacity, heads, kv_heads, dim = 2048, 8, 2, 128
+        capacity, heads, kv_heads, dim = 2048, 16, 4, 256
         dtype = torch.bfloat16
-        for width in (1, 4, 8):
+        for width in (1, 4, 8, 15, 16):
             with self.subTest(width=width):
                 cache = [
                     torch.randn(2, capacity, kv_heads, dim, device="cuda").to(torch.float8_e4m3fn) for _ in range(2)
@@ -53,3 +56,66 @@ class TestFP8KV(unittest.TestCase):
                             query[row].transpose(0, 1)[None], k, v, attn_mask=mask, enable_gqa=True
                         )
                         torch.testing.assert_close(result[row], ref[0].transpose(0, 1), atol=0.005, rtol=0.02)
+
+
+@unittest.skipUnless(
+    torch.cuda.is_available()
+    and importlib.util.find_spec("flashinfer")
+    and torch.cuda.get_device_capability() >= (8, 9),
+    "requires FP8 CUDA and FlashInfer",
+)
+class TestContinuousFP8KV(unittest.TestCase):
+    @torch.inference_mode()
+    def test_chunked_prefill_reads_scaled_prefix(self):
+        from eole.modules.fp8_kv import prefill
+
+        torch.manual_seed(912)
+        q = torch.randn(1, 23, 4, 128, device="cuda", dtype=torch.bfloat16)
+        k, v = [torch.randn_like(q[:, :, :2]) for _ in range(2)]
+        caches = [torch.zeros_like(x, dtype=torch.float8_e4m3fn) for x in (k, v)]
+        lengths = torch.zeros(1, device="cuda", dtype=torch.int32)
+        scales = (0.021, 0.061)
+        outputs = []
+        for start, end in ((0, 11), (11, 23)):
+            lengths.fill_(start)
+            outputs.append(
+                prefill(q[:, start:end], *caches, k[:, start:end], v[:, start:end], lengths, 128**-0.5, *scales)
+            )
+        dequant = [(x.float() * scale).to(q.dtype) for x, scale in zip(caches, scales)]
+        ref = torch.nn.functional.scaled_dot_product_attention(
+            q.transpose(1, 2), *(x.transpose(1, 2) for x in dequant), is_causal=True, enable_gqa=True
+        )
+        torch.testing.assert_close(torch.cat(outputs, 1), ref.transpose(1, 2), atol=0.02, rtol=0.025)
+
+    @torch.inference_mode()
+    def test_fp8_prompt_reuse_in_all_modes(self):
+        from eole import EOLE_TORCH_COMPILE
+        from eole.tests import test_continuous_dflash2_gpu as helpers
+
+        fixtures = helpers.ContinuousDFlash2GpuTests()
+        fixtures.setUp()
+        options = dict(kv_cache_dtype="fp8_e4m3", kv_cache_scales=[None, [0.019, 0.023]])
+        for mode in ("greedy", "mtp", "dflash2"):
+            with self.subTest(mode=mode):
+                if mode == "dflash2":
+                    _, runner = fixtures._runner(EOLE_TORCH_COMPILE, gdn=True, prefix_cache_entries=1, **options)
+                else:
+                    _, runner = fixtures.tools.fixture(
+                        gdn=True, compiled=EOLE_TORCH_COMPILE, mtp=mode == "mtp", prefix_cache_entries=1, **options
+                    )
+                try:
+                    runner.prefill_idle_chunk_size = 32
+                    prefix = list(range(3, 23))
+                    for name, ids in (("initial", prefix), ("hit", prefix + [23, 24]), ("cold", prefix + [23, 24])):
+                        request = runner.submit(name, ids, 6)
+                        while runner.has_work:
+                            runner.tick()
+                        self.assertEqual(len(request.tokens), 6)
+                    self.assertEqual(runner.requests["hit"].reused_prefix_tokens, len(prefix))
+                    self.assertEqual(runner.requests["cold"].reused_prefix_tokens, 0)
+                    self.assertEqual(runner.requests["hit"].tokens, runner.requests["cold"].tokens)
+                    caches = [state["kcache"] for _, state in runner.bank.layers if "kcache" in state]
+                    self.assertTrue(caches)
+                    self.assertTrue(all(cache.dtype == torch.float8_e4m3fn for cache in caches))
+                finally:
+                    runner.close()

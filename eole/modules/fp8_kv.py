@@ -1,4 +1,4 @@
-"""Prototype fixed-capacity FP8 KV attention for unpadded causal sequences.
+"""Fixed-capacity FP8 KV attention for unpadded causal sequences.
 
 The caller owns the positions, including advancing and rolling back speculative
 writes. Each layer supplies separate positive K and V scales. Lengths are
@@ -56,4 +56,61 @@ def fp8_kv_attention(
 
 @fp8_kv_attention.register_fake
 def _(query, key_cache, value_cache, key, value, lengths, scale, key_scale=1.0, value_scale=1.0):
-    return torch.empty_like(query)
+    return torch.empty_like(query, memory_format=torch.contiguous_format)
+
+
+def configure_fp8_cache(decoder, parameter, scales):
+    """Configure the target attention layers before the continuous bank is allocated."""
+    from math import isfinite
+
+    import flashinfer  # noqa: F401
+
+    if torch.cuda.get_device_capability(parameter.device) < (8, 9):
+        raise ValueError("FP8 KV requires CUDA capability 8.9 or newer")
+    if decoder.self_attn_backend != "flash" or parameter.dtype not in (torch.bfloat16, torch.float16):
+        raise ValueError("FP8 KV requires the flash backend and BF16 or FP16 compute")
+    if scales is not None and (not isinstance(scales, list) or len(scales) != len(decoder.transformer_layers)):
+        raise ValueError("Specify one K/V scale pair per decoder layer (null for GDN layers)")
+    configured = []
+    for i, layer in enumerate(decoder.transformer_layers):
+        pair = scales[i] if scales is not None else None
+        if layer.layer_type == "linear_attention":
+            if pair is not None:
+                raise ValueError("GDN layers do not accept FP8 KV scales")
+            continue
+        attention = layer.self_attn
+        if attention.window_size != (-1, -1) or attention.dim_per_head not in (64, 128, 256):
+            raise ValueError("FP8 KV requires full-window attention with head dimension 64, 128 or 256")
+        pair = (1.0, 1.0) if pair is None else pair
+        if (
+            not isinstance(pair, (tuple, list))
+            or len(pair) != 2
+            or any(type(x) not in (int, float) or not isfinite(x) or x <= 0 for x in pair)
+        ):
+            raise ValueError(f"Invalid FP8 K/V scales for decoder layer {i}")
+        configured.append((i, attention, tuple(map(float, pair))))
+    for _, attention, pair in configured:
+        attention._fp8_kv_scales = pair
+    decoder._verifier_cache_config["fp8_kv"] = [(i, pair) for i, _, pair in configured]
+
+
+def prefill(query, key_cache, value_cache, key, value, lengths, scale, key_scale, value_scale):
+    """Chunked prompt prefill uses FlashInfer's causal FP8 kernel on the live prefix."""
+    import flashinfer
+
+    from eole.triton.fp8_kv import append
+
+    if query.size(0) != 1:
+        raise ValueError("FP8 prompt prefill requires one unpadded request")
+    end = int(lengths[0]) + query.size(1)
+    append(key, value, key_cache, value_cache, lengths, key_scale, value_scale)
+    return flashinfer.single_prefill_with_kv_cache(
+        query[0],
+        key_cache[0, :end],
+        value_cache[0, :end],
+        causal=True,
+        backend="fa2",
+        sm_scale=scale,
+        k_scale=key_scale,
+        v_scale=value_scale,
+    ).unsqueeze(0)
