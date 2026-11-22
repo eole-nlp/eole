@@ -530,9 +530,10 @@ prefill_cache_size: 0
 ```
 
 Use an unpadded text input and a context limit large enough for the input,
-output budget and any speculative verifier scratch. FP8 KV requires FlashInfer,
-Triton and an NVIDIA GPU with compute capability 8.9 or newer. Optional calibrated
-`kv_cache_scales` uses one `[key_scale, value_scale]` pair per decoder layer,
+output budget and any speculative verifier scratch. FP8 KV requires a working
+FlashAttention backend, FlashInfer, Triton and an NVIDIA GPU with compute
+capability 8.9 or newer. Optional calibrated `kv_cache_scales` uses one
+`[key_scale, value_scale]` pair per decoder layer,
 with `null` for GDN layers. See the [serving recipe](../serving/README.md#fp8-target-kv-cache)
 for the continuous server settings.
 

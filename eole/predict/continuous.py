@@ -125,6 +125,11 @@ class ContinuousGreedy:
             configure_fp8_cache(self.decoder, parameter, kv_cache_scales)
         elif kv_cache_dtype != "native" or kv_cache_scales is not None:
             raise ValueError("Use native KV or fp8_e4m3 with optional K/V scales")
+        elif "fp8_kv" in self.decoder._verifier_cache_config:
+            raise ValueError(
+                "Continuous native KV conflicts with the model's FP8 KV setting. "
+                "Configure the KV dtype and scales only in the continuous block."
+            )
         self.decoder._disable_cache()
         self.decoder._init_cache(emb, torch.zeros(slots, 1, 1, device=emb.device, dtype=torch.bool))
         self.bank = RequestCache.take(self.decoder)

@@ -1450,6 +1450,15 @@ class TransformerDecoder(DecoderBase):
 
         return emb, attns
 
+    def _can_use_flash_cache(self, dtype, device):
+        return (
+            _FLASH_ATTN_AVAILABLE
+            and self.self_attn_backend == "flash"
+            and self.position_encoding_type not in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
+            and dtype in [torch.float16, torch.bfloat16]
+            and device != torch.device("cpu")
+        )
+
     def _init_cache(self, emb, pad_mask, enc_out=None):
         self._reset_decode_graph()
         b, l, d = emb.size()
@@ -1458,13 +1467,7 @@ class TransformerDecoder(DecoderBase):
         if torch.is_autocast_enabled(device.type):
             dtype = torch.get_autocast_dtype(device.type)
 
-        self.flash = (
-            _FLASH_ATTN_AVAILABLE
-            and self.self_attn_backend == "flash"
-            and self.position_encoding_type not in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
-            and dtype in [torch.float16, torch.bfloat16]
-            and device != torch.device("cpu")
-        )
+        self.flash = self._can_use_flash_cache(dtype, device)
 
         if self.dynamic_shapes:
             self.cache_len_tgt = l  # kv cache starts at target length and grows

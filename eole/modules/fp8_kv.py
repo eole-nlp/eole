@@ -60,19 +60,19 @@ def _(query, key_cache, value_cache, key, value, lengths, scale, key_scale=1.0, 
 
 
 def configure_fp8_cache(decoder, parameter, scales):
-    """Configure the target attention layers before the continuous bank is allocated."""
+    """Configure the target attention layers before allocating a KV cache."""
     from math import isfinite
 
     if parameter.device.type != "cuda":
         raise ValueError("FP8 KV requires CUDA")
     if decoder.dynamic_shapes or decoder.with_cross_attn or decoder._prefill_cache is not None:
         raise ValueError("FP8 KV requires a fixed decoder-only cache with prefill_cache_size=0")
-    import flashinfer  # noqa: F401
-
     if torch.cuda.get_device_capability(parameter.device) < (8, 9):
         raise ValueError("FP8 KV requires CUDA capability 8.9 or newer")
-    if decoder.self_attn_backend != "flash" or parameter.dtype not in (torch.bfloat16, torch.float16):
-        raise ValueError("FP8 KV requires the flash backend and BF16 or FP16 compute")
+    if not decoder._can_use_flash_cache(parameter.dtype, parameter.device):
+        raise ValueError("FP8 KV requires a usable FlashAttention KV-cache backend and BF16 or FP16 compute")
+    import flashinfer  # noqa: F401
+
     if scales is not None and (not isinstance(scales, list) or len(scales) != len(decoder.transformer_layers)):
         raise ValueError("Specify one K/V scale pair per decoder layer (null for GDN layers)")
     configured = []

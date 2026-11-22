@@ -2,10 +2,11 @@
 
 import importlib.util
 import unittest
+from unittest.mock import patch
 
 import torch
 
-from eole.modules.fp8_kv import fp8_kv_attention
+from eole.modules.fp8_kv import configure_fp8_cache, fp8_kv_attention
 
 
 @unittest.skipUnless(
@@ -77,6 +78,32 @@ class TestFP8KV(unittest.TestCase):
     "requires FP8 CUDA and FlashInfer",
 )
 class TestContinuousFP8KV(unittest.TestCase):
+    def test_rejects_fp8_if_flash_cache_is_unavailable(self):
+        from eole.constants import PositionEncodingType
+        from eole.tests.test_continuous_gpu import ContinuousDecoderGpuTests
+
+        model, runner = ContinuousDecoderGpuTests().fixture()
+        runner.close()
+        decoder = model.decoder
+        with patch("eole.decoders.transformer._FLASH_ATTN_AVAILABLE", False):
+            with self.assertRaisesRegex(ValueError, "usable FlashAttention KV-cache backend"):
+                configure_fp8_cache(decoder, next(model.parameters()), None)
+        with patch.object(decoder, "position_encoding_type", PositionEncodingType.Alibi):
+            with self.assertRaisesRegex(ValueError, "usable FlashAttention KV-cache backend"):
+                configure_fp8_cache(decoder, next(model.parameters()), None)
+        self.assertNotIn("fp8_kv", decoder._verifier_cache_config)
+        self.assertTrue(all(not hasattr(layer.self_attn, "_fp8_kv_scales") for layer in decoder.transformer_layers))
+
+    def test_rejects_continuous_native_with_standalone_fp8(self):
+        from eole.predict.continuous import ContinuousGreedy
+        from eole.tests.test_continuous_gpu import ContinuousDecoderGpuTests
+
+        model, runner = ContinuousDecoderGpuTests().fixture()
+        runner.close()
+        configure_fp8_cache(model.decoder, next(model.parameters()), None)
+        with self.assertRaisesRegex(ValueError, "Continuous native KV conflicts"):
+            ContinuousGreedy(runner.predictor, kv_cache_dtype="native")
+
     @torch.inference_mode()
     def test_chunked_prefill_reads_scaled_prefix(self):
         from eole.modules.fp8_kv import prefill

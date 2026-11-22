@@ -543,8 +543,10 @@ continuous:
   kv_cache_dtype: fp8_e4m3
 ```
 
-The default `native` keeps the model's compute dtype. FP8 uses the FlashAttention
-configuration with FlashInfer installed for prompt prefill and a length-aware
+Set the KV dtype and scales in the `continuous` block for continuous serving.
+The default `native` keeps the model's compute dtype and rejects a conflicting
+FP8 setting in the model's ordinary inference config. FP8 requires a working
+FlashAttention backend, with FlashInfer installed for prompt prefill and a length-aware
 Triton split-KV kernel for decode and verification. The CUDA tests use FlashInfer 0.7.2. This path requires full-window
 attention, head dimension 64, 128 or 256, and verification blocks of up to 16 tokens.
 
