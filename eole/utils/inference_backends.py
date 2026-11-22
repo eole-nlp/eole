@@ -108,6 +108,13 @@ def inference_backend_summary(model, compile_enabled, compile_mode, speculative=
     ]
     layers = list(getattr(decoder, "transformer_layers", []))
     flash_layers = [layer for layer in layers if hasattr(getattr(layer, "self_attn", None), "flash_attn_with_kvcache")]
+    fp8_layers = [layer for layer in flash_layers if getattr(layer.self_attn, "_fp8_kv_scales", None) is not None]
+    if fp8_layers:
+        lines.append(
+            f"Inference target KV: FP8 E4M3, layers={len(fp8_layers)}, "
+            "decode/verify=Triton split-KV, prompt prefill=FlashInfer FA2"
+        )
+        flash_layers = [layer for layer in flash_layers if layer not in fp8_layers]
     mtp_flash_layers = sum(
         hasattr(getattr(getattr(head, "layer", None), "self_attn", None), "flash_attn_with_kvcache")
         for head in getattr(model, "mtp_heads", [])

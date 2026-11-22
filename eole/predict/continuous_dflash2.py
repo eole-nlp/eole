@@ -54,6 +54,8 @@ class ContinuousDFlash2(ContinuousGreedy):
         compiled=False,
         prefill_idle_chunk_size=None,
         prefix_cache_entries=0,
+        kv_cache_dtype="native",
+        kv_cache_scales=None,
     ):
         adapter = getattr(predictor, "dflash2", None)
         if adapter is None:
@@ -74,6 +76,8 @@ class ContinuousDFlash2(ContinuousGreedy):
             False,
             prefill_idle_chunk_size,
             prefix_cache_entries=prefix_cache_entries,
+            kv_cache_dtype=kv_cache_dtype,
+            kv_cache_scales=kv_cache_scales,
         )
         self.decoder._dflash2_layer_ids = tuple(adapter.target_layer_ids)
         self.decoder._dflash2_window = self.window
@@ -174,7 +178,7 @@ class ContinuousDFlash2(ContinuousGreedy):
         for _, state in cache.layers:
             for name in ("kcache", "vcache"):
                 if name in state:
-                    state[name] = F.pad(state[name], (0, 0, 0, 0, 0, self.span))
+                    state[name] = cache.pad_kv(state[name], self.span)
         cache.metadata["cache_len_tgt"] += self.span
         cache.metadata["left_pad_attn_mask"] = F.pad(cache.metadata["left_pad_attn_mask"], (0, self.span), value=True)
         cache.metadata["position_indices"] = torch.arange(self.capacity + self.span, device=self.next_tokens.device)[

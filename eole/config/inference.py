@@ -177,6 +177,13 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
     model_config = get_config_dict()
     model_config["arbitrary_types_allowed"] = True  # to allow torch.dtype
 
+    kv_cache_dtype: Literal["native", "fp8_e4m3"] = Field(
+        default="native", description="Target attention KV cache dtype for fixed-shape CUDA inference."
+    )
+    kv_cache_scales: list[list[float] | None] | None = Field(
+        default=None, description="Optional calibrated [K, V] scale pair for each decoder layer."
+    )
+
     dense_quantization: Literal["none", "int8", "w8a8"] = Field(
         default="none",
         description="Runtime INT8 group-32 decoder attention/MLP projections (single-GPU CUDA Marlin). "

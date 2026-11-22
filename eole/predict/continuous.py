@@ -54,6 +54,8 @@ class ContinuousGreedy:
         prefill_idle_chunk_size=None,
         *,
         prefix_cache_entries=0,
+        kv_cache_dtype="native",
+        kv_cache_scales=None,
     ):
         if type(prefix_cache_entries) is not int or prefix_cache_entries < 0:
             raise ValueError("prefix_cache_entries must be a nonnegative integer")
@@ -114,6 +116,20 @@ class ContinuousGreedy:
         if parameter.device.type != "cuda":
             raise ValueError("Continuous prototype requires CUDA FlashAttention")
         emb = torch.zeros(slots, 1, self.decoder.hidden_size, device=parameter.device, dtype=parameter.dtype)
+        self.fp8_kv = kv_cache_dtype == "fp8_e4m3"
+        if self.fp8_kv:
+            from eole.modules.fp8_kv import configure_fp8_cache
+
+            if self.speculation and predictor.self_speculative_num_tokens > 15:
+                raise ValueError("FP8 KV supports verification blocks of at most 16 tokens")
+            configure_fp8_cache(self.decoder, parameter, kv_cache_scales)
+        elif kv_cache_dtype != "native" or kv_cache_scales is not None:
+            raise ValueError("Use native KV or fp8_e4m3 with optional K/V scales")
+        elif "fp8_kv" in self.decoder._verifier_cache_config:
+            raise ValueError(
+                "Continuous native KV conflicts with the model's FP8 KV setting. "
+                "Configure the KV dtype and scales only in the continuous block."
+            )
         self.decoder._disable_cache()
         self.decoder._init_cache(emb, torch.zeros(slots, 1, 1, device=emb.device, dtype=torch.bool))
         self.bank = RequestCache.take(self.decoder)
@@ -350,4 +366,10 @@ class ContinuousGreedy:
         self.prefilling = None
         if self.step_graph is not None:
             self.step_graph.reset()
+        if self.fp8_kv:
+            for layer in self.decoder.transformer_layers:
+                attention = getattr(layer, "self_attn", None)
+                if hasattr(attention, "_fp8_kv_scales"):
+                    del attention._fp8_kv_scales
+            self.decoder._verifier_cache_config.pop("fp8_kv", None)
         self.closed = True

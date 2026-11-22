@@ -1450,6 +1450,15 @@ class TransformerDecoder(DecoderBase):
 
         return emb, attns
 
+    def _can_use_flash_cache(self, dtype, device):
+        return (
+            _FLASH_ATTN_AVAILABLE
+            and self.self_attn_backend == "flash"
+            and self.position_encoding_type not in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
+            and dtype in [torch.float16, torch.bfloat16]
+            and device != torch.device("cpu")
+        )
+
     def _init_cache(self, emb, pad_mask, enc_out=None):
         self._reset_decode_graph()
         b, l, d = emb.size()
@@ -1458,13 +1467,7 @@ class TransformerDecoder(DecoderBase):
         if torch.is_autocast_enabled(device.type):
             dtype = torch.get_autocast_dtype(device.type)
 
-        self.flash = (
-            _FLASH_ATTN_AVAILABLE
-            and self.self_attn_backend == "flash"
-            and self.position_encoding_type not in [PositionEncodingType.Relative, PositionEncodingType.Alibi]
-            and dtype in [torch.float16, torch.bfloat16]
-            and device != torch.device("cpu")
-        )
+        self.flash = self._can_use_flash_cache(dtype, device)
 
         if self.dynamic_shapes:
             self.cache_len_tgt = l  # kv cache starts at target length and grows
@@ -1504,9 +1507,10 @@ class TransformerDecoder(DecoderBase):
                 heads_kv = attention.heads_kv // attention.parallel_gpu
                 shape = (b, self.cache_len_tgt, heads_kv, attention.dim_per_head)
                 shapes = {"kcache": shape, "vcache": shape}
+            cache_dtype = torch.float8_e4m3fn if getattr(attention, "_fp8_kv_scales", None) else dtype
             for name, shape in shapes.items():
                 if hybrid_storage is not None:
-                    cache = hybrid_storage.zeros((index, name), shape, dtype=dtype, device=device)
+                    cache = hybrid_storage.zeros((index, name), shape, dtype=cache_dtype, device=device)
                     setattr(attention, name, cache)
                 else:
                     cache = getattr(attention, name, None)
@@ -1514,12 +1518,12 @@ class TransformerDecoder(DecoderBase):
                         layer.layer_type != "linear_attention"
                         and isinstance(cache, torch.Tensor)
                         and cache.shape == shape
-                        and cache.dtype == dtype
+                        and cache.dtype == cache_dtype
                         and cache.device == device
                     ):
                         cache.zero_()
                     else:
-                        setattr(attention, name, torch.zeros(shape, dtype=dtype, device=device))
+                        setattr(attention, name, torch.zeros(shape, dtype=cache_dtype, device=device))
             if layer.layer_type != "linear_attention":
                 attention.cache_leftpad = cache_leftpad
                 if layer.context_attn:

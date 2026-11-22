@@ -514,3 +514,50 @@ Beam search and other ineligible configurations retain their existing decoder
 path. The legacy compiled tensor-parallel beam path can still hang at worker
 shutdown; bound greedy/MTP decoding does not fix that separate path. Streaming
 inference remains limited to single-process mode.
+
+## FP8 KV cache for standalone inference
+
+For single-GPU text inference with FP8 target KV, add these settings to the
+prediction YAML and run the usual `eole predict -c …` command:
+
+```yaml
+kv_cache_dtype: fp8_e4m3
+dynamic_shapes: false
+batch_size: 1
+beam_size: 1
+self_attn_backend: flash
+prefill_cache_size: 0
+```
+
+Use an unpadded text input and a context limit large enough for the input,
+output budget and any speculative verifier scratch. FP8 KV requires a working
+FlashAttention backend, FlashInfer, Triton and an NVIDIA GPU with compute
+capability 8.9 or newer. Optional calibrated `kv_cache_scales` uses one
+`[key_scale, value_scale]` pair per decoder layer,
+with `null` for GDN layers. See the [serving recipe](../serving/README.md#fp8-target-kv-cache)
+for the continuous server settings.
+
+Start with the default unit scales. To test calibrated scales, pass
+representative, preformatted prompts as a JSON array
+of strings. Keep the calibration inputs separate from the prompts used to
+evaluate the resulting scales.
+
+```bash
+EOLE_TORCH_COMPILE=0 python recipes/qwen38/calibrate_fp8_kv.py \
+  --model "$QWEN38_MODEL" --prompts calibration-prompts.json \
+  --context-length 8192 --output kv-scales.json --report kv-ranges.json
+```
+
+Copy the resulting `kv_cache_scales` list into your prediction YAML or the
+model's `continuous` block. The script measures post-RoPE K and projected V
+ranges during native-cache prefill. Each scale allows 10% headroom above the
+largest magnitude seen in the calibration prompts. The optional report lists the
+exact maximum and sampled p50, p95, p99 and p99.9 absolute magnitudes for K
+and V in each attention layer. A large gap can flag a layer whose scale is
+driven by outliers. On two held-out inventory prompts, max-based calibration
+produced earlier output divergence from BF16 KV than unit scales. Evaluate
+scales on held-out prompts representative of the lengths and tasks you serve.
+
+On an RTX 4090, Qwen3.8-27B INT4 in standalone greedy mode could allocate a
+65,536-token FP8 cache but ran out of memory embedding a nearly 64K prompt.
+The configured context capacity also needs enough VRAM for prompt processing.

@@ -296,6 +296,20 @@ class GeneratorLM(Inference):
         self.model.decoder._decode_graph_request_allowed = False
         self.model.decoder._verify_graph_request_allowed = False
         batch_size = len(batch["srclen"])
+        if getattr(self, "fp8_target_kv", False):
+            if (
+                batch_size != 1
+                or parallel_paths != 1
+                or batch.get("images") is not None
+                or batch.get("tgt") is not None
+                or decode_strategy.return_attention
+                or int(batch["srclen"][0]) != batch["src"].size(1)
+                or bool(batch["src"].eq(self._tgt_pad_idx).any())
+            ):
+                raise ValueError("FP8 KV requires unpadded single-sequence text generation without attention output")
+            scratch = self.self_speculative_num_tokens if self.self_speculative_decoding else 0
+            if batch["src"].size(1) + decode_strategy.max_length + scratch > self.model.decoder.kvcache_maxsize:
+                raise ValueError("FP8 KV context must fit the prompt, output budget, and speculative scratch")
 
         # (1) check if we use left padding or not
         src = batch["src"]
