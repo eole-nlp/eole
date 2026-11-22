@@ -550,7 +550,10 @@ attention, head dimension 64, 128 or 256, and verification blocks of up to 16 to
 
 An optional `kv_cache_scales` list contains a `[key_scale, value_scale]` pair for
 each decoder layer. Use `null` for GDN layers. Omitted scales default to one.
-Supply scales calibrated for your checkpoint when available. The cache stores
-values divided by their scales and uses the corresponding scales on reads.
+Start with unit scales and evaluate calibrated scales on held-out prompts before
+deploying them. The cache stores values divided by their scales and uses the
+corresponding scales on reads.
 Target K/V storage is halved. GDN and drafter state retain their existing dtype,
-and split attention uses temporary reduction buffers.
+and split attention uses temporary reduction buffers. Leave room for prefill
+activations and CUDA graphs when choosing the number of slots and context
+capacity. A cache can fit at startup while a long prompt still runs out of VRAM.

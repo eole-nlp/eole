@@ -536,7 +536,8 @@ Triton and an NVIDIA GPU with compute capability 8.9 or newer. Optional calibrat
 with `null` for GDN layers. See the [serving recipe](../serving/README.md#fp8-target-kv-cache)
 for the continuous server settings.
 
-To estimate scales, pass representative, preformatted prompts as a JSON array
+Start with the default unit scales. To test calibrated scales, pass
+representative, preformatted prompts as a JSON array
 of strings. Keep the calibration inputs separate from the prompts used to
 evaluate the resulting scales.
 
@@ -552,5 +553,10 @@ ranges during native-cache prefill. Each scale allows 10% headroom above the
 largest magnitude seen in the calibration prompts. The optional report lists the
 exact maximum and sampled p50, p95, p99 and p99.9 absolute magnitudes for K
 and V in each attention layer. A large gap can flag a layer whose scale is
-driven by outliers. Evaluate the scales on held-out
-prompts representative of the lengths and tasks you serve.
+driven by outliers. On two held-out inventory prompts, max-based calibration
+produced earlier output divergence from BF16 KV than unit scales. Evaluate
+scales on held-out prompts representative of the lengths and tasks you serve.
+
+On an RTX 4090, Qwen3.8-27B INT4 in standalone greedy mode could allocate a
+65,536-token FP8 cache but ran out of memory embedding a nearly 64K prompt.
+The configured context capacity also needs enough VRAM for prompt processing.
