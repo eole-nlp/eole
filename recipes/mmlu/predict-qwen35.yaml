@@ -1,0 +1,8 @@
+model_path: "${EOLE_MODEL_DIR}/qwen3.5-0.8B"
+src: dummy
+gpu_ranks: [0]
+compute_dtype: bf16
+self_attn_backend: pytorch
+batch_size: 1
+beam_size: 1
+max_length: 1

@@ -1,0 +1,1 @@
+<bos><start_of_turn>user｟newline｠Explain why rainbows form in one sentence.<end_of_turn>｟newline｠<start_of_turn>model｟newline｠

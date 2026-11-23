@@ -1,47 +1,45 @@
-# Greedy Responses serving: decode speed and agent latency
+# Continuous Responses serving
 
-This is an opt-in fixed-slot continuous backend for a **dedicated single-model,
-single-GPU, greedy text Responses server**, with optional recurrent Qwen MTP. Existing YAMLs stay serialized.
-The workload uses the [Codex integration](../codex/README.md) protocol without
-launching Codex, executing generated code or reading user files. It measures
-serving performance, not coding-task quality.
-
-## Shared server behavior
-
-The shared server changes are already on main via [#518](https://github.com/eole-nlp/eole/pull/518).
-Independently of continuous batching, streaming routes signal
-cooperative generation cancellation on disconnect/early consumer exit, instead
-of only stopping delivery. Responses, Chat, Anthropic and workspace callers
-using the bridge are affected. Cleanup drains the worker. Completed segments
-leave a caller-provided shared event unset. Supplying the event also enables
-existing request-setting restoration on routes that previously supplied none,
-so streaming overrides no longer leak into subsequent requests.
+Serve multiple greedy text sessions through `/v1/responses` on one GPU with one
+model. The [Codex recipe](../codex/README.md) covers client setup. The load tests
+here use synthetic tool calls and report serving performance.
 
 ## Run locally
 
-Use a dedicated GPU/server and converted checkpoint:
+From the repository root, use a dedicated CUDA GPU and a [converted or pre-converted
+Qwen3.8-27B INT4 checkpoint](../qwen38/README.md#download-the-pre-converted-eole-checkpoint).
+The example uses greedy text requests through `/v1/responses`.
 
 ```bash
-export EOLE_MODEL_DIR=/mnt/InternalCrucial4/LLM_work
+export EOLE_MODEL_DIR="$PWD/models"  # or your existing model directory
 export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-INT4"
 export CUDA_VISIBLE_DEVICES=0
 export EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0
 export TRITON_DEFAULT_FP_FUSION=1
 
-# Serialized baseline:
-python -m eole.bin.main serve -c recipes/serving/serve.yaml \
-  --host 127.0.0.1 --port 5019
-
-# After stopping the baseline with Ctrl+C, start continuous serving instead:
-python -m eole.bin.main serve -c recipes/serving/serve_continuous.yaml \
-  --host 127.0.0.1 --port 5019
-
-# Or, after stopping it, use the same scheduler with three MTP drafts:
-python -m eole.bin.main serve -c recipes/serving/serve_continuous_mtp.yaml \
+eole serve -c recipes/serving/serve_continuous.yaml \
   --host 127.0.0.1 --port 5019
 ```
 
-Wait for readiness, then run in another terminal (`aiohttp` required):
+After the server reports readiness, run a text, streaming, and tool-call
+smoke test from a second terminal:
+
+```bash
+python recipes/codex/smoke_test.py --base-url http://127.0.0.1:5019/v1 \
+  --model qwen3.8-27B
+```
+
+## Measure latency and throughput
+
+Install `aiohttp` in the benchmark environment. Use the same prompts and request
+settings for each server profile:
+
+- `recipes/serving/serve.yaml` runs the serialized baseline.
+- `recipes/serving/serve_continuous.yaml` runs continuous greedy decoding.
+- `recipes/serving/serve_continuous_mtp.yaml` runs continuous MTP with three drafts.
+
+To change profiles, stop the current server with Ctrl+C and rerun `eole serve`
+with the selected YAML and the same host and port. Then run:
 
 ```bash
 python recipes/serving/benchmark_responses.py \

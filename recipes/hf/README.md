@@ -1,9 +1,9 @@
 # Run a supported Hugging Face model directly
 
-Run from the repository root in a CUDA-enabled PyTorch environment:
+Install Eole in a CUDA-enabled PyTorch environment using the
+[installation guide](../../README.md#installation), then run from the repository root:
 
 ```bash
-pip install -e .
 eole predict -c recipes/hf/predict.yaml
 ```
 

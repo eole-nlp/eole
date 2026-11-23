@@ -1,0 +1,4 @@
+CATALOG: blue notebook.
+CATALOG: brass lamp.
+CATALOG: glass jar.
+CATALOG: wool blanket.

@@ -10,32 +10,11 @@ Use it for language generation, machine translation, neural translation scoring,
 vision and OCR, and speech recognition. Bring supported Hugging Face checkpoints
 or train your own architecture.
 
-| New support | Try it |
-| --- | --- |
-| **DFlash2 speculative decoding for Qwen3.8-27B** | [DFlash2 recipe and benchmarks](recipes/qwen38/dflash2/README.md) |
-
-Measured on one **RTX 5090** with the RedHat Qwen3.8-27B INT4 target, shared
-INT8 vocabulary heads. DFlash2 uses seven draft tokens unless specified;
-native MTP uses three draft tokens:
-
-| Decoding mode | Code tok/s | English tok/s | Translation tok/s |
-| --- | ---: | ---: | ---: |
-| Ordinary greedy | 85.9 | 85.7 | 85.3 |
-| Native MTP, 3 drafts | 191.1 | 136.9 | 180.2 |
-| DFlash2, BF16 drafter | 221.7 | 139.3 | 208.4 |
-| DFlash2, INT8 drafter with packed projections | 252.2 | 139.0 | 217.3 |
-| DFlash2, INT8 drafter, 9 draft tokens | **289.8** | **152.9** | **256.7** |
-
-Median warmed decode throughput over three runs per fixture; batch-one greedy,
-64,000-token context capacity, 2,048-token output cap. Speed depends on proposal
-acceptance and workload. See the [recipe](recipes/qwen38/dflash2/README.md) for
-settings, supported scope and numerical limitations. All rows were rerun with
-PyTorch 2.15.0 / Triton 3.9.0 and `TRITON_DEFAULT_FP_FUSION=1`.
-See the [block-size sweep](recipes/qwen38/dflash2/README.md#block-size-sweep)
-for the comparison of six through ten draft tokens.
-
-DFlash2 output is not guaranteed bit-identical to single-token decoding; these
-speed measurements are not a model-quality evaluation.
+**Start here:** [Run a small Qwen model](#quickstart-serve-a-small-chat-model) ·
+[Open the browser workspace](recipes/ui/README.md) ·
+[Fine-tune Qwen with LoRA](recipes/finetuning/README.md) ·
+[Find a recipe](recipes/README.md) ·
+[See inference benchmarks](#performance-and-reproducibility)
 
 ## A local workspace, included
 
@@ -97,6 +76,8 @@ this release.
 | Try Qwen3.8-27B with MTP speculative decoding | [Qwen3.8 and MTP](recipes/qwen38/README.md) |
 | Try DFlash2 speculative decoding with Qwen3.8-27B | [DFlash2 recipe](recipes/qwen38/dflash2/README.md) or [workspace controls](recipes/ui/README.md#choose-off-mtp-or-dflash2) |
 | Use Codex with a locally served Qwen model | [Codex Responses API](recipes/codex/README.md) |
+| Serve concurrent coding sessions and compare latency | [Continuous Responses serving](recipes/serving/README.md) |
+| Reduce KV-cache memory with FP8 | [Standalone inference](recipes/qwen38/README.md#fp8-kv-cache-for-standalone-inference), [continuous serving](recipes/serving/README.md#fp8-target-kv-cache) |
 | Use Claude Code with a locally served Qwen model | [Claude Code endpoint](recipes/claude-code/README.md) |
 | Ask questions about your documents with sources | [Local Knowledge / RAG workspace](recipes/rag/README.md) |
 | Chat with images in the browser | [Qwen vision Chat workspace](recipes/ui/README.md#images-in-chat) |
@@ -104,7 +85,7 @@ this release.
 | Train a translation model | [WMT17](recipes/wmt17/README.md) |
 | Translate with a pretrained multilingual model | [NLLB](recipes/nllb/README.md) |
 | Generate text with Mistral | [Mistral](recipes/mistral/README.md) |
-| Fine-tune an LLM | [Llama2 LoRA](recipes/llama2/README.md) |
+| Fine-tune a small chat model on one GPU | [Qwen LoRA](recipes/finetuning/README.md) |
 | Fine-tune with a scorer reward | [REINFORCE](recipes/rl/README.md) |
 | Score translations or use neural metrics during training | [COMET, KIWI, XCOMET, and MetricX](recipes/scoring/README.md) |
 | Extract scanned PDFs through a web interface | [DeepSeek-OCR / HunyuanOCR Documents workspace](recipes/ui/README.md#documents-pdf-and-image-ocr) |
@@ -154,11 +135,11 @@ The [server recipe](recipes/server/README.md) explains streaming and the support
   caching, and optional `torch.compile` / CUDA graphs. Availability depends on
   model, hardware, installed kernels, and configuration.
 - **Multi-token prediction:** Auxiliary MTP heads for decoder-only training and
-  native speculative decoding for compatible checkpoints, including Qwen3.8-27B. Current inference
-  support is text-only, single-sequence, deterministic greedy decoding;
-  unsupported configurations fall back to ordinary decoding.
-- **Serving:** FastAPI server with native inference, OpenAI-style chat completions,
-  and Anthropic-style Messages endpoints, including tool-use handling.
+  native speculative decoding for compatible checkpoints, including Qwen3.8-27B.
+  The Qwen recipe covers standalone greedy decoding and sampling.
+- **Serving:** FastAPI server with native inference, OpenAI-style Chat and Responses,
+  and Anthropic-style Messages. The dedicated Responses backend supports continuous
+  greedy text serving with optional MTP, DFlash2, and FP8 target KV.
 - **Evaluation:** BLEU, chrF, TER, perplexity, native COMET/KIWI/XCOMET and MetricX
   scorers, custom scorer modules, and scorer-based early stopping.
 - **Reinforcement learning:** On-policy REINFORCE with registered scorer rewards,
@@ -170,7 +151,7 @@ The [server recipe](recipes/server/README.md) explains streaming and the support
 | Family / task | Examples and notes |
 |---|---|
 | Qwen | Qwen, Qwen2, Qwen3 (including MoE); Qwen3.5 text/vision; Qwen3.8-27B with MTP |
-| Gemma | Gemma3 text/image and Gemma4 support |
+| Gemma | [Gemma 3 text quickstart](recipes/gemma3/README.md), Gemma 3 vision, and Gemma 4 support |
 | Mistral | Mistral, Mixtral, Mathstral, and supported multimodal / Ministral variants |
 | Llama and Phi | Llama3.x and Phi2/3 |
 | Translation | Hy-MT2 workspace; EuroLLM, NLLB, and Tower model recipes |
@@ -184,6 +165,37 @@ recipe and converter for the exact configuration. Supported HF checkpoints can
 also be used [directly for inference](recipes/hf/README.md); conversion creates a reusable Eole artifact.
 
 ## Performance and reproducibility
+
+### Qwen3.8-27B speculative decoding
+
+| New support | Try it |
+| --- | --- |
+| **DFlash2 speculative decoding for Qwen3.8-27B** | [DFlash2 recipe and benchmarks](recipes/qwen38/dflash2/README.md) |
+
+Measured on one **RTX 5090** with the RedHat Qwen3.8-27B INT4 target, shared
+INT8 vocabulary heads. DFlash2 uses seven draft tokens unless specified;
+native MTP uses three draft tokens:
+
+| Decoding mode | Code tok/s | English tok/s | Translation tok/s |
+| --- | ---: | ---: | ---: |
+| Ordinary greedy | 85.9 | 85.7 | 85.3 |
+| Native MTP, 3 drafts | 191.1 | 136.9 | 180.2 |
+| DFlash2, BF16 drafter | 221.7 | 139.3 | 208.4 |
+| DFlash2, INT8 drafter with packed projections | 252.2 | 139.0 | 217.3 |
+| DFlash2, INT8 drafter, 9 draft tokens | **289.8** | **152.9** | **256.7** |
+
+Median warmed decode throughput over three runs per fixture; batch-one greedy,
+64,000-token context capacity, 2,048-token output cap. Speed depends on proposal
+acceptance and workload. See the [recipe](recipes/qwen38/dflash2/README.md) for
+settings, supported scope and numerical limitations. All rows were rerun with
+PyTorch 2.15.0 / Triton 3.9.0 and `TRITON_DEFAULT_FP_FUSION=1`.
+See the [block-size sweep](recipes/qwen38/dflash2/README.md#block-size-sweep)
+for the comparison of six through ten draft tokens.
+
+DFlash2 output is not guaranteed bit-identical to single-token decoding; these
+speed measurements are not a model-quality evaluation.
+
+### Reproduce measurements
 
 See the [inference benchmarks](https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md) for example scripts and historical results (with incomplete environment metadata), and the [compilation guide](https://github.com/eole-nlp/eole/blob/main/TORCHCOMPILE_README.md) for
 `torch.compile` configuration. Separate compilation/warmup from repeated warm

@@ -76,16 +76,15 @@ eole convert HF --model_dir Qwen/Qwen3.5-0.8B \
 eole serve -c recipes/server/serve.example.yaml --host 127.0.0.1
 ```
 
-See the [server recipe](recipes/server/README.md) for API requests. Model support
+See the [server recipe](../../../recipes/server/README.md) for API requests. Model support
 is architecture-specific; the HF converter does not support every Hub model.
-For knowledge evaluation, use [MMLU](recipes/mmlu/README.md); that harness
+For knowledge evaluation, use [MMLU](../../../recipes/mmlu/README.md); that harness
 generates an answer token rather than ranking option log probabilities.
 
 ## Fine-tune a pretrained model
 
-The [Llama2 recipe](recipes/llama2/README.md) documents NF4/LoRA fine-tuning.
-The [REINFORCE recipe](recipes/rl/README.md) describes scorer-reward fine-tuning.
-Supply the required model and data before launching either template.
+Start with the [Qwen LoRA recipe](../../../recipes/finetuning/README.md) for a short single-GPU run with bundled data.
+The [REINFORCE recipe](../../../recipes/rl/README.md) describes scorer-reward fine-tuning with your own model and data.
 
 For instruction datasets, prompt masking can be configured as a fragment in a
 complete training YAML:

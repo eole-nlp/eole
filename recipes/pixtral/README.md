@@ -4,14 +4,19 @@ Only the mistral-community/pixtral-12b version is supported right now. The offic
 
 ## Convert the model
 
-```
-eole convert HF --model_dir mistral-community/pixtral-12b --output ./pixtral-12b --token $HF_TOKEN
+Run from the repository root in an Eole environment with CUDA and FlashAttention.
+
+```bash
+export EOLE_MODEL_DIR="$PWD/models"
+mkdir -p "$EOLE_MODEL_DIR/mistralai"
+eole convert HF --model_dir mistral-community/pixtral-12b \
+  --output "$EOLE_MODEL_DIR/mistralai/pixtral-12b"
 ```
 
 ## Run the test script
 
-```
-python3 test_inference.py
+```bash
+python recipes/pixtral/test_inference.py
 ```
 
 There are several examples in the test script (taken from pixtral blog posts). A single one is activated by default, but you can uncomment the others to test the various cases.

@@ -20,4 +20,4 @@ checkpoint's tokenizer, BF16 compute, PyTorch attention, and greedy decoding.
 `mistral-7b-awq-gemm-inference.yaml` is a separate legacy example requiring an
 already converted `mistral-7b-instruct-v0.2-awq` checkpoint and compatible AWQ
 kernels. The conversion above does not produce that checkpoint. For a documented
-LoRA fine-tuning workflow, see [Llama2](../llama2/README.md).
+LoRA fine-tuning workflow, see the [Qwen LoRA walkthrough](../finetuning/README.md).

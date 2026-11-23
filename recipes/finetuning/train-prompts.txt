@@ -1,0 +1,4 @@
+<|im_start|>user｟newline｠Give a one-line catalog label for a blue notebook.｟newline｠<|im_end|>｟newline｠<|im_start|>assistant｟newline｠<think>｟newline｠｟newline｠</think>｟newline｠｟newline｠
+<|im_start|>user｟newline｠Give a one-line catalog label for a brass lamp.｟newline｠<|im_end|>｟newline｠<|im_start|>assistant｟newline｠<think>｟newline｠｟newline｠</think>｟newline｠｟newline｠
+<|im_start|>user｟newline｠Give a one-line catalog label for a glass jar.｟newline｠<|im_end|>｟newline｠<|im_start|>assistant｟newline｠<think>｟newline｠｟newline｠</think>｟newline｠｟newline｠
+<|im_start|>user｟newline｠Give a one-line catalog label for a wool blanket.｟newline｠<|im_end|>｟newline｠<|im_start|>assistant｟newline｠<think>｟newline｠｟newline｠</think>｟newline｠｟newline｠

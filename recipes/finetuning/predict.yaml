@@ -1,0 +1,10 @@
+model_path: "${EOLE_LORA_DIR}/merged"
+src: recipes/finetuning/prompt.txt
+output: "${EOLE_LORA_DIR}/prediction.txt"
+gpu_ranks: [0]
+compute_dtype: bf16
+self_attn_backend: pytorch
+beam_size: 1
+top_k: 1
+batch_size: 1
+max_length: 64

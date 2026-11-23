@@ -7,7 +7,7 @@
 ## and the (reward - batch baseline) is used as the REINFORCE advantage.
 ##
 ## Only the RL-specific `training:` fields differ from a regular fine-tuning
-## config; see recipes/wmt17 or recipes/llama3 for full data/vocab examples.
+## config; see recipes/wmt17 or recipes/finetuning for full data/vocab examples.
 
 seed: 1234
 report_every: 50
