@@ -12,7 +12,6 @@ that every model and full training run was executed on the current checkout.
 | Qwen3.8 / MTP | RedHat INT4 now recommended (2026-10-08); native-head check retained | Historical Frozenlock RTX 5090 baseline/MTP runs retained; RedHat compiled, MTP-disabled targeted LCB 2/4 versus AutoRound 0/4; RedHat MTP not measured |
 | Claude Code | Explicit model ID, output budget, and writable CLI config directory | Live text/tool/API streaming checks and separate Read/Write/Bash sessions passed previously |
 | Qwen3.5 | Conversion path matches the bundled text/image scripts; large INT4 server is a separate example | Image runner config and fixtures, server config checked; generation not rerun |
-| EuroLLM | Explicit GPU/BF16/context defaults and Gradio dependencies | Server model config checked; translator UI and generation not rerun |
 | WMT17 | Fixed YAML name and preparation typo; prediction now consumes raw test input with saved transforms and GPU ranks | Five training YAMLs checked; full corpus preparation/training not rerun; old timings/results labelled historical |
 | NLLB | Correctly labelled pretrained translation; separate HF/onmt conversion directories | Both inference configs checked; translation not rerun |
 | Mistral | New BF16 prediction YAML matches converted base model; AWQ example identified as separate | Both inference configs checked; shell syntax checked; generation not rerun |
