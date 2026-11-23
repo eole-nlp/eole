@@ -2,5 +2,4 @@ rapidfuzz
 scipy
 bitsandbytes>=0.50.2
 spacy
-gradio
 pyarrow

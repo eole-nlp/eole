@@ -351,7 +351,7 @@ build an image from the current checkout.
 * patch eos_token_id list handling by @francoishernandez in https://github.com/eole-nlp/eole/pull/158
 * **Compile and Ctranslate2 support** by @vince62s in https://github.com/eole-nlp/eole/pull/161
 * Move predict config update from model loading to config validation by @francoishernandez in https://github.com/eole-nlp/eole/pull/163
-* EuroLLM Gradio (web based) translator 35 languages to 35 languages by @vince62s in https://github.com/eole-nlp/eole/pull/164
+* EuroLLM web translator for 35 languages by @vince62s in https://github.com/eole-nlp/eole/pull/164
 
 ## 0.0.2
 

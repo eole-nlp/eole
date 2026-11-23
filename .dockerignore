@@ -13,7 +13,6 @@
 **/build
 **/dist
 **/node_modules
-**/.gradio
 .venv
 venv
 model

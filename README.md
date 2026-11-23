@@ -181,7 +181,7 @@ The [server recipe](recipes/server/README.md) explains streaming and the support
 | Gemma | [Gemma 3 text quickstart](recipes/gemma3/README.md), Gemma 3 vision, and Gemma 4 support |
 | Mistral | Mistral, Mixtral, Mathstral, and supported multimodal / Ministral variants |
 | Llama and Phi | Llama3.x and Phi2/3 |
-| Translation | Hy-MT2 workspace; EuroLLM, NLLB, and Tower model recipes |
+| Translation | [Hy-MT2-7B](recipes/translation/README.md) is the local workspace default. See also [NLLB](recipes/nllb/README.md). |
 | OCR and vision | HunyuanOCR, DeepSeek-OCR, Pixtral, and supported vision-language checkpoints |
 | Speech | Whisper |
 | Translation scoring | COMET, COMET-KIWI, XCOMET, MetricX, and MetricX-QE |

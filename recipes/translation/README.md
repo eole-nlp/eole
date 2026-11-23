@@ -1,8 +1,9 @@
 # Translate in the Eole workspace
 
-A dedicated translation view shares Eole's local workspace, model server,
-monitoring and theme. It is separate from conversational chat: there is no chat
-history or system persona in the translation prompt.
+Tencent's Hy-MT2-7B is the default translation model in the local workspace
+showcase. Translate shares the workspace's model server, monitoring and theme.
+Translation prompts contain the source text and translation instructions without
+the Chat history or persona.
 
 ![Hy-MT2 local translation workspace](images/translation.jpg)
 
@@ -159,8 +160,3 @@ and [Google Translate's history and saved translations](https://support.google.c
 It does not call those services or send text to them. There is no camera, speech,
 website crawling, OCR or document-layout translation service in this view.
 Review translations and model-dependent terminology before publishing.
-
-`apps/eole-translator.py` remains available as a legacy Gradio example. Its old
-paragraph splitting could rearrange leading/blank separators and used one thread
-per paragraph; the bundled workflow replaces those mechanics without deleting the
-example in this PR.

@@ -1,8 +1,7 @@
 # Eole local workspace
 
-`eole serve` now includes a browser interface at `/`. No Gradio, Node runtime,
-frontend build, external fonts, or CDN is required. API routes and `/docs`
-remain available. The original `apps/chatbot.py` stays a small Gradio example.
+`eole serve` includes a browser interface at `/` and API documentation at
+`/docs`. The server bundles the workspace and serves its assets locally.
 
 For all four workspaces on your own GPU, follow the
 [combined local quick start](#combined-showcase-chat-translate-documents-ocr-and-knowledge-rag).
@@ -56,7 +55,7 @@ pip install nvidia-ml-py psutil
 Alternatively install Eole with the `ui` extra. Missing drivers or optional
 packages display unavailable readings; they do not prevent chat.
 
-For a dedicated translation workflow, including Hy-MT2-7B, see the
+For the default Hy-MT2-7B translation workflow, see the
 [translation workspace recipe](../translation/README.md). Chat and Translate share
 the same interface, monitoring and local server.
 

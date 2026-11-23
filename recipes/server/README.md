@@ -28,7 +28,7 @@ server and browser interface with Chat.
 
 Open `http://127.0.0.1:5000` for the bundled Eole UI: streaming chat,
 conversation history, hardware monitoring, request timings, and a warmed
-benchmark. No Gradio or frontend runtime is required. See the
+benchmark. The UI comes with the server. See the
 [workspace recipe](../ui/README.md) for Qwen3.8 INT4 and metric definitions.
 
 ## Check the server

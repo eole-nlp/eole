@@ -26,8 +26,8 @@ below for the model, commands, and expected output.
 
 | Workflow | Recipe |
 |---|---|
-| Translation workspace: text, documents, subtitles and glossaries | [Hy-MT2 workspace](translation/README.md) |
-| EuroLLM model and legacy Gradio example | [EuroLLM](eurollm/README.md) |
+| Default translation workspace for text, documents, subtitles and glossaries | [Hy-MT2-7B](translation/README.md) |
+| Serve the original Hunyuan-MT-7B checkpoint through the API | [Hunyuan-MT-7B](hunyuan/README.md) |
 | NLLB conversion and translation | [NLLB](nllb/README.md) |
 | Ask questions about local documents and inspect cited passages | [Knowledge (RAG)](rag/README.md) |
 | Image understanding | [Pixtral](pixtral/README.md), [Qwen3.5](qwen35/README.md) |
