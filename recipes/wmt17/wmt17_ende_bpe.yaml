@@ -1,15 +1,12 @@
 ## IO
-save_data: wmt17_en_de/data_bpe
-overwrite: True
+save_data: "${WMT17_RUN}/data"
 seed: 1234
 report_every: 100
 valid_metrics: ["BLEU"]
-tensorboard: true
-tensorboard_log_dir: tensorboard/wmt17_ende_bpe
 
 ### Vocab
-src_vocab: wmt17_en_de/vocab.bpe.shared
-tgt_vocab: wmt17_en_de/vocab.bpe.shared
+src_vocab: "${WMT17_RUN}/vocab.txt"
+tgt_vocab: "${WMT17_RUN}/vocab.txt"
 src_vocab_size: 36000
 tgt_vocab_size: 36000
 vocab_size_multiple: 8
@@ -20,30 +17,30 @@ n_sample: 0
 
 data:
     corpus_1:
-        path_src: wmt17_en_de/train.src.shuf
-        path_tgt: wmt17_en_de/train.trg.shuf
+        path_src: "${WMT17_RUN}/train.en"
+        path_tgt: "${WMT17_RUN}/train.de"
     valid:
-        path_src: wmt17_en_de/dev.src
-        path_tgt: wmt17_en_de/dev.trg
+        path_src: "${WMT17_RUN}/valid.en"
+        path_tgt: "${WMT17_RUN}/valid.de"
 
 transforms: [bpe, filtertoolong]
 transforms_configs:
   bpe:
-    src_subword_model: "wmt17_en_de/codes"
-    tgt_subword_model: "wmt17_en_de/codes"
+    src_subword_model: "${WMT17_RUN}/codes"
+    tgt_subword_model: "${WMT17_RUN}/codes"
   filtertoolong:
     src_seq_length: 512
     tgt_seq_length: 512
 
 training:
     # Run configuration
-    model_path: wmt17_en_de/transformer_big_bpe
+    model_path: "${WMT17_RUN}/model"
     keep_checkpoint: 50
     save_checkpoint_steps: 5000
     average_decay: 0
     train_steps: 50000
     valid_steps: 5000
-    
+
     # Train on a single GPU
     world_size: 1
     gpu_ranks: [0]

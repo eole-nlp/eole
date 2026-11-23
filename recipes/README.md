@@ -29,7 +29,6 @@ below for the model, commands, and expected output.
 | Translation workspace: text, documents, subtitles and glossaries | [Hy-MT2 workspace](translation/README.md) |
 | EuroLLM model and legacy Gradio example | [EuroLLM](eurollm/README.md) |
 | NLLB conversion and translation | [NLLB](nllb/README.md) |
-| Translation with Tower and Llama | [Tower / Mistral](wmt22_with_TowerInstruct-Mistral/README.md), [Tower / Llama2](wmt22_with_TowerInstruct-llama2/README.md), [Llama3.1](wmt22_with_llama3.1/README.md) |
 | Ask questions about local documents and inspect cited passages | [Knowledge (RAG)](rag/README.md) |
 | Image understanding | [Pixtral](pixtral/README.md), [Qwen3.5](qwen35/README.md) |
 | OCR and document extraction | [HunyuanOCR](hunyuanocr/README.md), [DeepSeek-OCR](deepseekocr/README.md) |
@@ -40,7 +39,7 @@ below for the model, commands, and expected output.
 | Workflow | Recipe |
 |---|---|
 | Fine-tune a chat model with LoRA on one GPU | [Qwen LoRA](finetuning/README.md) |
-| Train an encoder-decoder translation model | [WMT17 English–German](wmt17/README.md) |
+| Train a Transformer on CPU, then scale to WMT on GPU | [English–German translation tutorial](wmt17/README.md) |
 | Train a language model from scratch | [WikiText-103](wiki_103/README.md), [FineWeb](fineweb10B/README.md) |
 | Train on streamed synthetic parallel text | [NewsPalm](NewsPalm-synthetic/README.md) |
 | Scorer-reward fine-tuning (REINFORCE) | [RL](rl/README.md) |

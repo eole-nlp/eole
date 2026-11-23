@@ -1,0 +1,55 @@
+seed: 42
+report_every: 200
+save_data: "${WMT17_RUN}/data"
+src_vocab: "${WMT17_RUN}/vocab.txt"
+tgt_vocab: "${WMT17_RUN}/vocab.txt"
+share_vocab: true
+src_vocab_size: 256
+tgt_vocab_size: 256
+
+data:
+  train:
+    path_src: recipes/wmt17/smoke/train.en
+    path_tgt: recipes/wmt17/smoke/train.de
+  valid:
+    path_src: recipes/wmt17/smoke/valid.en
+    path_tgt: recipes/wmt17/smoke/valid.de
+
+transforms: [bpe]
+transforms_configs:
+  bpe:
+    src_subword_model: "${WMT17_RUN}/codes"
+    tgt_subword_model: "${WMT17_RUN}/codes"
+
+model:
+  architecture: transformer
+  layers: 1
+  hidden_size: 32
+  heads: 4
+  transformer_ff: 64
+  share_embeddings: true
+  share_decoder_embeddings: true
+  embeddings:
+    word_vec_size: 32
+    position_encoding_type: SinusoidalInterleaved
+
+training:
+  model_path: "${WMT17_RUN}/model"
+  world_size: 1
+  gpu_ranks: []
+  compute_dtype: fp32
+  use_amp: false
+  optim: adamw
+  decay_method: none
+  learning_rate: 0.003
+  train_steps: 600
+  valid_steps: 600
+  save_checkpoint_steps: 600
+  batch_type: sents
+  batch_size: 8
+  valid_batch_size: 2
+  bucket_size: 16
+  num_workers: 0
+  accum_count: [1]
+  accum_steps: [0]
+  normalization: tokens

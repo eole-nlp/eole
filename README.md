@@ -12,6 +12,7 @@ or train your own architecture.
 
 **Start here:** [Run a small Qwen model](#quickstart-serve-a-small-chat-model) ·
 [Open the browser workspace](recipes/ui/README.md) ·
+[Train a Transformer](recipes/wmt17/README.md) ·
 [Fine-tune Qwen with LoRA](recipes/finetuning/README.md) ·
 [Find a recipe](recipes/README.md) ·
 [See inference benchmarks](#qwen38-27b-speculative-decoding)
@@ -108,7 +109,7 @@ this release.
 | Ask questions about your documents with sources | [Local Knowledge / RAG workspace](recipes/rag/README.md) |
 | Chat with images in the browser | [Qwen vision Chat workspace](recipes/ui/README.md#images-in-chat) |
 | Try Qwen3.5 text and image inputs | [Qwen3.5](recipes/qwen35/README.md) |
-| Train a translation model | [WMT17](recipes/wmt17/README.md) |
+| Train an English–German Transformer from scratch | [Translation tutorial](recipes/wmt17/README.md) |
 | Translate with a pretrained multilingual model | [NLLB](recipes/nllb/README.md) |
 | Generate text with Mistral | [Mistral](recipes/mistral/README.md) |
 | Fine-tune a small chat model on one GPU | [Qwen LoRA](recipes/finetuning/README.md) |
