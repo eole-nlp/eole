@@ -39,8 +39,9 @@ RunPod wrapper, and update the existing public template before the button uses i
    you saved in `eole_password` (not your RunPod account password).
 4. **Wait for preparation, then start using Eole.** With images built from this
    revision, Qwen loads and warms inference before the workspace opens. Its first
-   startup compiles the full MTP verification chunk and saves it locally; restarts
-   reuse that verifier from the volume. Translation and OCR still load and warm
+   startup warms the configured decoding mode, normally DFlash2 with the INT8
+   drafter. Restarts can reuse a compatible verifier from the volume.
+   Translation and OCR still load and warm
    on first use. First preparation can take several minutes.
 5. **Clean up when finished.** For a disposable test, choose **Terminate** in
    RunPod to delete the Pod and its attached Volume disk and end their charges.

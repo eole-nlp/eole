@@ -1,0 +1,10 @@
+model_path: "${EOLE_MODEL_DIR}/gemma-3-1b-it"
+src: recipes/gemma3/prompt.txt
+output: /tmp/eole-gemma3-output.txt
+gpu_ranks: [0]
+compute_dtype: bf16
+self_attn_backend: pytorch
+beam_size: 1
+top_k: 1
+batch_size: 1
+max_length: 64

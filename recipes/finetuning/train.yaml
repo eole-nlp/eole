@@ -1,0 +1,41 @@
+seed: 42
+report_every: 4
+share_vocab: true
+src_vocab: "${QWEN_LORA_MODEL}/vocab.txt"
+transforms: [huggingface_tokenize]
+transforms_configs:
+  huggingface_tokenize:
+    path: "${QWEN_LORA_MODEL}/tokenizer.json"
+
+data:
+  train:
+    path_src: recipes/finetuning/train-prompts.txt
+    path_tgt: recipes/finetuning/train-answers.txt
+
+training:
+  train_from: "${QWEN_LORA_MODEL}"
+  model_path: "${EOLE_LORA_DIR}/adapter"
+  reset_optim: all
+  gpu_ranks: [0]
+  world_size: 1
+  compute_dtype: bf16
+  use_amp: false
+  optim: adamw
+  learning_rate: 0.0002
+  decay_method: none
+  dropout: [0.0]
+  attention_dropout: [0.0]
+  num_workers: 0
+  bucket_size: 16
+  batch_type: sents
+  batch_size: 1
+  batch_size_multiple: 1
+  accum_count: [1]
+  accum_steps: [0]
+  normalization: tokens
+  lora_layers: [linear_query, linear_values]
+  lora_rank: 8
+  lora_alpha: 16
+  train_steps: 12
+  save_checkpoint_steps: 12
+  keep_checkpoint: 1

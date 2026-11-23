@@ -11,7 +11,7 @@ From the repository root, complete the [Qwen3.8 conversion setup](../qwen38/READ
 The recommended checkpoint is converted `RedHatAI/Qwen3.8-27B-INT4`.
 
 ```bash
-export EOLE_MODEL_DIR=/mnt/InternalCrucial4/LLM_work
+export EOLE_MODEL_DIR="$PWD/models"  # or your existing model directory
 export QWEN38_MODEL="$EOLE_MODEL_DIR/Qwen3.8-27B-INT4"
 export EOLE_TORCH_COMPILE=1
 export EOLE_COMPILE_MODE=0
@@ -36,9 +36,9 @@ The smoke test checks JSON text, typed SSE text, typed function arguments, and
 an add-tool/result round trip. It executes only a synthetic integer addition;
 it does not run generated shell commands.
 
-For concurrent streaming and synthetic tool-loop measurements, see the
-[serving baseline](../serving/README.md). It documents current serialization and
-provides a reproducible 1/2/4/8-client load test.
+For multiple sessions, use the [continuous Responses recipe](../serving/README.md).
+It provides separate serialized and continuous server configurations, plus a
+reproducible 1/2/4/8-client load test.
 
 ## Create an isolated Codex configuration
 
@@ -86,18 +86,14 @@ package places it at `/usr/lib/chatgpt/resources/codex`.
 
 Quit the running desktop app before launching it with a different `CODEX_HOME`;
 a second invocation can otherwise reuse the existing process and configuration.
-Launch your installed app executable from a terminal:
-
-```bash
-CODEX_HOME=/tmp/eole-codex-home <your-codex-app-executable>
-```
-
-For the Linux package whose desktop launcher is `chatgpt`, that is:
+For the Linux package whose desktop launcher is `chatgpt`, launch it from a
+terminal:
 
 ```bash
 CODEX_HOME=/tmp/eole-codex-home chatgpt
 ```
 
+Use the executable for your installed package if it has a different name.
 Select the local **qwen3.8-27B (Eole)** model in a new local Codex chat and open
 `/tmp/eole-codex-demo` as the project. The custom provider/catalog configuration
 is described in the [official gateway guide](https://learn.chatgpt.com/docs/enterprise/connect-to-a-gateway).

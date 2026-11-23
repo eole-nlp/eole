@@ -1,108 +1,125 @@
-# Translation WMT17 en-de
+# Train a Transformer for English–German translation
 
----
-**NOTE**
-Run the commands below from the repository root; the preparation step changes
-into `recipes/wmt17`, and subsequent commands stay there. Install `subword-nmt`
-for BPE preparation; the SentencePiece route also needs `spm_train` and `spm_encode`
-executables.
----
+Start with a 600-step CPU run that builds a vocabulary, trains a model, translates
+two held-out sentences, and scores the output. Then use the same workflow on
+the WMT corpus with a GPU. Both runs train an encoder-decoder Transformer from
+scratch.
 
-### Tokenization methods
+English–German translation was one of the tasks used to introduce the Transformer
+in [Attention Is All You Need](https://arxiv.org/abs/1706.03762). The paper used
+WMT 2014. The larger run below uses the WMT17-hosted preprocessed English–German
+corpus and evaluates on Newstest2016.
 
-The following configurations as provided as example:
-- `wmt17_ende.yaml`: "legacy" configuration, using already tokenized data;
-- `wmt17_ende_bpe.yaml`: on-the-fly bpe tokenization, using the "official" `subword-nmt` based `bpe` transform;
-- `wmt17_ende_bpe_onmt_tokenize.yaml`: on-the-fly bpe tokenization, using the `pyonmttok` based `onmt_tokenize` transform;
-- `wmt17_ende_spm.yaml`: on-the-fly sentencepiece tokenization, using the official `sentencepiece` based `sentencepiece` transform;
-- `wmt17_ende_spm_onmt_tokenize.yaml`: on-the-fly sentencepiece tokenization, using the `pyonmttok` based `onmt_tokenize` transform;
+## Run the small example on CPU
 
-### Get Data and prepare
-
-WMT17 English-German data set:
+Run from the repository root with [Eole installed](../../README.md#installation).
+Install the BPE and evaluation tools in the same Python environment:
 
 ```bash
-cd recipes/wmt17
-bash prepare_wmt_ende_data.sh
+python -m pip install subword-nmt sacrebleu
 ```
 
-Options:
-- `--method`: `bpe`/`sentencepiece` (subwords method to use)
-- `--encode`: `true`/`false` (tokenize all datasets, not necessary if using on the fly transforms)
+Use a fresh output directory for each run. The bundled [English](smoke/train.en) and
+[German](smoke/train.de) data consists of short example sentences. Each line in an English file corresponds to the same
+line in its German partner. Training learns from the `train` pair, validation
+checks progress using the `valid` pair, and final prediction reads `test.en`.
 
-If you want to use one of the aforementioned configurations with on-the-fly transforms, set `--encode false`, and either of `--method bpe`/`--method sentencepiece`.
-
-### Train
-
-Choose the config you want to run:
+### 1. Learn subwords and build the vocabulary
 
 ```bash
-export CONFIG="wmt17_ende_bpe.yaml"
+export WMT17_RUN="$PWD/runs/wmt17-smoke"
+export EOLE_TORCH_COMPILE=0
+export OMP_NUM_THREADS=4
+mkdir -p "$WMT17_RUN"
+cat recipes/wmt17/smoke/train.en recipes/wmt17/smoke/train.de \
+  | subword-nmt learn-bpe -s 64 > "$WMT17_RUN/codes"
+eole build_vocab -c recipes/wmt17/smoke.yaml --n_sample -1 --num_threads 1
 ```
 
-A historical run of this big Transformer for 50K steps took less than 10 hours
-on one RTX 4090. That timing has not been rerun on the current checkout.
+Byte-pair encoding (BPE) learns frequent character merges from both training
+languages. The `codes` file defines how words split into subwords. Eole applies
+those codes to the training text and counts the resulting pieces to create the
+shared `vocab.txt`. Vocabulary and BPE learning use training data only.
+
+### 2. Train and save a checkpoint
 
 ```bash
-eole build_vocab --config $CONFIG --n_sample -1 # --num_threads 4
-eole train --config $CONFIG
+eole train -c recipes/wmt17/smoke.yaml
 ```
 
-Note: if you need to perform some visual checks on the "transformed" data, you can enable the `dump_samples` flag at the `build_vocab` stage (and specify a smaller `-n_sample` for efficiency).
+[smoke.yaml](smoke.yaml) configures one encoder layer and one decoder layer.
+The encoder uses self-attention to mix information across the English sentence.
+The decoder attends to earlier German tokens and uses cross-attention to read
+the encoder's output. Sinusoidal position encodings tell both stacks about word
+order. During training, the decoder learns to predict the next reference token
+given earlier reference tokens.
 
-Translate test sets with various settings on local GPU and CPUs.
+Look for step 600 in the log and `$WMT17_RUN/model/step_600` on disk. The model
+directory also links to the latest saved checkpoint.
 
-Notes:
-- the exact model path depends on the config you chose. You can check your logs for the exact path.
-- the "root" model links to the last saved step, but you can choose any step subfolder if needed (e.g. `--model_path wmt17_en_de/transformer_big_bpe/step_10000`)
+### 3. Translate the held-out sentences and score them
 
 ```bash
-eole predict --src wmt17_en_de/test.src --model_path ./wmt17_en_de/transformer_big_bpe --beam_size 5 --batch_size 4096 --batch_type tokens --output wmt17_en_de/pred.trg.tok --gpu_ranks 0
-sacrebleu -tok none wmt17_en_de/test.trg < wmt17_en_de/pred.trg.tok
+eole predict --model_path "$WMT17_RUN/model/step_600" \
+  --src recipes/wmt17/smoke/test.en --output "$WMT17_RUN/test.hyp.de" \
+  --beam_size 2 --max_length 20 --compute_dtype fp32
+paste recipes/wmt17/smoke/test.en "$WMT17_RUN/test.hyp.de" recipes/wmt17/smoke/test.de
+sacrebleu recipes/wmt17/smoke/test.de --input "$WMT17_RUN/test.hyp.de" \
+  --tokenize none --metrics bleu chrf
 ```
 
-The prediction command above matches `wmt17_ende_bpe.yaml`: saved transforms
-tokenize raw source text and remove BPE segmentation from output. Use the matching
-checkpoint path if you choose another YAML.
+The saved transforms apply BPE to the input and join the output subwords.
+Beam search keeps the best partial German sequences as the decoder generates.
+Expect one generated line per input and a score report. BLEU compares word
+sequences, while chrF compares character sequences. The three columns show
+English input, generated German, and reference German. Check the wording
+as well as the score. For example, the model may learn the form of a sentence
+while substituting the wrong color. Two hand-written examples exercise the
+pipeline and are too few to measure translation quality.
 
-Historical BLEU scored at 40K, 45K, 50K steps on the test set (Newstest2016)
+## Train on the WMT corpus
 
+The full run needs a BF16-capable NVIDIA GPU and several GB for data plus
+checkpoint storage. It uses the [WMT17 preprocessed parallel data](https://www.statmt.org/wmt17/translation-task.html).
+The preparation script downloads English and German training text and the
+development archive over HTTPS. It sets aside Newstest2014 and Newstest2015 for
+validation and Newstest2016 for testing. It learns 32,000 shared BPE merges from
+the training text.
+
+```bash
+export WMT17_RUN="$PWD/runs/wmt17-full"
+export EOLE_TORCH_COMPILE=0
+bash recipes/wmt17/prepare_wmt_ende_data.sh
+eole build_vocab -c recipes/wmt17/wmt17_ende_bpe.yaml --n_sample -1 --num_threads 4
+eole train -c recipes/wmt17/wmt17_ende_bpe.yaml
 ```
-{
- "name": "BLEU",
- "score": 35.4,
- "signature": "nrefs:1|case:mixed|eff:no|tok:none|smooth:exp|version:2.0.0",
- "verbose_score": "66.2/41.3/28.5/20.3 (BP = 0.998 ratio = 0.998 hyp_len = 64244 ref_len = 64379)",
- "nrefs": "1",
- "case": "mixed",
- "eff": "no",
- "tok": "none",
- "smooth": "exp",
- "version": "2.0.0"
-}
-{
- "name": "BLEU",
- "score": 35.2,
- "signature": "nrefs:1|case:mixed|eff:no|tok:none|smooth:exp|version:2.0.0",
- "verbose_score": "65.9/41.0/28.3/20.2 (BP = 1.000 ratio = 1.000 hyp_len = 64357 ref_len = 64379)",
- "nrefs": "1",
- "case": "mixed",
- "eff": "no",
- "tok": "none",
- "smooth": "exp",
- "version": "2.0.0"
-}
-{
- "name": "BLEU",
- "score": 35.1,
- "signature": "nrefs:1|case:mixed|eff:no|tok:none|smooth:exp|version:2.0.0",
- "verbose_score": "66.2/41.2/28.4/20.3 (BP = 0.992 ratio = 0.992 hyp_len = 63885 ref_len = 64379)",
- "nrefs": "1",
- "case": "mixed",
- "eff": "no",
- "tok": "none",
- "smooth": "exp",
- "version": "2.0.0"
-}
 
+The [full training config](wmt17_ende_bpe.yaml) uses six encoder and six decoder
+layers, 16 attention heads, a 1,024-wide model, and sinusoidal positions.
+It uses the Noam learning-rate schedule with warmup, label smoothing, and
+token-based batching. The config trains for 50,000 optimizer steps on one GPU
+and saves a checkpoint every 5,000 steps. Adjust `training.keep_checkpoint`
+if you need to limit disk usage. If VRAM is limited, reduce
+`training.batch_size` and adjust `training.accum_count` to change how many
+microbatches contribute to each optimizer update.
+
+Evaluate a saved checkpoint on the test set:
+
+```bash
+eole predict --model_path "$WMT17_RUN/model/step_50000" \
+  --src "$WMT17_RUN/test.en" --output "$WMT17_RUN/test.hyp.de" \
+  --beam_size 5 --batch_size 4096 --batch_type tokens --gpu_ranks 0
+sacrebleu "$WMT17_RUN/test.de" --input "$WMT17_RUN/test.hyp.de" \
+  --tokenize none --metrics bleu chrf
 ```
+
+The release supplies tokenized, truecased text. The scoring commands use
+`--tokenize none` to match that preprocessing. Save SacreBLEU's signature with
+the score and use validation data when tuning settings. The paper's published
+scores use a different test set.
+
+The older [WMT17 settings and results](https://github.com/eole-nlp/eole/tree/282528e25acbb2dacdd0ee1a8e319d88f06a0798/recipes/wmt17)
+and WMT22 prompting experiments remain available in Git history.
+[WMT22 Tower/Mistral](https://github.com/eole-nlp/eole/tree/282528e25acbb2dacdd0ee1a8e319d88f06a0798/recipes/wmt22_with_TowerInstruct-Mistral) ·
+[WMT22 Tower/Llama 2](https://github.com/eole-nlp/eole/tree/282528e25acbb2dacdd0ee1a8e319d88f06a0798/recipes/wmt22_with_TowerInstruct-llama2) ·
+[WMT22 Llama 3.1](https://github.com/eole-nlp/eole/tree/282528e25acbb2dacdd0ee1a8e319d88f06a0798/recipes/wmt22_with_llama3.1)

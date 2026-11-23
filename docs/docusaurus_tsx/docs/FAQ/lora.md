@@ -26,6 +26,6 @@ Choices for quantization are `"bnb_8bit"`, `"bnb_FP4"`, `"bnb_NF4"`, `"awq_gemm"
 
 
 
-Use the [Llama2 recipe](../recipes/llama2/README.md) for a complete YAML.
+Use the [Qwen LoRA recipe](../../../../recipes/finetuning/README.md) for a complete training and inference walkthrough.
 Supported format names are not a guarantee that every quantized checkpoint
 layout can be loaded or fine-tuned.

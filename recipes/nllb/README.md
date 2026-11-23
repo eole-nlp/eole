@@ -2,7 +2,7 @@
 
 Run from this recipe directory: `cd recipes/nllb`. This is an English-to-German
 inference example with `facebook/nllb-200-1.3B`; for translation training from
-scratch see [WMT17](../wmt17/README.md).
+scratch see the [English–German Transformer tutorial](../wmt17/README.md).
 
 Choose one tokenizer route. Use separate output directories so converting one
 route does not overwrite the other. Set `HF_TOKEN` if authentication is required.

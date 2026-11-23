@@ -10,10 +10,16 @@ Use it for language generation, machine translation, neural translation scoring,
 vision and OCR, and speech recognition. Bring supported Hugging Face checkpoints
 or train your own architecture.
 
-| New support | Try it |
-| --- | --- |
-| **DFlash2 speculative decoding for Qwen3.8-27B** | [DFlash2 recipe and benchmarks](recipes/qwen38/dflash2/README.md) |
+**Start here:** [Run a small Qwen model](#quickstart-serve-a-small-chat-model) ·
+[Open the browser workspace](recipes/ui/README.md) ·
+[Train a Transformer](recipes/wmt17/README.md) ·
+[Fine-tune Qwen with LoRA](recipes/finetuning/README.md) ·
+[Find a recipe](recipes/README.md) ·
+[See inference benchmarks](#qwen38-27b-speculative-decoding)
 
+## Qwen3.8-27B speculative decoding
+
+DFlash2 delivered **3.4× the greedy decode throughput** on the code workload.
 Measured on one **RTX 5090** with the RedHat Qwen3.8-27B INT4 target, shared
 INT8 vocabulary heads. DFlash2 uses seven draft tokens unless specified;
 native MTP uses three draft tokens:
@@ -97,14 +103,16 @@ this release.
 | Try Qwen3.8-27B with MTP speculative decoding | [Qwen3.8 and MTP](recipes/qwen38/README.md) |
 | Try DFlash2 speculative decoding with Qwen3.8-27B | [DFlash2 recipe](recipes/qwen38/dflash2/README.md) or [workspace controls](recipes/ui/README.md#choose-off-mtp-or-dflash2) |
 | Use Codex with a locally served Qwen model | [Codex Responses API](recipes/codex/README.md) |
+| Serve concurrent coding sessions and compare latency | [Continuous Responses serving](recipes/serving/README.md) |
+| Reduce KV-cache memory with FP8 | [Standalone inference](recipes/qwen38/README.md#fp8-kv-cache-for-standalone-inference), [continuous serving](recipes/serving/README.md#fp8-target-kv-cache) |
 | Use Claude Code with a locally served Qwen model | [Claude Code endpoint](recipes/claude-code/README.md) |
 | Ask questions about your documents with sources | [Local Knowledge / RAG workspace](recipes/rag/README.md) |
 | Chat with images in the browser | [Qwen vision Chat workspace](recipes/ui/README.md#images-in-chat) |
 | Try Qwen3.5 text and image inputs | [Qwen3.5](recipes/qwen35/README.md) |
-| Train a translation model | [WMT17](recipes/wmt17/README.md) |
+| Train an English–German Transformer from scratch | [Translation tutorial](recipes/wmt17/README.md) |
 | Translate with a pretrained multilingual model | [NLLB](recipes/nllb/README.md) |
 | Generate text with Mistral | [Mistral](recipes/mistral/README.md) |
-| Fine-tune an LLM | [Llama2 LoRA](recipes/llama2/README.md) |
+| Fine-tune a small chat model on one GPU | [Qwen LoRA](recipes/finetuning/README.md) |
 | Fine-tune with a scorer reward | [REINFORCE](recipes/rl/README.md) |
 | Score translations or use neural metrics during training | [COMET, KIWI, XCOMET, and MetricX](recipes/scoring/README.md) |
 | Extract scanned PDFs through a web interface | [DeepSeek-OCR / HunyuanOCR Documents workspace](recipes/ui/README.md#documents-pdf-and-image-ocr) |
@@ -154,11 +162,11 @@ The [server recipe](recipes/server/README.md) explains streaming and the support
   caching, and optional `torch.compile` / CUDA graphs. Availability depends on
   model, hardware, installed kernels, and configuration.
 - **Multi-token prediction:** Auxiliary MTP heads for decoder-only training and
-  native speculative decoding for compatible checkpoints, including Qwen3.8-27B. Current inference
-  support is text-only, single-sequence, deterministic greedy decoding;
-  unsupported configurations fall back to ordinary decoding.
-- **Serving:** FastAPI server with native inference, OpenAI-style chat completions,
-  and Anthropic-style Messages endpoints, including tool-use handling.
+  native speculative decoding for compatible checkpoints, including Qwen3.8-27B.
+  The Qwen recipe covers standalone greedy decoding and sampling.
+- **Serving:** FastAPI server with native inference, OpenAI-style Chat and Responses,
+  and Anthropic-style Messages. The dedicated Responses backend supports continuous
+  greedy text serving with optional MTP, DFlash2, and FP8 target KV.
 - **Evaluation:** BLEU, chrF, TER, perplexity, native COMET/KIWI/XCOMET and MetricX
   scorers, custom scorer modules, and scorer-based early stopping.
 - **Reinforcement learning:** On-policy REINFORCE with registered scorer rewards,
@@ -170,7 +178,7 @@ The [server recipe](recipes/server/README.md) explains streaming and the support
 | Family / task | Examples and notes |
 |---|---|
 | Qwen | Qwen, Qwen2, Qwen3 (including MoE); Qwen3.5 text/vision; Qwen3.8-27B with MTP |
-| Gemma | Gemma3 text/image and Gemma4 support |
+| Gemma | [Gemma 3 text quickstart](recipes/gemma3/README.md), Gemma 3 vision, and Gemma 4 support |
 | Mistral | Mistral, Mixtral, Mathstral, and supported multimodal / Ministral variants |
 | Llama and Phi | Llama3.x and Phi2/3 |
 | Translation | Hy-MT2 workspace; EuroLLM, NLLB, and Tower model recipes |

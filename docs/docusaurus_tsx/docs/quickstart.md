@@ -10,51 +10,9 @@ the repository root. For a clone without an installed console command, replace
 
 ## Train a small translation model
 
-Download and extract the toy data, keeping your working directory at the root:
-
-```bash
-wget https://s3.amazonaws.com/opennmt-trainingdata/toy-ende.tar.gz
-tar xf toy-ende.tar.gz
-```
-
-Create `toy_en_de.yaml` with the complete configuration below. Parallel text
-contains one tokenized sentence per line, with corresponding source and target
-lines aligned. This short run demonstrates the workflow, not translation quality.
-
-```yaml
-src_vocab: toy-ende/run/example.vocab.src
-tgt_vocab: toy-ende/run/example.vocab.tgt
-save_data: toy-ende/run/samples
-overwrite: false
-data:
-  corpus_1:
-    path_src: toy-ende/src-train.txt
-    path_tgt: toy-ende/tgt-train.txt
-  valid:
-    path_src: toy-ende/src-val.txt
-    path_tgt: toy-ende/tgt-val.txt
-model:
-  architecture: transformer
-training:
-  world_size: 1
-  gpu_ranks: [0]
-  model_path: toy-ende/run/model
-  save_checkpoint_steps: 500
-  train_steps: 1000
-  valid_steps: 500
-  bucket_size: 1000
-```
-
-```bash
-eole build_vocab -c toy_en_de.yaml --n_sample 10000
-eole train -c toy_en_de.yaml
-eole predict --model_path ./toy-ende/run/model --src toy-ende/src-test.txt \
-  --output toy-ende/pred_1000.txt --gpu_ranks 0
-```
-
-`build_vocab` samples up to 10,000 lines per corpus. The checkpoint root selects
-the latest saved step; use a step subdirectory to select a specific checkpoint.
-See [WMT17](recipes/wmt17/README.md) for a larger training workflow.
+Start with the [English–German Transformer tutorial](../../../recipes/wmt17/README.md).
+It builds a vocabulary, trains on CPU, translates held-out sentences, and scores
+the result. The same tutorial shows how to train on the WMT corpus on a GPU.
 
 ## Generate with a supported Hugging Face model
 
@@ -76,16 +34,15 @@ eole convert HF --model_dir Qwen/Qwen3.5-0.8B \
 eole serve -c recipes/server/serve.example.yaml --host 127.0.0.1
 ```
 
-See the [server recipe](recipes/server/README.md) for API requests. Model support
+See the [server recipe](../../../recipes/server/README.md) for API requests. Model support
 is architecture-specific; the HF converter does not support every Hub model.
-For knowledge evaluation, use [MMLU](recipes/mmlu/README.md); that harness
+For knowledge evaluation, use [MMLU](../../../recipes/mmlu/README.md); that harness
 generates an answer token rather than ranking option log probabilities.
 
 ## Fine-tune a pretrained model
 
-The [Llama2 recipe](recipes/llama2/README.md) documents NF4/LoRA fine-tuning.
-The [REINFORCE recipe](recipes/rl/README.md) describes scorer-reward fine-tuning.
-Supply the required model and data before launching either template.
+Start with the [Qwen LoRA recipe](../../../recipes/finetuning/README.md) for a short single-GPU run with bundled data.
+The [REINFORCE recipe](../../../recipes/rl/README.md) describes scorer-reward fine-tuning with your own model and data.
 
 For instruction datasets, prompt masking can be configured as a fragment in a
 complete training YAML:

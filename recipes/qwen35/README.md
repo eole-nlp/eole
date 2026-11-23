@@ -27,6 +27,8 @@ The first script prints one response per image in `eole/tests/data/images`.
 The second prints a generated passage. Adjust GPU ranks, generation length, and
 model paths in the scripts to fit your hardware.
 
+For a small text fine-tuning run, see [Qwen LoRA](../finetuning/README.md).
+
 ## Serve a model
 
 For the small-model starting point, use the [server recipe](../server/README.md).
