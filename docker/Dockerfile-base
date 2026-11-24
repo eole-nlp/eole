@@ -3,7 +3,7 @@ ARG CUDA_VERSION=13.2.1
 FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04
 
 ARG CUDA_VERSION
-ARG TORCH_VERSION=2.14.1
+ARG TORCH_VERSION=2.15.0
 ARG PYTHON_TAG=cp312
 ARG FLASH_ATTN_VERSION=2.8.3
 # 13.2.1's bundled nvcc predates the compiler correctness fix. This can be

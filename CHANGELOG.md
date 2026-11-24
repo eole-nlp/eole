@@ -2,6 +2,22 @@
 
 This is just a centralised version of the Github automatically generated Release changelogs.
 
+## 0.6.8
+
+* Add continuous batching for the OpenAI Responses API with greedy, MTP and DFlash2 modes, batched DFlash2 drafting and reusable prompt prefixes ([#517](https://github.com/eole-nlp/eole/pull/517), [#519](https://github.com/eole-nlp/eole/pull/519), [#520](https://github.com/eole-nlp/eole/pull/520), [#521](https://github.com/eole-nlp/eole/pull/521), [#523](https://github.com/eole-nlp/eole/pull/523)).
+* Add opt-in FP8 KV storage to standalone inference and continuous serving, with optional per-layer scales and a calibration recipe ([#524](https://github.com/eole-nlp/eole/pull/524)).
+* Support NVFP4 and mixed NVFP4/FP8 checkpoints on SM120, with FlashInfer NVFP4 and CUDA W8A8 or Marlin W8A16 FP8 projections ([#514](https://github.com/eole-nlp/eole/pull/514)).
+* Add CPU INT8 MoE expert execution and adaptive GPU expert caching for floating-point and GPTQ INT4 checkpoints. Add runtime INT8 decoder projections and improve GDN and hybrid decoder execution ([#506](https://github.com/eole-nlp/eole/pull/506)–[#510](https://github.com/eole-nlp/eole/pull/510), [#512](https://github.com/eole-nlp/eole/pull/512), [#513](https://github.com/eole-nlp/eole/pull/513)).
+* Support non-power-of-two DFlash2 block sizes and cancel generation when streaming clients disconnect ([#505](https://github.com/eole-nlp/eole/pull/505), [#518](https://github.com/eole-nlp/eole/pull/518)).
+* Refresh the recipe index and Qwen examples, consolidate the WMT tutorial, and retire the standalone Gradio apps and EuroLLM recipe. Use the local workspace for translation with Hunyuan-MT ([#525](https://github.com/eole-nlp/eole/pull/525), [#526](https://github.com/eole-nlp/eole/pull/526)).
+* Support PyTorch >= 2.14.1 and < 2.16. Docker defaults to PyTorch 2.15.0 with CUDA 13.2.1, Triton 3.9.x and FlashInfer 0.7.5.post1 ([#504](https://github.com/eole-nlp/eole/pull/504)).
+
+Build the full Eole and RunPod images from the same release commit. After GPU
+validation, update the existing public template to `eole-runpod:0.6.8` using the
+[publishing checklist](recipes/runpod/MAINTAINERS.md#publish-068).
+
+[Full changelog](https://github.com/eole-nlp/eole/compare/0.6.7...0.6.8)
+
 ## 0.6.7
 
 * Align server startup preparation with the workspace default. A compatible configured DFlash2 drafter and its precision are selected before preload/warmup, so the first default Chat request reuses the prepared engine instead of unloading MTP and compiling a second verifier ([#501](https://github.com/eole-nlp/eole/pull/501)).
@@ -14,7 +30,7 @@ only the RunPod wrapper does not apply it.
 
 Build both images from the **same `0.6.7` release commit**, validate on a GPU,
 then update the public RunPod template to `eole-runpod:0.6.7`. See the
-[publishing checklist](recipes/runpod/MAINTAINERS.md#publish-067).
+[publishing checklist](recipes/runpod/MAINTAINERS.md).
 
 **Full Changelog**: https://github.com/eole-nlp/eole/compare/0.6.6...0.6.7
 

@@ -1,4 +1,4 @@
-ARG TORCH_VERSION=2.14.1
+ARG TORCH_VERSION=2.15.0
 ARG CUDA_VERSION=13.2.1
 FROM ghcr.io/eole-nlp/eole-base:torch${TORCH_VERSION}-ubuntu24.04-cuda${CUDA_VERSION}
 
@@ -12,11 +12,15 @@ LABEL org.opencontainers.image.source="https://github.com/eole-nlp/eole" \
 COPY . /eole
 WORKDIR /eole
 COPY docker/install-vision.sh /usr/local/bin/eole-install-vision
-RUN bash /usr/local/bin/eole-install-vision && \
+RUN python -c 'import torch; print("torch==" + torch.__version__)' > /tmp/torch-constraint.txt && \
+    export PIP_CONSTRAINT=/tmp/torch-constraint.txt && \
+    bash /usr/local/bin/eole-install-vision && \
     python -m pip install -r requirements.opt.txt && \
-    python -m pip install 'triton==3.8.0' 'fla-core==0.6.0' 'transformers>=5.20,<6' && \
+    python -m pip install 'fla-core==0.6.0' 'flashinfer-python[b12x]==0.7.5.post1' 'transformers>=5.20,<6' && \
     EOLE_SKIP_CUDA_BUILD=1 python -m pip install -e '.[ui,translation,ocr,rag]' --no-build-isolation && \
-    python -m pip check && eole --help
+    python -m pip check && \
+    python -c 'import flashinfer; from flashinfer.gemm import mm_fp4' && \
+    eole --help && rm /tmp/torch-constraint.txt
 COPY docker/build-kernels.sh /usr/local/bin/eole-build-kernels
 RUN chmod +x /usr/local/bin/eole-build-kernels && \
     TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST}" MAX_JOBS="${MAX_JOBS}" eole-build-kernels && \

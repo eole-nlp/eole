@@ -63,31 +63,23 @@ compilation waits are omitted; the displayed generation measurements come from
 Eole's inference worker on an RTX 5090. Benchmark numbers measure post-first-token
 decode speed and depend on the prompt, settings and hardware.
 
-## Latest: 0.6.7
+## Latest: 0.6.8
 
-This patch aligns server startup warmup with the workspace default: when available,
-DFlash2/INT8 is prepared before readiness, avoiding a reload and compilation on
-the first default Chat request. Missing/incompatible drafters retain native startup
-settings.
+- Serve concurrent text requests through the OpenAI Responses API with continuous batching, greedy decoding, MTP or DFlash2. Reuse matching prompt prefixes on subsequent requests.
+- Reduce KV-cache memory with opt-in FP8 storage in standalone inference and continuous serving.
+- Run supported NVFP4 checkpoints on Blackwell SM120, including mixed NVFP4/FP8 checkpoints with CUDA or Marlin FP8 projections.
+- Fit more MoE weights in limited VRAM with adaptive GPU expert caching and CPU expert execution. Start with the [Qwen MoE recipe](recipes/qwen35/README.md).
 
-The workspace includes DFlash2 decoding for Qwen3.8-27B and controls for
-Off/MTP/DFlash2 with separate drafter and vocabulary-head precision. Generation
-settings open by default, and Chat allows up to 16,384 output tokens. The expanded
-benchmark compares code, English and translation across six decoding profiles,
-with warmups, measured results and JSON export. RunPod automatically downloads
-and verifies the pinned drafter alongside the pre-converted showcase models.
-
-Eole supports **PyTorch >= 2.14.1 and < 2.15**. The refreshed
-Docker defaults use PyTorch 2.14.1 with CUDA 13.2. Start with the
-[workspace UI](recipes/ui/README.md), [Qwen3.8/MTP recipe](recipes/qwen38/README.md),
-or [Docker guide](docs/docker.md). See the [changelog](CHANGELOG.md#067) for release
-details and remaining limitations.
+Eole supports **PyTorch >= 2.14.1 and < 2.16**. The default Docker image uses
+PyTorch 2.15.0 with CUDA 13.2.1. Start with the [workspace UI](recipes/ui/README.md),
+[Qwen3.8 recipe](recipes/qwen38/README.md), or [Docker guide](docs/docker.md).
+See the [changelog](CHANGELOG.md#068) for release details.
 
 [![Deploy on RunPod](https://img.shields.io/badge/RunPod-Deploy%20Eole-673AB7?style=for-the-badge)](https://console.runpod.io/deploy?template=e9e19ozt9c&type=gpu)
 
 Browser-based Chat, translation and OCR on a rented GPU. See the
 [RunPod quick start](recipes/runpod/README.md) for password setup, GPU choices and
-the required persistent-volume attachment. The `0.6.7` deployment
+the required persistent-volume attachment. The `0.6.8` deployment
 uses prebuilt GPU kernels and pre-converted public Eole checkpoints. Maintainers
 publish the new images and update the public template before the button selects
 this release.
@@ -207,7 +199,7 @@ must be measured on the chosen checkpoint.
 ### From source
 
 - Python >= 3.11 (current CI uses Python 3.12).
-- PyTorch >= 2.14.1 and < 2.15, with a CUDA build compatible with your GPU and driver.
+- PyTorch >= 2.14.1 and < 2.16, with a CUDA build compatible with your GPU and driver.
 - To compile CUDA extensions: the CUDA toolkit (`nvcc`), a compatible C++ compiler,
   and the build dependencies below. The CUDA runtime bundled with PyTorch alone
   does not provide `nvcc`.
@@ -270,7 +262,8 @@ Use a release or wheel compatible with your GPU, Python, PyTorch, and CUDA
 versions. The Qwen3.8 measurements used FlashAttention 2.8.3; installing a newer
 package alone does not reproduce that environment.
 
-The Linux PyTorch 2.14.1 wheel requires Triton 3.8.x; the Docker image pins 3.8.0.
+PyTorch selects the compatible Triton version on Linux. The default Docker
+image uses PyTorch 2.15.0 and Triton 3.9.x.
 For Qwen3.5/Qwen3.8 fast gated-delta computation, install
 [FLA kernels (`fla-core`)](https://pypi.org/project/fla-core/):
 
@@ -306,7 +299,7 @@ Requires Docker, a compatible NVIDIA driver, and the
 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
 Use a [published image](https://github.com/eole-nlp/eole/pkgs/container/eole) or
-build an image from your checkout (the tested default is PyTorch 2.14.1 / CUDA 13.2).
+build an image from your checkout (the default is PyTorch 2.15.0 / CUDA 13.2.1).
 Images include the Chat, Translate, Documents and Knowledge dependencies. The [Docker guide](docs/docker.md) covers GPU
 prerequisites, local builds, CUDA kernels, model/data mounts, YAML inference and
 training, and serving an API endpoint.

@@ -4,21 +4,21 @@ For deploying an existing template, follow the [user quick start](README.md).
 This guide is for maintainers publishing the images and deploy button, or users
 customizing the deployment. Ordinary users do not need Docker commands or an API key.
 
-## Publish 0.6.7
+## Publish 0.6.8
 
 The Python package, full Eole image and RunPod wrapper must include the merged
-0.6.7 source. Publishing a GitHub release does not build Docker images, and
+0.6.8 source. Publishing a GitHub release does not build Docker images, and
 publishing images does not update the live RunPod template.
 
-1. Merge the release PR, create tag **`0.6.7`** on that commit, and publish its
+1. Merge the release PR, create tag **`0.6.8`** on that commit, and publish its
    GitHub release. **Deploy Docs & Publish to PyPi** publishes the Python package
    and documentation. It checks that the tag matches the package version.
 2. Run **Actions → Build Docker Images** with the workflow branch on `main`:
 
    | Input | Value |
    |---|---|
-   | `source_ref` | `0.6.7` |
-   | `torch_version` | `2.14.1` |
+   | `source_ref` | `0.6.8` |
+   | `torch_version` | `2.15.0` |
    | `cuda_version` | `13.2.1` |
    | `cuda_arch_list` | `8.0 8.6 8.9 9.0 10.0 10.3 12.0` |
    | `max_jobs` | `2` |
@@ -28,21 +28,21 @@ publishing images does not update the live RunPod template.
    image reference to use in the next step:
 
    ```text
-   ghcr.io/eole-nlp/eole:0.6.7-torch2.14.1-ubuntu24.04-cuda13.2.1
+   ghcr.io/eole-nlp/eole:0.6.8-torch2.15.0-ubuntu24.04-cuda13.2.1
    ```
 
-   The default stack includes FlashAttention 2.8.3, Triton 3.8.0 and fla-core
-   0.6.0. Eole CUDA ops are compiled into the image for the selected targets.
+   The default stack includes FlashAttention 2.8.3, Triton 3.9.x, fla-core 0.6.0 and
+   FlashInfer 0.7.5.post1. Eole CUDA ops are compiled into the image for the selected targets.
    The downloadable `eole-cuda-ops-*` artifact is **not** a container image.
 3. Run **Actions → Build RunPod Image** with the workflow branch on `main`:
 
    | Input | Value |
    |---|---|
-   | `source_ref` | `0.6.7` |
-   | `deploy_tag` | `0.6.7` |
+   | `source_ref` | `0.6.8` |
+   | `deploy_tag` | `0.6.8` |
    | `eole_image` | Full image reference above, or its immutable digest |
 
-   This publishes **`ghcr.io/eole-nlp/eole-runpod:0.6.7`**. The release check
+   This publishes **`ghcr.io/eole-nlp/eole-runpod:0.6.8`**. The release check
    rejects a parent whose Eole version or source revision differs from the tagged
    checkout. An older r2 image cannot supply the latest kernels, quantized heads,
    workspace controls or warmup code merely by rebuilding the wrapper.
@@ -53,9 +53,9 @@ publishing images does not update the live RunPod template.
    unloading and a cached restart. Build-time imports do not validate GPU execution.
 5. After validation, update the **existing public RunPod template `e9e19ozt9c`**
    in the console. Set **Container Image** to
-   **`ghcr.io/eole-nlp/eole-runpod:0.6.7`**; retain the launcher, Secret reference,
+   **`ghcr.io/eole-nlp/eole-runpod:0.6.8`**; retain the launcher, Secret reference,
    port and storage settings from `template.json`. Its repository copy already
-   selects 0.6.7; merging it does not update the live template.
+   selects 0.6.8; merging it does not update the live template.
 6. Open the README deploy button and check the selected image before deployment.
    The button's template ID stays unchanged. Existing Pods retain their images;
    stop/delete validation resources according to the agreed retention policy.
@@ -67,7 +67,7 @@ or CUDA code require rebuilding the full parent. For later Docker-only correctio
 use a new revision tag instead of overwriting published images. The strict
 same-release check applies to plain `x.y.z` deployment tags.
 
-Do not overwrite `0.6.4`, `0.6.4-r1`, `0.6.4-r2`, or a published `0.6.5`, `0.6.6`, or `0.6.7` image.
+Keep previously published release and revision tags available.
 A deployment-only correction does not require another PyPI version. Building an
 image does not rent a Pod. See the [Docker guide](../../docs/docker.md) for local
 builds and compatibility requirements.
@@ -340,7 +340,7 @@ were terminated after validation; no test storage is retained.
 
 ## Startup preparation in the release image
 
-The 0.6.7 full Eole image contains the server, local verifier cache and timing
+The full Eole release image contains the server, local verifier cache and timing
 fixes. Its RunPod wrapper checks for importable ops and startup/cache support.
 The default Qwen model uses `preload: true, warmup: true`; the preparation screen
 stays visible until inference preparation finishes. Translation/OCR load on first
