@@ -149,6 +149,9 @@ torch::Tensor fp8_mm(torch::Tensor x,torch::Tensor w,torch::Tensor sa,torch::Ten
   const int M=x.size(0),K=x.size(1),N=w.size(0);
   TORCH_CHECK(M>=1 && M<=16 && K>=512 && K%512==0 && N>=64 && N%64==0 && w.size(1)==K,"unsupported dimensions");
   TORCH_CHECK(x.is_contiguous() && w.is_contiguous() && sa.is_contiguous() && sb.is_contiguous(),"contiguous buffers required");
+  TORCH_CHECK(reinterpret_cast<uintptr_t>(x.data_ptr()) % 16 == 0 &&
+              reinterpret_cast<uintptr_t>(w.data_ptr()) % 16 == 0,
+              "FP8 MMA requires 16-byte aligned matrices");
   TORCH_CHECK(sa.scalar_type()==at::kFloat && sb.scalar_type()==at::kFloat && sa.numel()==M && sb.numel()==N,"FP32 per-row scales required");
   auto prop=at::cuda::getCurrentDeviceProperties();
   TORCH_CHECK(prop->major*10+prop->minor>=89,"FP8 MMA requires SM89+");

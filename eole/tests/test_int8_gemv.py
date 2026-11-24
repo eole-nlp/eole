@@ -116,6 +116,14 @@ class TestW8A8CUDA(unittest.TestCase):
                 torch.testing.assert_close(output, reference(x, module), rtol=0.008, atol=0.0005)
         torch._dynamo.reset()
 
+    def test_round_inputs_beyond_cuda_grid_y_limit(self):
+        from eole.modules.int8_gemv import round_int8_inputs
+
+        x = torch.randn(65_537, 128, device="cuda", dtype=torch.bfloat16)
+        # The small calls use one grid slice. Compare every row across the split.
+        expected = torch.cat([round_int8_inputs(chunk) for chunk in x.split(32_768)], dim=0)
+        torch.testing.assert_close(round_int8_inputs(x), expected, rtol=0, atol=0)
+
     def test_inference_packing_without_requantizing_checkpoint_projections(self):
         from eole.predict.inference import Inference
         from eole.tests.test_packed_projections import block, model, config
