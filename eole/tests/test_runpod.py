@@ -511,7 +511,9 @@ class TestRunPodPreparation(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(model["size_bytes"], 1024**3)
         recipe = Path(__file__).resolve().parents[2] / "recipes/runpod"
         template = json.loads((recipe / "template.json").read_text())
-        self.assertEqual(template["imageName"], "ghcr.io/eole-nlp/eole-runpod:0.6.7")
+        from eole import __version__
+
+        self.assertEqual(template["imageName"], f"ghcr.io/eole-nlp/eole-runpod:{__version__}")
         self.assertIn('data-stage="verify"', (recipe / "preparing.html").read_text())
         self.assertNotIn('data-stage="convert"', (recipe / "preparing.html").read_text())
 

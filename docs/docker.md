@@ -8,13 +8,13 @@ Configure the NVIDIA Docker runtime before starting a GPU container.
 
 Use the **full Eole image** for local testing. You do not need to build a base
 image, publish anything, or use the RunPod image. The commands below use the
-0.6.7 release image (after publication) and an already converted Qwen checkpoint.
+0.6.8 release image (after publication) and an already converted Qwen checkpoint.
 Until the image is published, build your checkout locally using the next section.
 
 Run these commands in a terminal on your host:
 
 ```bash
-export EOLE_IMAGE=ghcr.io/eole-nlp/eole:0.6.7-torch2.14.1-ubuntu24.04-cuda13.2.1
+export EOLE_IMAGE=ghcr.io/eole-nlp/eole:0.6.8-torch2.15.0-ubuntu24.04-cuda13.2.1
 export EOLE_MODEL_DIR=/mnt/InternalCrucial4/LLM_work
 
 # Check that Docker can access your GPUs. The first run downloads the image.
@@ -41,7 +41,7 @@ hf download incoai/Qwen3.8-27B-DFlash2 \
 The result must contain `dflash2/config.json` and `dflash2/model.safetensors`.
 The model-directory mount below makes them available inside Docker at the same
 path. No drafter conversion is needed. Without these files, DFlash2 stays
-disabled; Off and native MTP remain available. The 0.6.7 image includes the
+disabled; Off and native MTP remain available. The 0.6.8 image includes the
 DFlash2 workspace selector; older 0.6.5 images do not.
 
 Stop other inference processes using the selected GPU to free VRAM, then start
@@ -78,7 +78,7 @@ Press **Ctrl+C** to stop, or run `docker stop eole-local` in another terminal.
 save any other files you want to keep in a mounted directory.
 
 This runs the code packaged in the selected image. Mounting model files does
-not update that code. Use the 0.6.7 release image for the DFlash2 selector and
+not update that code. Use the 0.6.8 release image for the DFlash2 selector and
 workload/profile benchmark comparisons; older images do not gain these features.
 See the next section to build a local image from your checkout. For the combined
 Chat/Translate/OCR showcase, follow the [UI recipe](../recipes/ui/README.md) to
@@ -86,8 +86,9 @@ configure the additional models.
 
 ## Build an image locally (optional)
 
-The tested default is Ubuntu 24.04 / Python 3.12, PyTorch **2.14.1+cu132**,
-CUDA **13.2.1**, FlashAttention **2.8.3**, Triton **3.8.0**, and FLA **0.6.0**. The base upgrades
+The default is Ubuntu 24.04 / Python 3.12, PyTorch **2.15.0+cu132**,
+CUDA **13.2.1**, FlashAttention **2.8.3**, Triton **3.9.x** (selected by PyTorch), FLA **0.6.0**, and FlashInfer
+**0.7.5.post1** for NVFP4 projections and FP8 KV cache. The base upgrades
 nvcc to **13.2.86**: the original CUDA 13.2.1 image has an older compiler.
 PyTorch wheels, CUDA toolkit and FlashAttention wheels must be compatible; do not
 substitute the newest CUDA toolkit independently of the PyTorch wheel index.
@@ -97,7 +98,7 @@ compiler override; `CUDA_NVCC_PACKAGE` can explicitly select a compiler package.
 Build the base first, then the full image, from the repository root:
 
 ```bash
-docker/build_base.sh 2.14.1 13.2.1
+docker/build_base.sh 2.15.0 13.2.1
 docker build -t eole:local -f docker/Dockerfile .
 export EOLE_IMAGE=eole:local
 ```
@@ -244,7 +245,7 @@ Open **Actions → Build Docker Images → Run workflow**. Select the updated wo
 
 - `source_ref`: `main` for a development image, or a release tag that includes
   these Docker scripts. Older releases without these scripts are rejected.
-- `torch_version`: `2.14.1`.
+- `torch_version`: `2.15.0`.
 - `cuda_version`: `13.2.1`.
 - `cuda_arch_list`: `8.0 8.6 8.9 9.0 10.0 10.3 12.0`.
 - `max_jobs`: `2`.
@@ -256,12 +257,12 @@ No unrelated release number is assigned to current main. Publishing requires
 GHCR package write permission; the workflow uses its repository `GITHUB_TOKEN`.
 **Build Base Docker Image** publishes just the base when needed.
 
-For the **0.6.7 release image**, after the version-bump PR is merged and the
-`0.6.7` tag is created on the release commit, select `source_ref=0.6.7` (keep the
+For the **0.6.8 release image**, after the version-bump PR is merged and the
+`0.6.8` tag is created on the release commit, select `source_ref=0.6.8` (keep the
 workflow branch on `main`). The workflow then publishes:
 
 ```text
-ghcr.io/eole-nlp/eole:0.6.7-torch2.14.1-ubuntu24.04-cuda13.2.1
+ghcr.io/eole-nlp/eole:0.6.8-torch2.15.0-ubuntu24.04-cuda13.2.1
 ```
 
 The release tag must include the refreshed Docker tooling. Publishing a GitHub
@@ -272,8 +273,8 @@ Local publishing is also explicit:
 
 ```bash
 docker login ghcr.io
-docker/build_base.sh 2.14.1 13.2.1 --push
-docker/build.sh "dev-$(git rev-parse --short=12 HEAD)" 2.14.1 13.2.1 --push
+docker/build_base.sh 2.15.0 13.2.1 --push
+docker/build.sh "dev-$(git rev-parse --short=12 HEAD)" 2.15.0 13.2.1 --push
 ```
 
 `build.sh` verifies release tags against HEAD and refuses publishing tracked
@@ -285,8 +286,8 @@ hardware before claiming a new combination is supported.
 
 ### RunPod deployment images
 
-Build the full Eole image from the **`0.6.7` tag** first. The image includes the
-current source, bundled CUDA ops, Torch 2.14.1, Triton 3.8.0 and fla-core 0.6.0.
+Build the full Eole image from the **`0.6.8` tag** first. The image includes the
+current source, bundled CUDA ops, Torch 2.15.0, Triton 3.9.x, fla-core 0.6.0 and FlashInfer 0.7.5.post1.
 The full-image workflow builds its matching base too; a separate base workflow
 run is unnecessary. Its **Summary** shows the full image tag for the next step.
 
@@ -294,9 +295,9 @@ Run **Build RunPod Image** with:
 
 | Input | Value |
 |---|---|
-| `source_ref` | `0.6.7` |
-| `deploy_tag` | `0.6.7` |
-| `eole_image` | `ghcr.io/eole-nlp/eole:0.6.7-torch2.14.1-ubuntu24.04-cuda13.2.1` or its digest |
+| `source_ref` | `0.6.8` |
+| `deploy_tag` | `0.6.8` |
+| `eole_image` | `ghcr.io/eole-nlp/eole:0.6.8-torch2.15.0-ubuntu24.04-cuda13.2.1` or its digest |
 
 The wrapper requires importable bundled ops and startup/cache support. A plain
 release tag additionally requires a parent with the same Eole version and source
@@ -305,9 +306,9 @@ only the wrapper is rebuilt. Both builds install matching Torchvision while
 constraining the selected PyTorch/CUDA runtime.
 
 After GPU validation, update the existing public template's `imageName` to
-**`ghcr.io/eole-nlp/eole-runpod:0.6.7`**, following the
-[release publishing checklist](../recipes/runpod/MAINTAINERS.md#publish-067).
-The repository template targets 0.6.7, but Git merges and image publication do not
+**`ghcr.io/eole-nlp/eole-runpod:0.6.8`**, following the
+[release publishing checklist](../recipes/runpod/MAINTAINERS.md#publish-068).
+The repository template targets 0.6.8, but Git merges and image publication do not
 change the live template or existing Pods. The deploy button keeps its current
 template ID. Preserve earlier release/revision images rather than overwriting them.
 The launcher downloads pinned pre-converted public `eole-nlp` checkpoints and

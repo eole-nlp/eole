@@ -11,7 +11,7 @@ on:
       torch_version:
         description: "PyTorch version"
         required: true
-        default: 2.14.1
+        default: 2.15.0
         type: string
       cuda_version:
         description: "NVIDIA CUDA devel image version"
