@@ -8,32 +8,20 @@
 #include <c10/cuda/CUDAException.h>
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
+#include <algorithm>
 #include <cstdint>
+#include <limits>
 
 namespace {
-// CUDA limits grid Y and Z to 65,535 blocks. Use Z for extra rows so an
-// unchunked long prefill can round more than 65,535 activation rows.
-dim3 row_grid(int blocks_x, int64_t rows) {
-  constexpr int64_t limit = 65535;
-  const int64_t slices = (rows + limit - 1) / limit;
-  TORCH_CHECK(slices <= limit, "too many INT8 activation rows");
-  return dim3(blocks_x, (rows + slices - 1) / slices, slices);
-}
-
-__device__ __forceinline__ int64_t grid_row() {
-  return static_cast<int64_t>(blockIdx.z) * gridDim.y + blockIdx.y;
-}
-
 // Explicit round-to-nearest division preserves the group-32 quantizer even
 // when the extension is built with --use_fast_math.
 template <typename T, bool RoundOnly>
-__global__ void quantize(const T* x, int* q, float* scales, T* rounded, int K, int64_t rows) {
+__global__ void quantize(const T* x, int* q, float* scales, T* rounded, int K) {
   int lane = threadIdx.x & 31;
   int group = blockIdx.x * 4 + threadIdx.x / 32;
   int groups = K / 32;
-  const int64_t row = grid_row();
-  if (group >= groups || row >= rows) return;
-  const int64_t offset = row * K + group * 32 + lane;
+  if (group >= groups) return;
+  int offset = blockIdx.y * K + group * 32 + lane;
   float value = static_cast<float>(x[offset]);
   float maximum = fabsf(value);
   for (int d = 16; d; d >>= 1) maximum = fmaxf(maximum, __shfl_xor_sync(0xffffffff, maximum, d));
@@ -45,8 +33,8 @@ __global__ void quantize(const T* x, int* q, float* scales, T* rounded, int K, i
     unsigned packed = static_cast<unsigned>(code) & 255;
     packed |= __shfl_down_sync(0xffffffff, packed, 1) << 8;
     packed |= __shfl_down_sync(0xffffffff, packed, 2) << 16;
-    if (!(lane & 3)) q[row * (K / 4) + group * 8 + lane / 4] = packed;
-    if (!lane) scales[row * groups + group] = scale;
+    if (!(lane & 3)) q[blockIdx.y * (K / 4) + group * 8 + lane / 4] = packed;
+    if (!lane) scales[blockIdx.y * groups + group] = scale;
   }
 }
 
@@ -54,13 +42,12 @@ __global__ void quantize(const T* x, int* q, float* scales, T* rounded, int K, i
 // single-row instantiation keeps decode register pressure low.
 template <typename T, int Rows>
 __global__ void gemv(const int* q, const float* xs, const int* w, const T* ws,
-                     T* out, int K, int N, int64_t M) {
+                     T* out, int K, int N, int M) {
   int lane = threadIdx.x & 31;
   int n = blockIdx.x * 4 + threadIdx.x / 32;
   if (n >= N) return;
   int groups = K / 32;
-  const int64_t first_row = grid_row() * Rows;
-  if (first_row >= M) return;
+  int first_row = blockIdx.y * Rows;
   float result[Rows] = {};
   for (int g = lane; g < groups; g += 32) {
     int weights[8];
@@ -88,15 +75,15 @@ __global__ void gemv(const int* q, const float* xs, const int* w, const T* ws,
 void check_input(const torch::Tensor& x) {
   TORCH_CHECK(x.is_cuda() && x.dim() >= 1 && x.is_contiguous(), "contiguous CUDA input required");
   TORCH_CHECK(x.scalar_type() == at::kBFloat16 || x.scalar_type() == at::kHalf, "FP16/BF16 input required");
-  TORCH_CHECK(x.size(-1) >= 128 && x.size(-1) % 128 == 0, "input width must be a multiple of 128");
+  TORCH_CHECK(x.size(-1) >= 128 && x.size(-1) <= std::numeric_limits<int>::max() && x.size(-1) % 128 == 0,
+              "input width must be a multiple of 128 within the kernel's integer range");
 }
 }  // namespace
 
 torch::Tensor int8_projection_cuda(torch::Tensor x, torch::Tensor w, torch::Tensor ws) {
   check_input(x);
   c10::cuda::CUDAGuard guard(x.device());
-  const int K = x.size(-1);
-  const int64_t rows = x.numel() / K;
+  int K = x.size(-1), rows = x.numel() / K;
   TORCH_CHECK(w.is_cuda() && ws.is_cuda() && w.device() == x.device() && ws.device() == x.device(), "device mismatch");
   TORCH_CHECK(w.dim() == 2 && w.size(1) == K / 4 && w.scalar_type() == at::kInt && w.is_contiguous(), "invalid INT8 packed weights");
   int N = w.size(0);
@@ -108,11 +95,11 @@ torch::Tensor int8_projection_cuda(torch::Tensor x, torch::Tensor w, torch::Tens
   auto scales = torch::empty({rows, K / 32}, x.options().dtype(at::kFloat));
   auto stream = at::cuda::getCurrentCUDAStream();
   AT_DISPATCH_REDUCED_FLOATING_TYPES(x.scalar_type(), "int8_projection", [&] {
-    quantize<scalar_t, false><<<row_grid((K / 32 + 3) / 4, rows), 128, 0, stream>>>(x.data_ptr<scalar_t>(), q.data_ptr<int>(), scales.data_ptr<float>(), nullptr, K, rows);
+    quantize<scalar_t, false><<<dim3((K / 32 + 3) / 4, rows), 128, 0, stream>>>(x.data_ptr<scalar_t>(), q.data_ptr<int>(), scales.data_ptr<float>(), nullptr, K);
     if (rows == 1)
       gemv<scalar_t, 1><<<dim3((N + 3) / 4), 128, 0, stream>>>(q.data_ptr<int>(), scales.data_ptr<float>(), w.data_ptr<int>(), ws.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), K, N, rows);
     else
-      gemv<scalar_t, 8><<<row_grid((N + 3) / 4, (rows + 7) / 8), 128, 0, stream>>>(q.data_ptr<int>(), scales.data_ptr<float>(), w.data_ptr<int>(), ws.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), K, N, rows);
+      gemv<scalar_t, 8><<<dim3((N + 3) / 4, (rows + 7) / 8), 128, 0, stream>>>(q.data_ptr<int>(), scales.data_ptr<float>(), w.data_ptr<int>(), ws.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), K, N, rows);
   });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return out;
@@ -125,10 +112,19 @@ torch::Tensor round_int8_inputs_cuda(torch::Tensor x) {
   const int K = x.size(-1);
   const int64_t rows = x.numel() / K;
   if (!rows) return out;
+  // Bound both grid Y and the kernel's local 32-bit tensor offsets. Advance
+  // the pointers between launches so decode and short prefills keep their
+  // original indexing, and long prefills still round directly into one output.
+  const int64_t rows_per_launch = std::min<int64_t>(65535, std::numeric_limits<int>::max() / K);
   auto stream = at::cuda::getCurrentCUDAStream();
   AT_DISPATCH_REDUCED_FLOATING_TYPES(x.scalar_type(), "round_int8_inputs", [&] {
-    quantize<scalar_t, true><<<row_grid((K / 32 + 3) / 4, rows), 128, 0, stream>>>(x.data_ptr<scalar_t>(), nullptr, nullptr, out.data_ptr<scalar_t>(), K, rows);
+    for (int64_t row = 0; row < rows; row += rows_per_launch) {
+      const int64_t offset = row * K;
+      const auto batch = std::min(rows - row, rows_per_launch);
+      quantize<scalar_t, true><<<dim3((K / 32 + 3) / 4, batch), 128, 0, stream>>>(
+          x.data_ptr<scalar_t>() + offset, nullptr, nullptr, out.data_ptr<scalar_t>() + offset, K);
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
   });
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return out;
 }
