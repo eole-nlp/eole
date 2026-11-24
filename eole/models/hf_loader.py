@@ -26,6 +26,7 @@ from eole.bin.convert.convert_HF import (
     check_sentencepiece_tokenizer,
     check_bpe_tokenizer,
     check_generation_config,
+    compressed_vocabulary_tensors,
     get_weight,
     get_huggingface_model,
     get_shards_map,
@@ -299,6 +300,12 @@ class HFLoader:
             if not isinstance(srckey, str):
                 continue
 
+            if target == "generator.weight":
+                for param, _, value, _ in compressed_vocabulary_tensors(hf, srckey, srcmap, params):
+                    store["generator." + param] = value
+                if "generator.qweight" in store:
+                    continue
+
             if hf.wmap_path:
                 weight_map = hf.wmap["weight_map"]
                 if srckey in weight_map:
@@ -325,6 +332,7 @@ class HFLoader:
                     store[target] = w
 
         # ---- Per-layer tensors ------------------------------------------------
+        num_mtp = model_config.get("decoder", {}).get("num_mtp_heads", model_config.get("num_mtp_heads", 0)) or 0
         for ckpt in shard_checkpoints[0]:
             checkpoint = hf.checkpoint(ckpt)
             if isinstance(checkpoint, dict):
@@ -352,6 +360,10 @@ class HFLoader:
                 )
                 for section, hf_prefix, eole_prefix, layer_offset, source_offset in prefix_mapping:
                     if hf_prefix is None:
+                        continue
+                    if section == "mtp" and not layer_offset <= i < layer_offset + num_mtp:
+                        continue
+                    if section == "decoder" and i >= model_config["layers"]:
                         continue
                     key_map = KEY_MAPS[hf.arch].get(section, {})
                     for target, source in key_map.items():

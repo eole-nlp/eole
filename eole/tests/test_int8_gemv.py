@@ -40,12 +40,12 @@ def reference(x, module):
 
 
 class TestW8A8Policy(unittest.TestCase):
-    def test_missing_triton_rejected_before_preparation(self):
+    def test_missing_cuda_kernels_rejected_before_preparation(self):
         from eole.predict.inference import Inference
 
-        with patch("importlib.util.find_spec", return_value=None):
+        with patch("eole.ops._DYNAMIC_QUANT_OPS_AVAILABLE", False):
             with patch("eole.modules.hybrid_experts.prepare_hybrid_experts") as prepare:
-                with self.assertRaisesRegex(ValueError, "Triton"):
+                with self.assertRaisesRegex(ValueError, "rebuilt Eole CUDA"):
                     Inference._prepare_inference_projections(
                         SimpleNamespace(model=nn.Module()), SimpleNamespace(dense_quantization="w8a8")
                     )
@@ -115,6 +115,14 @@ class TestW8A8CUDA(unittest.TestCase):
                 graph.replay()
                 torch.testing.assert_close(output, reference(x, module), rtol=0.008, atol=0.0005)
         torch._dynamo.reset()
+
+    def test_round_inputs_beyond_cuda_grid_y_limit(self):
+        from eole.modules.int8_gemv import round_int8_inputs
+
+        x = torch.randn(65_537, 128, device="cuda", dtype=torch.bfloat16)
+        # The small calls use one grid slice. Compare every row across the split.
+        expected = torch.cat([round_int8_inputs(chunk) for chunk in x.split(32_768)], dim=0)
+        torch.testing.assert_close(round_int8_inputs(x), expected, rtol=0, atol=0)
 
     def test_inference_packing_without_requantizing_checkpoint_projections(self):
         from eole.predict.inference import Inference

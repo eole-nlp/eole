@@ -28,9 +28,9 @@ def int8_projection(inputs: torch.Tensor, weight: torch.Tensor, scales: torch.Te
         or not scales.is_contiguous()
     ):
         raise ValueError("W8A8 requires contiguous CUDA FP16/BF16 inputs and packed INT8/group-32 weights")
-    from eole.triton.int8_gemv import project
+    from eole import _ops
 
-    return project(inputs, weight, scales)
+    return _ops.int8_projection(inputs, weight, scales)
 
 
 @int8_projection.register_fake
@@ -48,9 +48,9 @@ def round_int8_inputs(inputs: torch.Tensor) -> torch.Tensor:
         or inputs.shape[-1] % 128
     ):
         raise ValueError("W8A8 activation rounding requires contiguous CUDA FP16/BF16 inputs")
-    from eole.triton.int8_gemv import round_inputs
+    from eole import _ops
 
-    return round_inputs(inputs)
+    return _ops.round_int8_inputs(inputs)
 
 
 @round_int8_inputs.register_fake

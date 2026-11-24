@@ -58,8 +58,8 @@ class QuantizeConfig(Config):
         default=[],
         description="Modules to quantize: bare leaf names, exact model-root paths, or shell-style glob patterns.",
     )  # validate against list of layers names ?
-    quant_type: Literal["", "bnb_8bit", "bnb_FP4", "bnb_NF4", "awq_gemm", "awq_gemv", "autoround", "gguf"] = Field(
-        default="", description="Type of compression."
+    quant_type: Literal["", "bnb_8bit", "bnb_FP4", "bnb_NF4", "awq_gemm", "awq_gemv", "autoround", "gguf", "nvfp4"] = (
+        Field(default="", description="Type of compression.")
     )
     w_bit: int = Field(default=4, description="W_bit quantization")  # single authorized value for now actually
     group_size: int = Field(default=128, description="Group size quantization.")  # same

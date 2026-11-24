@@ -184,6 +184,12 @@ class InferenceConfig(RunningConfig, DecodingConfig, LoRaConfig, QuantizeConfig)
         default=None, description="Optional calibrated [K, V] scale pair for each decoder layer."
     )
 
+    fp8_backend: Literal["native", "marlin"] = Field(
+        default="native",
+        description="FP8 projections in mixed compressed checkpoints: native W8A8 or "
+        "Marlin W8A16 (requires rebuilt Eole kernels; activations remain FP16/BF16).",
+    )
+
     dense_quantization: Literal["none", "int8", "w8a8"] = Field(
         default="none",
         description="Runtime INT8 group-32 decoder attention/MLP projections (single-GPU CUDA Marlin). "
