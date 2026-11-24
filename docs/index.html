@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">EOLE | Eole</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="EOLE | Eole"><meta data-rh="true" name="description" content="Documentation"><meta data-rh="true" property="og:description" content="Documentation"><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"EOLE","item":"https://eole-nlp.github.io/eole/docs/"}]}</script><link rel="stylesheet" href="/eole/assets/css/styles.209cbda3.css">
-<script src="/eole/assets/js/runtime~main.6a1a86c0.js" defer="defer"></script>
-<script src="/eole/assets/js/main.31c5daca.js" defer="defer"></script>
+<script src="/eole/assets/js/runtime~main.4b2626b7.js" defer="defer"></script>
+<script src="/eole/assets/js/main.dfd260ae.js" defer="defer"></script>
 </head>
 <body>
 <svg style="display: none;"><defs>
@@ -19,22 +19,16 @@ encoder-decoder models in a compact, modular codebase built for experimentation.
 <p>Use it for language generation, machine translation, neural translation scoring,
 vision and OCR, and speech recognition. Bring supported Hugging Face checkpoints
 or train your own architecture.</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>New support</th><th>Try it</th></tr></thead><tbody><tr><td><strong>DFlash2 speculative decoding for Qwen3.8-27B</strong></td><td><a class="" href="/eole/docs/recipes/qwen38/dflash2/">DFlash2 recipe and benchmarks</a></td></tr></tbody></table>
-<p>Measured on one <strong>RTX 5090</strong> with the RedHat Qwen3.8-27B INT4 target, shared
-INT8 vocabulary heads. DFlash2 verifies eight positions (seven draft tokens);
+<p><strong>Start here:</strong> <a href="#quickstart-serve-a-small-chat-model" class="">Run a small Qwen model</a> ·
+<a class="" href="/eole/docs/recipes/ui/">Open the browser workspace</a> ·
+<a class="" href="/eole/docs/recipes/wmt17/">Train a Transformer</a> ·
+<a class="" href="/eole/docs/recipes/finetuning/">Fine-tune Qwen with LoRA</a> ·
+<a class="" href="/eole/docs/recipes/">Find a recipe</a> ·
+<a href="#qwen38-27b-speculative-decoding" class="">See inference benchmarks</a></p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="qwen38-27b-speculative-decoding">Qwen3.8-27B speculative decoding<a href="#qwen38-27b-speculative-decoding" class="hash-link" aria-label="Direct link to Qwen3.8-27B speculative decoding" title="Direct link to Qwen3.8-27B speculative decoding" translate="no">​</a></h2>
+<p>DFlash2 delivered <strong>3.4× the greedy decode throughput</strong> on the code workload.
+Measured on one <strong>RTX 5090</strong> with the RedHat Qwen3.8-27B INT4 target, shared
+INT8 vocabulary heads. DFlash2 uses seven draft tokens unless specified;
 native MTP uses three draft tokens:</p>
 
 
@@ -71,11 +65,20 @@ native MTP uses three draft tokens:</p>
 
 
 
-<table><thead><tr><th>Decoding mode</th><th style="text-align:right">Code tok/s</th><th style="text-align:right">English tok/s</th><th style="text-align:right">Translation tok/s</th></tr></thead><tbody><tr><td>Ordinary greedy</td><td style="text-align:right">85.8</td><td style="text-align:right">85.9</td><td style="text-align:right">85.4</td></tr><tr><td>Native MTP, 3 drafts</td><td style="text-align:right">188.7</td><td style="text-align:right">140.7</td><td style="text-align:right">181.5</td></tr><tr><td>DFlash2, BF16 drafter</td><td style="text-align:right">223.6</td><td style="text-align:right">140.1</td><td style="text-align:right">212.5</td></tr><tr><td>DFlash2, INT8 drafter with packed projections</td><td style="text-align:right"><strong>239.8</strong></td><td style="text-align:right">139.6</td><td style="text-align:right"><strong>221.0</strong></td></tr></tbody></table>
+
+
+
+
+
+
+<table><thead><tr><th>Decoding mode</th><th style="text-align:right">Code tok/s</th><th style="text-align:right">English tok/s</th><th style="text-align:right">Translation tok/s</th></tr></thead><tbody><tr><td>Ordinary greedy</td><td style="text-align:right">85.9</td><td style="text-align:right">85.7</td><td style="text-align:right">85.3</td></tr><tr><td>Native MTP, 3 drafts</td><td style="text-align:right">191.1</td><td style="text-align:right">136.9</td><td style="text-align:right">180.2</td></tr><tr><td>DFlash2, BF16 drafter</td><td style="text-align:right">221.7</td><td style="text-align:right">139.3</td><td style="text-align:right">208.4</td></tr><tr><td>DFlash2, INT8 drafter with packed projections</td><td style="text-align:right">252.2</td><td style="text-align:right">139.0</td><td style="text-align:right">217.3</td></tr><tr><td>DFlash2, INT8 drafter, 9 draft tokens</td><td style="text-align:right"><strong>289.8</strong></td><td style="text-align:right"><strong>152.9</strong></td><td style="text-align:right"><strong>256.7</strong></td></tr></tbody></table>
 <p>Median warmed decode throughput over three runs per fixture; batch-one greedy,
 64,000-token context capacity, 2,048-token output cap. Speed depends on proposal
 acceptance and workload. See the <a class="" href="/eole/docs/recipes/qwen38/dflash2/">recipe</a> for
-settings, supported scope and numerical limitations.</p>
+settings, supported scope and numerical limitations. All rows were rerun with
+PyTorch 2.15.0 / Triton 3.9.0 and <code>TRITON_DEFAULT_FP_FUSION=1</code>.
+See the <a class="" href="/eole/docs/recipes/qwen38/dflash2/#block-size-sweep">block-size sweep</a>
+for the comparison of six through ten draft tokens.</p>
 <p>DFlash2 output is not guaranteed bit-identical to single-token decoding; these
 speed measurements are not a model-quality evaluation.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="a-local-workspace-included">A local workspace, included<a href="#a-local-workspace-included" class="hash-link" aria-label="Direct link to A local workspace, included" title="Direct link to A local workspace, included" translate="no">​</a></h2>
@@ -93,26 +96,21 @@ page extraction. The complete workspace menu stays visible. Model loading and
 compilation waits are omitted; the displayed generation measurements come from
 Eole&#x27;s inference worker on an RTX 5090. Benchmark numbers measure post-first-token
 decode speed and depend on the prompt, settings and hardware.</p>
-<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="latest-067">Latest: 0.6.7<a href="#latest-067" class="hash-link" aria-label="Direct link to Latest: 0.6.7" title="Direct link to Latest: 0.6.7" translate="no">​</a></h2>
-<p>This patch aligns server startup warmup with the workspace default: when available,
-DFlash2/INT8 is prepared before readiness, avoiding a reload and compilation on
-the first default Chat request. Missing/incompatible drafters retain native startup
-settings.</p>
-<p>The workspace includes DFlash2 decoding for Qwen3.8-27B and controls for
-Off/MTP/DFlash2 with separate drafter and vocabulary-head precision. Generation
-settings open by default, and Chat allows up to 16,384 output tokens. The expanded
-benchmark compares code, English and translation across six decoding profiles,
-with warmups, measured results and JSON export. RunPod automatically downloads
-and verifies the pinned drafter alongside the pre-converted showcase models.</p>
-<p>Eole supports <strong>PyTorch &gt;= 2.14.1 and &lt; 2.15</strong>. The refreshed
-Docker defaults use PyTorch 2.14.1 with CUDA 13.2. Start with the
-<a class="" href="/eole/docs/recipes/ui/">workspace UI</a>, <a class="" href="/eole/docs/recipes/qwen38/">Qwen3.8/MTP recipe</a>,
-or <a class="" href="/eole/docs/guides/docker">Docker guide</a>. See the <a href="https://github.com/eole-nlp/eole/blob/main/CHANGELOG.md#067" target="_blank" rel="noopener noreferrer" class="">changelog</a> for release
-details and remaining limitations.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="latest-068">Latest: 0.6.8<a href="#latest-068" class="hash-link" aria-label="Direct link to Latest: 0.6.8" title="Direct link to Latest: 0.6.8" translate="no">​</a></h2>
+<ul>
+<li class="">Serve concurrent text requests through the OpenAI Responses API with continuous batching, greedy decoding, MTP or DFlash2. Reuse matching prompt prefixes on subsequent requests.</li>
+<li class="">Reduce KV-cache memory with opt-in FP8 storage in standalone inference and continuous serving.</li>
+<li class="">Run supported NVFP4 checkpoints on Blackwell SM120, including mixed NVFP4/FP8 checkpoints with CUDA or Marlin FP8 projections.</li>
+<li class="">Fit more MoE weights in limited VRAM with adaptive GPU expert caching and CPU expert execution. Start with the <a class="" href="/eole/docs/recipes/qwen35/">Qwen MoE recipe</a>.</li>
+</ul>
+<p>Eole supports <strong>PyTorch &gt;= 2.14.1 and &lt; 2.16</strong>. The default Docker image uses
+PyTorch 2.15.0 with CUDA 13.2.1. Start with the <a class="" href="/eole/docs/recipes/ui/">workspace UI</a>,
+<a class="" href="/eole/docs/recipes/qwen38/">Qwen3.8 recipe</a>, or <a class="" href="/eole/docs/guides/docker">Docker guide</a>.
+See the <a href="https://github.com/eole-nlp/eole/blob/main/CHANGELOG.md#068" target="_blank" rel="noopener noreferrer" class="">changelog</a> for release details.</p>
 <p><a href="https://console.runpod.io/deploy?template=e9e19ozt9c&amp;type=gpu" target="_blank" rel="noopener noreferrer" class=""><img decoding="async" loading="lazy" src="https://img.shields.io/badge/RunPod-Deploy%20Eole-673AB7?style=for-the-badge" alt="Deploy on RunPod" class="img_ev3q"></a></p>
 <p>Browser-based Chat, translation and OCR on a rented GPU. See the
 <a class="" href="/eole/docs/recipes/runpod/">RunPod quick start</a> for password setup, GPU choices and
-the required persistent-volume attachment. The <code>0.6.7</code> deployment
+the required persistent-volume attachment. The <code>0.6.8</code> deployment
 uses prebuilt GPU kernels and pre-converted public Eole checkpoints. Maintainers
 publish the new images and update the public template before the button selects
 this release.</p>
@@ -214,7 +212,15 @@ this release.</p>
 
 
 
-<table><thead><tr><th>I want to…</th><th>Start here</th></tr></thead><tbody><tr><td>Run a supported HF model without a separate conversion step</td><td><a class="" href="/eole/docs/recipes/hf/">Direct HF inference</a></td></tr><tr><td>Deploy an authenticated Chat, translation and OCR workspace on a rented GPU</td><td><a class="" href="/eole/docs/recipes/runpod/">RunPod deployment recipe</a></td></tr><tr><td>Chat with a local LLM in your browser</td><td><a class="" href="/eole/docs/recipes/ui/">Local workspace UI</a></td></tr><tr><td>Translate through a web interface: text, terminology, subtitles, and documents</td><td><a class="" href="/eole/docs/recipes/translation/">Hy-MT2 translation workspace</a></td></tr><tr><td>Try Qwen3.8-27B with MTP speculative decoding</td><td><a class="" href="/eole/docs/recipes/qwen38/">Qwen3.8 and MTP</a></td></tr><tr><td>Try DFlash2 speculative decoding with Qwen3.8-27B</td><td><a class="" href="/eole/docs/recipes/qwen38/dflash2/">DFlash2 recipe</a> or <a class="" href="/eole/docs/recipes/ui/#choose-off-mtp-or-dflash2">workspace controls</a></td></tr><tr><td>Use Codex with a locally served Qwen model</td><td><a class="" href="/eole/docs/recipes/codex/">Codex Responses API</a></td></tr><tr><td>Use Claude Code with a locally served Qwen model</td><td><a class="" href="/eole/docs/recipes/claude-code/">Claude Code endpoint</a></td></tr><tr><td>Ask questions about your documents with sources</td><td><a class="" href="/eole/docs/recipes/rag/">Local Knowledge / RAG workspace</a></td></tr><tr><td>Chat with images in the browser</td><td><a class="" href="/eole/docs/recipes/ui/#images-in-chat">Qwen vision Chat workspace</a></td></tr><tr><td>Try Qwen3.5 text and image inputs</td><td><a class="" href="/eole/docs/recipes/qwen35/">Qwen3.5</a></td></tr><tr><td>Train a translation model</td><td><a class="" href="/eole/docs/recipes/wmt17/">WMT17</a></td></tr><tr><td>Translate with a pretrained multilingual model</td><td><a class="" href="/eole/docs/recipes/nllb/">NLLB</a></td></tr><tr><td>Generate text with Mistral</td><td><a class="" href="/eole/docs/recipes/mistral/">Mistral</a></td></tr><tr><td>Fine-tune an LLM</td><td><a class="" href="/eole/docs/recipes/llama2/">Llama2 LoRA</a></td></tr><tr><td>Fine-tune with a scorer reward</td><td><a class="" href="/eole/docs/recipes/rl/">REINFORCE</a></td></tr><tr><td>Score translations or use neural metrics during training</td><td><a class="" href="/eole/docs/recipes/scoring/">COMET, KIWI, XCOMET, and MetricX</a></td></tr><tr><td>Extract scanned PDFs through a web interface</td><td><a class="" href="/eole/docs/recipes/ui/#documents-pdf-and-image-ocr">DeepSeek-OCR / HunyuanOCR Documents workspace</a></td></tr><tr><td>Extract text from images and documents</td><td><a class="" href="/eole/docs/recipes/hunyuanocr/">HunyuanOCR</a> or <a class="" href="/eole/docs/recipes/deepseekocr/">DeepSeek-OCR</a></td></tr><tr><td>Transcribe audio</td><td><a class="" href="/eole/docs/recipes/whisper/">Whisper</a></td></tr><tr><td>Train a language model from scratch</td><td><a class="" href="/eole/docs/recipes/wiki_103/">WikiText-103</a> or <a class="" href="/eole/docs/recipes/fineweb10B/">FineWeb</a></td></tr><tr><td>Evaluate model quality or inference speed</td><td><a class="" href="/eole/docs/recipes/livecodebench/">LiveCodeBench coding</a>, <a class="" href="/eole/docs/recipes/mmlu/">MMLU</a>, <a class="" href="/eole/docs/recipes/model-validator/">model validator</a>, or <a href="https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md" target="_blank" rel="noopener noreferrer" class="">benchmarks</a></td></tr></tbody></table>
+
+
+
+
+
+
+
+
+<table><thead><tr><th>I want to…</th><th>Start here</th></tr></thead><tbody><tr><td>Run a supported HF model without a separate conversion step</td><td><a class="" href="/eole/docs/recipes/hf/">Direct HF inference</a></td></tr><tr><td>Deploy an authenticated Chat, translation and OCR workspace on a rented GPU</td><td><a class="" href="/eole/docs/recipes/runpod/">RunPod deployment recipe</a></td></tr><tr><td>Chat with a local LLM in your browser</td><td><a class="" href="/eole/docs/recipes/ui/">Local workspace UI</a></td></tr><tr><td>Translate through a web interface: text, terminology, subtitles, and documents</td><td><a class="" href="/eole/docs/recipes/translation/">Hy-MT2 translation workspace</a></td></tr><tr><td>Try Qwen3.8-27B with MTP speculative decoding</td><td><a class="" href="/eole/docs/recipes/qwen38/">Qwen3.8 and MTP</a></td></tr><tr><td>Try DFlash2 speculative decoding with Qwen3.8-27B</td><td><a class="" href="/eole/docs/recipes/qwen38/dflash2/">DFlash2 recipe</a> or <a class="" href="/eole/docs/recipes/ui/#choose-off-mtp-or-dflash2">workspace controls</a></td></tr><tr><td>Use Codex with a locally served Qwen model</td><td><a class="" href="/eole/docs/recipes/codex/">Codex Responses API</a></td></tr><tr><td>Serve concurrent coding sessions and compare latency</td><td><a class="" href="/eole/docs/recipes/serving/">Continuous Responses serving</a></td></tr><tr><td>Reduce KV-cache memory with FP8</td><td><a class="" href="/eole/docs/recipes/qwen38/#fp8-kv-cache-for-standalone-inference">Standalone inference</a>, <a class="" href="/eole/docs/recipes/serving/#fp8-target-kv-cache">continuous serving</a></td></tr><tr><td>Use Claude Code with a locally served Qwen model</td><td><a class="" href="/eole/docs/recipes/claude-code/">Claude Code endpoint</a></td></tr><tr><td>Ask questions about your documents with sources</td><td><a class="" href="/eole/docs/recipes/rag/">Local Knowledge / RAG workspace</a></td></tr><tr><td>Chat with images in the browser</td><td><a class="" href="/eole/docs/recipes/ui/#images-in-chat">Qwen vision Chat workspace</a></td></tr><tr><td>Try Qwen3.5 text and image inputs</td><td><a class="" href="/eole/docs/recipes/qwen35/">Qwen3.5</a></td></tr><tr><td>Train an English–German Transformer from scratch</td><td><a class="" href="/eole/docs/recipes/wmt17/">Translation tutorial</a></td></tr><tr><td>Translate with a pretrained multilingual model</td><td><a class="" href="/eole/docs/recipes/nllb/">NLLB</a></td></tr><tr><td>Generate text with Mistral</td><td><a class="" href="/eole/docs/recipes/mistral/">Mistral</a></td></tr><tr><td>Fine-tune a small chat model on one GPU</td><td><a class="" href="/eole/docs/recipes/finetuning/">Qwen LoRA</a></td></tr><tr><td>Fine-tune with a scorer reward</td><td><a class="" href="/eole/docs/recipes/rl/">REINFORCE</a></td></tr><tr><td>Score translations or use neural metrics during training</td><td><a class="" href="/eole/docs/recipes/scoring/">COMET, KIWI, XCOMET, and MetricX</a></td></tr><tr><td>Extract scanned PDFs through a web interface</td><td><a class="" href="/eole/docs/recipes/ui/#documents-pdf-and-image-ocr">DeepSeek-OCR / HunyuanOCR Documents workspace</a></td></tr><tr><td>Extract text from images and documents</td><td><a class="" href="/eole/docs/recipes/hunyuanocr/">HunyuanOCR</a> or <a class="" href="/eole/docs/recipes/deepseekocr/">DeepSeek-OCR</a></td></tr><tr><td>Transcribe audio</td><td><a class="" href="/eole/docs/recipes/whisper/">Whisper</a></td></tr><tr><td>Train a language model from scratch</td><td><a class="" href="/eole/docs/recipes/wiki_103/">WikiText-103</a> or <a class="" href="/eole/docs/recipes/fineweb10B/">FineWeb</a></td></tr><tr><td>Evaluate model quality or inference speed</td><td><a class="" href="/eole/docs/recipes/livecodebench/">LiveCodeBench coding</a>, <a class="" href="/eole/docs/recipes/mmlu/">MMLU</a>, <a class="" href="/eole/docs/recipes/model-validator/">model validator</a>, or <a href="https://github.com/eole-nlp/eole/blob/main/benchmarks/genai/README.md" target="_blank" rel="noopener noreferrer" class="">benchmarks</a></td></tr></tbody></table>
 <p>Browse the <a class="" href="/eole/docs/recipes/">full recipe index</a> for more workflows.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="quickstart-serve-a-small-chat-model">Quickstart: serve a small chat model<a href="#quickstart-serve-a-small-chat-model" class="hash-link" aria-label="Direct link to Quickstart: serve a small chat model" title="Direct link to Quickstart: serve a small chat model" translate="no">​</a></h2>
 <p>Run from the repository root in a Python environment with a compatible CUDA
@@ -236,11 +242,11 @@ fused projections, quantized dense and MoE inference, chunked prefill, prefix
 caching, and optional <code>torch.compile</code> / CUDA graphs. Availability depends on
 model, hardware, installed kernels, and configuration.</li>
 <li class=""><strong>Multi-token prediction:</strong> Auxiliary MTP heads for decoder-only training and
-native speculative decoding for compatible checkpoints, including Qwen3.8-27B. Current inference
-support is text-only, single-sequence, deterministic greedy decoding;
-unsupported configurations fall back to ordinary decoding.</li>
-<li class=""><strong>Serving:</strong> FastAPI server with native inference, OpenAI-style chat completions,
-and Anthropic-style Messages endpoints, including tool-use handling.</li>
+native speculative decoding for compatible checkpoints, including Qwen3.8-27B.
+The Qwen recipe covers standalone greedy decoding and sampling.</li>
+<li class=""><strong>Serving:</strong> FastAPI server with native inference, OpenAI-style Chat and Responses,
+and Anthropic-style Messages. The dedicated Responses backend supports continuous
+greedy text serving with optional MTP, DFlash2, and FP8 target KV.</li>
 <li class=""><strong>Evaluation:</strong> BLEU, chrF, TER, perplexity, native COMET/KIWI/XCOMET and MetricX
 scorers, custom scorer modules, and scorer-based early stopping.</li>
 <li class=""><strong>Reinforcement learning:</strong> On-policy REINFORCE with registered scorer rewards,
@@ -289,7 +295,7 @@ DPO, GRPO, and PPO are planned, not implemented.</li>
 
 
 
-<table><thead><tr><th>Family / task</th><th>Examples and notes</th></tr></thead><tbody><tr><td>Qwen</td><td>Qwen, Qwen2, Qwen3 (including MoE); Qwen3.5 text/vision; Qwen3.8-27B with MTP</td></tr><tr><td>Gemma</td><td>Gemma3 text/image and Gemma4 support</td></tr><tr><td>Mistral</td><td>Mistral, Mixtral, Mathstral, and supported multimodal / Ministral variants</td></tr><tr><td>Llama and Phi</td><td>Llama3.x and Phi2/3</td></tr><tr><td>Translation</td><td>Hy-MT2 workspace; EuroLLM, NLLB, and Tower model recipes</td></tr><tr><td>OCR and vision</td><td>HunyuanOCR, DeepSeek-OCR, Pixtral, and supported vision-language checkpoints</td></tr><tr><td>Speech</td><td>Whisper</td></tr><tr><td>Translation scoring</td><td>COMET, COMET-KIWI, XCOMET, MetricX, and MetricX-QE</td></tr></tbody></table>
+<table><thead><tr><th>Family / task</th><th>Examples and notes</th></tr></thead><tbody><tr><td>Qwen</td><td>Qwen, Qwen2, Qwen3 (including MoE); Qwen3.5 text/vision; Qwen3.8-27B with MTP</td></tr><tr><td>Gemma</td><td><a class="" href="/eole/docs/recipes/gemma3/">Gemma 3 text quickstart</a>, Gemma 3 vision, and Gemma 4 support</td></tr><tr><td>Mistral</td><td>Mistral, Mixtral, Mathstral, and supported multimodal / Ministral variants</td></tr><tr><td>Llama and Phi</td><td>Llama3.x and Phi2/3</td></tr><tr><td>Translation</td><td><a class="" href="/eole/docs/recipes/translation/">Hy-MT2-7B</a> is the local workspace default. See also <a class="" href="/eole/docs/recipes/nllb/">NLLB</a>.</td></tr><tr><td>OCR and vision</td><td>HunyuanOCR, DeepSeek-OCR, Pixtral, and supported vision-language checkpoints</td></tr><tr><td>Speech</td><td>Whisper</td></tr><tr><td>Translation scoring</td><td>COMET, COMET-KIWI, XCOMET, MetricX, and MetricX-QE</td></tr></tbody></table>
 <p>Support is architecture-specific; this table does not imply every checkpoint,
 quantization format, or modality in a family is supported. Consult the relevant
 recipe and converter for the exact configuration. Supported HF checkpoints can
@@ -306,7 +312,7 @@ must be measured on the chosen checkpoint.</p>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="from-source">From source<a href="#from-source" class="hash-link" aria-label="Direct link to From source" title="Direct link to From source" translate="no">​</a></h3>
 <ul>
 <li class="">Python &gt;= 3.11 (current CI uses Python 3.12).</li>
-<li class="">PyTorch &gt;= 2.14.1 and &lt; 2.15, with a CUDA build compatible with your GPU and driver.</li>
+<li class="">PyTorch &gt;= 2.14.1 and &lt; 2.16, with a CUDA build compatible with your GPU and driver.</li>
 <li class="">To compile CUDA extensions: the CUDA toolkit (<code>nvcc</code>), a compatible C++ compiler,
 and the build dependencies below. The CUDA runtime bundled with PyTorch alone
 does not provide <code>nvcc</code>.</li>
@@ -342,7 +348,8 @@ For recipes selecting <code>self_attn_backend: flash</code>, follow the
 <p>Use a release or wheel compatible with your GPU, Python, PyTorch, and CUDA
 versions. The Qwen3.8 measurements used FlashAttention 2.8.3; installing a newer
 package alone does not reproduce that environment.</p>
-<p>The Linux PyTorch 2.14.1 wheel requires Triton 3.8.x; the Docker image pins 3.8.0.
+<p>PyTorch selects the compatible Triton version on Linux. The default Docker
+image uses PyTorch 2.15.0 and Triton 3.9.x.
 For Qwen3.5/Qwen3.8 fast gated-delta computation, install
 <a href="https://pypi.org/project/fla-core/" target="_blank" rel="noopener noreferrer" class="">FLA kernels (<code>fla-core</code>)</a>:</p>
 <div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">python -m pip install &quot;fla-core==0.6.0&quot;</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python -c &#x27;from fla.ops.gated_delta_rule import chunk_gated_delta_rule, fused_recurrent_gated_delta_rule; print(&quot;FLA gated-delta interfaces loaded&quot;)&#x27;</span><br></div></code></pre></div></div>
@@ -361,7 +368,7 @@ authentication. See individual recipes for model-specific requirements.</p>
 <p>Requires Docker, a compatible NVIDIA driver, and the
 <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" target="_blank" rel="noopener noreferrer" class="">NVIDIA Container Toolkit</a>.</p>
 <p>Use a <a href="https://github.com/eole-nlp/eole/pkgs/container/eole" target="_blank" rel="noopener noreferrer" class="">published image</a> or
-build an image from your checkout (the tested default is PyTorch 2.14.1 / CUDA 13.2).
+build an image from your checkout (the default is PyTorch 2.15.0 / CUDA 13.2.1).
 Images include the Chat, Translate, Documents and Knowledge dependencies. The <a class="" href="/eole/docs/guides/docker">Docker guide</a> covers GPU
 prerequisites, local builds, CUDA kernels, model/data mounts, YAML inference and
 training, and serving an API endpoint.</p>
@@ -376,6 +383,6 @@ which a normal Docker image build does not provide.</p>
 <li class=""><a href="https://github.com/eole-nlp/eole/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer" class="">Contributing</a></li>
 </ul>
 <p>Use <a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="">Discussions</a> for questions and
-feature proposals, and <a href="https://github.com/eole-nlp/eole/issues" target="_blank" rel="noopener noreferrer" class="">Issues</a> for bugs.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/edit/main/README.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/main"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Toolkit overview</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#a-local-workspace-included" class="table-of-contents__link toc-highlight">A local workspace, included</a></li><li><a href="#latest-067" class="table-of-contents__link toc-highlight">Latest: 0.6.7</a></li><li><a href="#choose-your-workflow" class="table-of-contents__link toc-highlight">Choose your workflow</a></li><li><a href="#quickstart-serve-a-small-chat-model" class="table-of-contents__link toc-highlight">Quickstart: serve a small chat model</a></li><li><a href="#features" class="table-of-contents__link toc-highlight">Features</a></li><li><a href="#supported-hugging-face-model-families" class="table-of-contents__link toc-highlight">Supported Hugging Face model families</a></li><li><a href="#performance-and-reproducibility" class="table-of-contents__link toc-highlight">Performance and reproducibility</a></li><li><a href="#installation" class="table-of-contents__link toc-highlight">Installation</a><ul><li><a href="#from-source" class="table-of-contents__link toc-highlight">From source</a></li><li><a href="#build-kernels-for-running-directly-from-a-clone" class="table-of-contents__link toc-highlight">Build kernels for running directly from a clone</a></li><li><a href="#flashattention-and-hybrid-attention-kernels" class="table-of-contents__link toc-highlight">FlashAttention and hybrid-attention kernels</a></li><li><a href="#docker" class="table-of-contents__link toc-highlight">Docker</a></li></ul></li><li><a href="#documentation-and-contributing" class="table-of-contents__link toc-highlight">Documentation and contributing</a></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
+feature proposals, and <a href="https://github.com/eole-nlp/eole/issues" target="_blank" rel="noopener noreferrer" class="">Issues</a> for bugs.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/edit/main/README.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/main"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Toolkit overview</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#qwen38-27b-speculative-decoding" class="table-of-contents__link toc-highlight">Qwen3.8-27B speculative decoding</a></li><li><a href="#a-local-workspace-included" class="table-of-contents__link toc-highlight">A local workspace, included</a></li><li><a href="#latest-068" class="table-of-contents__link toc-highlight">Latest: 0.6.8</a></li><li><a href="#choose-your-workflow" class="table-of-contents__link toc-highlight">Choose your workflow</a></li><li><a href="#quickstart-serve-a-small-chat-model" class="table-of-contents__link toc-highlight">Quickstart: serve a small chat model</a></li><li><a href="#features" class="table-of-contents__link toc-highlight">Features</a></li><li><a href="#supported-hugging-face-model-families" class="table-of-contents__link toc-highlight">Supported Hugging Face model families</a></li><li><a href="#performance-and-reproducibility" class="table-of-contents__link toc-highlight">Performance and reproducibility</a></li><li><a href="#installation" class="table-of-contents__link toc-highlight">Installation</a><ul><li><a href="#from-source" class="table-of-contents__link toc-highlight">From source</a></li><li><a href="#build-kernels-for-running-directly-from-a-clone" class="table-of-contents__link toc-highlight">Build kernels for running directly from a clone</a></li><li><a href="#flashattention-and-hybrid-attention-kernels" class="table-of-contents__link toc-highlight">FlashAttention and hybrid-attention kernels</a></li><li><a href="#docker" class="table-of-contents__link toc-highlight">Docker</a></li></ul></li><li><a href="#documentation-and-contributing" class="table-of-contents__link toc-highlight">Documentation and contributing</a></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
 </body>
 </html>

@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="en" dir="ltr" class="docs-wrapper plugin-docs plugin-id-default docs-version-current docs-doc-page docs-doc-id-recipes/serving/README" data-has-hydrated="false">
+<head>
+<meta charset="UTF-8">
+<meta name="generator" content="Docusaurus v3.10.2">
+<title data-rh="true">Continuous Responses serving | Eole</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://eole-nlp.github.io/eole/docs/recipes/serving/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Continuous Responses serving | Eole"><meta data-rh="true" name="description" content="Serve multiple greedy text sessions through /v1/responses on one GPU with one"><meta data-rh="true" property="og:description" content="Serve multiple greedy text sessions through /v1/responses on one GPU with one"><link data-rh="true" rel="icon" href="/eole/img/eole-logo.ico"><link data-rh="true" rel="canonical" href="https://eole-nlp.github.io/eole/docs/recipes/serving/"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/recipes/serving/" hreflang="en"><link data-rh="true" rel="alternate" href="https://eole-nlp.github.io/eole/docs/recipes/serving/" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Recipes","item":"https://eole-nlp.github.io/eole/docs/category/recipes"},{"@type":"ListItem","position":2,"name":"Continuous Responses serving","item":"https://eole-nlp.github.io/eole/docs/recipes/serving/"}]}</script><link rel="stylesheet" href="/eole/assets/css/styles.209cbda3.css">
+<script src="/eole/assets/js/runtime~main.4b2626b7.js" defer="defer"></script>
+<script src="/eole/assets/js/main.dfd260ae.js" defer="defer"></script>
+</head>
+<body>
+<svg style="display: none;"><defs>
+<symbol id="theme-svg-external-link" viewBox="0 0 24 24"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"/></symbol>
+</defs></svg>
+<script>!function(){var t=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();document.documentElement.setAttribute("data-theme",t||"dark"),document.documentElement.setAttribute("data-theme-choice",t||"dark")}(),function(){try{const c=new URLSearchParams(window.location.search).entries();for(var[t,e]of c)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script><div id="__docusaurus"><link rel="preload" as="image" href="/eole/img/eole-logo.png"><div role="region" aria-label="Skip to main content"><a class="skipToContent_fXgn" href="#__docusaurus_skipToContent_fallback">Skip to main content</a></div><nav aria-label="Main" class="theme-layout-navbar navbar navbar--fixed-top"><div class="navbar__inner"><div class="theme-layout-navbar-left navbar__items"><button aria-label="Toggle navigation bar" aria-expanded="false" class="navbar__toggle clean-btn" type="button"><svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path stroke="currentColor" stroke-linecap="round" stroke-miterlimit="10" stroke-width="2" d="M4 7h22M4 15h22M4 23h22"></path></svg></button><a class="navbar__brand" href="/eole/"><div class="navbar__logo"><img src="/eole/img/eole-logo.png" alt="Eole Logo" class="themedComponent_mlkZ themedComponent--light_NVdE"><img src="/eole/img/eole-logo.png" alt="Eole Logo" class="themedComponent_mlkZ themedComponent--dark_xIcU"></div><b class="navbar__title text--truncate"></b></a><a aria-current="page" class="navbar__item navbar__link navbar__link--active" href="/eole/docs/">Docs</a><a class="navbar__item navbar__link" href="/eole/docs/reference/index">Reference</a></div><div class="theme-layout-navbar-right navbar__items navbar__items--right"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="navbar__item navbar__link">GitHub<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a><div class="toggle_vylO colorModeToggle_DEke"><button class="clean-btn toggleButton_gllP toggleButtonDisabled_aARS" type="button" disabled="" title="system mode" aria-label="Switch between dark and light mode (currently system mode)"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="toggleIcon_g3eP lightToggleIcon_pyhR"><path fill="currentColor" d="M12,9c1.65,0,3,1.35,3,3s-1.35,3-3,3s-3-1.35-3-3S10.35,9,12,9 M12,7c-2.76,0-5,2.24-5,5s2.24,5,5,5s5-2.24,5-5 S14.76,7,12,7L12,7z M2,13l2,0c0.55,0,1-0.45,1-1s-0.45-1-1-1l-2,0c-0.55,0-1,0.45-1,1S1.45,13,2,13z M20,13l2,0c0.55,0,1-0.45,1-1 s-0.45-1-1-1l-2,0c-0.55,0-1,0.45-1,1S19.45,13,20,13z M11,2v2c0,0.55,0.45,1,1,1s1-0.45,1-1V2c0-0.55-0.45-1-1-1S11,1.45,11,2z M11,20v2c0,0.55,0.45,1,1,1s1-0.45,1-1v-2c0-0.55-0.45-1-1-1C11.45,19,11,19.45,11,20z M5.99,4.58c-0.39-0.39-1.03-0.39-1.41,0 c-0.39,0.39-0.39,1.03,0,1.41l1.06,1.06c0.39,0.39,1.03,0.39,1.41,0s0.39-1.03,0-1.41L5.99,4.58z M18.36,16.95 c-0.39-0.39-1.03-0.39-1.41,0c-0.39,0.39-0.39,1.03,0,1.41l1.06,1.06c0.39,0.39,1.03,0.39,1.41,0c0.39-0.39,0.39-1.03,0-1.41 L18.36,16.95z M19.42,5.99c0.39-0.39,0.39-1.03,0-1.41c-0.39-0.39-1.03-0.39-1.41,0l-1.06,1.06c-0.39,0.39-0.39,1.03,0,1.41 s1.03,0.39,1.41,0L19.42,5.99z M7.05,18.36c0.39-0.39,0.39-1.03,0-1.41c-0.39-0.39-1.03-0.39-1.41,0l-1.06,1.06 c-0.39,0.39-0.39,1.03,0,1.41s1.03,0.39,1.41,0L7.05,18.36z"></path></svg><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="toggleIcon_g3eP darkToggleIcon_wfgR"><path fill="currentColor" d="M9.37,5.51C9.19,6.15,9.1,6.82,9.1,7.5c0,4.08,3.32,7.4,7.4,7.4c0.68,0,1.35-0.09,1.99-0.27C17.45,17.19,14.93,19,12,19 c-3.86,0-7-3.14-7-7C5,9.07,6.81,6.55,9.37,5.51z M12,3c-4.97,0-9,4.03-9,9s4.03,9,9,9s9-4.03,9-9c0-0.46-0.04-0.92-0.1-1.36 c-0.98,1.37-2.58,2.26-4.4,2.26c-2.98,0-5.4-2.42-5.4-5.4c0-1.81,0.89-3.42,2.26-4.4C12.92,3.04,12.46,3,12,3L12,3z"></path></svg><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="toggleIcon_g3eP systemToggleIcon_QzmC"><path fill="currentColor" d="m12 21c4.971 0 9-4.029 9-9s-4.029-9-9-9-9 4.029-9 9 4.029 9 9 9zm4.95-13.95c1.313 1.313 2.05 3.093 2.05 4.95s-0.738 3.637-2.05 4.95c-1.313 1.313-3.093 2.05-4.95 2.05v-14c1.857 0 3.637 0.737 4.95 2.05z"></path></svg></button></div><div class="navbarSearchContainer_Bca1"><div class="navbar__search"><span aria-label="expand searchbar" role="button" class="search-icon" tabindex="0"></span><input id="search_input_react" type="search" placeholder="Loading..." aria-label="Search" class="navbar__search-input search-bar" disabled=""></div></div></div></div><div role="presentation" class="navbar-sidebar__backdrop"></div></nav><div id="__docusaurus_skipToContent_fallback" class="theme-layout-main main-wrapper mainWrapper_z2l0"><div class="docsWrapper_hBAB"><button aria-label="Scroll back to top" class="clean-btn theme-back-to-top-button backToTopButton_sjWU" type="button"></button><div class="docRoot_UBD9"><aside class="theme-doc-sidebar-container docSidebarContainer_YfHR"><div class="sidebarViewport_aRkj"><div class="sidebar_njMd"><nav aria-label="Docs sidebar" class="menu thin-scrollbar menu_SIkG"><ul class="theme-doc-sidebar-menu menu__list"><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/"><span class="linkLabel_WmDU">EOLE</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/main"><span class="linkLabel_WmDU">Toolkit overview</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/quickstart"><span class="linkLabel_WmDU">Quickstart</span></a></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist menu__link--sublist-caret" role="button" aria-expanded="false" href="/eole/docs/guides/"><span class="categoryLinkLabel_W154">Guides and validation</span></a></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" href="/eole/docs/category/key-concepts"><span class="categoryLinkLabel_W154">Key Concepts</span></a><button aria-label="Expand sidebar category &#x27;Key Concepts&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" href="/eole/docs/category/frequently-asked-questions"><span class="categoryLinkLabel_W154">Frequently Asked Questions</span></a><button aria-label="Expand sidebar category &#x27;Frequently Asked Questions&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist menu__link--active" href="/eole/docs/category/recipes"><span class="categoryLinkLabel_W154">Recipes</span></a><button aria-label="Collapse sidebar category &#x27;Recipes&#x27;" aria-expanded="true" type="button" class="clean-btn menu__caret"></button></div><ul class="menu__list"><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/NewsPalm-synthetic/"><span class="linkLabel_WmDU">Example of using Hugging Face streaming dataset</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/"><span class="linkLabel_WmDU">Recipes</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/claude-code/"><span class="linkLabel_WmDU">Use Claude Code with local Qwen3.8 served by Eole</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/codex/"><span class="linkLabel_WmDU">Use Codex with local Qwen served by Eole</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/deepseekocr/"><span class="linkLabel_WmDU">DeepSeek-OCR</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/finetuning/"><span class="linkLabel_WmDU">Fine-tune a Qwen chat model with LoRA</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/fineweb10B/"><span class="linkLabel_WmDU">Train a language model on FineWeb 10BT</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/gemma3/"><span class="linkLabel_WmDU">Run Gemma 3 text generation</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/gpt2/"><span class="linkLabel_WmDU">OpenAI GPT2</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/hf/"><span class="linkLabel_WmDU">Run a supported Hugging Face model directly</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/hunyuan/"><span class="linkLabel_WmDU">Hunyuan-MT-7B</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/hunyuanocr/"><span class="linkLabel_WmDU">HunyuanOCR</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/livecodebench/"><span class="linkLabel_WmDU">Coding correctness with LiveCodeBench</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/mistral/"><span class="linkLabel_WmDU">Mistral inference</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/mixtral/"><span class="linkLabel_WmDU">Mixtral</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/mmlu/"><span class="linkLabel_WmDU">Evaluation with MMLU dataset</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/model-validator/"><span class="linkLabel_WmDU">Model conversion smoke tests</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/nllb/"><span class="linkLabel_WmDU">NLLB conversion and translation</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/pixtral/"><span class="linkLabel_WmDU">Pixtral</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/qwen35/"><span class="linkLabel_WmDU">Qwen3.5: text, vision, streaming, and serving</span></a></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" tabindex="0" href="/eole/docs/recipes/qwen38/"><span class="categoryLinkLabel_W154">Qwen3.8-27B and native MTP speculative decoding</span></a><button aria-label="Expand sidebar category &#x27;Qwen3.8-27B and native MTP speculative decoding&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" tabindex="0" href="/eole/docs/recipes/rag/"><span class="categoryLinkLabel_W154">Local Knowledge (RAG) workspace</span></a><button aria-label="Expand sidebar category &#x27;Local Knowledge (RAG) workspace&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/rl/"><span class="linkLabel_WmDU">RL fine-tuning recipes</span></a></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" tabindex="0" href="/eole/docs/recipes/runpod/"><span class="categoryLinkLabel_W154">Eole on RunPod</span></a><button aria-label="Expand sidebar category &#x27;Eole on RunPod&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="categoryLink_byQd menu__link menu__link--sublist" tabindex="0" href="/eole/docs/recipes/scoring/"><span class="categoryLinkLabel_W154">Scoring Recipes</span></a><button aria-label="Expand sidebar category &#x27;Scoring Recipes&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/server/"><span class="linkLabel_WmDU">Serve a model with Eole</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link menu__link--active" aria-current="page" tabindex="0" href="/eole/docs/recipes/serving/"><span class="linkLabel_WmDU">Continuous Responses serving</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/translation/"><span class="linkLabel_WmDU">Translate in the Eole workspace</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/ui/"><span class="linkLabel_WmDU">Eole local workspace</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/whisper/"><span class="linkLabel_WmDU">Whisper</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/wiki_103/"><span class="linkLabel_WmDU">Train a language model on WikiText-103</span></a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/eole/docs/recipes/wmt17/"><span class="linkLabel_WmDU">Train a Transformer for English–German translation</span></a></li></ul></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-1 menu__list-item"><a class="menu__link" href="/eole/docs/contributing"><span class="linkLabel_WmDU">Contributors</span></a></li></ul></nav></div></div></aside><main class="docMainContainer_TBSr"><div class="container padding-top--md padding-bottom--lg"><div class="row"><div class="col docItemCol_VOVn"><div class="docItemContainer_Djhp"><article><nav class="theme-doc-breadcrumbs breadcrumbsContainer_Z_bl" aria-label="Breadcrumbs"><ul class="breadcrumbs"><li class="breadcrumbs__item"><a aria-label="Home page" class="breadcrumbs__link" href="/eole/"><svg viewBox="0 0 24 24" class="breadcrumbHomeIcon_YNFT"><path d="M10 19v-5h4v5c0 .55.45 1 1 1h3c.55 0 1-.45 1-1v-7h1.7c.46 0 .68-.57.33-.87L12.67 3.6c-.38-.34-.96-.34-1.34 0l-8.36 7.53c-.34.3-.13.87.33.87H5v7c0 .55.45 1 1 1h3c.55 0 1-.45 1-1z" fill="currentColor"></path></svg></a></li><li class="breadcrumbs__item"><a class="breadcrumbs__link" href="/eole/docs/category/recipes"><span>Recipes</span></a></li><li class="breadcrumbs__item breadcrumbs__item--active"><span class="breadcrumbs__link">Continuous Responses serving</span></li></ul></nav><div class="tocCollapsible_ETCw theme-doc-toc-mobile tocMobile_ITEo"><button type="button" class="clean-btn tocCollapsibleButton_TO0P">On this page</button></div><div class="theme-doc-markdown markdown"><header><h1>Continuous Responses serving</h1></header>
+<p>Serve multiple greedy text sessions through <code>/v1/responses</code> on one GPU with one
+model. The <a class="" href="/eole/docs/recipes/codex/">Codex recipe</a> covers client setup. The load tests
+here use synthetic tool calls and report serving performance.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="run-locally">Run locally<a href="#run-locally" class="hash-link" aria-label="Direct link to Run locally" title="Direct link to Run locally" translate="no">​</a></h2>
+<p>From the repository root, use a dedicated CUDA GPU and a <a class="" href="/eole/docs/recipes/qwen38/#download-the-pre-converted-eole-checkpoint">converted or pre-converted
+Qwen3.8-27B INT4 checkpoint</a>.
+The example uses greedy text requests through <code>/v1/responses</code>.</p>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">export EOLE_MODEL_DIR=&quot;$PWD/models&quot;  # or your existing model directory</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">export QWEN38_MODEL=&quot;$EOLE_MODEL_DIR/Qwen3.8-27B-INT4&quot;</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">export CUDA_VISIBLE_DEVICES=0</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">export EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">export TRITON_DEFAULT_FP_FUSION=1</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain" style="display:inline-block"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">eole serve -c recipes/serving/serve_continuous.yaml \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --host 127.0.0.1 --port 5019</span><br></div></code></pre></div></div>
+<p>After the server reports readiness, run a text, streaming, and tool-call
+smoke test from a second terminal:</p>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">python recipes/codex/smoke_test.py --base-url http://127.0.0.1:5019/v1 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --model qwen3.8-27B</span><br></div></code></pre></div></div>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="measure-latency-and-throughput">Measure latency and throughput<a href="#measure-latency-and-throughput" class="hash-link" aria-label="Direct link to Measure latency and throughput" title="Direct link to Measure latency and throughput" translate="no">​</a></h2>
+<p>Install <code>aiohttp</code> in the benchmark environment. Use the same prompts and request
+settings for each server profile:</p>
+<ul>
+<li class=""><code>recipes/serving/serve.yaml</code> runs the serialized baseline.</li>
+<li class=""><code>recipes/serving/serve_continuous.yaml</code> runs continuous greedy decoding.</li>
+<li class=""><code>recipes/serving/serve_continuous_mtp.yaml</code> runs continuous MTP with three drafts.</li>
+</ul>
+<p>To change profiles, stop the current server with Ctrl+C and rerun <code>eole serve</code>
+with the selected YAML and the same host and port. Then run:</p>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">python recipes/serving/benchmark_responses.py \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --concurrency 1 2 4 8 --repeats 2 --max-tokens 128 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --output /tmp/eole-short.json</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain" style="display:inline-block"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python recipes/serving/benchmark_agentic.py \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --concurrency 1 2 4 8 --duration 30 --context-lines 120 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --tool-rounds 3 --max-tokens 128 --output /tmp/eole-agentic.json</span><br></div></code></pre></div></div>
+<p>Both scripts default to <code>http://127.0.0.1:5019/v1</code>, model <code>qwen3.8-27B</code> and a
+600-second HTTP timeout. For authentication use <code>--api-key-env NAME</code>; its value
+is not saved. Stop the server with Ctrl+C to release its GPU model.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="batched-mtp">Batched MTP<a href="#batched-mtp" class="hash-link" aria-label="Direct link to Batched MTP" title="Direct link to Batched MTP" translate="no">​</a></h2>
+<p><code>self_speculative_decoding: true</code> selects recurrent Qwen MTP for the continuous
+backend; <code>self_speculative_num_tokens</code> sets the draft count. There is no second
+serving flag. The supplied MTP YAML uses three drafts and a native BF16 vocabulary
+head. This requires exactly one recurrent Qwen MTP head, CUDA FlashAttention,
+fixed-capacity one-dimensional RoPE, greedy text and one GPU.</p>
+<p>Preparation compiles and captures the fixed-width verifier and recurrent drafter
+before readiness, for both the full slot bank and singleton rows.
+The verifier uses the same local artifact cache as standalone MTP, with
+separate entries for the continuous verifier&#x27;s singleton and bank layouts.
+The cache follows <code>speculative_verifier_cache</code> and <code>EOLE_VERIFIER_CACHE_DIR</code>.
+Startup loads compatible artifacts and captures fresh CUDA graphs for the
+current process before serving requests. Each request
+owns its target KV/GDN state, MTP KV prefix and pending verified context. Acceptance
+and EOS/output-budget truncation happen independently per row. A grouped replay
+commits only each row&#x27;s accepted GDN prefix; cancellation and slot reuse discard
+that request&#x27;s state. Extra physical KV slots are verifier scratch and do not
+reduce the configured context budget. The standalone MTP drafting loop is unchanged.</p>
+<p>The target validates every proposed token. BF16 batched/multi-token kernels can
+round differently from single-token decoding, including near-tie argmax changes;
+this does not promise bit-identical output or establish a quality score.</p>
+<p>With <code>eole_metrics: true</code>, terminal responses additionally report proposed and
+accepted draft counts, acceptance by draft position and verifier cycles. Acceptance
+is accepted emitted drafts divided by <strong>all computed proposals</strong>, including
+proposals discarded at an EOS/output boundary. Benchmark summaries pool counts
+across requests rather than averaging individual acceptance percentages.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="batched-dflash2">Batched DFlash2<a href="#batched-dflash2" class="hash-link" aria-label="Direct link to Batched DFlash2" title="Direct link to Batched DFlash2" translate="no">​</a></h2>
+<p>For a dedicated continuous server with a compatible DFlash2 checkpoint, set
+<code>dflash2_model</code> in the model config. The drafter checkpoint sets the block
+size. Use compiled mode 0 for the drafter bank graph. Once two or more requests
+are decoding, the bank drafts each slot in one replay, with independent
+positions and committed feature counts. A single active request keeps the
+singleton graph. Both graphs share the slot&#x27;s ring storage, so requests can
+move between the two paths as other jobs arrive and finish.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="continuous-prompt-prefix-reuse">Continuous prompt prefix reuse<a href="#continuous-prompt-prefix-reuse" class="hash-link" aria-label="Direct link to Continuous prompt prefix reuse" title="Direct link to Continuous prompt prefix reuse" translate="no">​</a></h2>
+<p>Set <code>continuous.prefix_cache_entries</code> to a positive count to retain that many
+prefilled prompt states with ordinary greedy decoding, MTP, or DFlash2. Use it on a dedicated server for trusted
+clients because cache hits can change request timing across clients. The default
+is zero. A hit requires the complete saved prompt to match a strict prefix of
+the new prompt. The matching entry moves to the new request, which prefills only
+the suffix. Each retained entry holds one full-capacity target KV and GDN cache
+plus MTP prefix KV and the last target hidden state, or DFlash2 trailing features, when enabled. Set the count with that VRAM cost in mind.
+With <code>eole_metrics: true</code>, <code>reused_prefix_tokens</code> reports the skipped input tokens.</p>
+<p>In a paired RTX 5090 run with eight clients, four decode slots, 4K context,
+Qwen3.8-27B INT4, a native BF16 vocabulary head and an INT8 DFlash2 drafter
+(seven drafts), the three-tool-round workload produced these results:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th style="text-align:right">Retained prompts</th><th style="text-align:right">Jobs/min</th><th style="text-align:right">Job p95 (s)</th><th style="text-align:right">Peak device memory (GiB)</th></tr></thead><tbody><tr><td style="text-align:right">0</td><td style="text-align:right">17.61</td><td style="text-align:right">28.65</td><td style="text-align:right">26.31</td></tr><tr><td style="text-align:right">8</td><td style="text-align:right">37.75</td><td style="text-align:right">14.19</td><td style="text-align:right">29.78</td></tr></tbody></table>
+<p>With eight entries, 94 of 128 completed model turns reused a prefix and skipped
+71.5% of input tokens. Median prefill start to first token fell from 0.90 to
+0.09 s. Both runs admitted jobs for 45 seconds and then drained. Device memory
+was sampled every 0.5 s. Use <code>benchmark_agentic.py --concurrency 8 --duration 45 --context-lines 120 --tool-rounds 3 --max-tokens 128</code> to reproduce the workload.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="paired-continuous-mtp-measurements">Paired continuous MTP measurements<a href="#paired-continuous-mtp-measurements" class="hash-link" aria-label="Direct link to Paired continuous MTP measurements" title="Direct link to Paired continuous MTP measurements" translate="no">​</a></h2>
+<p>RTX 5090, Torch 2.15.0+cu132, Triton 3.9.0, FLA 0.6.0, FlashAttention 2.8.3,
+compile mode 0 and FP fusion enabled. Both profiles use the same INT4 Qwen3.8-27B
+checkpoint, <strong>native BF16 vocabulary head</strong>, four slots, 4K capacity per slot,
+256 active / 512 idle prefill, gate/KVQ fusion and no prefix reuse. MTP uses three
+drafts. Preparation and one HTTP warmup are excluded from measured cells.</p>
+<p>Each pair is <strong>ordinary → MTP</strong>. Short jobs use two repeats per client and a
+128-token cap per request. Multi-turn jobs use the existing three-tool-round
+scenario, 454–2,938 input tokens, 30 seconds of admission followed by drain,
+100–400 ms tool delays and intentional disconnects. Both profiles include the
+GDN convolution-history fix for chunked prefill introduced with batched MTP.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Workload</th><th style="text-align:right">Clients</th><th style="text-align:right">Per-request decode p50 (tok/s)</th><th style="text-align:right">Jobs/min</th><th style="text-align:right">Job p95 (s)</th><th style="text-align:right">MTP acceptance</th></tr></thead><tbody><tr><td>Short text</td><td style="text-align:right">1</td><td style="text-align:right">82.5 → 170.7</td><td style="text-align:right">34.73 → 63.98</td><td style="text-align:right">1.74 → 0.94</td><td style="text-align:right">84.3%</td></tr><tr><td>Short text</td><td style="text-align:right">4</td><td style="text-align:right">53.6 → 95.8</td><td style="text-align:right">85.10 → 135.19</td><td style="text-align:right">3.12 → 2.28</td><td style="text-align:right">82.5%</td></tr><tr><td>Short text</td><td style="text-align:right">8</td><td style="text-align:right">45.8 → 74.8</td><td style="text-align:right">85.74 → 139.94</td><td style="text-align:right">6.65 → 4.53</td><td style="text-align:right">82.3%</td></tr><tr><td>Short tool loop</td><td style="text-align:right">1</td><td style="text-align:right">82.9 → 164.8</td><td style="text-align:right">26.17 → 43.35</td><td style="text-align:right">2.31 → 1.39</td><td style="text-align:right">83.3%</td></tr><tr><td>Short tool loop</td><td style="text-align:right">4</td><td style="text-align:right">43.1 → 42.5</td><td style="text-align:right">50.93 → 59.11</td><td style="text-align:right">5.33 → 4.50</td><td style="text-align:right">81.4%</td></tr><tr><td>Short tool loop</td><td style="text-align:right">8</td><td style="text-align:right">18.3 → 24.3</td><td style="text-align:right">49.90 → 68.66</td><td style="text-align:right">10.91 → 8.36</td><td style="text-align:right">81.1%</td></tr><tr><td>Multi-turn tools</td><td style="text-align:right">4</td><td style="text-align:right">17.5 → 30.5</td><td style="text-align:right">13.88 → 15.02</td><td style="text-align:right">18.88 → 17.10</td><td style="text-align:right">86.2%</td></tr><tr><td>Multi-turn tools</td><td style="text-align:right">8</td><td style="text-align:right">11.1 → 30.0</td><td style="text-align:right">14.20 → 15.35</td><td style="text-align:right">34.26 → 31.65</td><td style="text-align:right">85.9%</td></tr></tbody></table>
+<p>These are small serving samples, not coding-quality measurements. At four clients,
+short-text jobs/min improved 59%; the longer tool workloads improved about 8%.
+The latter remain dominated by interleaved prefill/tool work: faster decode does
+not imply the same percentage gain in complete workflows. At four clients the
+short-tool decode p50 was slightly lower with MTP even though job p95 and jobs/min
+improved. All simulated tool/protocol checks passed; the two multi-turn cells
+included one and two intentional disconnects respectively.</p>
+<p>Sampled whole-device serving peaks were 22.39 / 23.41 GiB
+(<code>nvidia-smi</code>, 0.5 s samples). These depend on the workload and configuration.</p>
+<p>On the same four-slot setup, a fresh process with both saved verifier artifacts
+reached readiness in <strong>19.0 s</strong>, versus <strong>49.0 s</strong> with only the PyTorch compiler
+cache. Graph preparation fell from 35.9 to 5.9 s. Creating both artifacts took
+134.1 s to readiness in a run with existing PyTorch compilation caches.
+The original first compile in the paired benchmark took 230.7 s before artifact
+support was added. Those first-start runs had different compiler cache states.
+After loading the artifacts, short-text decode p50 at 1/4/8 clients was
+167.2 / 96.8 / 75.6 tok/s, with identical pooled acceptance counts to the
+original run.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="what-each-metric-measures">What each metric measures<a href="#what-each-metric-measures" class="hash-link" aria-label="Direct link to What each metric measures" title="Direct link to What each metric measures" translate="no">​</a></h2>
+<p>The scripts request the Eole-specific <code>eole_metrics: true</code> extension. Terminal
+Responses then contain server-measured decode durations and counts; default Responses payloads remain
+unchanged. A mismatched old server or missing timings fails the benchmark.
+Model token counts and timestamps include terminal EOS when generated.</p>
+<ul>
+<li class=""><strong>Per-request decode p50:</strong> the median token-delivery rate across individual
+model requests, including tool-call and final-answer requests in multi-turn
+workloads. Each rate is <code>(generated tokens - 1) / (last server token time - first server token time)</code>. It excludes that request&#x27;s initial queue/prefill and first
+token, but includes pauses while other requests are prefilled or decoded.
+It describes typical token delivery under load, not isolated decoder capacity.
+Serialized requests can decode quickly after a long wait; continuous requests
+share the GPU and can finish whole workflows sooner despite slower delivery.
+Percentiles use the nearest-rank convention; p10 and individual records are saved.</li>
+<li class=""><strong>First visible output p95:</strong> client HTTP submission to first text/reasoning or
+tool-argument delta. This includes queue/prefill/delivery; tool blocks are
+buffered, so it is <strong>not</strong> pure first-model-token or prefill latency.</li>
+<li class=""><strong>Jobs/min:</strong> complete workflows finished per minute across all clients;
+higher is better. Wall time includes queueing, all prefills, generation,
+simulated tool delays, HTTP delivery and final drain. A short-text job is one
+request, a short-tool job is a tool call followed by an answer, and a multi-turn
+or 12K-input job is three model/tool exchanges followed by a final answer.</li>
+<li class=""><strong>Job p95:</strong> the completion time within which 95% of measured jobs finished,
+from each job&#x27;s submission through its final response. Lower is better.
+For example, 31.60 seconds means 95% finished within about 32 seconds. Small
+samples do not establish production latency guarantees.</li>
+</ul>
+<p>Combined decode-window throughput is omitted from comparisons: interleaved
+prefills enter the active windows in continuous mode but are outside them in
+serialized mode, so that metric does not isolate decoder capacity consistently.</p>
+<p>JSON additionally retains <code>end_to_end_output_tokens_per_second</code>, explicitly named
+as such. It is <strong>not decode speed and is not shown as the headline tok/s metric</strong>.
+Earlier figures such as 270 short-prompt or 43 agent-loop tok/s used that
+end-to-end definition; they must not be read as decode-only results.
+Inter-chunk gaps are also not per-token latency: a tool call may arrive in one
+SSE event. Server timings avoid that buffering error.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="earlier-ordinary-only-measurement-setup">Earlier ordinary-only measurement setup<a href="#earlier-ordinary-only-measurement-setup" class="hash-link" aria-label="Direct link to Earlier ordinary-only measurement setup" title="Direct link to Earlier ordinary-only measurement setup" translate="no">​</a></h2>
+<p>Measured 17 November 2026: RTX 5090, PyTorch 2.15.0+cu132, Triton 3.9.0, FLA 0.6.0, FlashAttention 2.8.3,
+compile mode 0, FP fusion enabled, INT4 Qwen3.8-27B target and <strong>native BF16
+vocabulary head</strong>, no MTP/DFlash2 or prefix reuse, gate/KVQ fusion enabled.
+Short and multi-turn sweeps use <strong>4,096-token capacity in every slot</strong>. Serialized
+prefill uses 256 tokens; continuous uses <strong>256 active / 512 idle</strong>. Changing slot
+count requires a YAML copy with <code>continuous.slots</code> set accordingly.</p>
+<p>Each profile has one unmeasured short HTTP warmup. Startup/model graph preparation
+is outside the measured cells. All cells run on localhost, with no other compute
+model on GPU0. These are initial samples, not statistical speed guarantees.
+Different prompts, contexts and concurrency remain different workloads even when
+the metric definition is identical to the front-page decode benchmark.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="short-text-one-generation-per-job">Short text: one generation per job<a href="#short-text-one-generation-per-job" class="hash-link" aria-label="Direct link to Short text: one generation per job" title="Direct link to Short text: one generation per job" translate="no">​</a></h2>
+<p>Two jobs per client; 128-token output cap. Prompts request a small Python function
+and tests, with distinct job IDs. This is the decode-heavy concurrency probe.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Profile</th><th style="text-align:right">Clients</th><th style="text-align:right">Per-request decode p50 (tok/s)</th><th style="text-align:right">First visible output p95 (s)</th><th style="text-align:right">Job p95 (s)</th><th style="text-align:right">Jobs/min</th></tr></thead><tbody><tr><td>Serialized</td><td style="text-align:right">1</td><td style="text-align:right">78.4</td><td style="text-align:right">0.22</td><td style="text-align:right">1.90</td><td style="text-align:right">31.76</td></tr><tr><td>Serialized</td><td style="text-align:right">2</td><td style="text-align:right">78.5</td><td style="text-align:right">2.14</td><td style="text-align:right">3.80</td><td style="text-align:right">31.73</td></tr><tr><td>Serialized</td><td style="text-align:right">4</td><td style="text-align:right">78.4</td><td style="text-align:right">5.93</td><td style="text-align:right">7.61</td><td style="text-align:right">31.81</td></tr><tr><td>Serialized</td><td style="text-align:right">8</td><td style="text-align:right">78.7</td><td style="text-align:right">13.53</td><td style="text-align:right">15.18</td><td style="text-align:right">31.88</td></tr><tr><td>4 slots</td><td style="text-align:right">1</td><td style="text-align:right">81.8</td><td style="text-align:right">0.20</td><td style="text-align:right">1.75</td><td style="text-align:right">34.35</td></tr><tr><td>4 slots</td><td style="text-align:right">2</td><td style="text-align:right">58.4</td><td style="text-align:right">0.39</td><td style="text-align:right">2.41</td><td style="text-align:right">50.10</td></tr><tr><td>4 slots</td><td style="text-align:right">4</td><td style="text-align:right">54.0</td><td style="text-align:right">0.80</td><td style="text-align:right">3.11</td><td style="text-align:right">85.43</td></tr><tr><td>4 slots</td><td style="text-align:right">8</td><td style="text-align:right">46.0</td><td style="text-align:right">3.80</td><td style="text-align:right">6.56</td><td style="text-align:right">86.46</td></tr><tr><td>8 slots</td><td style="text-align:right">1</td><td style="text-align:right">82.2</td><td style="text-align:right">0.20</td><td style="text-align:right">1.75</td><td style="text-align:right">34.40</td></tr><tr><td>8 slots</td><td style="text-align:right">2</td><td style="text-align:right">55.5</td><td style="text-align:right">0.41</td><td style="text-align:right">2.54</td><td style="text-align:right">47.76</td></tr><tr><td>8 slots</td><td style="text-align:right">4</td><td style="text-align:right">51.4</td><td style="text-align:right">0.80</td><td style="text-align:right">3.20</td><td style="text-align:right">82.31</td></tr><tr><td>8 slots</td><td style="text-align:right">8</td><td style="text-align:right">41.5</td><td style="text-align:right">1.62</td><td style="text-align:right">4.82</td><td style="text-align:right">128.56</td></tr></tbody></table>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="short-tool-loop-two-requests-per-job">Short tool loop: two requests per job<a href="#short-tool-loop-two-requests-per-job" class="hash-link" aria-label="Direct link to Short tool loop: two requests per job" title="Direct link to Short tool loop: two requests per job" translate="no">​</a></h2>
+<p>Request <code>read_fixture(counter.py)</code>, check its name/arguments/call ID, wait
+50 ms, return an in-memory fixture, then request a patch and tests. No code
+is executed. Two jobs per client, 128-token cap per request.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Profile</th><th style="text-align:right">Clients</th><th style="text-align:right">Per-request decode p50 (tok/s)</th><th style="text-align:right">First visible output p95 (s)</th><th style="text-align:right">Job p95 (s)</th><th style="text-align:right">Jobs/min</th></tr></thead><tbody><tr><td>Serialized</td><td style="text-align:right">1</td><td style="text-align:right">65.9</td><td style="text-align:right">0.70</td><td style="text-align:right">2.79</td><td style="text-align:right">21.68</td></tr><tr><td>Serialized</td><td style="text-align:right">2</td><td style="text-align:right">66.0</td><td style="text-align:right">2.65</td><td style="text-align:right">5.42</td><td style="text-align:right">22.26</td></tr><tr><td>Serialized</td><td style="text-align:right">4</td><td style="text-align:right">66.2</td><td style="text-align:right">6.51</td><td style="text-align:right">10.81</td><td style="text-align:right">22.31</td></tr><tr><td>Serialized</td><td style="text-align:right">8</td><td style="text-align:right">65.9</td><td style="text-align:right">14.08</td><td style="text-align:right">21.86</td><td style="text-align:right">22.04</td></tr><tr><td>4 slots</td><td style="text-align:right">1</td><td style="text-align:right">82.8</td><td style="text-align:right">0.48</td><td style="text-align:right">2.28</td><td style="text-align:right">26.28</td></tr><tr><td>4 slots</td><td style="text-align:right">2</td><td style="text-align:right">56.0</td><td style="text-align:right">0.89</td><td style="text-align:right">3.56</td><td style="text-align:right">34.92</td></tr><tr><td>4 slots</td><td style="text-align:right">4</td><td style="text-align:right">43.0</td><td style="text-align:right">1.59</td><td style="text-align:right">5.24</td><td style="text-align:right">51.83</td></tr><tr><td>4 slots</td><td style="text-align:right">8</td><td style="text-align:right">18.5</td><td style="text-align:right">4.48</td><td style="text-align:right">10.55</td><td style="text-align:right">51.64</td></tr><tr><td>8 slots</td><td style="text-align:right">1</td><td style="text-align:right">82.6</td><td style="text-align:right">0.49</td><td style="text-align:right">2.30</td><td style="text-align:right">26.16</td></tr><tr><td>8 slots</td><td style="text-align:right">2</td><td style="text-align:right">52.9</td><td style="text-align:right">0.90</td><td style="text-align:right">3.76</td><td style="text-align:right">33.04</td></tr><tr><td>8 slots</td><td style="text-align:right">4</td><td style="text-align:right">39.8</td><td style="text-align:right">1.88</td><td style="text-align:right">5.68</td><td style="text-align:right">48.56</td></tr><tr><td>8 slots</td><td style="text-align:right">8</td><td style="text-align:right">15.7</td><td style="text-align:right">4.02</td><td style="text-align:right">9.16</td><td style="text-align:right">65.57</td></tr></tbody></table>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="longer-multi-turn-agents">Longer multi-turn agents<a href="#longer-multi-turn-agents" class="hash-link" aria-label="Direct link to Longer multi-turn agents" title="Direct link to Longer multi-turn agents" translate="no">​</a></h2>
+<p>Reported inputs span 454–2,938 tokens. Mixed short/long repository prompts,
+three tool calls plus final answer,
+100–400 ms variable tool delays and 150 ms staggered client arrivals. Each
+client replenishes work for a 30-second admission window, then all admitted
+jobs drain. Every fifth admitted job also opens a separate stream after
+completion and disconnects after real text. Cancelled partial tokens are
+excluded from rates; their elapsed work remains in job wall time and may
+stall other clients. Tool/protocol failures fail the run.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Profile</th><th style="text-align:right">Clients</th><th style="text-align:right">Per-request decode p50 (tok/s)</th><th style="text-align:right">First visible output p95 (s)</th><th style="text-align:right">Job p95 (s)</th><th style="text-align:right">Jobs/min</th></tr></thead><tbody><tr><td>Serialized</td><td style="text-align:right">1</td><td style="text-align:right">64.6</td><td style="text-align:right">1.54</td><td style="text-align:right">8.12</td><td style="text-align:right">8.86</td></tr><tr><td>Serialized</td><td style="text-align:right">2</td><td style="text-align:right">64.6</td><td style="text-align:right">3.37</td><td style="text-align:right">14.58</td><td style="text-align:right">9.58</td></tr><tr><td>Serialized</td><td style="text-align:right">4</td><td style="text-align:right">64.5</td><td style="text-align:right">7.78</td><td style="text-align:right">25.88</td><td style="text-align:right">9.82</td></tr><tr><td>Serialized</td><td style="text-align:right">8</td><td style="text-align:right">64.6</td><td style="text-align:right">14.71</td><td style="text-align:right">47.78</td><td style="text-align:right">9.79</td></tr><tr><td>4 slots</td><td style="text-align:right">1</td><td style="text-align:right">82.0</td><td style="text-align:right">1.15</td><td style="text-align:right">6.53</td><td style="text-align:right">10.76</td></tr><tr><td>4 slots</td><td style="text-align:right">2</td><td style="text-align:right">38.4</td><td style="text-align:right">2.32</td><td style="text-align:right">11.50</td><td style="text-align:right">12.58</td></tr><tr><td>4 slots</td><td style="text-align:right">4</td><td style="text-align:right">18.0</td><td style="text-align:right">4.52</td><td style="text-align:right">19.03</td><td style="text-align:right">13.91</td></tr><tr><td>4 slots</td><td style="text-align:right">8</td><td style="text-align:right">11.1</td><td style="text-align:right">7.72</td><td style="text-align:right">34.49</td><td style="text-align:right">14.16</td></tr><tr><td>8 slots</td><td style="text-align:right">1</td><td style="text-align:right">81.9</td><td style="text-align:right">1.16</td><td style="text-align:right">6.54</td><td style="text-align:right">10.73</td></tr><tr><td>8 slots</td><td style="text-align:right">2</td><td style="text-align:right">45.2</td><td style="text-align:right">2.32</td><td style="text-align:right">11.59</td><td style="text-align:right">12.61</td></tr><tr><td>8 slots</td><td style="text-align:right">4</td><td style="text-align:right">17.2</td><td style="text-align:right">4.42</td><td style="text-align:right">19.12</td><td style="text-align:right">13.87</td></tr><tr><td>8 slots</td><td style="text-align:right">8</td><td style="text-align:right">8.6</td><td style="text-align:right">7.98</td><td style="text-align:right">31.60</td><td style="text-align:right">14.75</td></tr></tbody></table>
+<p>Active generations pause while the GPU prefills other requests. That lowers
+per-request decode speed under continuous load, while improved prefill/decode
+overlap can complete more whole jobs per minute. The short-text probe above is
+the closer measure of decode-heavy capacity.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="larger-context-stress-up-to-12k-input-tokens">Larger-context stress: up to 12K input tokens<a href="#larger-context-stress-up-to-12k-input-tokens" class="hash-link" aria-label="Direct link to Larger-context stress: up to 12K input tokens" title="Direct link to Larger-context stress: up to 12K input tokens" translate="no">​</a></h2>
+<p>Copies of the YAMLs use <code>context_length: 16384</code>; continuous uses four slots.
+This retains the same three tool rounds and variable delays. Reproduce with:</p>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">python recipes/serving/benchmark_agentic.py --concurrency 4 --duration 30 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --context-lines 600 --max-tokens 128 --output /tmp/eole-stress.json</span><br></div></code></pre></div></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Profile</th><th style="text-align:right">Clients</th><th style="text-align:right">Per-request decode p50 (tok/s)</th><th style="text-align:right">First visible output p95 (s)</th><th style="text-align:right">Job p95 (s)</th><th style="text-align:right">Jobs/min</th></tr></thead><tbody><tr><td>Serialized</td><td style="text-align:right">4</td><td style="text-align:right">63.2</td><td style="text-align:right">13.13</td><td style="text-align:right">47.43</td><td style="text-align:right">5.01</td></tr><tr><td>4 slots</td><td style="text-align:right">4</td><td style="text-align:right">9.6</td><td style="text-align:right">11.04</td><td style="text-align:right">39.17</td><td style="text-align:right">6.07</td></tr></tbody></table>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="memory-and-fixed-context-capacity">Memory and fixed context capacity<a href="#memory-and-fixed-context-capacity" class="hash-link" aria-label="Direct link to Memory and fixed context capacity" title="Direct link to Memory and fixed context capacity" translate="no">​</a></h2>
+<p>Sampled whole-device serving peaks below cover each profile’s measured
+workloads; nvidia-smi samples every 0.5 seconds and may miss brief spikes.
+Weights, native BF16 head, KV/GDN state, graphs and temporary storage are
+included. These are observations, not arbitrary-prompt memory bounds.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Profile</th><th style="text-align:right">Context per slot</th><th style="text-align:right">Sampled serving peak (GiB)</th></tr></thead><tbody><tr><td>Serialized</td><td style="text-align:right">4096</td><td style="text-align:right">20.31</td></tr><tr><td>4 slots</td><td style="text-align:right">4096</td><td style="text-align:right">21.58</td></tr><tr><td>8 slots</td><td style="text-align:right">4096</td><td style="text-align:right">22.94</td></tr><tr><td>Serialized</td><td style="text-align:right">16384</td><td style="text-align:right">21.93</td></tr><tr><td>4 slots</td><td style="text-align:right">16384</td><td style="text-align:right">25.25</td></tr></tbody></table>
+<p>For this checkpoint, 16 full-attention layers × 4 KV heads × 256 dimensions ×
+K/V × 2-byte BF16 = <strong>64 KiB/context token/slot</strong>. Eight slots use 2 GiB of KV
+at 4K, 16 GiB at 32K or 32 GiB at 64K, before weights/GDN/graphs/temporaries.
+Storage is not paged. Do not extrapolate these results to long-context Codex
+sessions or assume the tested configurations fit a 24-GiB display GPU.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="why-the-recipe-uses-256-active--512-idle-prefill">Why the recipe uses 256 active / 512 idle prefill<a href="#why-the-recipe-uses-256-active--512-idle-prefill" class="hash-link" aria-label="Direct link to Why the recipe uses 256 active / 512 idle prefill" title="Direct link to Why the recipe uses 256 active / 512 idle prefill" translate="no">​</a></h2>
+<p>A retained 8K-context experiment exposed a regression with 128-token active
+chunks. The table below is <strong>end-to-end jobs/min</strong>, recalculated from saved job
+counts and wall time; decode timings were not saved in that older experiment.
+It is a historical policy comparison, not part of the fresh 4K decode tables.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Eight-client profile, 8K capacity</th><th style="text-align:right">Admission window (s)</th><th style="text-align:right">Jobs/min</th><th style="text-align:right">Job p95 (s)</th></tr></thead><tbody><tr><td>Serialized, 256 prefill</td><td style="text-align:right">45</td><td style="text-align:right">9.49</td><td style="text-align:right">50.02</td></tr><tr><td>4 slots, 128 active / 512 idle</td><td style="text-align:right">45</td><td style="text-align:right">8.38</td><td style="text-align:right">56.20</td></tr><tr><td>8 slots, 128 active / 512 idle</td><td style="text-align:right">45</td><td style="text-align:right">8.41</td><td style="text-align:right">56.02</td></tr><tr><td>4 slots, 256 active / 512 idle</td><td style="text-align:right">30</td><td style="text-align:right">14.24</td><td style="text-align:right">34.39</td></tr></tbody></table>
+<p>The windows differ and these are small samples; they are not repeated statistical
+comparisons. The larger active chunk improved whole jobs in that workload.
+Prefills still run FIFO, one at a time, yielding between decode rounds. This is
+not priority scheduling around queued long prompts.</p>
+<p>A retained idle-only phase probe encoded a 1,817-token prompt once and timed
+cache allocation, prefill/admission and first token, excluding HTTP/tokenization.
+One warmup plus two measured repeats per size:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Idle chunk</th><th style="text-align:right">Warmed seconds to first token</th></tr></thead><tbody><tr><td>128</td><td style="text-align:right">1.270</td></tr><tr><td>256</td><td style="text-align:right">0.677</td></tr><tr><td>512</td><td style="text-align:right">0.466</td></tr><tr><td>1024</td><td style="text-align:right">0.460</td></tr></tbody></table>
+<p>This is a <strong>phase latency</strong> table, not prefill or decode tok/s; 512 captured most
+of this measured gain. Reproduce with:</p>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python recipes/serving/check_continuous.py --compiled-step \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --model &quot;$QWEN38_MODEL&quot; --prefill-sweep --output /tmp/eole-prefill-sweep.json</span><br></div></code></pre></div></div>
+<p>Omitting <code>continuous.prefill_idle_chunk_size</code> preserves the active chunk size;
+the idle value must be at least the active value.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="retained-sustained-reusecancellation-check">Retained sustained reuse/cancellation check<a href="#retained-sustained-reusecancellation-check" class="hash-link" aria-label="Direct link to Retained sustained reuse/cancellation check" title="Direct link to Retained sustained reuse/cancellation check" translate="no">​</a></h2>
+<p>The earlier four-slot/eight-client, 8K-context soak used 256 active / 512 idle.
+A 180-second admission window plus drain took 200.58 seconds: <strong>47 jobs / 188
+ordinary requests / nine intentional disconnects</strong>, or <strong>14.06 jobs/min</strong>.
+All tool/protocol checks passed; no ordinary response hit its cap. Clients
+completed <code>6, 6, 6, 6, 6, 6, 6, 5</code> jobs; short/long first-visible-output p95 was
+7.98 / 8.32 seconds and overall job p95 was 37.48 seconds.</p>
+<p>Sampled GPU memory stayed at <strong>22.68 GiB</strong> after the first 40 serving seconds
+until shutdown; PyTorch peak allocated/reserved was 21.41 / 21.82 GiB. This is
+finite evidence of stable memory and client progress, not a universal leak or
+fairness proof. Only saved job/latency/memory metrics are retained here; a decode
+speed has not been invented retrospectively from buffered SSE events.</p>
+<p>Reproduce with <code>benchmark_agentic.py --concurrency 8 --duration 180</code>, using an
+8K YAML copy. This reliability run need not be repeated to relabel its metrics.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="worker-ownership-and-supported-settings">Worker ownership and supported settings<a href="#worker-ownership-and-supported-settings" class="hash-link" aria-label="Direct link to Worker ownership and supported settings" title="Direct link to Worker ownership and supported settings" translate="no">​</a></h2>
+<p>One dedicated worker owns the engine. RequestCache transfers ownership of KV,
+GDN recurrent/convolution state, padding and positions; admission copies a
+separately prefilled request into its slot once. Singleton row views share bank
+storage. Explicit decoder steps use per-row RoPE positions; ordinary predictor
+routing retains its existing path. Startup prepares bank/singleton graphs before
+readiness; failed capture fails preparation. Shutdown stops the worker, closes
+graphs and unloads the model. A worker failure fails affected streams and requires
+reload. Queued, prefilling and decoding cancellation retire/release capacity.</p>
+<p>Only greedy text Responses are supported. Sampling, penalties, images,
+Non-recurrent MTP variants, tensor parallelism and general prediction/scoring are
+rejected. Use <code>temperature: 0</code> or greedy defaults. The server must contain one
+model and must not use <code>model_policy: single</code>, whose lease would serialize it.
+Another ordinary predictor must not run on the worker-owned engine concurrently.</p>
+<p>The core probe below tests late arrivals, mixed lengths, cancellation and reuse.
+It reports actual chunk boundaries, widths, tokens and mismatch diagnostics:</p>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=0 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python recipes/serving/check_continuous.py --model &quot;$QWEN38_MODEL&quot; \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --output /tmp/eole-continuous-core.json</span><br></div></code></pre></div></div>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="correctness-solo-bit-identity-is-not-guaranteed">Correctness: solo bit-identity is not guaranteed<a href="#correctness-solo-bit-identity-is-not-guaranteed" class="hash-link" aria-label="Direct link to Correctness: solo bit-identity is not guaranteed" title="Direct link to Correctness: solo bit-identity is not guaranteed" translate="no">​</a></h2>
+<p>The earlier 92-token check was too small to support a broad equality claim.
+The expanded test ran ten requests, cancelled three in queued/prefill/decode
+states, and completed seven for <strong>1,558 generated tokens</strong>. All references replay
+the request&#x27;s actual prefill chunks.</p>
+<ul>
+<li class="">Against compiled <strong>single-row</strong> free generation, four of seven continuations
+diverged, first at token indices 67, 147, 177 and 64 (zero-based). Against an
+eager singleton reference, first divergences also differed. Thus selecting
+matching compilation alone does not ensure cross-batch identical output.</li>
+<li class="">At the first compiled-solo divergences, final-hidden relative RMS differences
+were roughly 0.7–1.2%; each decision involved the same two leading candidates,
+with rounded log-probability ties in one path. This is evidence consistent
+with width-dependent numerical differences, not a model-quality measurement.</li>
+<li class="">A separate <strong>state-isolation control</strong> replayed the actual token prefixes with
+the same slot, batch width and prefill boundaries, but removed other live
+requests. All <strong>1,558 target decisions matched</strong>. This checks isolation under
+matching arithmetic; it is not independent single-row free generation and
+does not prove universal absence of state bugs.</li>
+</ul>
+<p>The probe records widths, tokens and first-mismatch diagnostics. By default a
+mismatch fails the run. <code>--allow-divergence</code> explicitly permits saving a numerical
+comparison without a failing exit; do not treat that flag as an equality pass.</p>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain"># Cross-batch comparison: numerical divergence can occur.</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python recipes/serving/check_continuous.py --compiled-step --slots 4 --tokens 256 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --prefill-idle-chunk-size 512 --allow-divergence \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --model &quot;$QWEN38_MODEL&quot; --output /tmp/eole-solo-comparison.json</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain" style="display:inline-block"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain"># Strict isolated-state comparison with matching arithmetic schedule.</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">python recipes/serving/check_continuous.py --compiled-step --reference-mode isolation \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --slots 4 --tokens 256 --prefill-idle-chunk-size 512 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  --model &quot;$QWEN38_MODEL&quot; --output /tmp/eole-state-isolation.json</span><br></div></code></pre></div></div>
+<p>The uniform-table RoPE regressions compare legacy 2-D and repeated 3-D tables
+for multiple rows and tokens, in CUDA FP16/BF16 and the PyTorch/compiled-dispatch
+branch. Greedy selection still uses the existing <code>log_softmax().argmax()</code> rule:
+removing log-softmax is mathematically valid but can change decisions through
+low-precision rounding/ties, so it is not folded into this serving change.
+Tokenization remains on the worker and decisions still synchronize with the
+CPU once per tick; those remain profiling opportunities.</p>
+<p>The qualified workload here is single-GPU greedy text Responses serving on the
+measured RTX 5090 configurations. Larger contexts, other hardware and actual
+Codex coding-task quality remain outside this qualification. No native Eole
+extension rebuild is required; startup still prepares runtime-specific
+torch.compile programs and CUDA graphs.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="automated-gpu-correctness-tests">Automated GPU correctness tests<a href="#automated-gpu-correctness-tests" class="hash-link" aria-label="Direct link to Automated GPU correctness tests" title="Direct link to Automated GPU correctness tests" translate="no">​</a></h2>
+<p><code>eole.tests.test_continuous_gpu</code> uses small, explicitly initialized Eole decoders
+with real FlashAttention and FLA kernels, not a fake runner or downloaded weights.
+Both attention-only and GDN models compare mixed-position batched logits and
+KV/recurrent/convolution state against independent ordinary decoding with BF16
+tolerances. Tests exercise admission into occupied rows, late arrivals, partial
+prefill cancellation, slot reuse, compiled replay and the inference-mode contract.
+The MTP suite additionally checks recurrent drafts against standalone MTP,
+different per-row GDN commit lengths, EOS, context boundaries, cancellation and
+reuse with compiled verification. CPU tests compare grouped commits to independent
+sequential prefixes and check convolution history across prefill chunks.
+The random-weight scheduler fixture also checks its emitted tokens against solo
+inference; this does not assert universal bit-identity on arbitrary checkpoints.</p>
+<div class="language-bash codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-bash codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token plain">CUDA_VISIBLE_DEVICES=0 EOLE_TORCH_COMPILE=1 EOLE_COMPILE_MODE=0 \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">EOLE_REQUIRE_GPU_TESTS=1 python -m unittest -v \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  eole.tests.test_continuous_gpu \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  eole.tests.test_continuous_mtp_gpu \</span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  eole.tests.test_request_cache.RequestRotaryCudaTests</span><br></div></code></pre></div></div>
+<p>This requires matching Eole CUDA ops, FlashAttention and FLA in the environment.
+<code>EOLE_REQUIRE_GPU_TESTS=1</code> fails if CUDA or the required compile configuration is
+missing, rather than allowing the GPU job to pass with skipped tests. Ordinary
+CPU CI still skips the CUDA integration cases.</p>
+<p>The <strong>Continuous decoder GPU tests</strong> Actions workflow is prepared for a self-hosted
+Linux x64 runner labelled <code>gpu</code>, with a compatible Torch/FlashAttention/FLA Python
+environment and CUDA toolkit. It builds this checkout&#x27;s ops in an isolated venv
+for the attached GPU. No GPU runner is currently configured: the tests have run
+locally, and GPU CI is not yet an active check. After registering that runner,
+maintainers can dispatch reviewed refs manually. Set the repository Actions
+variable <code>EOLE_GPU_CI=true</code> to enable automatic same-repository PR runs. Fork code
+never runs automatically on the self-hosted host; manual dispatch is for reviewed
+code only. The workflow must be available on the default branch before dispatch.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="runtime-contracts">Runtime contracts<a href="#runtime-contracts" class="hash-link" aria-label="Direct link to Runtime contracts" title="Direct link to Runtime contracts" translate="no">​</a></h2>
+<p>Compilation keeps normal Dynamo guards. Captured CUDA graphs require model flags,
+parameter/cache storage and layouts to remain fixed for the worker lifetime;
+change model configuration through unload/reload, not mutation during replay.
+The bank still runs all rows when at least two requests are active. Idle-row cost
+is a documented trade-off; per-step KV gathering/compaction is outside this change.</p>
+<p>Requests with <code>0 &lt; top_p &lt; 1</code> are rejected; 0 disables nucleus filtering and 1
+keeps the full distribution before greedy selection. Admission requires exactly
+one nonempty unpadded source sequence, checked against the collator&#x27;s <code>srclen</code>.
+Formatted prompt EOS/turn-boundary IDs remain valid. Other generation routes,
+including Chat, Anthropic, native inference and workspace POST routes, return a
+clear 409 before model loading or SSE headers on a continuous-only server.</p>
+<p>Cooperative cancellation cannot interrupt a hard-hung CUDA kernel. The worker
+must retain ownership of state while it runs; a timeout must not release that
+state for another request. A hard device hang requires an external process
+supervisor to restart the server. There is no in-process CUDA-hang recovery here.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="fp8-target-kv-cache">FP8 target KV cache<a href="#fp8-target-kv-cache" class="hash-link" aria-label="Direct link to FP8 target KV cache" title="Direct link to FP8 target KV cache" translate="no">​</a></h2>
+<p>Set <code>kv_cache_dtype: fp8_e4m3</code> in the model&#x27;s <code>continuous</code> settings to store the
+target attention cache in E4M3 on CUDA compute capability 8.9 or newer.
+For example, add this inside the model&#x27;s <code>continuous</code> block:</p>
+<div class="language-yaml codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-yaml codeBlock_bY9V thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#F8F8F2"><span class="token key atrule">continuous</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  </span><span class="token key atrule">slots</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> </span><span class="token number">1</span><span class="token plain"></span><br></div><div class="token-line" style="color:#F8F8F2"><span class="token plain">  </span><span class="token key atrule">kv_cache_dtype</span><span class="token punctuation" style="color:rgb(248, 248, 242)">:</span><span class="token plain"> fp8_e4m3</span><br></div></code></pre></div></div>
+<p>Set the KV dtype and scales in the <code>continuous</code> block for continuous serving.
+The default <code>native</code> keeps the model&#x27;s compute dtype and rejects a conflicting
+FP8 setting in the model&#x27;s ordinary inference config. FP8 requires a working
+FlashAttention backend, with FlashInfer installed for prompt prefill and a length-aware
+Triton split-KV kernel for decode and verification. The CUDA tests use FlashInfer 0.7.2. This path requires full-window
+attention, head dimension 64, 128 or 256, and verification blocks of up to 16 tokens.</p>
+<p>An optional <code>kv_cache_scales</code> list contains a <code>[key_scale, value_scale]</code> pair for
+each decoder layer. Use <code>null</code> for GDN layers. Omitted scales default to one.
+Start with unit scales and evaluate calibrated scales on held-out prompts before
+deploying them. The cache stores values divided by their scales and uses the
+corresponding scales on reads.
+Target K/V storage is halved. GDN and drafter state retain their existing dtype,
+and split attention uses temporary reduction buffers. Leave room for prefill
+activations and CUDA graphs when choosing the number of slots and context
+capacity. A cache can fit at startup while a long prompt still runs out of VRAM.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/eole-nlp/eole/edit/main/recipes/serving/README.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/eole/docs/recipes/server/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Serve a model with Eole</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/eole/docs/recipes/translation/"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Translate in the Eole workspace</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#run-locally" class="table-of-contents__link toc-highlight">Run locally</a></li><li><a href="#measure-latency-and-throughput" class="table-of-contents__link toc-highlight">Measure latency and throughput</a></li><li><a href="#batched-mtp" class="table-of-contents__link toc-highlight">Batched MTP</a></li><li><a href="#batched-dflash2" class="table-of-contents__link toc-highlight">Batched DFlash2</a></li><li><a href="#continuous-prompt-prefix-reuse" class="table-of-contents__link toc-highlight">Continuous prompt prefix reuse</a></li><li><a href="#paired-continuous-mtp-measurements" class="table-of-contents__link toc-highlight">Paired continuous MTP measurements</a></li><li><a href="#what-each-metric-measures" class="table-of-contents__link toc-highlight">What each metric measures</a></li><li><a href="#earlier-ordinary-only-measurement-setup" class="table-of-contents__link toc-highlight">Earlier ordinary-only measurement setup</a></li><li><a href="#short-text-one-generation-per-job" class="table-of-contents__link toc-highlight">Short text: one generation per job</a></li><li><a href="#short-tool-loop-two-requests-per-job" class="table-of-contents__link toc-highlight">Short tool loop: two requests per job</a></li><li><a href="#longer-multi-turn-agents" class="table-of-contents__link toc-highlight">Longer multi-turn agents</a></li><li><a href="#larger-context-stress-up-to-12k-input-tokens" class="table-of-contents__link toc-highlight">Larger-context stress: up to 12K input tokens</a></li><li><a href="#memory-and-fixed-context-capacity" class="table-of-contents__link toc-highlight">Memory and fixed context capacity</a></li><li><a href="#why-the-recipe-uses-256-active--512-idle-prefill" class="table-of-contents__link toc-highlight">Why the recipe uses 256 active / 512 idle prefill</a></li><li><a href="#retained-sustained-reusecancellation-check" class="table-of-contents__link toc-highlight">Retained sustained reuse/cancellation check</a></li><li><a href="#worker-ownership-and-supported-settings" class="table-of-contents__link toc-highlight">Worker ownership and supported settings</a></li><li><a href="#correctness-solo-bit-identity-is-not-guaranteed" class="table-of-contents__link toc-highlight">Correctness: solo bit-identity is not guaranteed</a></li><li><a href="#automated-gpu-correctness-tests" class="table-of-contents__link toc-highlight">Automated GPU correctness tests</a></li><li><a href="#runtime-contracts" class="table-of-contents__link toc-highlight">Runtime contracts</a></li><li><a href="#fp8-target-kv-cache" class="table-of-contents__link toc-highlight">FP8 target KV cache</a></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/eole/docs/">Docs</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole/discussions" target="_blank" rel="noopener noreferrer" class="footer__link-item">Github<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/eole-nlp/eole" target="_blank" rel="noopener noreferrer" class="footer__link-item">Source<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">EOLE is an open-source toolkit and is licensed under the MIT license.</div></div></div></footer></div>
+</body>
+</html>
