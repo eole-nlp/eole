@@ -47,6 +47,7 @@ class TestCompressedFloat(unittest.TestCase):
             "a.weight_packed": torch.tensor([[0x81, 0x7F]], dtype=torch.uint8),
             "a.weight_scale": torch.ones(1, 1).to(torch.float8_e4m3fn),
             "a.weight_global_scale": torch.tensor([2.0]),
+            "a.input_global_scale": torch.tensor([3.0]),
             "b.weight": torch.ones(2, 16).to(torch.float8_e4m3fn),
             "b.weight_scale": torch.tensor([[1.0], [2.0]]),
             "native.weight": torch.ones(2, 16, dtype=torch.bfloat16),
@@ -61,6 +62,10 @@ class TestCompressedFloat(unittest.TestCase):
         ):
             self.assertIs(view[virtual], tensors[source])
             self.assertEqual(view.source_keys(virtual), {source})
+        for suffix in ("weight_packed", "weight_scale", "weight_global_scale", "input_global_scale"):
+            incomplete = {key: value for key, value in tensors.items() if key != "a." + suffix}
+            with self.assertRaisesRegex(ValueError, "Incomplete compressed floating-point projection"):
+                FloatCheckpoint(incomplete, incomplete.get)
 
     def test_direct_gptq_key_keeps_indexed_checkpoint(self):
         from eole.bin.convert.convert_HF import HuggingfaceFiles, get_weight
@@ -264,8 +269,8 @@ class TestCompressedFloat(unittest.TestCase):
         torch.testing.assert_close(layer.half()(x.half()).float(), ref, rtol=0.02, atol=0.25)
 
 
-@unittest.skipUnless(torch.cuda.is_available() and torch.cuda.get_device_capability() == (12, 0), "SM120 required")
-class TestSmallRowFP8(unittest.TestCase):
+@unittest.skipUnless(torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9), "SM89+ required")
+class TestFP8MMAKernel(unittest.TestCase):
     def test_reference_tail_rows_and_graph(self):
         from eole.ops import fp8_mm, _DYNAMIC_QUANT_OPS_AVAILABLE
 
@@ -290,6 +295,17 @@ class TestSmallRowFP8(unittest.TestCase):
                 torch.testing.assert_close(output, actual, rtol=0, atol=0)
         torch._dynamo.reset()
 
+    def test_contiguous_but_unaligned_inputs_are_rejected(self):
+        from eole.ops import fp8_mm
+
+        x = torch.zeros(513, device="cuda", dtype=torch.uint8)[1:].view(torch.float8_e4m3fn).reshape(1, 512)
+        w = torch.zeros(64, 512, device="cuda", dtype=torch.uint8).view(torch.float8_e4m3fn)
+        with self.assertRaisesRegex(RuntimeError, "16-byte aligned"):
+            fp8_mm(x, w, torch.ones(1, device="cuda"), torch.ones(64, device="cuda"), True)
+
+
+@unittest.skipUnless(torch.cuda.is_available() and torch.cuda.get_device_capability() == (12, 0), "SM120 required")
+class TestSmallRowFP8(unittest.TestCase):
     def test_unsupported_compiled_image_uses_scaled_mm(self):
         from unittest.mock import patch
 

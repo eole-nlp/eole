@@ -158,18 +158,30 @@ class FloatCheckpoint(CompressedCheckpoint):
         self.read_tensor = read_tensor
         self.aliases = {}
         hidden = set()
-        for key in all_keys:
-            if not key.endswith(".weight_scale"):
-                continue
-            prefix = key.removesuffix(".weight_scale")
+        prefixes = {
+            key.rsplit(".", 1)[0]
+            for key in all_keys
+            if key.endswith((".weight_packed", ".weight_scale", ".weight_global_scale", ".input_global_scale"))
+        }
+        for prefix in prefixes:
             packed = prefix + ".weight_packed"
-            source = packed if packed in all_keys else prefix + ".weight"
-            companions = [key, prefix + ".weight_global_scale", prefix + ".input_global_scale"]
+            weight = prefix + ".weight"
+            scale = prefix + ".weight_scale"
+            global_scales = [prefix + ".weight_global_scale", prefix + ".input_global_scale"]
+            if packed in all_keys or any(key in all_keys for key in global_scales):
+                if weight in all_keys:
+                    raise ValueError(f"Packed and unpacked weight coexist for {prefix}")
+                source, companions = packed, [scale, *global_scales]
+            else:
+                source, companions = weight, [scale]
+            missing = {source, *companions} - all_keys
+            if missing:
+                raise ValueError("Incomplete compressed floating-point projection: " + ", ".join(sorted(missing)))
             hidden.update([source, *companions])
             if source in self.raw_keys:
                 self.aliases[prefix + ".qweight"] = source
-                self.aliases[prefix + ".scales"] = key
-                self.aliases.update({name: name for name in companions[1:] if name in all_keys})
+                self.aliases[prefix + ".scales"] = scale
+                self.aliases.update({name: name for name in companions[1:]})
         dict.__init__(self, {key: None for key in (self.raw_keys - hidden) | self.aliases.keys()})
 
     def source_keys(self, key):

@@ -553,6 +553,8 @@ def build_config_dict(hf):
             raise ValueError(error_msg)
 
     # Handle quantization
+    model_config["share_decoder_embeddings"] = config.get("tie_word_embeddings", False)
+
     # quantization_config may be at the top level (e.g. Qwen3_5MoeForConditionalGeneration)
     # or inside text_config; check top-level (other_config) first, then text_config fallback.
     quant_config = other_config.get("quantization_config", config.get("quantization_config", {}))
@@ -714,7 +716,7 @@ def build_config_dict(hf):
                 }
             )
             if quant_config.get("kv_cache_scheme"):
-                logging.warning("Checkpoint KV-cache scales are not applied; Eole uses its floating-point cache")
+                logging.warning("Checkpoint KV-cache scales are not applied; Eole uses its own KV-cache settings")
             params = (
                 ["qweight", "scales", "weight_global_scale", "input_global_scale", "weight", "bias"]
                 if floating
@@ -728,8 +730,6 @@ def build_config_dict(hf):
         training_config["group_size"] = 0
         training_config["quant_layers"] = []
         params = ["weight", "bias"]
-
-    model_config["share_decoder_embeddings"] = config.get("tie_word_embeddings", False)
 
     return model_config, training_config, params
 
@@ -795,7 +795,7 @@ def _compressed_quantized_modules(hf, model_config):
     if floating and isinstance(generator, str) and generator.endswith(".weight"):
         prefix = generator.removesuffix(".weight")
         if prefix in packed:
-            if hf.config.get("tie_word_embeddings", False):
+            if model_config["share_decoder_embeddings"] or hf.config.get("tie_word_embeddings", False):
                 raise ValueError("Compressed vocabulary heads cannot share decoder embeddings")
             modules[prefix] = "generator"
     unmapped = packed - modules.keys()
@@ -815,6 +815,23 @@ def get_weight(checkpoint, tensor_name):
             if tensor_name in f.keys():
                 return f.get_tensor(tensor_name).contiguous()
     return None
+
+
+def compressed_vocabulary_tensors(hf, source, source_transform, params):
+    """Find a packed vocabulary head through its aliases, including in single-file checkpoints."""
+    if "input_global_scale" not in params:
+        return
+    prefix = source.removesuffix(".weight")
+    checkpoint = hf.checkpoint_for_tensor(prefix + ".qweight")
+    if not isinstance(checkpoint, FloatCheckpoint):
+        return
+    if source_transform is not None:
+        raise ValueError("Compressed vocabulary head does not support a source transformation")
+    for param in ("qweight", "scales", "weight_global_scale", "input_global_scale"):
+        key = prefix + "." + param
+        value = get_weight(checkpoint, key)
+        if value is not None:
+            yield param, key, value, checkpoint.source_keys(key)
 
 
 def check_tokenizer_config(hf):
@@ -929,18 +946,18 @@ def get_shards_map(model_config, hf, nshards):
             and int(key.split(".")[len(prefix.split(".")) - 1]) + offset in layer_range
         )
 
+    decoder_prefix = hf.decoder_layer_prefix
+    encoder_prefix = hf.encoder_layer_prefix
+    mtp_prefix = hf.mtp_layer_prefix
+    mtp_offset = mtp_layer_start if mtp_prefix == "mtp.layers." else 0
+
     # Loop over the weightmap and distribute checkpoints to the appropriate shards
     for key, ckpt in weightmap.items():
         for shard, layer_range in enumerate(shard_layer_ranges):
             if (
-                is_layer_in_range(key, hf.decoder_layer_prefix, layer_range)
-                or is_layer_in_range(key, hf.encoder_layer_prefix, layer_range)
-                or is_layer_in_range(
-                    key,
-                    hf.mtp_layer_prefix,
-                    layer_range,
-                    mtp_layer_start if hf.mtp_layer_prefix == "mtp.layers." else 0,
-                )
+                is_layer_in_range(key, decoder_prefix, layer_range)
+                or is_layer_in_range(key, encoder_prefix, layer_range)
+                or is_layer_in_range(key, mtp_prefix, layer_range, mtp_offset)
             ):
                 shard_checkpoints[shard].add(ckpt)
 
@@ -1207,28 +1224,15 @@ def build_shards(model_config, hf, args, params):
                     continue
                 source = KEY_MAPS[hf.arch][target]
                 srckey, srcmap = source if isinstance(source, tuple) else (source, None)
-                if isinstance(srckey, str):
-                    checkpoint = hf.checkpoint_for_tensor(srckey)
-                else:
-                    checkpoint = None
-                if checkpoint is None:
+                if not isinstance(srckey, str):
                     continue
-                prefix = srckey.removesuffix(".weight")
-                if (
-                    target == "generator.weight"
-                    and isinstance(checkpoint, FloatCheckpoint)
-                    and prefix + ".qweight" in checkpoint
-                ):
-                    if srcmap is not None:
-                        raise ValueError("Compressed vocabulary head does not support a source transformation")
-                    for param in ("qweight", "scales", "weight_global_scale", "input_global_scale"):
-                        source_key = prefix + "." + param
-                        value = get_weight(checkpoint, source_key)
-                        if value is None:
-                            continue
+                if target == "generator.weight":
+                    for param, source_key, value, source_keys in compressed_vocabulary_tensors(
+                        hf, srckey, srcmap, params
+                    ):
                         target_key = "generator." + param
                         eole_safetensor[target_key] = value
-                        consumed_src_keys.update(checkpoint.source_keys(source_key))
+                        consumed_src_keys.update(source_keys)
                         conversion_details.append(
                             dict(
                                 shard_path=output_path,
@@ -1239,6 +1243,10 @@ def build_shards(model_config, hf, args, params):
                                 special=None,
                             )
                         )
+                    if "generator.qweight" in eole_safetensor.keys():
+                        continue
+                checkpoint = hf.checkpoint_for_tensor(srckey)
+                if checkpoint is None:
                     continue
                 w = get_weight(checkpoint, srckey)
                 if w is not None:

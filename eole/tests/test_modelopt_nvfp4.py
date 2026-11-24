@@ -88,7 +88,12 @@ class TestModelOptNVFP4(unittest.TestCase):
     def test_appended_mtp_has_no_decoder_duplicate_or_negative_indices(self):
         self._check_conversion(appended_mtp=True)
 
-    def _check_conversion(self, appended_mtp):
+    def test_single_file_checkpoint_keeps_packed_head(self):
+        self._check_conversion(appended_mtp=False, indexed=False)
+
+    def _check_conversion(self, appended_mtp, indexed=True):
+        from eole.models.hf_loader import HFLoader, _InMemoryTensorStore
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = {
@@ -115,16 +120,20 @@ class TestModelOptNVFP4(unittest.TestCase):
             first = {k: v for k, v in tensors.items() if k.endswith(".weight")}
             second = {k: v for k, v in tensors.items() if k not in first}
             weight_map = {}
-            for filename, data in (("model-1.safetensors", first), ("model-2.safetensors", second)):
-                save_file(data, str(root / filename))
-                weight_map.update({k: filename for k in data})
-            (root / "model.safetensors.index.json").write_text(json.dumps(dict(weight_map=weight_map)))
+            if indexed:
+                for filename, data in (("model-1.safetensors", first), ("model-2.safetensors", second)):
+                    save_file(data, str(root / filename))
+                    weight_map.update({k: filename for k in data})
+                (root / "model.safetensors.index.json").write_text(json.dumps(dict(weight_map=weight_map)))
+            else:
+                save_file(tensors, str(root / "model.safetensors"))
             hf = HuggingfaceFiles(
                 token=None,
                 tokenizer_config_json=None,
                 config_path=str(root / "config.json"),
                 model_dir=str(root),
-                wmap_path=str(root / "model.safetensors.index.json"),
+                wmap_path=str(root / "model.safetensors.index.json") if indexed else None,
+                model_path=None if indexed else str(root / "model.safetensors"),
             )
             model_config, training, params = build_config_dict(hf)
             self.assertEqual(training["quant_type"], "nvfp4")
@@ -151,6 +160,19 @@ class TestModelOptNVFP4(unittest.TestCase):
             self.assertEqual(converted["generator.scales"].dtype, torch.float8_e4m3fn)
             self.assertEqual(converted["generator.weight_global_scale"].item(), 4)
             self.assertEqual(converted["generator.input_global_scale"].item(), 2)
+            direct = _InMemoryTensorStore()
+            HFLoader(str(root))._build_tensors(hf, model_config, params, direct)
+            self.assertEqual(set(direct.keys()), converted.keys())
+            for key in ("generator.qweight", "generator.scales", "generator.input_global_scale"):
+                value = direct.get_tensor(key)
+                self.assertEqual(value.dtype, converted[key].dtype)
+                self.assertTrue(
+                    torch.equal(value.reshape(-1).view(torch.uint8), converted[key].reshape(-1).view(torch.uint8))
+                )
+            if not indexed:
+                hf.config["text_config"]["tie_word_embeddings"] = True
+                with self.assertRaisesRegex(ValueError, "cannot share decoder embeddings"):
+                    build_config_dict(hf)
 
 
 @unittest.skipUnless(torch.cuda.is_available() and torch.cuda.get_device_capability() == (12, 0), "SM120 required")

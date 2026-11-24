@@ -591,8 +591,9 @@ NVFP4 continues to use FlashInfer CUDA; no extra weight layout is retained.
 FP8 Q/K/V and GDN input projections support `fuse_kvq`. NVFP4 gate/up
 projections support `fuse_gate` when both calibrated global scales match;
 otherwise they keep their independent projections.
-The KV cache remains floating-point; checkpoint FP8 KV-cache scales are not
-applied. FP32 normalization is unchanged.
+The KV cache uses the compute dtype by default. To use FP8 KV, configure it
+through Eole's [standalone KV-cache settings](#fp8-kv-cache-for-standalone-inference).
+Conversion ignores the checkpoint's KV-cache scales. Normalization runs in FP32.
 
 FlashInfer may compile its GPU kernels on first use. To bound compilation
 parallelism on a desktop, set `MAX_JOBS=1 FLASHINFER_NVCC_THREADS=1`.
@@ -731,9 +732,8 @@ python -m eole.bin.main convert HF \
 ```
 
 Use `vocabulary_quantization: none` to retain its already-NVFP4 vocabulary
-head. This checkpoint has no MTP weights. `fp8_backend` has no effect because
-there are no FP8 projections. Eole continues using floating-point KV caches;
-the checkpoint's FP8 KV-cache setting is not applied.
+head. This checkpoint has no MTP weights or FP8 projections. Configure the KV
+cache through the same Eole settings as for the mixed checkpoint.
 
 Fresh RTX 5090 controls using the matched decoding procedure above (Torch
 2.15, compile mode 0, greedy, no speculation, 128 output tokens, two repeats):
