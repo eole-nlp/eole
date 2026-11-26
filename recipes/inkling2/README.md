@@ -7,7 +7,9 @@ other weights. The 24 physical layers provide 48 visits per token. The central
 12 layers share their weights across three passes, with separate attention and
 convolution state for each visit.
 
-Download the checkpoint and tokenizer files from the Eole checkout.
+Run the following commands from the Eole checkout. The recipe opens the
+original Hugging Face safetensors and tokenizer files directly, so a model
+conversion step is unnecessary.
 
 ```bash
 hf download thinkingmachines/Inkling-2-Mini \
@@ -17,7 +19,7 @@ hf download thinkingmachines/Inkling-2-Mini \
   model-00001-of-00001.safetensors tokenizer.json chat_template.jinja
 
 PYTHONPATH=. python recipes/inkling2/predict.py \
-  --model /path/to/Inkling-2-Mini --max-new-tokens 128 \
+  --model /path/to/Inkling-2-Mini --decode graph --max-new-tokens 128 \
   "What is the capital of France? Reply with only the city name."
 ```
 
@@ -26,15 +28,22 @@ by timings on stderr. The answer block contains `Paris`. The checkpoint takes
 about 19 GiB on disk. The RTX 4090 smoke test used about 18.4 GiB of PyTorch GPU
 allocations with a short prompt. Allow additional GPU memory for longer inputs.
 
-This is a reference for single-request greedy text generation. Expert weights
-stay packed in memory and Eole dequantizes the selected weights to BF16 for the
-matrix multiplications. Prefill runs in chunks and retains only the live window
-for local-attention layers. The global-attention cache grows with the input.
+## Choose a decode mode
 
-On NVIDIA SM89 or newer, add `--decode graph` for packed experts, fused
-single-token operations, and CUDA graph replay. The first two decode steps warm the kernels, and the third
-captures the graph. Triton compiles kernels on first use and reuses them for
-matching shapes. Each request has its own cache, sized from the prompt and
-`--max-new-tokens`. Use `--decode packed` to run the same expert kernels in eager
-mode. Floating-point reduction order can change greedy tokens across decoding
-modes. The reference decoder remains the default for numerical comparisons.
+All three modes use the same checkpoint, prompt prefill, and greedy token
+selection. The flag controls how Eole computes each token after prefill.
+
+| `--decode` | How it runs |
+|---|---|
+| `reference` (default) | Eager PyTorch with a growing cache. Selected expert weights are dequantized to BF16 before the matrix multiplications. |
+| `packed` | Eager execution with a growing cache and expert kernels that multiply directly from the packed weights. |
+| `graph` | Packed expert kernels, fused single-token operations, and CUDA graph replay with preallocated KV and convolution state. |
+
+`packed` and `graph` require an NVIDIA GPU with compute capability 8.9 or newer.
+`graph` sizes the cache from the prompt and `--max-new-tokens`, warms up the first
+two decode steps, and captures on the third. First use of a kernel shape can
+trigger Triton compilation. Floating-point reduction order can affect greedy
+output across modes.
+
+The recipe uses a dedicated text decoder and the Inkling chat template. Use
+`predict.py` above for Inkling and the Qwen recipes for Qwen models.
