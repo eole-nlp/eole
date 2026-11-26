@@ -1,6 +1,5 @@
 import unittest
 
-import pytest
 import torch
 
 from eole.config.models import TransformerDecoderConfig
@@ -20,27 +19,6 @@ def _expert_weight(tensors, shape):
         layer.scale_denominator = tensors["w_outer_scale_denominator"]
     layer.prepare()
     return layer
-
-
-def test_inkling2_expert_dequantization():
-    fp4 = {
-        "w": torch.tensor([[[0x21] * 8], [[0x97] * 8]], dtype=torch.uint8),
-        "w_scale": torch.tensor([[[2]], [[1]]], dtype=torch.float8_e4m3fn),
-        "w_amax": torch.tensor([1.0, 4.0]),
-        "w_outer_scale_denominator": torch.tensor([2.0]),
-    }
-    layer = _expert_weight(fp4, (2, 1, 16))
-    weights = layer(torch.tensor([1, 0]), torch.bfloat16)
-    expected = torch.tensor([[[12.0, -1] * 8], [[0.5, 1.0] * 8]], dtype=torch.bfloat16)
-    torch.testing.assert_close(weights, expected)
-
-    fp8 = {
-        "w": torch.full((2, 1, 32), -2, dtype=torch.float32).to(torch.float8_e4m3fn),
-        "w_scale": torch.tensor([[[126]], [[128]]], dtype=torch.uint8),
-    }
-    layer = _expert_weight(fp8, (2, 1, 32))
-    torch.testing.assert_close(layer(0, torch.float32), torch.full((1, 32), -1.0))
-    torch.testing.assert_close(layer(1, torch.float32), torch.full((1, 32), -4.0))
 
 
 def _tiny_decoder(device="cpu", dtype=torch.float32, *, packed=False):
@@ -106,6 +84,26 @@ def _decode(decoder, hidden, *, step=0):
 
 
 class TestLoopedDecoder(unittest.TestCase):
+    def test_expert_dequantization(self):
+        fp4 = {
+            "w": torch.tensor([[[0x21] * 8], [[0x97] * 8]], dtype=torch.uint8),
+            "w_scale": torch.tensor([[[2]], [[1]]], dtype=torch.float8_e4m3fn),
+            "w_amax": torch.tensor([1.0, 4.0]),
+            "w_outer_scale_denominator": torch.tensor([2.0]),
+        }
+        layer = _expert_weight(fp4, (2, 1, 16))
+        weights = layer(torch.tensor([1, 0]), torch.bfloat16)
+        expected = torch.tensor([[[12.0, -1] * 8], [[0.5, 1.0] * 8]], dtype=torch.bfloat16)
+        torch.testing.assert_close(weights, expected)
+
+        fp8 = {
+            "w": torch.full((2, 1, 32), -2, dtype=torch.float32).to(torch.float8_e4m3fn),
+            "w_scale": torch.tensor([[[126]], [[128]]], dtype=torch.uint8),
+        }
+        layer = _expert_weight(fp8, (2, 1, 32))
+        torch.testing.assert_close(layer(0, torch.float32), torch.full((1, 32), -1.0))
+        torch.testing.assert_close(layer(1, torch.float32), torch.full((1, 32), -4.0))
+
     @torch.inference_mode()
     def test_chunked_prefill_matches_full_forward_across_window(self):
         decoder, generator, hidden = _tiny_decoder()
@@ -121,85 +119,88 @@ class TestLoopedDecoder(unittest.TestCase):
         assert torch.isneginf(actual[..., 21:]).all()
 
 
-@pytest.mark.parametrize("prefix_length", [2, 5])
-@torch.inference_mode()
-def test_looped_decoder_cuda_graph_matches_eager_across_ring_wrap(prefix_length):
-    if not torch.cuda.is_available() or torch.version.cuda is None or torch.cuda.get_device_capability() < (8, 9):
-        pytest.skip("requires NVIDIA SM89 or newer")
-    decoder, generator, hidden = _tiny_decoder("cuda", torch.bfloat16, packed=True)
-    pad = torch.zeros((1, 1, prefix_length), device="cuda", dtype=torch.bool)
-    prefix = hidden[:, :prefix_length].contiguous()
-    decoder._init_cache(prefix, pad)
-    _decode(decoder, prefix)
-    expected = [
-        generator(_decode(decoder, token, step=i))[..., :21]
-        for i, token in enumerate(hidden[:, prefix_length:].split(1, dim=1), prefix_length)
-    ]
+@unittest.skipUnless(
+    torch.version.cuda is not None and torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9),
+    "requires NVIDIA SM89 or newer",
+)
+class TestLoopedDecoderCUDA(unittest.TestCase):
+    @torch.inference_mode()
+    def test_cuda_graph_matches_eager_across_ring_wrap(self):
+        for prefix_length in (2, 5):
+            with self.subTest(prefix_length=prefix_length):
+                decoder, generator, hidden = _tiny_decoder("cuda", torch.bfloat16, packed=True)
+                pad = torch.zeros((1, 1, prefix_length), device="cuda", dtype=torch.bool)
+                prefix = hidden[:, :prefix_length].contiguous()
+                decoder._init_cache(prefix, pad)
+                _decode(decoder, prefix)
+                expected = [
+                    generator(_decode(decoder, token, step=i))[..., :21]
+                    for i, token in enumerate(hidden[:, prefix_length:].split(1, dim=1), prefix_length)
+                ]
 
-    for _ in range(2):
-        decoder._disable_cache()
-        decoder._init_cache(prefix, pad)
-        decoder._loop_cache_capacity = hidden.size(1)
-        decoder._decode_graph_request_allowed = True
-        _decode(decoder, prefix)
-        for i, token in enumerate(hidden[:, prefix_length:].split(1, dim=1), prefix_length):
-            actual = generator(_decode(decoder, token, step=i))[..., :21]
-            assert decoder.cache_seqlens.item() == i + 1
-            divergence = torch.nn.functional.kl_div(
-                actual.log_softmax(-1), expected[i - prefix_length].log_softmax(-1), reduction="sum", log_target=True
-            )
-            assert divergence.item() < 5e-4
-        assert decoder._decode_graph.graph is not None
+                for _ in range(2):
+                    decoder._disable_cache()
+                    decoder._init_cache(prefix, pad)
+                    decoder._loop_cache_capacity = hidden.size(1)
+                    decoder._decode_graph_request_allowed = True
+                    _decode(decoder, prefix)
+                    for i, token in enumerate(hidden[:, prefix_length:].split(1, dim=1), prefix_length):
+                        actual = generator(_decode(decoder, token, step=i))[..., :21]
+                        assert decoder.cache_seqlens.item() == i + 1
+                        divergence = torch.nn.functional.kl_div(
+                            actual.log_softmax(-1),
+                            expected[i - prefix_length].log_softmax(-1),
+                            reduction="sum",
+                            log_target=True,
+                        )
+                        assert divergence.item() < 5e-4
+                    assert decoder._decode_graph.graph is not None
 
+    @torch.inference_mode()
+    def test_cuda_expert_gemv_matches_dequantized_reference(self):
+        for nvfp4 in (True, False):
+            with self.subTest(nvfp4=nvfp4):
+                from eole.triton.block_float_moe import expert_gemv
 
-@pytest.mark.parametrize("nvfp4", [True, False])
-@torch.inference_mode()
-def test_inkling2_cuda_expert_gemv_matches_dequantized_reference(nvfp4):
-    if not torch.cuda.is_available() or torch.version.cuda is None or torch.cuda.get_device_capability() < (8, 9):
-        pytest.skip("requires NVIDIA SM89 or newer")
-    from eole.triton.block_float_moe import expert_gemv
+                if nvfp4:
+                    tensors = {
+                        "w": torch.randint(0, 256, (3, 7, 48), dtype=torch.uint8, device="cuda"),
+                        "w_scale": torch.rand(3, 7, 6, device="cuda").to(torch.float8_e4m3fn),
+                        "w_amax": torch.tensor([1.0, 2.0, 3.0], device="cuda"),
+                        "w_outer_scale_denominator": torch.tensor([2.0], device="cuda"),
+                    }
+                else:
+                    tensors = {
+                        "w": torch.randn(3, 7, 96, device="cuda").to(torch.float8_e4m3fn),
+                        "w_scale": torch.randint(125, 129, (3, 7, 3), dtype=torch.uint8, device="cuda"),
+                    }
+                layer = _expert_weight(tensors, (3, 7, 96))
+                selected = torch.tensor([2, 0], device="cuda")
+                vectors = torch.randn(2, 96, device="cuda", dtype=torch.bfloat16)
+                for shared_input in (False, True):
+                    x = vectors[:1] if shared_input else vectors
+                    expected = (layer(selected, x.dtype) @ x.unsqueeze(-1)).squeeze(-1)
+                    actual = expert_gemv(layer, x, selected, shared_input=shared_input)
+                    torch.testing.assert_close(actual, expected, atol=0.03125, rtol=0.008)
 
-    if nvfp4:
-        tensors = {
-            "w": torch.randint(0, 256, (3, 7, 48), dtype=torch.uint8, device="cuda"),
-            "w_scale": torch.rand(3, 7, 6, device="cuda").to(torch.float8_e4m3fn),
-            "w_amax": torch.tensor([1.0, 2.0, 3.0], device="cuda"),
-            "w_outer_scale_denominator": torch.tensor([2.0], device="cuda"),
-        }
-    else:
-        tensors = {
-            "w": torch.randn(3, 7, 96, device="cuda").to(torch.float8_e4m3fn),
-            "w_scale": torch.randint(125, 129, (3, 7, 3), dtype=torch.uint8, device="cuda"),
-        }
-    layer = _expert_weight(tensors, (3, 7, 96))
-    selected = torch.tensor([2, 0], device="cuda")
-    vectors = torch.randn(2, 96, device="cuda", dtype=torch.bfloat16)
-    for shared_input in (False, True):
-        x = vectors[:1] if shared_input else vectors
-        expected = (layer(selected, x.dtype) @ x.unsqueeze(-1)).squeeze(-1)
-        actual = expert_gemv(layer, x, selected, shared_input=shared_input)
-        torch.testing.assert_close(actual, expected, atol=0.03125, rtol=0.008)
+    @torch.inference_mode()
+    def test_fused_attention_probabilities(self):
+        for window, position in ((None, 6), (7, 3), (7, 11)):
+            with self.subTest(window=window, position=position):
+                from eole.triton.looped_decoder import attention_probabilities
 
-
-@pytest.mark.parametrize(("window", "position"), [(None, 6), (7, 3), (7, 11)])
-@torch.inference_mode()
-def test_inkling2_fused_attention_probabilities(window, position):
-    if not torch.cuda.is_available() or torch.version.cuda is None or torch.cuda.get_device_capability() < (8, 9):
-        pytest.skip("requires NVIDIA SM89 or newer")
-    from eole.triton.looped_decoder import attention_probabilities
-
-    device, dtype = "cuda", torch.bfloat16
-    rng = torch.Generator(device=device).manual_seed(1)
-    dots = torch.randn(1, 4, 1, 7, device=device, dtype=dtype, generator=rng)
-    bias = torch.randn(1, 4, 1, 5, device=device, dtype=dtype, generator=rng)
-    sink = torch.randn(1, 1, 4, device=device, dtype=dtype, generator=rng)
-    positions = torch.tensor([position], device=device)
-    distances = positions[:, None] - torch.arange(7, device=device)
-    if window:
-        distances = distances.remainder(7)
-    relative = bias.gather(-1, distances.clamp(0, 4).expand_as(dots))
-    relative = relative.masked_fill((distances < 0) | (distances >= 5), 0)
-    scores = (dots * 0.25 + relative).masked_fill((distances < 0) | (distances > position), -torch.inf)
-    expected = torch.cat((scores, sink.transpose(1, 2).unsqueeze(-1)), dim=-1).float().softmax(-1)[..., :-1]
-    actual = attention_probabilities(dots, bias, sink, positions, window, 0.25)
-    torch.testing.assert_close(actual, expected.to(dtype), rtol=0.008, atol=0)
+                device, dtype = "cuda", torch.bfloat16
+                rng = torch.Generator(device=device).manual_seed(1)
+                dots = torch.randn(1, 4, 1, 7, device=device, dtype=dtype, generator=rng)
+                bias = torch.randn(1, 4, 1, 5, device=device, dtype=dtype, generator=rng)
+                sink = torch.randn(1, 1, 4, device=device, dtype=dtype, generator=rng)
+                positions = torch.tensor([position], device=device)
+                distances = positions[:, None] - torch.arange(7, device=device)
+                if window:
+                    distances = distances.remainder(7)
+                relative = bias.gather(-1, distances.clamp(0, 4).expand_as(dots))
+                relative = relative.masked_fill((distances < 0) | (distances >= 5), 0)
+                scores = (dots * 0.25 + relative).masked_fill((distances < 0) | (distances > position), -torch.inf)
+                expected = torch.cat((scores, sink.transpose(1, 2).unsqueeze(-1)), dim=-1).float().softmax(-1)[..., :-1]
+                actual = attention_probabilities(dots, bias, sink, positions, window, 0.25)
+                torch.testing.assert_close(actual, expected.to(dtype), rtol=0.008, atol=0)
