@@ -14,6 +14,7 @@ below for the model, commands, and expected output.
 | Deploy the workspace on a rented GPU with authentication | [RunPod deployment](runpod/README.md) |
 | FastAPI server, native inference, OpenAI-style chat, Anthropic-style Messages | [Server](server/README.md) |
 | Qwen3.8-27B text inference, MTP verification, and baseline comparison | [Qwen3.8 / MTP](qwen38/README.md) |
+| Inkling 2 Mini text generation from the original mixed-precision checkpoint | [Inkling 2 Mini](inkling2/README.md) |
 | Use Codex with local Qwen | [Codex](codex/README.md) |
 | Run concurrent Responses requests and benchmark tool loops | [Continuous serving](serving/README.md) |
 | Use Claude Code with local Qwen | [Claude Code](claude-code/README.md) |
