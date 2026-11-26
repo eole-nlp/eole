@@ -12,10 +12,11 @@ def main():
     parser.add_argument("--base-url", default="http://127.0.0.1:5000/v1")
     parser.add_argument("--model", default="qwen3.8-27B")
     parser.add_argument("--context-window", type=int, default=28672)
+    parser.add_argument("--output-reserve", type=int, default=4096)
     args = parser.parse_args()
-    if args.context_window <= 4096:
-        parser.error("context-window must leave room for a 4096-token output")
-    auto_compact_token_limit = args.context_window - 4096
+    if not 0 < args.output_reserve < args.context_window:
+        parser.error("output-reserve must be positive and smaller than context-window")
+    auto_compact_token_limit = args.context_window - args.output_reserve
     target = args.output_dir.expanduser().resolve()
     target.mkdir(parents=True, exist_ok=True)
     target.chmod(0o700)

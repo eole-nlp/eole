@@ -1,0 +1,20 @@
+import unittest
+
+from intervals import merge_intervals
+
+
+class IntervalsTest(unittest.TestCase):
+    def test_unsorted_and_touching(self):
+        self.assertEqual(merge_intervals([(8, 9), (3, 5), (1, 3)]), [(1, 5), (8, 9)])
+
+    def test_nested_and_duplicate(self):
+        self.assertEqual(merge_intervals([(1, 6), (2, 3), (1, 6)]), [(1, 6)])
+
+    def test_separate_and_empty(self):
+        self.assertEqual(merge_intervals([(1, 2), (3, 4)]), [(1, 2), (3, 4)])
+        self.assertEqual(merge_intervals([]), [])
+
+    def test_input_is_unchanged(self):
+        intervals = [(5, 6), (1, 2)]
+        merge_intervals(intervals)
+        self.assertEqual(intervals, [(5, 6), (1, 2)])

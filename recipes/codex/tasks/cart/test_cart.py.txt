@@ -1,0 +1,21 @@
+import unittest
+
+from cart import total_cents
+
+
+class CartTest(unittest.TestCase):
+    def test_discount_is_applied_to_subtotal(self):
+        self.assertEqual(total_cents([1, 1, 1], 10), 3)
+
+    def test_half_cent_rounds_up(self):
+        self.assertEqual(total_cents([5], 50), 3)
+
+    def test_below_half_cent_rounds_down(self):
+        self.assertEqual(total_cents([4], 40), 2)
+
+    def test_empty_and_full_discount(self):
+        self.assertEqual(total_cents([], 20), 0)
+        self.assertEqual(total_cents([1234], 100), 0)
+
+    def test_large_integer(self):
+        self.assertEqual(total_cents([10**18 + 1], 50), 500000000000000001)

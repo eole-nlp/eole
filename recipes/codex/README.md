@@ -228,3 +228,6 @@ The installed Linux app code reads `CODEX_HOME`, and its app-server
 The desktop UI and live GPU
 Qwen workflow still require validation on the host. Record your app/CLI version
 and smoke-test results before treating this as a validated integration.
+
+For a local GPU comparison that executes and grades Codex edits, see the
+[coding workload benchmark](BENCHMARK.md).

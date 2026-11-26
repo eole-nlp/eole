@@ -2,7 +2,9 @@
 
 Serve multiple greedy text sessions through `/v1/responses` on one GPU with one
 model. The [Codex recipe](../codex/README.md) covers client setup. The load tests
-here use synthetic tool calls and report serving performance.
+here use synthetic tool calls and report serving performance. For complete Codex
+CLI sessions that edit files and run tests, see the
+[coding workload benchmark](../codex/BENCHMARK.md).
 
 ## Run locally
 
