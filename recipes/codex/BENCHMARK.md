@@ -98,3 +98,53 @@ about 5% more jobs per minute. Peak allocated GPU memory during serving was
 22.39 GiB for continuous greedy, 24.23 GiB for MTP, and 26.47 GiB for DFlash2,
 as reported by PyTorch. Greedy batching improved completed jobs while leaving
 request p95 first-content latency close to the serialized baseline.
+
+## Compare prompt-prefix reuse
+
+Use the environment above and generate an MTP profile with either zero or
+four retained entries:
+
+```bash
+entries=4
+python recipes/codex/benchmark_profile.py mtp --prefix-cache-entries "$entries" \
+  > "/tmp/eole-codex-mtp-$entries.yaml"
+eole serve -c "/tmp/eole-codex-mtp-$entries.yaml" --host 127.0.0.1 --port 5019
+```
+
+From a second terminal, run the same four-client workload for each configuration:
+
+```bash
+python recipes/codex/benchmark.py --concurrency 4 --eole-metrics \
+  --output /tmp/eole-codex-prefix-on
+```
+
+Use a fresh output directory and restart the server for each run. Keep
+`--eole-metrics` enabled in both arms. It asks Eole for its existing
+per-request statistics, including `reused_prefix_tokens` in each completed
+continuous response. In `results.json`, count positive values for cache hits
+and divide their sum by the sum of `usage.input_tokens` for the share of input
+tokens reused. Use a dedicated server for trusted clients, since prefix reuse
+can affect timing across requests and each retained state consumes VRAM.
+
+### Four-client MTP results
+
+Same RTX 5090, native BF16 KV cache and vocabulary head, and 12,288-token
+capacity as above. MTP used three drafts and four decode slots. The server
+restarted and ran one excluded warmup before each four-job wave. Cache entry
+counts were run in order 0, 4, 4, 0. The table pools the two waves for each count.
+
+| Retained entries | Jobs passed | Successful jobs/min | First content p50 / p95 (s) | Slowest job (s) | Prefix hits | Input tokens reused | Peak allocated VRAM (GiB) |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 8/8 | 3.68 | 9.44 / 13.66 | 65.00 | 0/48 | 0% | 24.23 |
+| 4 | 8/8 | 10.38 | 1.76 / 9.55 | 23.05 | 40/48 | 81.6% | 26.84 |
+
+Each job made six requests. All 40 follow-up requests hit with four entries,
+and the eight opening requests missed. Median time to first content for
+follow-ups fell from 9.85 to 1.66 s. Opening requests stayed near eight seconds.
+Both cache-enabled waves reached over 10 successful jobs/min. The two arms
+produced 5,072 and 4,847 output tokens, respectively. Peak PyTorch reserved
+memory rose from 25.71 to 29.29 GiB.
+
+The setting is useful for dedicated Codex sessions with enough VRAM to retain
+prompt state. Measure with the intended context capacity and client count
+before choosing the entry count.

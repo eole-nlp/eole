@@ -27,13 +27,18 @@ TERMINAL_EVENTS = {"response.completed", "response.incomplete", "response.failed
 class ResponsesRelay:
     """Forward SSE incrementally and time content-bearing events per request."""
 
-    def __init__(self, client, upstream):
+    def __init__(self, client, upstream, eole_metrics=False):
         self.client = client
         self.upstream = upstream
+        self.eole_metrics = eole_metrics
         self.requests = {}
 
     async def forward(self, request):
         body = await request.read()
+        if self.eole_metrics:
+            payload = json.loads(body)
+            payload["eole_metrics"] = True
+            body = json.dumps(payload).encode()
         started = perf_counter()
         row = {"status": None, "first_content_seconds": None, "terminal": None}
         self.requests.setdefault(request.match_info["job"], []).append(row)
@@ -52,7 +57,10 @@ class ResponsesRelay:
                             row["first_content_seconds"] = perf_counter() - started
                         if kind in TERMINAL_EVENTS:
                             row["terminal"] = kind
-                            row["usage"] = event.get("response", {}).get("usage")
+                            terminal = event.get("response", {})
+                            row["usage"] = terminal.get("usage")
+                            if self.eole_metrics:
+                                row["eole_metrics"] = terminal.get("eole_metrics")
                     await response.write(raw)
                 await response.write_eof()
             finally:
@@ -201,7 +209,7 @@ async def benchmark(args):
     args.output.mkdir(parents=True)
     version = subprocess.check_output([args.codex, "--version"], text=True).strip()
     async with ClientSession(timeout=ClientTimeout(total=args.timeout)) as client:
-        relay = ResponsesRelay(client, args.base_url)
+        relay = ResponsesRelay(client, args.base_url, args.eole_metrics)
         app = web.Application(client_max_size=16 * 1024**2)
         app.router.add_post("/{job}/v1/responses", relay.forward)
         runner = web.AppRunner(app)
@@ -266,6 +274,7 @@ def main():
     parser.add_argument("--repeats", type=int, default=1, help="Balanced task waves per cell")
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--no-warmup", action="store_true")
+    parser.add_argument("--eole-metrics", action="store_true", help="Record Eole cache and decode metrics")
     args = parser.parse_args()
     upstream = urlsplit(args.base_url)
     if upstream.scheme != "http" or upstream.hostname != "127.0.0.1" or upstream.path != "/v1":

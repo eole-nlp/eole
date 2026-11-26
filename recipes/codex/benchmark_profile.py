@@ -18,13 +18,17 @@ PROFILES = {
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("profile", choices=PROFILES)
+    parser.add_argument("--prefix-cache-entries", type=int, default=0)
     args = parser.parse_args()
+    if args.prefix_cache_entries < 0 or (args.prefix_cache_entries and args.profile == "serialized"):
+        parser.error("positive prefix-cache-entries require a continuous profile")
     config = yaml.safe_load((SERVING / PROFILES[args.profile]).read_text())
     model = config["models"][0]
     model["config"].update(context_length=12288, max_length=2048)
     if "continuous" in model:
-        # Match prefill chunks throughout. Keep cross-request prefix reuse off.
+        # Match prefill chunks throughout.
         model["continuous"]["prefill_idle_chunk_size"] = 256
+        model["continuous"]["prefix_cache_entries"] = args.prefix_cache_entries
     if args.profile == "dflash2":
         drafter = os.environ.get("QWEN38_DFLASH2")
         if not drafter or not (Path(drafter).expanduser() / "config.json").is_file():
