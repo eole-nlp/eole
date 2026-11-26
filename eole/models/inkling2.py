@@ -20,6 +20,24 @@ class Inkling2LayerCache:
 
 
 @dataclass
+class Inkling2StaticLayerCache(Inkling2LayerCache):
+    slots: torch.Tensor | None = None
+
+    @classmethod
+    def from_prefill(cls, layer, capacity, length):
+        slots = torch.arange(capacity, dtype=torch.long, device=layer.key.device)
+        indices = (slots[: layer.key.size(-2)] + length - layer.key.size(-2)).remainder(capacity)
+
+        def allocate(source):
+            buffer = source.new_zeros((*source.shape[:-2], capacity, source.size(-1)))
+            return buffer.index_copy_(2, indices, source)
+
+        return cls(
+            allocate(layer.key), allocate(layer.value), {name: x.clone() for name, x in layer.conv.items()}, slots
+        )
+
+
+@dataclass
 class Inkling2Cache:
     """One KV and convolution state per layer visit, with a shared token position."""
 
@@ -114,7 +132,7 @@ class Inkling2MoE(nn.Module):
         up_factor = self.up_softcap * (up / self.up_softcap).tanh()
         return (gate_factor * gate.sigmoid() * up_factor).to(x.dtype)
 
-    def forward(self, x):
+    def forward(self, x, *, packed_experts=False):
         flat = x.flatten(0, 1)
         scores = F.linear(flat.float(), self.router).sigmoid()
         indices = (scores + self.correction).topk(self.top_k, sorted=False).indices
@@ -123,8 +141,14 @@ class Inkling2MoE(nn.Module):
 
         if len(flat) == 1:
             selected = indices[0]
-            gate_up = (self.gate_up(selected, x.dtype) @ flat.T).squeeze(-1)
-            routes = (self.down(selected, x.dtype) @ self._activate(gate_up).unsqueeze(-1)).squeeze(-1)
+            if packed_experts:
+                from eole.triton.inkling2_moe import expert_gemv
+
+                gate_up = expert_gemv(self.gate_up, flat, selected, shared_input=True)
+                routes = expert_gemv(self.down, self._activate(gate_up), selected, shared_input=False)
+            else:
+                gate_up = (self.gate_up(selected, x.dtype) @ flat.T).squeeze(-1)
+                routes = (self.down(selected, x.dtype) @ self._activate(gate_up).unsqueeze(-1)).squeeze(-1)
             return (routes.float() * weights[0, :, None]).sum(dim=0).to(x.dtype).view_as(x)
 
         result = torch.zeros_like(flat, dtype=torch.float32)
@@ -157,7 +181,11 @@ class Inkling2Conv(nn.Module):
         if history is None:
             history = channels.new_zeros(channels.size(0), channels.size(1), self.width - 1)
         context = torch.cat((history, channels), dim=-1)
-        cache.conv[name] = context[..., context.size(-1) - self.width + 1 :].clone()
+        tail = context[..., context.size(-1) - self.width + 1 :]
+        if isinstance(cache, Inkling2StaticLayerCache):
+            history.copy_(tail)
+        else:
+            cache.conv[name] = tail.clone()
         if self.project_taps is None:
             output = F.conv1d(context, self.taps.unsqueeze(1), groups=channels.size(1)).transpose(1, 2)
         else:
@@ -209,15 +237,7 @@ class Inkling2Attention(nn.Module):
         k = self.k_conv(self.k(keys), cache, "k", keys).unflatten(-1, (self.kv_heads, self.head_dim))
         v = self.v_conv(self.v(values), cache, "v", values).unflatten(-1, (self.kv_heads, self.head_dim))
         k, v = _clip(k, self.qk_clip).transpose(1, 2), _rms(v, self.eps).to(v.dtype).transpose(1, 2)
-        if cache.key is not None:
-            k = torch.cat((cache.key, k), dim=-2)
-            v = torch.cat((cache.value, v), dim=-2)
-        if self.window is not None and k.size(-2) >= self.window:
-            # Cache at most window - 1 earlier tokens for the next query.
-            start = k.size(-2) - self.window + 1
-            cache.key, cache.value = k[..., start:, :].contiguous(), v[..., start:, :].contiguous()
-        else:
-            cache.key, cache.value = k, v
+        k, v, distances = self._cache_with_current(k, v, positions, cache)
 
         relative = _clip(
             self.relative(queries).unflatten(-1, (self.heads, -1)), self.relative_clip, self.relative_scale
@@ -227,14 +247,12 @@ class Inkling2Attention(nn.Module):
             q = (q.float() * log_scale[:, None, None]).to(q.dtype)
             relative = (relative.float() * log_scale[:, None, None]).to(relative.dtype)
 
-        end = positions[-1] + 1
-        distances = positions[:, None] - (torch.arange(k.size(-2), device=k.device) + end - k.size(-2))
         profiles = (relative @ self.relative_profiles).transpose(1, 2)
         extent = profiles.size(-1)
         relative_indices = distances.clamp(0, extent - 1).expand(*profiles.shape[:2], -1, -1)
         bias = profiles.gather(-1, relative_indices)
         bias = bias.masked_fill((distances < 0) | (distances >= extent), 0)
-        masked = distances < 0
+        masked = (distances < 0) | (distances > positions[:, None])
         if self.window is not None:
             masked = masked | (distances >= self.window)
 
@@ -247,6 +265,28 @@ class Inkling2Attention(nn.Module):
         probabilities = torch.cat((logits, sink), dim=-1).float().softmax(dim=-1)[..., :-1].to(q.dtype)
         output = (probabilities @ v).transpose(1, 2).flatten(-2)
         return self.output((output.float() * self.output_gate(queries).float().sigmoid()).to(output.dtype))
+
+    def _cache_with_current(self, k, v, positions, cache):
+        if isinstance(cache, Inkling2StaticLayerCache):
+            index = positions if self.window is None else positions.remainder(cache.slots.numel())
+            cache.key.index_copy_(2, index, k)
+            cache.value.index_copy_(2, index, v)
+            distances = positions[:, None] - cache.slots
+            if self.window is not None:
+                distances = distances.remainder(cache.slots.numel())
+            return cache.key, cache.value, distances
+
+        if cache.key is not None:
+            k = torch.cat((cache.key, k), dim=-2)
+            v = torch.cat((cache.value, v), dim=-2)
+        if self.window is not None and k.size(-2) >= self.window:
+            # Keep window - 1 earlier tokens for the next query.
+            start = k.size(-2) - self.window + 1
+            cache.key, cache.value = k[..., start:, :].contiguous(), v[..., start:, :].contiguous()
+        else:
+            cache.key, cache.value = k, v
+        key_positions = torch.arange(k.size(-2), device=k.device) + positions[-1] + 1 - k.size(-2)
+        return k, v, positions[:, None] - key_positions
 
 
 class Inkling2MessageGate(nn.Module):
@@ -291,7 +331,7 @@ class Inkling2Layer(nn.Module):
                 for name in ("attn", "k", "v", "mlp")
             )
 
-    def forward(self, residual, blocks, positions, cache, messages=None):
+    def forward(self, residual, blocks, positions, cache, messages=None, *, packed_experts=False):
         dtype = residual.dtype
         qkv = (residual,) if self.attention_query is None else _mix(blocks, residual, self.attention_query).unbind(-2)
         if len(qkv) == 1:
@@ -309,7 +349,7 @@ class Inkling2Layer(nn.Module):
         inputs = _mix(blocks, output, self.moe_query).squeeze(-2)
         if messages is not None:
             inputs = self.controllers[3](inputs, messages[..., 3, :])
-        hidden = self.moe(_rms(inputs, self.eps, self.moe_norm).to(dtype))
+        hidden = self.moe(_rms(inputs, self.eps, self.moe_norm).to(dtype), packed_experts=packed_experts)
         return (output + self.moe_conv(hidden, cache, "moe")).to(dtype)
 
 
@@ -335,7 +375,12 @@ class Inkling2Mini(nn.Module):
         ):
             raise ValueError("Unsupported Inkling 2 Mini text configuration")
 
-        self.num_visits = layer_count + (self.passes - 1) * (self.core_end - self.core_start)
+        self.visit_order = (
+            tuple(range(self.core_start))
+            + tuple(range(self.core_start, self.core_end)) * self.passes
+            + tuple(range(self.core_end, layer_count))
+        )
+        self.num_visits = len(self.visit_order)
         self.eps = cfg["rms_norm_eps"]
         self.softcap = cfg["final_logit_softcapping"]
         self.vocab_size = cfg["unpadded_vocab_size"]
@@ -373,16 +418,21 @@ class Inkling2Mini(nn.Module):
     def new_cache(self):
         return Inkling2Cache([Inkling2LayerCache() for _ in range(self.num_visits)])
 
-    def forward(self, input_ids, cache=None, *, all_logits=False):
+    def forward(self, input_ids, cache=None, *, all_logits=False, packed_experts=False):
         if cache is None:
             cache = self.new_cache()
         positions = torch.arange(cache.length, cache.length + input_ids.size(1), device=input_ids.device)
+        logits = self._forward(input_ids, cache.layers, positions, all_logits, packed_experts)
+        cache.length += input_ids.size(1)
+        return logits
+
+    def _forward(self, input_ids, layers, positions, all_logits, packed_experts):
         hidden = _rms(F.embedding(input_ids, self.embedding), self.eps, self.embedding_norm).to(self.embedding.dtype)
         blocks = []
         visit = 0
 
         for layer in self.layers[: self.core_start]:
-            hidden = layer(hidden, blocks, positions, cache.layers[visit])
+            hidden = layer(hidden, blocks, positions, layers[visit], packed_experts=packed_experts)
             visit += 1
 
         prelude, prelude_blocks = hidden, tuple(blocks)
@@ -394,13 +444,13 @@ class Inkling2Mini(nn.Module):
                 messages = None
                 if pass_idx:
                     messages = _mix(previous_blocks, previous_hidden, self.message_queries[offset])
-                hidden = layer(hidden, blocks, positions, cache.layers[visit], messages)
+                hidden = layer(hidden, blocks, positions, layers[visit], messages, packed_experts=packed_experts)
                 visit += 1
             previous_blocks = tuple(blocks[len(prelude_blocks) + 1 :])
             previous_hidden = hidden
 
         for layer in self.layers[self.core_end :]:
-            hidden = layer(hidden, blocks, positions, cache.layers[visit])
+            hidden = layer(hidden, blocks, positions, layers[visit], packed_experts=packed_experts)
             visit += 1
 
         if not all_logits:
@@ -409,5 +459,4 @@ class Inkling2Mini(nn.Module):
         hidden = _mix(blocks, hidden, self.output_query).squeeze(-2)
         hidden = _rms(hidden, self.eps, self.output_norm).to(self.embedding.dtype)
         logits = F.linear(hidden, self.output_weight).float()
-        cache.length += input_ids.size(1)
         return self.softcap * (logits / self.softcap).tanh()

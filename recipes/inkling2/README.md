@@ -30,3 +30,10 @@ This is a reference for single-request greedy text generation. Expert weights
 stay packed in memory and Eole dequantizes the selected weights to BF16 for the
 matrix multiplications. Prefill runs in chunks and retains only the live window
 for local-attention layers. The global-attention cache grows with the input.
+
+On NVIDIA SM89 or newer, add `--decode graph` for packed expert kernels and
+CUDA graph replay. The first two decode steps warm the kernels, and the third
+captures the graph. Each request has its own cache, sized from the prompt and
+`--max-new-tokens`. Use `--decode packed` to run the same expert kernels in eager
+mode. Floating-point reduction order can change greedy tokens across decoding
+modes. The reference decoder remains the default for numerical comparisons.

@@ -12,6 +12,7 @@ from tokenizers import Tokenizer
 import torch
 
 from eole.models.inkling2 import Inkling2Mini
+from eole.models.inkling2_decode import Inkling2Decode, check_packed_decode
 
 
 def render_prompt(template, prompt, reasoning_effort):
@@ -31,6 +32,12 @@ def main():
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--prefill-chunk", type=int, default=128)
+    parser.add_argument(
+        "--decode",
+        choices=("reference", "packed", "graph"),
+        default="reference",
+        help="Use the reference, packed expert kernels, or packed experts with CUDA graph replay",
+    )
     parser.add_argument("--reasoning-effort", choices=("none", "minimal", "low", "medium", "high"), default="none")
     parser.add_argument("prompt")
     args = parser.parse_args()
@@ -49,6 +56,11 @@ def main():
         f"Loaded {len(model.layers)} physical layers with {model.num_visits} visits in {perf_counter() - start:.2f}s",
         file=sys.stderr,
     )
+    if args.decode != "reference":
+        try:
+            check_packed_decode(model)
+        except ValueError as error:
+            parser.error(str(error))
     cache = model.new_cache()
     start = perf_counter()
     for chunk in tokens.split(args.prefill_chunk, dim=1):
@@ -56,8 +68,16 @@ def main():
     next_token = logits.argmax(-1)
     generated = [next_token.item()]
     first_token = perf_counter()
+    graph_decode = None
+    if args.decode == "graph" and args.max_new_tokens > 1 and generated[-1] != eos:
+        graph_decode = Inkling2Decode(model, cache, tokens.size(1) + args.max_new_tokens - 1)
+        del cache
     while len(generated) < args.max_new_tokens and generated[-1] != eos:
-        next_token = model(next_token, cache).argmax(-1)
+        if graph_decode is not None:
+            logits = graph_decode(next_token)
+        else:
+            logits = model(next_token, cache, packed_experts=args.decode == "packed")
+        next_token = logits.argmax(-1)
         generated.append(next_token.item())
     decode = perf_counter() - first_token
 
@@ -67,6 +87,8 @@ def main():
         f"decode {(len(generated) - 1) / max(decode, 1e-6):.1f} tok/s",
         file=sys.stderr,
     )
+    if graph_decode is not None:
+        print(f"CUDA graph captured: {graph_decode.graph.graph is not None}", file=sys.stderr)
     if device.type == "cuda":
         print(f"Peak PyTorch allocation {torch.cuda.max_memory_allocated(device) / 2**30:.2f} GiB", file=sys.stderr)
 

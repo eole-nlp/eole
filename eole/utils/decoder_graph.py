@@ -32,7 +32,7 @@ def initialize_cuda_graph_thread():
 
 
 def _tensor_signature(value):
-    return value.shape, value.stride(), value.dtype, value.device
+    return None if value is None else (value.shape, value.stride(), value.dtype, value.device)
 
 
 class CaptureCoordinator:
@@ -92,7 +92,7 @@ class DecoderGraph:
         self.warm_calls = 0
         self.failed = False
 
-    def __call__(self, emb, *, tgt_pad_mask):
+    def __call__(self, emb, *, tgt_pad_mask=None):
         if self.coordinator is not None and self.coordinator.failed:
             raise RuntimeError("Tensor-parallel capture failed; reinitialize the inference workers before retrying")
         signature = (_tensor_signature(emb), _tensor_signature(tgt_pad_mask))
@@ -111,7 +111,7 @@ class DecoderGraph:
             error = None
             try:
                 with torch.cuda.device(emb.device):
-                    self.inputs = (emb.clone(), tgt_pad_mask.clone())
+                    self.inputs = (emb.clone(), None if tgt_pad_mask is None else tgt_pad_mask.clone())
                     if self.capture_stream is None or self.capture_stream.device != emb.device:
                         self.capture_stream = torch.cuda.Stream(device=emb.device)
                     graph = torch.cuda.CUDAGraph()
@@ -137,7 +137,8 @@ class DecoderGraph:
             self.graph = graph
         else:
             self.inputs[0].copy_(emb)
-            self.inputs[1].copy_(tgt_pad_mask)
+            if tgt_pad_mask is not None:
+                self.inputs[1].copy_(tgt_pad_mask)
         self.graph.replay()
         return self.outputs
 

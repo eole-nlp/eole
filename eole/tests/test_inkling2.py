@@ -1,6 +1,8 @@
+import pytest
 import torch
 
 from eole.models.inkling2 import Inkling2Mini, Inkling2PackedExperts
+from eole.models.inkling2_decode import Inkling2Decode
 
 
 def test_inkling2_expert_dequantization():
@@ -132,3 +134,54 @@ def test_inkling2_cached_logits_match_full_forward_across_window():
     assert cache.length == tokens.size(1)
     assert [layer.key.size(-2) for layer in cache.layers] == [2, 7, 2, 7, 2, 7, 2, 7]
     assert len({state.conv["k"].data_ptr() for state in cache.layers}) == model.num_visits
+
+
+@pytest.mark.parametrize("prefix_length", [2, 5])
+@pytest.mark.parametrize("capture", [False, True])
+@torch.inference_mode()
+def test_inkling2_fixed_decode_matches_eager_across_ring_wrap(prefix_length, capture):
+    if capture and not torch.cuda.is_available():
+        pytest.skip("requires CUDA")
+    device = "cuda" if capture else "cpu"
+    model = _tiny_model().to(device)
+    tokens = torch.tensor([[2, 4, 5, 0, 7, 4, 14, 8, 9, 1]], device=device)
+    eager = model.new_cache()
+    model(tokens[:, :prefix_length], eager)
+    fixed = Inkling2Decode(model, eager, tokens.size(1), capture=capture, packed_experts=False)
+    for token in tokens[:, prefix_length:].split(1, dim=1):
+        expected = model(token, eager)
+        torch.testing.assert_close(fixed(token), expected, atol=5e-6, rtol=5e-5)
+        assert fixed.length == fixed.position.item() == eager.length
+    if capture:
+        assert fixed.graph.graph is not None
+    with pytest.raises(ValueError, match="exceeded"):
+        fixed(tokens[:, -1:])
+
+
+@pytest.mark.parametrize("nvfp4", [True, False])
+@torch.inference_mode()
+def test_inkling2_cuda_expert_gemv_matches_dequantized_reference(nvfp4):
+    if not torch.cuda.is_available() or torch.version.cuda is None or torch.cuda.get_device_capability() < (8, 9):
+        pytest.skip("requires NVIDIA SM89 or newer")
+    from eole.triton.inkling2_moe import expert_gemv
+
+    if nvfp4:
+        tensors = {
+            "w": torch.randint(0, 256, (3, 7, 48), dtype=torch.uint8, device="cuda"),
+            "w_scale": torch.rand(3, 7, 6, device="cuda").to(torch.float8_e4m3fn),
+            "w_amax": torch.tensor([1.0, 2.0, 3.0], device="cuda"),
+            "w_outer_scale_denominator": torch.tensor([2.0], device="cuda"),
+        }
+    else:
+        tensors = {
+            "w": torch.randn(3, 7, 96, device="cuda").to(torch.float8_e4m3fn),
+            "w_scale": torch.randint(125, 129, (3, 7, 3), dtype=torch.uint8, device="cuda"),
+        }
+    layer = Inkling2PackedExperts(tensors.__getitem__, "w", (3, 7, 96))
+    selected = torch.tensor([2, 0], device="cuda")
+    vectors = torch.randn(2, 96, device="cuda", dtype=torch.bfloat16)
+    for shared_input in (False, True):
+        x = vectors[:1] if shared_input else vectors
+        expected = (layer(selected, x.dtype) @ x.unsqueeze(-1)).squeeze(-1)
+        actual = expert_gemv(layer, x, selected, shared_input=shared_input)
+        torch.testing.assert_close(actual, expected, atol=0.03125, rtol=0.008)
