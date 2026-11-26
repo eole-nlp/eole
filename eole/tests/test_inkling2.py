@@ -1,11 +1,12 @@
 import unittest
+from types import SimpleNamespace
 
 import torch
 
 from eole.config.models import TransformerDecoderConfig
 from eole.config.run import PredictConfig
 from eole.decoders.transformer import TransformerDecoder
-from eole.modules.block_float_experts import BlockFloatExpertWeight
+from eole.modules.block_float_experts import BlockFloatExperts, BlockFloatExpertWeight
 from eole.modules.looped_transformer import SoftcappedLinear
 
 
@@ -182,6 +183,56 @@ class TestLoopedDecoderCUDA(unittest.TestCase):
                     expected = (layer(selected, x.dtype) @ x.unsqueeze(-1)).squeeze(-1)
                     actual = expert_gemv(layer, x, selected, shared_input=shared_input)
                     torch.testing.assert_close(actual, expected, atol=0.03125, rtol=0.008)
+
+    @torch.inference_mode()
+    def test_grouped_experts_match_reference(self):
+        from eole.ops import _CPP_OPS_AVAILABLE
+
+        if not _CPP_OPS_AVAILABLE:
+            self.skipTest("requires Eole MoE routing extension")
+        config = SimpleNamespace(
+            num_experts=5,
+            hidden_size=96,
+            moe_transformer_ff=96,
+            layer_loop=SimpleNamespace(gate_softcap=4, up_softcap=25),
+        )
+        rng = torch.Generator(device="cuda").manual_seed(19)
+        for weight_format in ("nvfp4", "mxfp8"):
+            with self.subTest(weight_format=weight_format):
+                experts = BlockFloatExperts(config, weight_format).cuda()
+                for layer in (experts.gate_up, experts.down):
+                    if layer.nvfp4:
+                        layer.weight.random_(0, 256, generator=rng)
+                        layer.scales.copy_(torch.rand(layer.scales.shape, device="cuda", generator=rng))
+                        layer.amax.copy_(torch.arange(1, 6, device="cuda"))
+                        layer.scale_denominator.fill_(16)
+                    else:
+                        layer.weight.copy_(torch.randn(layer.weight.shape, device="cuda", generator=rng))
+                        layer.scales.random_(122, 125, generator=rng)
+                experts.prepare()
+                self.assertTrue(experts._grouped_prefill)
+                for size in (7, 97):
+                    with self.subTest(tokens=size):
+                        inputs = torch.randn((size, 96), device="cuda", dtype=torch.bfloat16, generator=rng)
+                        rows = torch.rand((size, 4), device="cuda", generator=rng)
+                        weights, indices = rows.topk(2)
+                        weights = weights / weights.sum(dim=-1, keepdim=True)
+                        # Use FP32 accumulation so the reference does not depend on cuBLAS's BF16
+                        # reduced-precision reductions. Round each projection back to BF16.
+                        expected = torch.zeros_like(inputs, dtype=torch.float32)
+                        for expert in range(4):
+                            token, route = torch.where(indices == expert)
+                            gate_up = torch.nn.functional.linear(
+                                inputs[token].float(), experts.gate_up(expert, inputs.dtype).float()
+                            ).to(inputs.dtype)
+                            down = torch.nn.functional.linear(
+                                experts._activate(gate_up).float(), experts.down(expert, inputs.dtype).float()
+                            ).to(inputs.dtype)
+                            expected.index_add_(0, token, down.float() * weights[token, route, None])
+                        actual = experts(inputs, weights, indices).float()
+                        expected = expected.to(inputs.dtype).float()
+                        relative_error = (actual - expected).norm() / expected.norm()
+                        self.assertLess(relative_error.item(), 0.002)
 
     @torch.inference_mode()
     def test_fused_attention_probabilities(self):

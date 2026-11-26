@@ -29,12 +29,18 @@ The script renders the chat template, passes the prompt to
 to select the second visible GPU. If you already have a templated prompt, pass
 it directly to `infer_list()` from a script using the same `PredictConfig`.
 
-On NVIDIA GPUs with compute capability 8.9 or newer, BF16 inference with
-`EOLE_TORCH_COMPILE=1` and mode `0` or `2` selects packed expert kernels and CUDA
-graph replay for decode. The graph warms on the first two decode steps and
-captures on the third. New Triton kernel shapes may add first-use latency.
-With `EOLE_TORCH_COMPILE=0` the same decoder uses eager PyTorch and dequantizes
-only the selected experts. Reduction order can change greedy output across modes.
+On NVIDIA GPUs with compute capability 8.9 or newer, BF16 inference with the
+Eole CUDA extension groups prompt tokens by expert on the GPU and reads
+NVFP4 and MXFP8 weights directly during prefill. It uses 512-token chunks by
+default. The PyTorch fallback dequantizes selected expert weights and uses
+128-token chunks. Set `prefill_chunk_size` in `PredictConfig` to override the
+default.
+
+For decode, `EOLE_TORCH_COMPILE=1` with mode `0` or `2` enables packed expert
+kernels and CUDA graph replay on those GPUs. The graph warms on the first
+two decode steps and captures on the third. New Triton kernel shapes can
+add first-use latency. Reduction order can change greedy output across
+execution paths.
 
 This recipe supports one unpadded text sequence on one device with
 `batch_size=1` and `beam_size=1`. It uses native KV cache precision. Vision,

@@ -110,6 +110,9 @@ def inference_backend_summary(model, compile_enabled, compile_mode, speculative=
         f"Inference speculation: enabled={speculative}, drafts={num_drafts if speculative else 0}, "
         f"verifier={verifier if speculative else 'unused'}",
     ]
+    if looped:
+        expert_prefill = "GPU-grouped packed weights" if decoder.grouped_expert_prefill else "PyTorch dequantization"
+        lines.append(f"Inference expert prefill: {expert_prefill}, chunk size={decoder.prefill_chunk_size or 128}")
     layers = list(getattr(decoder, "transformer_layers", []))
     flash_layers = [layer for layer in layers if hasattr(getattr(layer, "self_attn", None), "flash_attn_with_kvcache")]
     fp8_layers = [layer for layer in flash_layers if getattr(layer.self_attn, "_fp8_kv_scales", None) is not None]

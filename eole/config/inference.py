@@ -76,8 +76,8 @@ class DecodingConfig(Config):
         default=0,
         description="When > 0, long prompts are split into chunks of this size during prefill "
         "so that KV computations can be cached and reused across requests that share the same "
-        "prefix.  Has no effect when sliding_window is already set (the sliding window size "
-        "is used as the chunk size in that case).  Set to 0 to disable chunked prefill.",
+        "prefix. Most sliding-window decoders use the window as the chunk size. Looped decoders "
+        "cap the configured chunk size at the sliding window. Set to 0 to use the decoder's default.",
         ge=0,
     )
     prefill_cache_size: int = Field(

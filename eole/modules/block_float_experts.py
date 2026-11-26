@@ -57,6 +57,7 @@ class BlockFloatExperts(nn.Module):
     def __init__(self, cfg, weight_format):
         super().__init__()
         experts, hidden, intermediate = cfg.num_experts, cfg.hidden_size, cfg.moe_transformer_ff
+        self._grouped_prefill = False
         self.gate_softcap = cfg.layer_loop.gate_softcap
         self.up_softcap = cfg.layer_loop.up_softcap
         self.gate_up = BlockFloatExpertWeight((experts, 2 * intermediate, hidden), weight_format)
@@ -65,6 +66,17 @@ class BlockFloatExperts(nn.Module):
     def prepare(self):
         self.gate_up.prepare()
         self.down.prepare()
+
+        from eole.ops import _CPP_OPS_AVAILABLE
+
+        device = self.gate_up.weight.device
+        self._grouped_prefill = (
+            _CPP_OPS_AVAILABLE
+            and device.type == "cuda"
+            and torch.version.cuda is not None
+            and torch.cuda.get_device_capability(device) >= (8, 9)
+            and self.gate_up.weight.size(0) <= 1024
+        )
 
     def _activate(self, x):
         # The original checkpoint interleaves the gate and up rows.
@@ -90,6 +102,11 @@ class BlockFloatExperts(nn.Module):
                 gate_up = (self.gate_up(selected, dtype) @ flat.T).squeeze(-1)
                 routes = (self.down(selected, dtype) @ self._activate(gate_up).unsqueeze(-1)).squeeze(-1)
             return (routes.float() * weights[0, :, None]).sum(dim=0).to(dtype).view_as(flat)
+
+        if self._grouped_prefill and dtype == torch.bfloat16:
+            from eole.triton.block_float_moe import grouped_experts
+
+            return grouped_experts(self, flat, weights, indices)
 
         result = torch.zeros_like(flat, dtype=torch.float32)
         # Group prompt tokens by expert to reuse weights and bound dequantization scratch space.

@@ -574,6 +574,15 @@ class TransformerDecoder(DecoderBase):
             self.layer_norm.float()
             for layer in self.transformer_layers:
                 layer.block_residual.prepare(self._loop_graph_supported)
+        if not self.prefill_chunk_size and self.grouped_expert_prefill:
+            self.prefill_chunk_size = 512
+
+    @property
+    def grouped_expert_prefill(self):
+        if not self.uses_layer_loop:
+            return False
+        layer = self.transformer_layers[0].block_residual
+        return layer.attention.output.weight.dtype == torch.bfloat16 and layer.moe.experts._grouped_prefill
 
     def _compile_decoder(
         self, emb=None, enc_out=None, src_pad_mask=None, tgt_pad_mask=None, fn_tile=None, return_attn=False
