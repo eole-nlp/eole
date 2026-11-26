@@ -1479,6 +1479,123 @@ MODEL_OVERRIDES["Qwen3VLForConditionalGeneration"] = {
 }
 
 
+def _inkling_loop_config(top, text, vision):
+    loop = text["loop_config"]
+    if (
+        loop["is_varloop"]
+        or text["q_bias"]
+        or text["o_bias"]
+        or not text["use_value_norm_no_gamma"]
+        or not text["attn_res_normalize_values"]
+        or not text["use_gate_bias"]
+        or text["n_shared_experts"]
+        or text["swa_num_attention_heads"] != text["num_attention_heads"]
+        or not isinstance(top.get("quantization_config"), dict)
+        or top["quantization_config"].get("quant_algo") != "NVFP4"
+        or text["num_hidden_layers"] != 24
+    ):
+        raise ValueError("Expected the released fixed-loop Inkling 2 Mini text checkpoint")
+    local_layers = set(text["local_layer_ids"])
+    return {
+        "encoder": None,
+        "embeddings": {"position_encoding_type": None},
+        "sliding_window": text["sliding_window_size"],
+        "heads_kv": text["swa_num_key_value_heads"],
+        "head_dim": text["swa_head_dim"],
+        "max_position_embeddings": text["model_max_length"],
+        "moe_transformer_ff": text["intermediate_size"],
+        "decoder": {
+            "global_heads_kv": text["num_key_value_heads"],
+            "global_head_dim": text["head_dim"],
+            "layer_types": [
+                "sliding_attention" if i in local_layers else "full_attention" for i in range(text["num_hidden_layers"])
+            ],
+            "layer_loop": {
+                "core_start": loop["core_start"],
+                "core_end": loop["core_end"],
+                "passes": loop["num_passes"],
+                "gate_rank": loop["gate_rank"],
+                "residual_block_size": text["n_layers_per_attn_res_block"],
+                "convolution_width": text["sconv_kernel_size"],
+                "relative_dim": text["d_rel"],
+                "relative_extent": text["rel_extent"],
+                "query_clip": text["qk_l2_clip_threshold"],
+                "relative_clip": text["rel_l2_clip_threshold"],
+                "log_scale_floor": text["log_scaling_n_floor"],
+                "log_scale_alpha": text["log_scaling_alpha"],
+                "expert_formats": ["nvfp4"] * 20 + ["mxfp8"] * 4,
+                "route_scale": text["route_scale"],
+                "gate_softcap": text["mlp_gate_softcap"],
+                "up_softcap": text["mlp_up_softcap"],
+                "logit_softcap": text["final_logit_softcapping"],
+                "output_vocab_size": text["unpadded_vocab_size"],
+            },
+        },
+    }
+
+
+_INKLING_LAYER_KEYS = {
+    "attention.output.weight": ".attn.wo_ud.weight",
+    "attention.query_scale": ".attn.q_l2_clip.scale",
+    "attention.relative_scale": ".attn.rel_l2_clip.scale",
+    "attention.relative_profiles": ".attn.rel_logits_proj.proj",
+    "local_attention_norm.weight": ".attn_norm.weight",
+    "attn_conv.taps": (".attn_sconv.weight", ".squeeze(1)"),
+    "moe_conv.taps": (".mlp_sconv.weight", ".squeeze(1)"),
+    "moe_norm": ".mlp_norm.weight",
+    "moe.gate.weight": ".mlp.gate.weight",
+    "moe.score_correction": ".mlp.gate.bias",
+}
+_INKLING_LAYER_KEYS.update(
+    {
+        f"attention.input_projections.{i}.weight": f".attn.{name}.weight"
+        for i, name in enumerate(("wq_du", "wr_du", "gate_attn", "attn_sink_proj", "wk_dv", "wv_dv"))
+    }
+)
+for key in ("k", "v"):
+    _INKLING_LAYER_KEYS.update(
+        {
+            f"attention.{key}_conv.taps": (f".attn.{key}_sconv.weight", ".squeeze(1)"),
+            f"attention.{key}_conv.dynamic_taps": (f".attn.{key}_sconv.static_w", ".transpose(0, 1).flip(-1)"),
+            f"attention.{key}_conv.project_taps.weight": f".attn.{key}_sconv.weight_proj",
+        }
+    )
+for i, key in enumerate(("q", "k", "v")):
+    _INKLING_LAYER_KEYS[f"attention_norms.{i}.weight"] = f".{key}_input_norm.weight"
+for i, controller in enumerate(("attn", "k", "v", "mlp")):
+    for part in ("down", "forget", "gain"):
+        _INKLING_LAYER_KEYS[f"controllers.{part}_projections.{i}.weight"] = f".controllers.{controller}.{part}_weight"
+for target, source in (("gate_up", "w13"), ("down", "w2")):
+    for attr, suffix in (
+        ("weight", ""),
+        ("scales", "_scale"),
+        ("amax", "_amax"),
+        ("scale_denominator", "_outer_scale_denominator"),
+    ):
+        _INKLING_LAYER_KEYS[f"moe.experts.{target}.{attr}"] = f".mlp.experts.{source}_weight{suffix}"
+
+MODEL_OVERRIDES["Inkling2LoopForConditionalGeneration"] = {
+    "decoder_layer_prefix": "model.llm.layers.",
+    "tgt_emb.embeddings.weight": "model.llm.embed.weight",
+    "decoder.layer_norm.weight": "model.llm.norm.weight",
+    "generator.weight": "model.llm.unembed.weight",
+    "decoder.layer_schedule.embedding_norm": "model.llm.embed_norm.weight",
+    "decoder.layer_schedule.output_query": "model.llm.attn_res.output_query",
+    "decoder.layer_schedule.cross_pass_queries": "model.llm.middle_cycle_cross_pass_queries",
+    "decoder.layer_schedule.cross_pass_kv_queries": "model.llm.middle_cycle_cross_pass_kv_queries",
+    **{
+        f"decoder.transformer_layers.{i}.block_residual.moe_query": f"model.llm.attn_res.mlp_queries.{i}"
+        for i in range(24)
+    },
+    **{
+        f"decoder.transformer_layers.{i}.block_residual.attention_query": f"model.llm.attn_res.attn_queries.{i - 1}"
+        for i in range(1, 24)
+    },
+    "decoder": {f".block_residual.{target}": source for target, source in _INKLING_LAYER_KEYS.items()},
+    "config_from_hf": _inkling_loop_config,
+}
+
+
 class _LazyKeyMaps(dict):
     def __missing__(self, arch):
         # Exclude "config_from_hf": it is a config-building callable, not a tensor

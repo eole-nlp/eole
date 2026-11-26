@@ -5,7 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from eole.models.hf_resolver import resolve_preconverted_eole_hf_repo
+from eole.config.run import PredictConfig
+from eole.models.hf_resolver import is_hf_model_directory, resolve_preconverted_eole_hf_repo
 from eole.models.model import get_model_class
 from eole.predict import build_predictor, get_infer_class
 from eole.scorers.eole_comet import _resolve_model_dir as resolve_comet_model_dir
@@ -13,6 +14,20 @@ from eole.scorers.eole_metricx import _resolve_model_dir as resolve_metricx_mode
 
 
 class TestHfEoleResolver(unittest.TestCase):
+    def test_local_hf_config_defers_model_loading(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model_dir = Path(tmp)
+            config_path = model_dir / "config.json"
+            config_path.write_text(json.dumps({"architectures": ["LlamaForCausalLM"]}), encoding="utf-8")
+            (model_dir / "model.safetensors").touch()
+
+            self.assertTrue(is_hf_model_directory(model_dir))
+            config = PredictConfig(model_path=str(model_dir), src="dummy")
+            self.assertIsNone(config.model)
+
+            config_path.write_text(json.dumps({"model": {"architecture": "transformer_lm"}}), encoding="utf-8")
+            self.assertFalse(is_hf_model_directory(model_dir))
+
     def test_resolves_preconverted_eole_hf_repo(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

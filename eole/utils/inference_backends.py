@@ -95,14 +95,18 @@ def inference_backend_summary(model, compile_enabled, compile_mode, speculative=
         if compile_mode in ("0", "1")
         else any(hasattr(layer, "_forward_compile") for layer in getattr(decoder, "transformer_layers", []))
     )
+    looped = getattr(decoder, "uses_layer_loop", False) is True
+    graphs_enabled = (
+        getattr(decoder, "_loop_graph_supported", False) if looped else compiled and compile_mode in ("0", "2")
+    )
     scope = "decoder" if compile_mode in ("0", "1") else "layers"
     verifier = "compiled" if compiled and compile_mode in ("0", "1") else "eager"
     lines = [
         f"Inference runtime: torch={torch.__version__}, CUDA build={torch.version.cuda}, "
         f"device={device}, dtype={dtype}",
         f"Inference compile: enabled={compile_enabled}, mode={compile_mode}, "
-        f"{scope} path={'compiled' if compiled else 'eager'}, "
-        f"CUDA graphs requested={compiled and compile_mode in ('0', '2')}; capture not verified",
+        f"{scope} path={'packed' if looped and graphs_enabled else 'compiled' if compiled else 'eager'}, "
+        f"CUDA graphs requested={graphs_enabled}; capture not verified",
         f"Inference speculation: enabled={speculative}, drafts={num_drafts if speculative else 0}, "
         f"verifier={verifier if speculative else 'unused'}",
     ]
@@ -165,7 +169,7 @@ def inference_backend_summary(model, compile_enabled, compile_mode, speculative=
     quantized = Counter(
         type(module).__name__
         for module in model.modules()
-        if type(module).__name__.endswith("Linear") and type(module).__name__ != "Linear"
+        if type(module).__name__.endswith("Linear") and type(module).__name__ not in ("Linear", "SoftcappedLinear")
     )
     if quantized:
         lines.append(

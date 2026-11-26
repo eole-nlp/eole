@@ -1,5 +1,6 @@
 """Weight-only NVFP4 and MXFP8 expert projections for single-token decode."""
 
+import torch
 import triton
 import triton.language as tl
 
@@ -58,8 +59,8 @@ def expert_gemv(projection, inputs, expert_ids, *, shared_input):
     warps = 8 if not projection.nvfp4 and shared_input else 4
     _gemv[(triton.cdiv(output_size, rows), expert_ids.numel())](
         inputs.contiguous(),
-        projection.weight,
-        projection.scales,
+        projection.weight.view(torch.uint8),
+        projection.scales.view(torch.uint8),
         projection.outer_scale if projection.nvfp4 else projection.scales,
         expert_ids,
         output,

@@ -19,6 +19,12 @@ from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
 from eole.ops import _FLASH_ATTN_AVAILABLE
 
 
+def _prefill_chunk_length(decoder):
+    if getattr(decoder, "layer_schedule", None) is not None:
+        return min(decoder.sliding_window, decoder.prefill_chunk_size or 128)
+    return decoder.sliding_window if decoder.sliding_window > 0 else decoder.prefill_chunk_size
+
+
 class TransformerDecoderLayer(nn.Module):
     """Single layer of a transformer decoder
 
@@ -42,6 +48,14 @@ class TransformerDecoderLayer(nn.Module):
             self.layer_type = layer_types[idx]
         else:
             self.layer_type = "full_attention"
+
+        self.block_residual = None
+        if getattr(decoder_config, "layer_loop", None) is not None:
+            from eole.modules.looped_transformer import BlockResidualLayer
+
+            self.block_residual = BlockResidualLayer(decoder_config, idx, running_config)
+            self.self_attn = self.context_attn = None
+            return
 
         # order of layers corresponds to forward flow of tensors
         self.input_layernorm = LayerNorm[decoder_config.layer_norm](
@@ -275,6 +289,8 @@ class TransformerDecoderLayer(nn.Module):
         return self._finish_feed_forward(residual, update)
 
     def forward(self, layer_in, **kwargs):
+        if self.block_residual is not None:
+            return self._forward_eager(layer_in, **kwargs)
         hybrid_graph = getattr(self, "_hybrid_graph", None)
         if hybrid_graph is not None and hybrid_graph.allowed(layer_in, kwargs):
             return hybrid_graph(layer_in, **kwargs)
@@ -331,6 +347,9 @@ class TransformerDecoderLayer(nn.Module):
                 or ``None``.
         """
 
+        if self.block_residual is not None:
+            state, positions, cache, messages, fast = kwargs["visit_state"]
+            return self.block_residual(layer_in, state.blocks, positions, cache, messages, fast_decode=fast), None
         norm_layer_in, self_attn, attns = self._self_attention(layer_in, **kwargs)
         return self._forward(layer_in, norm_layer_in, self_attn, attns, **kwargs)
 
@@ -502,9 +521,20 @@ class TransformerDecoder(DecoderBase):
         prefill_cache_size = getattr(running_config, "prefill_cache_size", 0)
         self._prefill_cache = PrefillCache(max_entries=prefill_cache_size) if prefill_cache_size > 0 else None
 
+        self.layer_schedule = None
+        self.uses_layer_loop = getattr(decoder_config, "layer_loop", None) is not None
+        self._visit_caches = None
+        if self.uses_layer_loop:
+            from eole.modules.looped_transformer import LoopedLayerSchedule
+
+            self.layer_schedule = LoopedLayerSchedule(decoder_config)
+            self._prefill_cache = None
+            self._loop_cache_capacity = None
+            self._fixed_visits = False
+            self._loop_graph_supported = False
         self._disable_cache()
 
-        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"]:
+        if self.layer_schedule is None and EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"]:
             self._forward_compile = torch.compile(
                 self._forward_eager,
                 fullgraph=True,
@@ -514,6 +544,36 @@ class TransformerDecoder(DecoderBase):
                     "triton.cudagraphs": EOLE_COMPILE_MODE == "0",
                 },
             )
+
+    def prepare_looped_inference(self, config):
+        """Prepare shared weights once, before any graph captures use their storage."""
+        if (
+            config.parallel_gpu != 1
+            or config.batch_size != 1
+            or config.beam_size != 1
+            or config.prefill_cache_size != 0
+            or config.kv_cache_dtype != "native"
+            or config.dense_quantization != "none"
+            or config.vocabulary_quantization != "none"
+            or getattr(config, "dflash2_model", None) is not None
+        ):
+            raise ValueError(
+                "Looped inference requires batch_size=1, beam_size=1, one device, native weights and KV precision, "
+                "no persistent prefill cache or external drafter"
+            )
+        first = self.transformer_layers[0].block_residual.attention.output.weight
+        self._loop_graph_supported = (
+            self._decode_graph_enabled
+            and first.device.type == "cuda"
+            and first.dtype == torch.bfloat16
+            and torch.version.cuda is not None
+            and torch.cuda.get_device_capability(first.device) >= (8, 9)
+        )
+        with torch.no_grad():
+            self.layer_schedule.prepare()
+            self.layer_norm.float()
+            for layer in self.transformer_layers:
+                layer.block_residual.prepare(self._loop_graph_supported)
 
     def _compile_decoder(
         self, emb=None, enc_out=None, src_pad_mask=None, tgt_pad_mask=None, fn_tile=None, return_attn=False
@@ -565,6 +625,13 @@ class TransformerDecoder(DecoderBase):
             self.left_pad_attn_mask = fn(self.left_pad_attn_mask)
         if self.cache_seqlens is not None:
             self.cache_seqlens = fn(self.cache_seqlens)
+        if getattr(self, "layer_schedule", None) is not None:
+            if self._visit_caches is not None:
+                for state in self._visit_caches:
+                    if state.key is not None:
+                        state.key, state.value = fn(state.key), fn(state.value)
+                    state.conv = {name: fn(value) for name, value in state.conv.items()}
+            return
         for layer in self.transformer_layers:
             if layer.layer_type == "linear_attention":
                 if layer.linear_attn.conv_state is not None:
@@ -807,7 +874,7 @@ class TransformerDecoder(DecoderBase):
         B, S, _ = emb.size()
         # Sliding window takes priority as the chunk size because it is a
         # correctness constraint; prefill_chunk_size is an optional knob.
-        chunk_size = self.sliding_window if self.sliding_window > 0 else self.prefill_chunk_size
+        chunk_size = _prefill_chunk_length(self)
 
         tgt_pad_mask_full = kwargs.pop("tgt_pad_mask")
         # Extract image_locations and prefix_len so we can distribute them
@@ -1099,8 +1166,27 @@ class TransformerDecoder(DecoderBase):
         return self._forward_eager(emb, tgt_pad_mask=tgt_pad_mask)
 
     def _replay_decoder(self, emb, kwargs, *, capture=True):
+        looped = getattr(self, "layer_schedule", None) is not None
+        if looped and not self._fixed_visits:
+            from eole.modules.looped_transformer import FixedVisitCache
+
+            length = int(self.cache_seqlens[0])
+            self._visit_caches = [
+                FixedVisitCache.from_prefill(
+                    layer_cache,
+                    min(
+                        self.transformer_layers[index].block_residual.attention.window or self._loop_cache_capacity,
+                        self._loop_cache_capacity,
+                    ),
+                    length,
+                )
+                for index, layer_cache in zip(self.layer_schedule.layer_ids, self._visit_caches)
+            ]
+            self._fixed_visits = True
         if self._decode_graph is None:
-            if EOLE_COMPILE_MODE == "2":
+            if looped:
+                function = fallback = self._forward_decode_graph
+            elif EOLE_COMPILE_MODE == "2":
                 function = self._forward_mode2_graph
                 # Keep capture failures independent of graph-tree TLS too.
                 fallback = function
@@ -1124,7 +1210,18 @@ class TransformerDecoder(DecoderBase):
         B, S, _ = emb.size()
         src_ids = kwargs.pop("src_ids", None)
 
-        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "2":
+        if getattr(self, "layer_schedule", None) is not None:
+            if (
+                self._loop_graph_supported
+                and not torch.is_grad_enabled()
+                and getattr(self, "_decode_graph_request_allowed", False)
+                and self._loop_cache_capacity is not None
+                and S == 1
+                and self._visit_caches is not None
+                and self._visit_caches[0].key is not None
+            ):
+                return self._replay_decoder(emb, kwargs)
+        elif EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "2":
             if self._can_replay_verifier(emb, kwargs):
                 return self._replay_verifier(emb, kwargs)
             if self._can_replay_decoder(emb, kwargs):
@@ -1135,7 +1232,7 @@ class TransformerDecoder(DecoderBase):
                 and self._can_replay_decoder(emb, kwargs, for_warmup=True)
             ):
                 return self._replay_decoder(emb, kwargs, capture=False)
-        if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and (S == 1 or self._speculative_forward):
+        elif EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ["0", "1"] and (S == 1 or self._speculative_forward):
             if self._can_replay_verifier(emb, kwargs):
                 return self._replay_verifier(emb, kwargs)
             if self._can_replay_decoder(emb, kwargs):
@@ -1157,7 +1254,7 @@ class TransformerDecoder(DecoderBase):
         # Determine the effective chunk size for chunked prefill.
         # Sliding window takes precedence (it is a correctness requirement);
         # prefill_chunk_size is an optional performance knob for non-sliding models.
-        effective_chunk = self.sliding_window if self.sliding_window > 0 else self.prefill_chunk_size
+        effective_chunk = _prefill_chunk_length(self)
         if effective_chunk > 0 and S > effective_chunk and self.cache_seqlens is not None:
             return self._forward_chunked_prefill(emb, src_ids=src_ids, **kwargs)
         return self._forward_eager(emb, **kwargs)
@@ -1284,7 +1381,20 @@ class TransformerDecoder(DecoderBase):
         else:
             pos_emb_list = [None] * len(self.transformer_layers)
 
-        if not self.flash:
+        loop_state = None
+        loop_dtype = emb.dtype
+        if getattr(self, "layer_schedule", None) is not None:
+            if self.training:
+                raise ValueError("Looped layers support inference only")
+            from eole.modules.looped_transformer import BlockResidualState, _rms
+
+            if return_attn:
+                raise ValueError("Looped decoder does not expose attention weights")
+            loop_state = BlockResidualState()
+            visit_caches = self._visit_caches if self._visit_caches is not None else self.layer_schedule.new_cache()
+            emb = _rms(emb, self.layer_schedule.eps, self.layer_schedule.embedding_norm).to(loop_dtype)
+            attn_mask = attn_mask_full = lin_attn_mask = cache_slice = None
+        elif not self.flash:
             cache_slice = pos_ids_1d  # tensor of position indices to update
             # A single token with no cache is a teacher-forced forward, not a decode step.
             if self.cache_seqlens is None or S > 1:
@@ -1395,7 +1505,13 @@ class TransformerDecoder(DecoderBase):
 
         dflash2_layer_ids = getattr(self, "_dflash2_layer_ids", ())
         dflash2_features = []
-        for layer_index, (layer, pos_emb) in enumerate(zip(self.transformer_layers, pos_emb_list)):
+        if loop_state is None:
+            visits = enumerate(zip(range(len(self.transformer_layers)), self.transformer_layers, pos_emb_list))
+        else:
+            visits = enumerate(
+                (index, self.transformer_layers[index], pos_emb_list[index]) for index in self.layer_schedule.layer_ids
+            )
+        for visit, (layer_index, layer, pos_emb) in visits:
             if lin_attn_mask is not None and layer.layer_type == "linear_attention":
                 layer_attn_mask = lin_attn_mask
             elif self.has_sliding_attn and layer.layer_type == "full_attention":
@@ -1403,8 +1519,17 @@ class TransformerDecoder(DecoderBase):
             else:
                 layer_attn_mask = attn_mask
 
+            if loop_state is None:
+                visit_kwargs = {}
+            else:
+                emb, messages = self.layer_schedule.before_visit(
+                    visit, layer_index, emb, loop_state, self._fixed_visits
+                )
+                visit_kwargs = {
+                    "visit_state": (loop_state, pos_ids_1d, visit_caches[visit], messages, self._fixed_visits)
+                }
             emb, attn = layer(
-                emb.clone() if (EOLE_COMPILE_MODE == "2" and EOLE_TORCH_COMPILE) else emb,
+                emb.clone() if (loop_state is None and EOLE_COMPILE_MODE == "2" and EOLE_TORCH_COMPILE) else emb,
                 enc_out=enc_out,
                 src_pad_mask=src_pad_mask,
                 attn_mask=layer_attn_mask,
@@ -1413,6 +1538,7 @@ class TransformerDecoder(DecoderBase):
                 cache_seqlens=self.cache_seqlens,
                 cache_slice=cache_slice,
                 pos_ids_2d=pos_ids_2d,
+                **visit_kwargs,
             )
             if layer_index in dflash2_layer_ids:
                 window = getattr(self, "_dflash2_window", S)
@@ -1435,7 +1561,11 @@ class TransformerDecoder(DecoderBase):
                 if attn_align is not None:
                     attn_aligns.append(attn_align)
 
-        emb = self.layer_norm(emb)
+        if loop_state is None:
+            emb = self.layer_norm(emb)
+        else:
+            emb = self.layer_schedule.finish(emb, loop_state, self._fixed_visits)
+            emb = _rms(emb, self.layer_schedule.eps, self.layer_norm.weight.float()).to(loop_dtype)
         if self.cache_seqlens is not None:
             self.cache_seqlens.add_(S)
 
@@ -1468,6 +1598,11 @@ class TransformerDecoder(DecoderBase):
         if torch.is_autocast_enabled(device.type):
             dtype = torch.get_autocast_dtype(device.type)
 
+        if getattr(self, "layer_schedule", None) is not None:
+            self._visit_caches = self.layer_schedule.new_cache()
+            self._fixed_visits = False
+            self.cache_seqlens = torch.zeros((b,), device=device, dtype=torch.int64)
+            return
         self.flash = self._can_use_flash_cache(dtype, device)
 
         if self.dynamic_shapes:
@@ -1531,6 +1666,8 @@ class TransformerDecoder(DecoderBase):
                     layer.context_attn._prefill_cache(enc_out)
 
     def _extend_cache(self, threshold=1, addzeros=32):
+        if getattr(self, "layer_schedule", None) is not None:
+            return  # The visit state owns its cache geometry.
         if self.dynamic_shapes and (self.cache_len_tgt - self.cache_seqlens[0].item()) < threshold:
             for layer in self.transformer_layers:
                 if layer.layer_type == "linear_attention":
@@ -1552,6 +1689,10 @@ class TransformerDecoder(DecoderBase):
         self.left_pad_attn_mask = None
         self.cache_seqlens = None
         self.flash = False
+        if getattr(self, "layer_schedule", None) is not None:
+            self._visit_caches = None
+            self._fixed_visits = False
+            return
         for layer in self.transformer_layers:
             if layer.layer_type == "linear_attention":
                 layer.linear_attn.conv_state = None

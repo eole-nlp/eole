@@ -127,6 +127,8 @@ class GeneratorLM(Inference):
         if not hasattr(self.model, "decoder") or self.model.decoder is None:
             return
         decoder = self.model.decoder
+        if getattr(decoder, "uses_layer_loop", False) is True:
+            return  # Warmup depends on the real prompt and visit-cache capacity.
         device = self._dev
         try:
             dtype = next(self.model.parameters()).dtype
@@ -331,6 +333,22 @@ class GeneratorLM(Inference):
             target_prefix=target_prefix,
         )
         prefill_length = max(src_len.tolist())
+        looped = getattr(self.model.decoder, "uses_layer_loop", False) is True
+        if looped:
+            if (
+                batch_size != 1
+                or parallel_paths != 1
+                or decode_strategy.return_attention
+                or batch.get("images") is not None
+                or bool(src.eq(self._tgt_pad_idx).any())
+            ):
+                raise ValueError(
+                    "Looped decoding requires an unpadded text sequence without beam search or attention output"
+                )
+            capacity = prefill_length + decode_strategy.max_length
+            if capacity > self.model.decoder.kvcache_maxsize:
+                raise ValueError("Looped decoder context must fit the prompt and output budget")
+            self.model.decoder._loop_cache_capacity = capacity
 
         use_spec_decoding = (
             self.self_speculative_decoding
@@ -383,7 +401,7 @@ class GeneratorLM(Inference):
         # (4) warmup for Torch compile
         # use the current batch to generate the decode graph (B, 1)
         # we need proper set up to run the forward pass of the decoder or decoder layer
-        if EOLE_TORCH_COMPILE:
+        if EOLE_TORCH_COMPILE and not looped:
             start_wu = time()
             images = batch.get("images", None)
             if images is not None:

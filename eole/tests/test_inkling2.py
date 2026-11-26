@@ -1,8 +1,25 @@
+import unittest
+
 import pytest
 import torch
 
-from eole.models.inkling2 import Inkling2Mini, Inkling2PackedExperts
-from eole.models.inkling2_decode import Inkling2Decode
+from eole.config.models import TransformerDecoderConfig
+from eole.config.run import PredictConfig
+from eole.decoders.transformer import TransformerDecoder
+from eole.modules.block_float_experts import BlockFloatExpertWeight
+from eole.modules.looped_transformer import SoftcappedLinear
+
+
+def _expert_weight(tensors, shape):
+    nvfp4 = "w_amax" in tensors
+    layer = BlockFloatExpertWeight(shape, "nvfp4" if nvfp4 else "mxfp8").to(tensors["w"].device)
+    layer.weight = tensors["w"]
+    layer.scales = tensors["w_scale"]
+    if nvfp4:
+        layer.amax = tensors["w_amax"]
+        layer.scale_denominator = tensors["w_outer_scale_denominator"]
+    layer.prepare()
+    return layer
 
 
 def test_inkling2_expert_dequantization():
@@ -12,7 +29,7 @@ def test_inkling2_expert_dequantization():
         "w_amax": torch.tensor([1.0, 4.0]),
         "w_outer_scale_denominator": torch.tensor([2.0]),
     }
-    layer = Inkling2PackedExperts(fp4.__getitem__, "w", (2, 1, 16))
+    layer = _expert_weight(fp4, (2, 1, 16))
     weights = layer(torch.tensor([1, 0]), torch.bfloat16)
     expected = torch.tensor([[[12.0, -1] * 8], [[0.5, 1.0] * 8]], dtype=torch.bfloat16)
     torch.testing.assert_close(weights, expected)
@@ -21,146 +38,118 @@ def test_inkling2_expert_dequantization():
         "w": torch.full((2, 1, 32), -2, dtype=torch.float32).to(torch.float8_e4m3fn),
         "w_scale": torch.tensor([[[126]], [[128]]], dtype=torch.uint8),
     }
-    layer = Inkling2PackedExperts(fp8.__getitem__, "w", (2, 1, 32))
+    layer = _expert_weight(fp8, (2, 1, 32))
     torch.testing.assert_close(layer(0, torch.float32), torch.full((1, 32), -1.0))
     torch.testing.assert_close(layer(1, torch.float32), torch.full((1, 32), -4.0))
 
 
-def _tiny_model(device="cpu", dtype=torch.float32):
-    cfg = {
-        "hidden_size": 32,
-        "num_hidden_layers": 4,
-        "unpadded_vocab_size": 21,
-        "n_layers_per_attn_res_block": 1,
-        "rms_norm_eps": 1e-6,
-        "final_logit_softcapping": 30,
-        "local_layer_ids": [0, 2],
-        "num_attention_heads": 2,
-        "num_key_value_heads": 1,
-        "head_dim": 16,
-        "swa_num_attention_heads": 2,
-        "swa_num_key_value_heads": 1,
-        "swa_head_dim": 16,
-        "sliding_window_size": 3,
-        "qk_l2_clip_threshold": 4,
-        "rel_l2_clip_threshold": 4,
-        "log_scaling_n_floor": 4,
-        "log_scaling_alpha": 0.1,
-        "intermediate_size": 16,
-        "n_routed_experts": 3,
-        "num_experts_per_tok": 2,
-        "n_shared_experts": 0,
-        "route_scale": 1.0,
-        "mlp_gate_softcap": 4,
-        "mlp_up_softcap": 25,
-        "q_bias": False,
-        "o_bias": False,
-        "use_gate_bias": True,
-        "use_value_norm_no_gamma": True,
-        "attn_res_normalize_values": True,
-        "loop_config": {"core_start": 1, "core_end": 3, "num_passes": 3, "is_varloop": False},
-    }
-    rng = torch.Generator().manual_seed(7)
+def _tiny_decoder(device="cpu", dtype=torch.float32, *, packed=False):
+    cfg = TransformerDecoderConfig(
+        hidden_size=32,
+        layers=4,
+        heads=2,
+        heads_kv=1,
+        head_dim=16,
+        sliding_window=3,
+        layer_norm="rms",
+        norm_eps=1e-6,
+        num_experts=3,
+        num_experts_per_tok=2,
+        moe_transformer_ff=16,
+        layer_types=["sliding_attention", "full_attention"] * 2,
+        layer_loop=dict(
+            core_start=1,
+            core_end=3,
+            passes=3,
+            gate_rank=8,
+            residual_block_size=1,
+            convolution_width=3,
+            relative_dim=4,
+            relative_extent=3,
+            query_clip=4,
+            relative_clip=4,
+            log_scale_floor=4,
+            log_scale_alpha=0.1,
+            expert_formats=["nvfp4"] * 4,
+            route_scale=1,
+            gate_softcap=4,
+            up_softcap=25,
+            logit_softcap=30,
+            output_vocab_size=21,
+        ),
+    )
+    running = PredictConfig(
+        model_path=["dummy"], src="dummy", beam_size=1, batch_size=1, context_length=12, prefill_chunk_size=2
+    )
+    decoder = TransformerDecoder(cfg, running).to(device).eval()
+    generator = SoftcappedLinear(32, 24, 21, 30, device=device).to(dtype)
+    rng = torch.Generator(device=device).manual_seed(7)
 
-    def rand(*shape):
-        return torch.randn(*shape, generator=rng) * 0.2
-
-    weights = {
-        "embed.weight": rand(21, 32),
-        "embed_norm.weight": torch.ones(32),
-        "norm.weight": torch.ones(32),
-        "unembed.weight": rand(21, 32),
-        "attn_res.output_query": rand(32),
-        "middle_cycle_cross_pass_queries": rand(4, 32),
-        "middle_cycle_cross_pass_kv_queries": rand(4, 32),
-    }
-    for i in range(cfg["num_hidden_layers"]):
-        sliding = i in cfg["local_layer_ids"]
-        if i:
-            weights[f"attn_res.attn_queries.{i - 1}"] = rand(1 if sliding else 3, 32)
-        weights[f"attn_res.mlp_queries.{i}"] = rand(32)
-        shapes = {
-            "attn.wq_du.weight": (32, 32),
-            "attn.wk_dv.weight": (16, 32),
-            "attn.wv_dv.weight": (16, 32),
-            "attn.wr_du.weight": (8, 32),
-            "attn.wo_ud.weight": (32, 32),
-            "attn.gate_attn.weight": (32, 32),
-            "attn.attn_sink_proj.weight": (2, 32),
-            "attn.q_l2_clip.scale": (2, 16),
-            "attn.rel_l2_clip.scale": (2, 4),
-            "attn.rel_logits_proj.proj": (4, 3),
-            "attn_sconv.weight": (32, 1, 3),
-            "mlp_sconv.weight": (32, 1, 3),
-            "mlp.gate.weight": (3, 32),
-            "mlp.gate.bias": (3,),
-        }
-        if sliding:
-            shapes["attn_norm.weight"] = (32,)
+    for parameter in decoder.parameters():
+        parameter.data = (torch.randn(parameter.shape, device=device, generator=rng) * 0.2).to(dtype)
+    for buffer in decoder.buffers():
+        if buffer.dtype == torch.uint8:
+            buffer.random_(0, 256, generator=rng)
+        elif buffer.dtype == torch.float8_e4m3fn:
+            buffer.copy_(torch.full(buffer.shape, 0.125, device=device))
         else:
-            for component in "qkv":
-                shapes[f"{component}_input_norm.weight"] = (32,)
-        for name in ("k", "v"):
-            if sliding:
-                shapes[f"attn.{name}_sconv.weight"] = (16, 1, 3)
-            else:
-                shapes[f"attn.{name}_sconv.static_w"] = (3, 16)
-                shapes[f"attn.{name}_sconv.weight_proj"] = (3, 32)
-        if 1 <= i < 3:
-            for name in ("attn", "k", "v", "mlp"):
-                shapes[f"controllers.{name}.down_weight"] = (8, 64)
-                shapes[f"controllers.{name}.gain_weight"] = (32, 8)
-                shapes[f"controllers.{name}.forget_weight"] = (32, 8)
-        prefix = f"layers.{i}."
-        weights.update({prefix + name: rand(*shape) for name, shape in shapes.items()})
-        weights[prefix + "mlp_norm.weight"] = torch.ones(32)
-        for name, out_dim, in_dim in (("w13_weight", 32, 32), ("w2_weight", 32, 16)):
-            key = prefix + f"mlp.experts.{name}"
-            weights[key] = torch.randint(0, 256, (3, out_dim, in_dim // 2), generator=rng, dtype=torch.uint8)
-            weights[key + "_scale"] = torch.full((3, out_dim, in_dim // 16), 0.125).to(torch.float8_e4m3fn)
-            weights[key + "_amax"] = torch.ones(3)
-            weights[key + "_outer_scale_denominator"] = torch.ones(1)
-
-    def read(name):
-        value = weights[name]
-        return value.to(device=device, dtype=dtype if value.dtype == torch.float32 else value.dtype)
-
-    return Inkling2Mini(read, cfg).eval()
+            buffer.fill_(0.9)
+    decoder._decode_graph_enabled = packed
+    decoder.prepare_looped_inference(running)
+    hidden = torch.randn((1, 10, 32), device=device, dtype=dtype, generator=rng)
+    return decoder, generator, hidden
 
 
-@torch.inference_mode()
-def test_inkling2_cached_logits_match_full_forward_across_window():
-    model = _tiny_model()
-    tokens = torch.tensor([[2, 4, 5, 0, 7, 4, 14]])
-    expected = model(tokens, all_logits=True)
-    cache = model.new_cache()
-    chunks = [model(chunk, cache, all_logits=True) for chunk in tokens.split((2, 1, 3, 1), dim=1)]
-    torch.testing.assert_close(torch.cat(chunks, dim=1), expected, atol=5e-6, rtol=5e-5)
-    assert cache.length == tokens.size(1)
-    assert [layer.key.size(-2) for layer in cache.layers] == [2, 7, 2, 7, 2, 7, 2, 7]
-    assert len({state.conv["k"].data_ptr() for state in cache.layers}) == model.num_visits
+def _decode(decoder, hidden, *, step=0):
+    pad = torch.zeros((1, 1, hidden.size(1)), device=hidden.device, dtype=torch.bool)
+    return decoder(hidden.contiguous(), step=step, tgt_pad_mask=pad)[0]
+
+
+class TestLoopedDecoder(unittest.TestCase):
+    @torch.inference_mode()
+    def test_chunked_prefill_matches_full_forward_across_window(self):
+        decoder, generator, hidden = _tiny_decoder()
+        hidden = hidden[:, :7].contiguous()
+        expected = generator(_decode(decoder, hidden))
+        pad = torch.zeros((1, 1, hidden.size(1)), dtype=torch.bool)
+        decoder._init_cache(hidden, pad)
+        actual = generator(_decode(decoder, hidden))
+        torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-4)
+        assert decoder.cache_seqlens.item() == hidden.size(1)
+        assert [state.key.size(-2) for state in decoder._visit_caches] == [2, 7] * 4
+        assert len({state.conv["k"].data_ptr() for state in decoder._visit_caches}) == 8
+        assert torch.isneginf(actual[..., 21:]).all()
 
 
 @pytest.mark.parametrize("prefix_length", [2, 5])
-@pytest.mark.parametrize("capture", [False, True])
 @torch.inference_mode()
-def test_inkling2_fixed_decode_matches_eager_across_ring_wrap(prefix_length, capture):
-    if capture and not torch.cuda.is_available():
-        pytest.skip("requires CUDA")
-    device = "cuda" if capture else "cpu"
-    model = _tiny_model().to(device)
-    tokens = torch.tensor([[2, 4, 5, 0, 7, 4, 14, 8, 9, 1]], device=device)
-    eager = model.new_cache()
-    model(tokens[:, :prefix_length], eager)
-    fixed = Inkling2Decode(model, eager, tokens.size(1), capture=capture, packed_experts=False)
-    for token in tokens[:, prefix_length:].split(1, dim=1):
-        expected = model(token, eager)
-        torch.testing.assert_close(fixed(token), expected, atol=5e-6, rtol=5e-5)
-        assert fixed.length == fixed.position.item() == eager.length
-    if capture:
-        assert fixed.graph.graph is not None
-    with pytest.raises(ValueError, match="exceeded"):
-        fixed(tokens[:, -1:])
+def test_looped_decoder_cuda_graph_matches_eager_across_ring_wrap(prefix_length):
+    if not torch.cuda.is_available() or torch.version.cuda is None or torch.cuda.get_device_capability() < (8, 9):
+        pytest.skip("requires NVIDIA SM89 or newer")
+    decoder, generator, hidden = _tiny_decoder("cuda", torch.bfloat16, packed=True)
+    pad = torch.zeros((1, 1, prefix_length), device="cuda", dtype=torch.bool)
+    prefix = hidden[:, :prefix_length].contiguous()
+    decoder._init_cache(prefix, pad)
+    _decode(decoder, prefix)
+    expected = [
+        generator(_decode(decoder, token, step=i))[..., :21]
+        for i, token in enumerate(hidden[:, prefix_length:].split(1, dim=1), prefix_length)
+    ]
+
+    for _ in range(2):
+        decoder._disable_cache()
+        decoder._init_cache(prefix, pad)
+        decoder._loop_cache_capacity = hidden.size(1)
+        decoder._decode_graph_request_allowed = True
+        _decode(decoder, prefix)
+        for i, token in enumerate(hidden[:, prefix_length:].split(1, dim=1), prefix_length):
+            actual = generator(_decode(decoder, token, step=i))[..., :21]
+            assert decoder.cache_seqlens.item() == i + 1
+            divergence = torch.nn.functional.kl_div(
+                actual.log_softmax(-1), expected[i - prefix_length].log_softmax(-1), reduction="sum", log_target=True
+            )
+            assert divergence.item() < 5e-4
+        assert decoder._decode_graph.graph is not None
 
 
 @pytest.mark.parametrize("nvfp4", [True, False])
@@ -168,7 +157,7 @@ def test_inkling2_fixed_decode_matches_eager_across_ring_wrap(prefix_length, cap
 def test_inkling2_cuda_expert_gemv_matches_dequantized_reference(nvfp4):
     if not torch.cuda.is_available() or torch.version.cuda is None or torch.cuda.get_device_capability() < (8, 9):
         pytest.skip("requires NVIDIA SM89 or newer")
-    from eole.triton.inkling2_moe import expert_gemv
+    from eole.triton.block_float_moe import expert_gemv
 
     if nvfp4:
         tensors = {
@@ -182,7 +171,7 @@ def test_inkling2_cuda_expert_gemv_matches_dequantized_reference(nvfp4):
             "w": torch.randn(3, 7, 96, device="cuda").to(torch.float8_e4m3fn),
             "w_scale": torch.randint(125, 129, (3, 7, 3), dtype=torch.uint8, device="cuda"),
         }
-    layer = Inkling2PackedExperts(tensors.__getitem__, "w", (3, 7, 96))
+    layer = _expert_weight(tensors, (3, 7, 96))
     selected = torch.tensor([2, 0], device="cuda")
     vectors = torch.randn(2, 96, device="cuda", dtype=torch.bfloat16)
     for shared_input in (False, True):
@@ -192,36 +181,12 @@ def test_inkling2_cuda_expert_gemv_matches_dequantized_reference(nvfp4):
         torch.testing.assert_close(actual, expected, atol=0.03125, rtol=0.008)
 
 
-@torch.inference_mode()
-def test_inkling2_fused_decode_matches_eager_across_ring_wrap():
-    if not torch.cuda.is_available() or torch.version.cuda is None or torch.cuda.get_device_capability() < (8, 9):
-        pytest.skip("requires NVIDIA SM89 or newer")
-    model = _tiny_model("cuda", torch.bfloat16)
-    tokens = torch.tensor([[2, 4, 5, 0, 7, 4, 14, 8, 9, 1]], device="cuda")
-    eager = model.new_cache()
-    model(tokens[:, :2], eager)
-    fixed = Inkling2Decode(model, eager, tokens.size(1), capture=False)
-    graph = Inkling2Decode(model, eager, tokens.size(1))
-    for token in tokens[:, 2:].split(1, dim=1):
-        expected = model(token, eager, packed_experts=True)
-        actual = graph(token)
-        torch.testing.assert_close(actual, fixed(token), atol=0, rtol=0)
-        torch.testing.assert_close(actual.argmax(-1), expected.argmax(-1))
-        # Fused reductions can shift BF16 rounding while retaining the distribution.
-        divergence = torch.nn.functional.kl_div(
-            actual.log_softmax(-1), expected.log_softmax(-1), reduction="sum", log_target=True
-        )
-        assert divergence.item() < 5e-4
-        assert graph.position.item() == eager.length
-    assert graph.graph.graph is not None
-
-
 @pytest.mark.parametrize(("window", "position"), [(None, 6), (7, 3), (7, 11)])
 @torch.inference_mode()
 def test_inkling2_fused_attention_probabilities(window, position):
     if not torch.cuda.is_available() or torch.version.cuda is None or torch.cuda.get_device_capability() < (8, 9):
         pytest.skip("requires NVIDIA SM89 or newer")
-    from eole.triton.inkling2_decode import attention_probabilities
+    from eole.triton.looped_decoder import attention_probabilities
 
     device, dtype = "cuda", torch.bfloat16
     rng = torch.Generator(device=device).manual_seed(1)

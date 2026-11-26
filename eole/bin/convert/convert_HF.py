@@ -257,6 +257,9 @@ class HuggingfaceFiles:
         quant = self.config.get(
             "quantization_config", self.config.get("text_config", {}).get("quantization_config", {})
         )
+        # This checkpoint stores already-packed expert buffers, with their original tensor names.
+        if self.config.get("model_type") == "inkling2_loop":
+            return checkpoint
         modelopt = quant.get("quant_method") == "modelopt"
         if quant.get("quant_method") != "compressed-tensors" and not modelopt:
             return checkpoint
@@ -465,6 +468,8 @@ def build_config_dict(hf):
         arch_config = config_fn(other_config, config, vision_config)
         if arch_config:
             model_config = recursive_update_dict(model_config, arch_config, {})
+            if model_config.get("encoder") is None:
+                model_config.pop("encoder", None)
 
     # Whisper: remove rope_config (not used) and extract generation settings
     if arch == "WhisperForConditionalGeneration":
@@ -558,7 +563,7 @@ def build_config_dict(hf):
     # quantization_config may be at the top level (e.g. Qwen3_5MoeForConditionalGeneration)
     # or inside text_config; check top-level (other_config) first, then text_config fallback.
     quant_config = other_config.get("quantization_config", config.get("quantization_config", {}))
-    if quant_config:
+    if quant_config and not model_config.get("decoder", {}).get("layer_loop"):
         if quant_config.get("quant_method") == "awq":
             backend = quant_config.get("backend", "autoawq")
             quant_type_mapping = {
@@ -1207,6 +1212,9 @@ def build_shards(model_config, hf, args, params):
     shard_checkpoints, shard_layer_ranges = get_shards_map(model_config, hf, args.nshards)
     target_dtype = TORCH_DTYPES[args.dtype] if args.dtype is not None else None
 
+    if target_dtype is not None and model_config.get("decoder", {}).get("layer_loop"):
+        raise ValueError("Looped decoder conversion requires the original checkpoint dtypes; omit --dtype")
+
     # Collect every tensor key present in the source checkpoint(s) upfront.
     all_src_keys = _collect_all_source_keys(hf)
     consumed_src_keys = set()
@@ -1596,15 +1604,12 @@ class LlamaHFConverter(BaseBin):
 
         hf = HuggingfaceFiles.fetch(args)
 
-        # Deduce dtype from args or config, or default to fp16
-        compute_dtype = args.dtype or hf.config.get("torch_dtype") or "fp16"
-
         # Build eole config and vocab using the shared helper
         train_config, vocabs, params, model_config, inference_dict = build_train_config(
             hf,
             args.output,
             tokenizer_pref=args.tokenizer,
-            dtype=compute_dtype,
+            dtype=args.dtype,
             use_env_path=True,
         )
 

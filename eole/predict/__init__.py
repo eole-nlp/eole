@@ -9,7 +9,7 @@ from eole.predict.streamer import GenerationStreamer  # noqa: F401
 from eole.predict.beam_search import GNMTGlobalScorer
 from eole.decoders.ensemble import EnsembleModel
 from eole.models.model import get_model_class
-from eole.models.hf_resolver import is_hf_model_id, resolve_preconverted_eole_hf_repo
+from eole.models.hf_resolver import is_hf_model_directory, is_hf_model_id, resolve_preconverted_eole_hf_repo
 from eole import EOLE_TORCH_COMPILE
 
 
@@ -50,7 +50,7 @@ def build_predictor(config, device_id=0, report_score=True, logger=None):
     if len(config.model_path) > 1:
         # Ensemble case
         model, vocabs, model_config = EnsembleModel.for_inference(config, device_id)
-    elif is_hf_model_id(config.model_path[0]):
+    elif is_hf_model_id(config.model_path[0]) or is_hf_model_directory(config.model_path[0]):
         local_model_path = resolve_preconverted_eole_hf_repo(
             config.model_path[0], token=getattr(config, "hf_token", None)
         )
