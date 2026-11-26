@@ -49,7 +49,11 @@ def _rms(x, eps, weight=None):
     return F.rms_norm(x.float(), (x.size(-1),), weight=weight, eps=eps)
 
 
-def _mix(blocks, residual, queries):
+def _mix(blocks, residual, queries, *, fast_decode=False):
+    if fast_decode:
+        from eole.triton.inkling2_decode import mix_states
+
+        return mix_states(torch.stack((*blocks, residual), dim=-2), queries)
     if not blocks:
         return _rms(residual, 1e-6).unsqueeze(-2).expand(*residual.shape[:-1], queries.size(0), -1)
     states = _rms(torch.stack((*blocks, residual), dim=-2), 1e-6)
@@ -132,7 +136,7 @@ class Inkling2MoE(nn.Module):
         up_factor = self.up_softcap * (up / self.up_softcap).tanh()
         return (gate_factor * gate.sigmoid() * up_factor).to(x.dtype)
 
-    def forward(self, x, *, packed_experts=False):
+    def forward(self, x, *, packed_experts=False, fast_decode=False):
         flat = x.flatten(0, 1)
         scores = F.linear(flat.float(), self.router).sigmoid()
         indices = (scores + self.correction).topk(self.top_k, sorted=False).indices
@@ -145,6 +149,12 @@ class Inkling2MoE(nn.Module):
                 from eole.triton.inkling2_moe import expert_gemv
 
                 gate_up = expert_gemv(self.gate_up, flat, selected, shared_input=True)
+                if fast_decode:
+                    from eole.triton.inkling2_decode import situ, sum_routes
+
+                    activated = situ(gate_up, self.gate_softcap, self.up_softcap)
+                    routes = expert_gemv(self.down, activated, selected, shared_input=False)
+                    return sum_routes(routes, weights[0], x.shape)
                 routes = expert_gemv(self.down, self._activate(gate_up), selected, shared_input=False)
             else:
                 gate_up = (self.gate_up(selected, x.dtype) @ flat.T).squeeze(-1)
@@ -175,7 +185,12 @@ class Inkling2Conv(nn.Module):
         self.width = taps.size(-1)
         self.scale = math.sqrt((1 if heads is None else 2) * self.width + 1)
 
-    def forward(self, x, cache, name, inputs=None):
+    def forward(self, x, cache, name, inputs=None, *, fast_decode=False):
+        if fast_decode and isinstance(cache, Inkling2StaticLayerCache):
+            from eole.triton.inkling2_decode import conv_step
+
+            dynamic = self.project_taps(inputs) if self.project_taps is not None else None
+            return conv_step(x, cache.conv[name], self.taps, dynamic, self.heads, self.scale)
         channels = x.float().transpose(1, 2).contiguous()
         history = cache.conv.get(name)
         if history is None:
@@ -197,7 +212,11 @@ class Inkling2Conv(nn.Module):
         return ((output + x.float()) / self.scale).to(x.dtype)
 
 
-def _clip(x, threshold, weight=None):
+def _clip(x, threshold, weight=None, *, fast_decode=False):
+    if fast_decode:
+        from eole.triton.inkling2_decode import clip_heads
+
+        return clip_heads(x, threshold, weight)
     values = x.float()
     if weight is not None:
         values = values * weight
@@ -218,13 +237,13 @@ class Inkling2Attention(nn.Module):
         self.log_floor = cfg["log_scaling_n_floor"]
         self.log_alpha = cfg["log_scaling_alpha"]
         self.eps = cfg["rms_norm_eps"]
-        self.q = _linear(read, "wq_du.weight")
-        self.k = _linear(read, "wk_dv.weight")
-        self.v = _linear(read, "wv_dv.weight")
-        self.relative = _linear(read, "wr_du.weight")
+        # The query, relative bias, output gate and sink always share an input.
+        projection_names = ("wq_du", "wr_du", "gate_attn", "attn_sink_proj", "wk_dv", "wv_dv")
+        weights = [read(f"{name}.weight") for name in projection_names]
+        self.projection_sizes = tuple(weight.size(0) for weight in weights)
+        self.query_rows = sum(self.projection_sizes[:-2])
+        self.register_buffer("input_weight", torch.cat(weights))
         self.output = _linear(read, "wo_ud.weight")
-        self.output_gate = _linear(read, "gate_attn.weight")
-        self.sink = _linear(read, "attn_sink_proj.weight")
         conv_heads = None if sliding else self.kv_heads
         self.k_conv = Inkling2Conv(lambda name: read("k_sconv." + name), heads=conv_heads)
         self.v_conv = Inkling2Conv(lambda name: read("v_sconv." + name), heads=conv_heads)
@@ -232,15 +251,19 @@ class Inkling2Attention(nn.Module):
         self.register_buffer("relative_scale", read("rel_l2_clip.scale").float())
         self.register_buffer("relative_profiles", read("rel_logits_proj.proj"))
 
-    def forward(self, queries, keys, values, positions, cache):
-        q = _clip(self.q(queries).unflatten(-1, (self.heads, self.head_dim)), self.qk_clip, self.query_scale)
-        k = self.k_conv(self.k(keys), cache, "k", keys).unflatten(-1, (self.kv_heads, self.head_dim))
-        v = self.v_conv(self.v(values), cache, "v", values).unflatten(-1, (self.kv_heads, self.head_dim))
-        k, v = _clip(k, self.qk_clip).transpose(1, 2), _rms(v, self.eps).to(v.dtype).transpose(1, 2)
-        k, v, distances = self._cache_with_current(k, v, positions, cache)
+    def forward(self, queries, keys, values, positions, cache, *, fast_decode=False):
+        q, relative, gate, sink, k, v = self._project_inputs(queries, keys, values, fast_decode)
+        q = _clip(q.unflatten(-1, (self.heads, self.head_dim)), self.qk_clip, self.query_scale, fast_decode=fast_decode)
+        k = self.k_conv(k, cache, "k", keys, fast_decode=fast_decode).unflatten(-1, (self.kv_heads, self.head_dim))
+        v = self.v_conv(v, cache, "v", values, fast_decode=fast_decode).unflatten(-1, (self.kv_heads, self.head_dim))
+        k = _clip(k, self.qk_clip, fast_decode=fast_decode).transpose(1, 2)
+        v = _rms(v, self.eps).to(v.dtype).transpose(1, 2)
+        # Keep the one-head softmax tile bounded for long global caches.
+        fused_probs = fast_decode and cache.slots.numel() <= 16384
+        k, v, distances = self._cache_with_current(k, v, positions, cache, fused_probs=fused_probs)
 
         relative = _clip(
-            self.relative(queries).unflatten(-1, (self.heads, -1)), self.relative_clip, self.relative_scale
+            relative.unflatten(-1, (self.heads, -1)), self.relative_clip, self.relative_scale, fast_decode=fast_decode
         )
         if self.window is None:
             log_scale = 1 + self.log_alpha * ((positions + 1).float() / self.log_floor).clamp(min=1).log()
@@ -248,29 +271,55 @@ class Inkling2Attention(nn.Module):
             relative = (relative.float() * log_scale[:, None, None]).to(relative.dtype)
 
         profiles = (relative @ self.relative_profiles).transpose(1, 2)
-        extent = profiles.size(-1)
-        relative_indices = distances.clamp(0, extent - 1).expand(*profiles.shape[:2], -1, -1)
-        bias = profiles.gather(-1, relative_indices)
-        bias = bias.masked_fill((distances < 0) | (distances >= extent), 0)
-        masked = (distances < 0) | (distances > positions[:, None])
-        if self.window is not None:
-            masked = masked | (distances >= self.window)
-
         repeats = self.heads // self.kv_heads
-        k = k.repeat_interleave(repeats, dim=1)
-        v = v.repeat_interleave(repeats, dim=1)
-        logits = (q.transpose(1, 2) @ k.transpose(-1, -2)) * self.head_dim**-0.5
-        logits = (logits + bias).masked_fill(masked, -torch.inf)
-        sink = self.sink(queries).transpose(1, 2).unsqueeze(-1)
-        probabilities = torch.cat((logits, sink), dim=-1).float().softmax(dim=-1)[..., :-1].to(q.dtype)
-        output = (probabilities @ v).transpose(1, 2).flatten(-2)
-        return self.output((output.float() * self.output_gate(queries).float().sigmoid()).to(output.dtype))
+        if fast_decode:
+            q = q.reshape(1, self.kv_heads, repeats, self.head_dim)
+            dots = (q @ k.transpose(-1, -2)).reshape(1, self.heads, 1, k.size(-2))
+        else:
+            k = k.repeat_interleave(repeats, dim=1)
+            v = v.repeat_interleave(repeats, dim=1)
+            dots = q.transpose(1, 2) @ k.transpose(-1, -2)
 
-    def _cache_with_current(self, k, v, positions, cache):
+        scale = self.head_dim**-0.5
+        if fused_probs:
+            from eole.triton.inkling2_decode import attention_probabilities
+
+            probabilities = attention_probabilities(dots, profiles, sink, positions, self.window, scale)
+        else:
+            extent = profiles.size(-1)
+            relative_indices = distances.clamp(0, extent - 1).expand(*profiles.shape[:2], -1, -1)
+            bias = profiles.gather(-1, relative_indices).masked_fill((distances < 0) | (distances >= extent), 0)
+            masked = (distances < 0) | (distances > positions[:, None])
+            if self.window is not None:
+                masked = masked | (distances >= self.window)
+            logits = (dots * scale + bias).masked_fill(masked, -torch.inf)
+            sink = sink.transpose(1, 2).unsqueeze(-1)
+            probabilities = torch.cat((logits, sink), dim=-1).float().softmax(dim=-1)[..., :-1].to(q.dtype)
+        if fast_decode:
+            output = (probabilities.reshape(1, self.kv_heads, repeats, -1) @ v).reshape(1, 1, -1)
+        else:
+            output = (probabilities @ v).transpose(1, 2).flatten(-2)
+        return self.output((output.float() * gate.float().sigmoid()).to(output.dtype))
+
+    def _project_inputs(self, queries, keys, values, fast_decode):
+        if fast_decode and queries is keys and queries is values:
+            return F.linear(queries, self.input_weight).split(self.projection_sizes, dim=-1)
+        if fast_decode:
+            projections = F.linear(queries, self.input_weight[: self.query_rows]).split(
+                self.projection_sizes[:-2], dim=-1
+            )
+            key_weight, value_weight = self.input_weight[self.query_rows :].split(self.projection_sizes[-2:])
+            return (*projections, F.linear(keys, key_weight), F.linear(values, value_weight))
+        inputs = (queries,) * 4 + (keys, values)
+        return tuple(F.linear(x, w) for x, w in zip(inputs, self.input_weight.split(self.projection_sizes)))
+
+    def _cache_with_current(self, k, v, positions, cache, *, fused_probs):
         if isinstance(cache, Inkling2StaticLayerCache):
             index = positions if self.window is None else positions.remainder(cache.slots.numel())
             cache.key.index_copy_(2, index, k)
             cache.value.index_copy_(2, index, v)
+            if fused_probs:
+                return cache.key, cache.value, None
             distances = positions[:, None] - cache.slots
             if self.window is not None:
                 distances = distances.remainder(cache.slots.numel())
@@ -289,18 +338,40 @@ class Inkling2Attention(nn.Module):
         return k, v, positions[:, None] - key_positions
 
 
-class Inkling2MessageGate(nn.Module):
+class Inkling2MessageGates(nn.Module):
+    """Three independent attention controllers and one dependent MoE controller."""
+
     def __init__(self, read, eps):
         super().__init__()
         self.eps = eps
-        self.down = _linear(read, "down_weight")
-        self.gain = _linear(read, "gain_weight").float()
-        self.forget = _linear(read, "forget_weight").float()
+        names = ("attn", "k", "v", "mlp")
+        self.register_buffer("down", torch.stack([read(f"{name}.down_weight") for name in names]))
+        self.register_buffer(
+            "up",
+            torch.stack(
+                [torch.cat([read(f"{name}.{gate}_weight") for gate in ("forget", "gain")]).float() for name in names]
+            ),
+        )
 
-    def forward(self, x, message):
+    def forward(self, x, message, index):
         features = torch.cat((_rms(x, self.eps), _rms(message, self.eps)), dim=-1)
-        latent = self.down(features.to(self.down.weight.dtype)).float()
-        return (1 - self.forget(latent).tanh()) * x.float() + self.gain(latent).tanh() * message
+        latent = F.linear(features.to(self.down.dtype), self.down[index]).float()
+        forget_weight, gain_weight = self.up[index].chunk(2)
+        return (1 - F.linear(latent, forget_weight).tanh()) * x.float() + F.linear(latent, gain_weight).tanh() * message
+
+    def decode(self, x, messages, norm, dtype, *, moe=False):
+        from eole.triton.inkling2_decode import gate_features, gate_output
+
+        x = x.reshape(-1, x.size(-1)).contiguous()
+        messages = messages.reshape_as(x).contiguous()
+        features = gate_features(x, messages, self.down.dtype, self.eps)
+        if moe:
+            latent = F.linear(features, self.down[3]).float()
+            gates = F.linear(latent, self.up[3])
+        else:
+            latent = torch.bmm(self.down[:3], features.unsqueeze(-1)).float()
+            gates = torch.bmm(self.up[:3], latent).squeeze(-1)
+        return gate_output(x, messages, gates, norm, dtype, self.eps)
 
 
 class Inkling2Layer(nn.Module):
@@ -326,31 +397,57 @@ class Inkling2Layer(nn.Module):
         self.moe_conv = Inkling2Conv(lambda name: layer_weight("mlp_sconv." + name))
         self.moe = Inkling2MoE(lambda name: layer_weight("mlp." + name), cfg)
         if loop["core_start"] <= index < loop["core_end"]:
-            self.controllers = nn.ModuleList(
-                Inkling2MessageGate(lambda key: layer_weight(f"controllers.{name}.{key}"), self.eps)
-                for name in ("attn", "k", "v", "mlp")
-            )
+            self.controllers = Inkling2MessageGates(lambda name: layer_weight("controllers." + name), self.eps)
 
     def forward(self, residual, blocks, positions, cache, messages=None, *, packed_experts=False):
         dtype = residual.dtype
-        qkv = (residual,) if self.attention_query is None else _mix(blocks, residual, self.attention_query).unbind(-2)
-        if len(qkv) == 1:
-            qkv = qkv * 3
-        if messages is not None:
-            qkv = [self.controllers[i](x, messages[..., i, :]) for i, x in enumerate(qkv)]
+        fast_decode = packed_experts and isinstance(cache, Inkling2StaticLayerCache)
+        if self.attention_query is None:
+            qkv = (residual,)
+        else:
+            qkv = _mix(blocks, residual, self.attention_query, fast_decode=fast_decode).unbind(-2)
         norms = self.attention_norms.expand(3, -1)
-        inputs = [_rms(x, self.eps, norm).to(dtype) for x, norm in zip(qkv, norms)]
-        output = self.attn_conv(self.attention(*inputs, positions, cache), cache, "attn").float()
+        if fast_decode and messages is not None:
+            stacked = qkv[0].view(1, -1).expand(3, -1) if len(qkv) == 1 else torch.cat(qkv, dim=1)
+            inputs = self.controllers.decode(stacked, messages[..., :3, :], norms, dtype)
+            inputs = inputs.view(3, 1, 1, -1).unbind(0)
+        elif fast_decode:
+            from eole.triton.inkling2_decode import normalize
+
+            if len(qkv) == 1 and self.sliding:
+                inputs = (normalize(qkv[0], norms[0], dtype, self.eps),) * 3
+            else:
+                stacked = torch.cat(qkv if len(qkv) == 3 else qkv * 3, dim=1)
+                inputs = normalize(stacked, norms, dtype, self.eps).view(3, 1, 1, -1).unbind(0)
+        else:
+            if len(qkv) == 1:
+                qkv = qkv * 3
+            if messages is not None:
+                qkv = [self.controllers(x, messages[..., i, :], i) for i, x in enumerate(qkv)]
+            inputs = [_rms(x, self.eps, norm).to(dtype) for x, norm in zip(qkv, norms)]
+
+        attended = self.attention(*inputs, positions, cache, fast_decode=fast_decode)
+        output = self.attn_conv(attended, cache, "attn", fast_decode=fast_decode).float()
         if self.boundary:
             blocks.append(residual)
         else:
             output = residual.float() + output
 
-        inputs = _mix(blocks, output, self.moe_query).squeeze(-2)
-        if messages is not None:
-            inputs = self.controllers[3](inputs, messages[..., 3, :])
-        hidden = self.moe(_rms(inputs, self.eps, self.moe_norm).to(dtype), packed_experts=packed_experts)
-        return (output + self.moe_conv(hidden, cache, "moe")).to(dtype)
+        inputs = _mix(blocks, output, self.moe_query, fast_decode=fast_decode).squeeze(-2)
+        if fast_decode and messages is not None:
+            normalized = self.controllers.decode(
+                inputs, messages[..., 3, :], self.moe_norm.unsqueeze(0), dtype, moe=True
+            ).view_as(inputs)
+        elif fast_decode:
+            from eole.triton.inkling2_decode import normalize
+
+            normalized = normalize(inputs, self.moe_norm, dtype, self.eps)
+        else:
+            if messages is not None:
+                inputs = self.controllers(inputs, messages[..., 3, :], 3)
+            normalized = _rms(inputs, self.eps, self.moe_norm).to(dtype)
+        hidden = self.moe(normalized, packed_experts=packed_experts, fast_decode=fast_decode)
+        return (output + self.moe_conv(hidden, cache, "moe", fast_decode=fast_decode)).to(dtype)
 
 
 class Inkling2Mini(nn.Module):
@@ -427,6 +524,7 @@ class Inkling2Mini(nn.Module):
         return logits
 
     def _forward(self, input_ids, layers, positions, all_logits, packed_experts):
+        fast_decode = packed_experts and isinstance(layers[0], Inkling2StaticLayerCache)
         hidden = _rms(F.embedding(input_ids, self.embedding), self.eps, self.embedding_norm).to(self.embedding.dtype)
         blocks = []
         visit = 0
@@ -443,7 +541,9 @@ class Inkling2Mini(nn.Module):
             for offset, layer in enumerate(self.layers[self.core_start : self.core_end]):
                 messages = None
                 if pass_idx:
-                    messages = _mix(previous_blocks, previous_hidden, self.message_queries[offset])
+                    messages = _mix(
+                        previous_blocks, previous_hidden, self.message_queries[offset], fast_decode=fast_decode
+                    )
                 hidden = layer(hidden, blocks, positions, layers[visit], messages, packed_experts=packed_experts)
                 visit += 1
             previous_blocks = tuple(blocks[len(prelude_blocks) + 1 :])
@@ -456,7 +556,7 @@ class Inkling2Mini(nn.Module):
         if not all_logits:
             hidden = hidden[:, -1:]
             blocks = [block[:, -1:] for block in blocks]
-        hidden = _mix(blocks, hidden, self.output_query).squeeze(-2)
+        hidden = _mix(blocks, hidden, self.output_query, fast_decode=fast_decode).squeeze(-2)
         hidden = _rms(hidden, self.eps, self.output_norm).to(self.embedding.dtype)
         logits = F.linear(hidden, self.output_weight).float()
         return self.softcap * (logits / self.softcap).tanh()

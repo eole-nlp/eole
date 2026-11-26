@@ -26,7 +26,7 @@ def test_inkling2_expert_dequantization():
     torch.testing.assert_close(layer(1, torch.float32), torch.full((1, 32), -4.0))
 
 
-def _tiny_model():
+def _tiny_model(device="cpu", dtype=torch.float32):
     cfg = {
         "hidden_size": 32,
         "num_hidden_layers": 4,
@@ -120,7 +120,12 @@ def _tiny_model():
             weights[key + "_scale"] = torch.full((3, out_dim, in_dim // 16), 0.125).to(torch.float8_e4m3fn)
             weights[key + "_amax"] = torch.ones(3)
             weights[key + "_outer_scale_denominator"] = torch.ones(1)
-    return Inkling2Mini(weights.__getitem__, cfg).eval()
+
+    def read(name):
+        value = weights[name]
+        return value.to(device=device, dtype=dtype if value.dtype == torch.float32 else value.dtype)
+
+    return Inkling2Mini(read, cfg).eval()
 
 
 @torch.inference_mode()
@@ -185,3 +190,51 @@ def test_inkling2_cuda_expert_gemv_matches_dequantized_reference(nvfp4):
         expected = (layer(selected, x.dtype) @ x.unsqueeze(-1)).squeeze(-1)
         actual = expert_gemv(layer, x, selected, shared_input=shared_input)
         torch.testing.assert_close(actual, expected, atol=0.03125, rtol=0.008)
+
+
+@torch.inference_mode()
+def test_inkling2_fused_decode_matches_eager_across_ring_wrap():
+    if not torch.cuda.is_available() or torch.version.cuda is None or torch.cuda.get_device_capability() < (8, 9):
+        pytest.skip("requires NVIDIA SM89 or newer")
+    model = _tiny_model("cuda", torch.bfloat16)
+    tokens = torch.tensor([[2, 4, 5, 0, 7, 4, 14, 8, 9, 1]], device="cuda")
+    eager = model.new_cache()
+    model(tokens[:, :2], eager)
+    fixed = Inkling2Decode(model, eager, tokens.size(1), capture=False)
+    graph = Inkling2Decode(model, eager, tokens.size(1))
+    for token in tokens[:, 2:].split(1, dim=1):
+        expected = model(token, eager, packed_experts=True)
+        actual = graph(token)
+        torch.testing.assert_close(actual, fixed(token), atol=0, rtol=0)
+        torch.testing.assert_close(actual.argmax(-1), expected.argmax(-1))
+        # Fused reductions can shift BF16 rounding while retaining the distribution.
+        divergence = torch.nn.functional.kl_div(
+            actual.log_softmax(-1), expected.log_softmax(-1), reduction="sum", log_target=True
+        )
+        assert divergence.item() < 5e-4
+        assert graph.position.item() == eager.length
+    assert graph.graph.graph is not None
+
+
+@pytest.mark.parametrize(("window", "position"), [(None, 6), (7, 3), (7, 11)])
+@torch.inference_mode()
+def test_inkling2_fused_attention_probabilities(window, position):
+    if not torch.cuda.is_available() or torch.version.cuda is None or torch.cuda.get_device_capability() < (8, 9):
+        pytest.skip("requires NVIDIA SM89 or newer")
+    from eole.triton.inkling2_decode import attention_probabilities
+
+    device, dtype = "cuda", torch.bfloat16
+    rng = torch.Generator(device=device).manual_seed(1)
+    dots = torch.randn(1, 4, 1, 7, device=device, dtype=dtype, generator=rng)
+    bias = torch.randn(1, 4, 1, 5, device=device, dtype=dtype, generator=rng)
+    sink = torch.randn(1, 1, 4, device=device, dtype=dtype, generator=rng)
+    positions = torch.tensor([position], device=device)
+    distances = positions[:, None] - torch.arange(7, device=device)
+    if window:
+        distances = distances.remainder(7)
+    relative = bias.gather(-1, distances.clamp(0, 4).expand_as(dots))
+    relative = relative.masked_fill((distances < 0) | (distances >= 5), 0)
+    scores = (dots * 0.25 + relative).masked_fill((distances < 0) | (distances > position), -torch.inf)
+    expected = torch.cat((scores, sink.transpose(1, 2).unsqueeze(-1)), dim=-1).float().softmax(-1)[..., :-1]
+    actual = attention_probabilities(dots, bias, sink, positions, window, 0.25)
+    torch.testing.assert_close(actual, expected.to(dtype), rtol=0.008, atol=0)

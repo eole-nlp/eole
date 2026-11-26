@@ -29,9 +29,11 @@ def _gemv(
     if NVFP4:
         p = tl.load(W + weight_row * (K // 2) + k[None, :] // 2, valid, 0)
         code = ((p >> ((k & 1) * 4)[None, :]) & 15).to(tl.int32)
-        exp = (code & 6) >> 1
-        mantissa = (code & 1).to(tl.float32) * 0.5
-        magnitude = tl.where(exp == 0, mantissa, (1.0 + mantissa) * tl.exp2(exp - 1.0))
+        magnitude_code = code & 7
+        # Positive E2M1 normal values map to equally spaced FP32 bit patterns.
+        # The first two codes represent zero and the subnormal 0.5.
+        normal = ((126 << 23) + (magnitude_code << 22)).to(tl.float32, bitcast=True)
+        magnitude = tl.where(magnitude_code < 2, magnitude_code.to(tl.float32) * 0.5, normal)
         fp4 = tl.where((code & 8) != 0, -magnitude, magnitude)
         scale = (
             tl.load(S + weight_row * (K // 16) + k[None, :] // 16, valid, 0)
