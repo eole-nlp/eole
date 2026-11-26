@@ -1,0 +1,36 @@
+# Dedicated 12K-context Codex server on one 32 GiB CUDA GPU.
+# Four MTP slots and four retained prompts for trusted local clients.
+models_root: ${EOLE_MODEL_DIR}
+models:
+- id: qwen3.8-27B
+  path: ${QWEN38_MODEL}
+  preload: true
+  continuous:
+    slots: 4
+    max_pending: 32
+    prefill_chunk_size: 1024
+    prefill_idle_chunk_size: 2048
+    compiled: true
+    prefix_cache_entries: 4
+  config:
+    compute_dtype: bf16
+    self_attn_backend: flash
+    dynamic_shapes: false
+    beam_size: 1
+    n_best: 1
+    top_k: 1
+    top_p: 0.0
+    temperature: 1.0
+    min_length: 0
+    max_length: 2048
+    max_length_ratio: 0
+    context_length: 12288
+    batch_size: 1
+    self_speculative_decoding: true
+    self_speculative_num_tokens: 3
+    vocabulary_quantization: none
+    report_time: true
+    fuse_kvq: true
+    fuse_gate: true
+    prefill_cache_size: 0
+    prefill_chunk_size: 1024

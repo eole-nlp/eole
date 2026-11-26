@@ -148,3 +148,43 @@ memory rose from 25.71 to 29.29 GiB.
 The setting is useful for dedicated Codex sessions with enough VRAM to retain
 prompt state. Measure with the intended context capacity and client count
 before choosing the entry count.
+
+## Tune opening-request prefill
+
+A diagnostic GPU-event trace of one four-client wave at 256-token chunks
+measured 1.84–1.90 s of GPU prefill per opening prompt, over 21 chunks.
+The last opening prompt waited 6.36 s from scheduler submission to the first
+prefill chunk. The KV/state copy into the decode slot took about 2 ms per
+request. The trace synchronizes at admission and is separate from the
+unprofiled timing results below.
+
+Keep four retained entries and compare active/idle prefill chunk sizes:
+
+```bash
+python recipes/codex/benchmark_profile.py mtp --prefix-cache-entries 4 \
+  --prefill-chunk-size 1024 --prefill-idle-chunk-size 2048 \
+  > /tmp/eole-codex-tuned.yaml
+```
+
+Start the generated profile as above and run the benchmark with
+`--concurrency 4 --repeats 2 --eole-metrics`. Use 256/256 for the control.
+The unprofiled runs below each include one excluded warmup, then two
+four-client waves on the same RTX 5090 setup. All eight jobs passed for each
+setting, and every measured follow-up hit the cache.
+
+| Active / idle chunk | Opening first-content median / max (s) | Follow-up first-content median (s) | All-request first-content p95 (s) | Slowest job in each wave (s) | Peak allocated VRAM (GiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 256 / 256 | 7.46 / 9.77 | 1.90 | 9.25 | 46.87 / 18.78 | 27.07 |
+| 512 / 2,048 | 6.36 / 8.52 | 1.61 | 7.74 | 20.26 / 20.66 | 27.76 |
+| 1,024 / 2,048 | 7.23 / 8.15 | 1.59 | 7.51 | 17.70 / 18.50 | 27.86 |
+
+The control's first wave spent roughly 30 extra seconds before its opening
+HTTP requests reached Eole. A separate exploratory 512/2,048 wave also had
+client-side delays. Use the HTTP timings to compare server behavior. Output
+counts in the two-wave runs were 4,223, 4,457, and 4,564 tokens respectively.
+
+The [opt-in Codex server profile](serve_continuous.yaml) uses 1,024/2,048 for the
+lowest observed opening maximum and all-request p95. It peaked at 29.37 GiB
+reserved in the two-wave run. Larger chunks hold the GPU longer between decode
+steps, so measure on the intended mix of prompts and clients. The existing
+server defaults remain in use for other profiles.
