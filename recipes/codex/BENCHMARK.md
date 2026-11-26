@@ -98,3 +98,93 @@ about 5% more jobs per minute. Peak allocated GPU memory during serving was
 22.39 GiB for continuous greedy, 24.23 GiB for MTP, and 26.47 GiB for DFlash2,
 as reported by PyTorch. Greedy batching improved completed jobs while leaving
 request p95 first-content latency close to the serialized baseline.
+
+## Compare prompt-prefix reuse
+
+Use the environment above and generate an MTP profile with either zero or
+four retained entries:
+
+```bash
+entries=4
+python recipes/codex/benchmark_profile.py mtp --prefix-cache-entries "$entries" \
+  > "/tmp/eole-codex-mtp-$entries.yaml"
+eole serve -c "/tmp/eole-codex-mtp-$entries.yaml" --host 127.0.0.1 --port 5019
+```
+
+From a second terminal, run the same four-client workload for each configuration:
+
+```bash
+python recipes/codex/benchmark.py --concurrency 4 --eole-metrics \
+  --output /tmp/eole-codex-prefix-on
+```
+
+Use a fresh output directory and restart the server for each run. Keep
+`--eole-metrics` enabled in both arms. It asks Eole for its existing
+per-request statistics, including `reused_prefix_tokens` in each completed
+continuous response. In `results.json`, count positive values for cache hits
+and divide their sum by the sum of `usage.input_tokens` for the share of input
+tokens reused. Use a dedicated server for trusted clients, since prefix reuse
+can affect timing across requests and each retained state consumes VRAM.
+
+### Four-client MTP results
+
+Same RTX 5090, native BF16 KV cache and vocabulary head, and 12,288-token
+capacity as above. MTP used three drafts and four decode slots. The server
+restarted and ran one excluded warmup before each four-job wave. Cache entry
+counts were run in order 0, 4, 4, 0. The table pools the two waves for each count.
+
+| Retained entries | Jobs passed | Successful jobs/min | First content p50 / p95 (s) | Slowest job (s) | Prefix hits | Input tokens reused | Peak allocated VRAM (GiB) |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 8/8 | 3.68 | 9.44 / 13.66 | 65.00 | 0/48 | 0% | 24.23 |
+| 4 | 8/8 | 10.38 | 1.76 / 9.55 | 23.05 | 40/48 | 81.6% | 26.84 |
+
+Each job made six requests. All 40 follow-up requests hit with four entries,
+and the eight opening requests missed. Median time to first content for
+follow-ups fell from 9.85 to 1.66 s. Opening requests stayed near eight seconds.
+Both cache-enabled waves reached over 10 successful jobs/min. The two arms
+produced 5,072 and 4,847 output tokens, respectively. Peak PyTorch reserved
+memory rose from 25.71 to 29.29 GiB.
+
+The setting is useful for dedicated Codex sessions with enough VRAM to retain
+prompt state. Measure with the intended context capacity and client count
+before choosing the entry count.
+
+## Tune opening-request prefill
+
+A diagnostic GPU-event trace of one four-client wave at 256-token chunks
+measured 1.84–1.90 s of GPU prefill per opening prompt, over 21 chunks.
+The last opening prompt waited 6.36 s from scheduler submission to the first
+prefill chunk. The KV/state copy into the decode slot took about 2 ms per
+request. The trace synchronizes at admission and is separate from the
+unprofiled timing results below.
+
+Keep four retained entries and compare active/idle prefill chunk sizes:
+
+```bash
+python recipes/codex/benchmark_profile.py mtp --prefix-cache-entries 4 \
+  --prefill-chunk-size 1024 --prefill-idle-chunk-size 2048 \
+  > /tmp/eole-codex-tuned.yaml
+```
+
+Start the generated profile as above and run the benchmark with
+`--concurrency 4 --repeats 2 --eole-metrics`. Use 256/256 for the control.
+The unprofiled runs below each include one excluded warmup, then two
+four-client waves on the same RTX 5090 setup. All eight jobs passed for each
+setting, and every measured follow-up hit the cache.
+
+| Active / idle chunk | Opening first-content median / max (s) | Follow-up first-content median (s) | All-request first-content p95 (s) | Slowest job in each wave (s) | Peak allocated VRAM (GiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 256 / 256 | 7.46 / 9.77 | 1.90 | 9.25 | 46.87 / 18.78 | 27.07 |
+| 512 / 2,048 | 6.36 / 8.52 | 1.61 | 7.74 | 20.26 / 20.66 | 27.76 |
+| 1,024 / 2,048 | 7.23 / 8.15 | 1.59 | 7.51 | 17.70 / 18.50 | 27.86 |
+
+The control's first wave spent roughly 30 extra seconds before its opening
+HTTP requests reached Eole. A separate exploratory 512/2,048 wave also had
+client-side delays. Use the HTTP timings to compare server behavior. Output
+counts in the two-wave runs were 4,223, 4,457, and 4,564 tokens respectively.
+
+The [opt-in Codex server profile](serve_continuous.yaml) uses 1,024/2,048 for the
+lowest observed opening maximum and all-request p95. It peaked at 29.37 GiB
+reserved in the two-wave run. Larger chunks hold the GPU longer between decode
+steps, so measure on the intended mix of prompts and clients. The existing
+server defaults remain in use for other profiles.

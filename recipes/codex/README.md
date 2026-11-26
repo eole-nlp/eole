@@ -36,9 +36,21 @@ The smoke test checks JSON text, typed SSE text, typed function arguments, and
 an add-tool/result round trip. It executes only a synthetic integer addition;
 it does not run generated shell commands.
 
-For multiple sessions, use the [continuous Responses recipe](../serving/README.md).
-It provides separate serialized and continuous server configurations, plus a
-reproducible 1/2/4/8-client load test.
+For up to four local Codex sessions on one 32 GiB CUDA GPU, there is a
+[continuous MTP profile](serve_continuous.yaml). It uses a 12,288-token context,
+a 2,048-token output budget, larger prefill chunks and four retained prompt
+prefixes. Use it on a dedicated server for trusted clients.
+
+```bash
+export TRITON_DEFAULT_FP_FUSION=1
+export PYTORCH_ALLOC_CONF=expandable_segments:True
+eole serve -c recipes/codex/serve_continuous.yaml --host 127.0.0.1 --port 5000
+```
+
+When creating the isolated Codex home below for this profile, add
+`--context-window 12288 --output-reserve 2048` to the configuration command.
+See the [measured prefill and VRAM tradeoffs](BENCHMARK.md#tune-opening-request-prefill)
+and the [continuous Responses recipe](../serving/README.md) for other profiles.
 
 ## Create an isolated Codex configuration
 
