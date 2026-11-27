@@ -6,9 +6,11 @@ from eole.adapters.adapters import Gemma4MultiModalProjector
 from eole.adapters.adapters import DeepSeekOCRProjector
 from eole.adapters.adapters import HunYuanVisionPatchMerger
 from eole.adapters.adapters import Qwen3_5VisionMerger
+from eole.adapters.adapters import SpatialMergeProjector
 
 
 str2adapter = {
+    "inkling2": SpatialMergeProjector,
     "llava": VisionLanguageAdapter,
     "gemma3": Gemma3MultiModalProjector,
     "gemma4": Gemma4MultiModalProjector,

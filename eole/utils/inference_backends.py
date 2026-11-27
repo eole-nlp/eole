@@ -95,17 +95,27 @@ def inference_backend_summary(model, compile_enabled, compile_mode, speculative=
         if compile_mode in ("0", "1")
         else any(hasattr(layer, "_forward_compile") for layer in getattr(decoder, "transformer_layers", []))
     )
+    looped = getattr(decoder, "uses_layer_loop", False) is True
+    graphs_enabled = (
+        getattr(decoder, "_loop_graph_supported", False) if looped else compiled and compile_mode in ("0", "2")
+    )
     scope = "decoder" if compile_mode in ("0", "1") else "layers"
-    verifier = "compiled" if compiled and compile_mode in ("0", "1") else "eager"
+    dspark = looped and speculative and bool(getattr(decoder, "_dspark_visits", ()))
+    verifier = "compiled" if not looped and compiled and compile_mode in ("0", "1") else "eager"
+    if dspark and getattr(decoder, "loop_verifier_graph_supported", False):
+        verifier = "CUDA graph (full block)"
     lines = [
         f"Inference runtime: torch={torch.__version__}, CUDA build={torch.version.cuda}, "
         f"device={device}, dtype={dtype}",
         f"Inference compile: enabled={compile_enabled}, mode={compile_mode}, "
-        f"{scope} path={'compiled' if compiled else 'eager'}, "
-        f"CUDA graphs requested={compiled and compile_mode in ('0', '2')}; capture not verified",
+        f"{scope} path={'packed' if looped and graphs_enabled else 'compiled' if compiled else 'eager'}, "
+        f"CUDA graphs requested={graphs_enabled}; capture not verified",
         f"Inference speculation: enabled={speculative}, drafts={num_drafts if speculative else 0}, "
         f"verifier={verifier if speculative else 'unused'}",
     ]
+    if looped:
+        expert_prefill = "GPU-grouped packed weights" if decoder.grouped_expert_prefill else "PyTorch dequantization"
+        lines.append(f"Inference expert prefill: {expert_prefill}, chunk size={decoder.prefill_chunk_size or 128}")
     layers = list(getattr(decoder, "transformer_layers", []))
     flash_layers = [layer for layer in layers if hasattr(getattr(layer, "self_attn", None), "flash_attn_with_kvcache")]
     fp8_layers = [layer for layer in flash_layers if getattr(layer.self_attn, "_fp8_kv_scales", None) is not None]
@@ -157,7 +167,9 @@ def inference_backend_summary(model, compile_enabled, compile_mode, speculative=
     if gdn_layers and speculative:
         stencil = "compiled PyTorch stencil + SiLU" if verifier == "compiled" else "PyTorch grouped conv1d + SiLU"
         lines.append(f"Inference conv verify: {stencil}")
-    if speculative:
+    if dspark:
+        lines.append("Inference DSpark: eager drafter, target cache committed through the accepted prefix")
+    elif speculative:
         mtp_recurrent = "compiled layers" if compiled and compile_mode in ("2", "3") else "eager"
         lines.append(
             f"Inference MTP: context refresh=eager, recurrent head={mtp_recurrent}, vocabulary projection=eager"
@@ -165,7 +177,7 @@ def inference_backend_summary(model, compile_enabled, compile_mode, speculative=
     quantized = Counter(
         type(module).__name__
         for module in model.modules()
-        if type(module).__name__.endswith("Linear") and type(module).__name__ != "Linear"
+        if type(module).__name__.endswith("Linear") and type(module).__name__ not in ("Linear", "SoftcappedLinear")
     )
     if quantized:
         lines.append(

@@ -277,14 +277,40 @@ class Inference(object):
                 "layers": self.dflash2.target_layer_ids,
                 "window": self.dflash2.cfg.sliding_window,
             }
+        self.dspark = None
+        if getattr(config, "dspark", False):
+            from eole.modules.dspark import DSparkDrafter
+
+            loop = getattr(model_config.decoder, "layer_loop", None)
+            if loop is None or loop.dspark is None or self.dflash2 is not None:
+                raise ValueError("DSpark requires a compatible bundled drafter and no DFlash2 model")
+            if config.top_k != 1 and config.temperature != 0:
+                raise ValueError("DSpark supports greedy decoding only")
+            visits = loop.dspark.target_visits
+            if (
+                len(visits) < 2
+                or visits[0] < 0
+                or sorted(set(visits)) != visits
+                or visits[-1] != len(self.model.decoder.layer_schedule.layer_ids)
+            ):
+                raise ValueError("DSpark target visits do not match the decoder schedule")
+            self.dspark = DSparkDrafter.load(config.model_path[0], self.model, loop.dspark, config.hf_token)
+            self.model.decoder._dspark_visits = tuple(visits[:-1])
         self.self_speculative_decoding = bool(
-            getattr(config, "self_speculative_decoding", False) or self.dflash2 is not None
+            getattr(config, "self_speculative_decoding", False) or self.dflash2 is not None or self.dspark is not None
         )
         self.self_speculative_num_tokens = (
             self.dflash2.block_size - 1
             if self.dflash2 is not None
             else max(1, int(getattr(config, "self_speculative_num_tokens", 1)))
         )
+
+        if self.dspark is not None:
+            self.self_speculative_num_tokens = (
+                min(config.self_speculative_num_tokens, self.dspark.block_size - 1)
+                if "self_speculative_num_tokens" in config.model_fields_set
+                else self.dspark.block_size - 1
+            )
 
         self.fp8_target_kv = getattr(config, "kv_cache_dtype", "native") == "fp8_e4m3"
         scales = getattr(config, "kv_cache_scales", None)
@@ -797,6 +823,8 @@ class Inference(object):
 
         if self.dflash2 is not None:
             self._dflash2_features = dec_attn["dflash2_features"]
+        if getattr(self, "dspark", None) is not None:
+            self._dspark_features = dec_attn["dspark_features"]
 
         # Generator forward.
         all_hidden = dec_out if return_all_hidden else None

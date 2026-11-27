@@ -195,6 +195,10 @@ class PredictConfig(
                 config_dict = json.loads(os.path.expandvars(f.read()))
         else:
             config_dict = {}
+        from eole.models.hf_resolver import is_hf_model_directory
+
+        if is_hf_model_directory(first_path, config=config_dict):
+            return
         # Filter out Train transforms
         transforms = config_dict.get("transforms", [])
         transforms_cls = get_transforms_cls(transforms)

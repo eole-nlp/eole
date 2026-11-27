@@ -25,6 +25,8 @@ on:
       - eole/utils/verifier_cache.py
       - eole/tests/test_continuous*gpu.py
       - eole/tests/test_dflash2.py
+      - eole/tests/test_inkling2.py
+      - eole/triton/block_float_moe.py
       - eole/triton/dflash2.py
       - eole/triton/fp8_kv.py
       - eole/modules/fp8_kv.py
@@ -75,6 +77,7 @@ jobs:
             eole.tests.test_continuous_mtp_gpu \
             eole.tests.test_continuous_dflash2_gpu \
             eole.tests.test_fp8_kv \
+            eole.tests.test_inkling2 \
             eole.tests.test_dflash2.TestDFlash2.test_batched_rope_matches_independent_rows \
             eole.tests.test_dflash2.TestDFlash2.test_arbitrary_block_ring_writes_preserve_uncommitted_slots \
             eole.tests.test_request_cache.RequestRotaryCudaTests

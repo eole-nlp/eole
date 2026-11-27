@@ -256,6 +256,9 @@ class BaseModel(nn.Module):
             )
 
         self.eval()
+        decoder = getattr(self, "decoder", None)
+        if getattr(decoder, "layer_schedule", None) is not None:
+            decoder.prepare_looped_inference(running_config)
         for name, module in self.named_modules():
             if hasattr(module, "dropout_p"):
                 module.dropout_p = 0.0
@@ -551,6 +554,18 @@ class BaseModel(nn.Module):
 
     def build_generator(self, model_config, running_config, vocabs):
         # patched to make it work with decoder config, but might be improved
+        loop = getattr(model_config.decoder, "layer_loop", None)
+        if loop is not None:
+            from eole.modules.looped_transformer import SoftcappedLinear
+
+            self.generator = skip_init(
+                SoftcappedLinear,
+                model_config.decoder.hidden_size,
+                len(vocabs["tgt"]),
+                loop.output_vocab_size,
+                loop.logit_softcap,
+            )
+            return
         self.generator = skip_init(
             nn.Linear,
             in_features=model_config.decoder.hidden_size,
@@ -901,7 +916,11 @@ class BaseModel(nn.Module):
                     module_name, module, f, keys_shard, updated_params, buf_list, keyfound, tp_offset, strict
                 )
                 module_device = placement.device_for(module_name)
-                module_dtype = placement.dtype_for(module_name, dtype)
+                module_dtype = (
+                    None
+                    if getattr(module, "preserve_checkpoint_dtype", False)
+                    else placement.dtype_for(module_name, dtype)
+                )
                 if has_children:
                     # Module has both own params and children (e.g. VisionEncoderDecoderModel
                     # with image_newline/view_separator). Move only direct params/buffers to

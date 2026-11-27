@@ -395,8 +395,49 @@ class TransformerEncoderConfig(TransformerConfig, EncoderConfig):
     )
 
 
+class DSparkConfig(Config):
+    hidden_size: int
+    layers: int
+    heads: int
+    kv_heads: int
+    head_dim: int
+    intermediate_size: int
+    norm_eps: float
+    rope_theta: float
+    local_layers: list[int]
+    sliding_window: int
+    block_size: int = Field(ge=2)
+    markov_rank: int
+    target_visits: list[int]
+
+
+class LoopedDecoderConfig(Config):
+    """Parameters for shared decoder layers with cross-pass residual messages."""
+
+    core_start: int = Field(gt=0)
+    core_end: int = Field(gt=0)
+    passes: int = Field(ge=2)
+    gate_rank: int = Field(gt=0)
+    residual_block_size: int = Field(gt=0)
+    convolution_width: int = Field(ge=2)
+    relative_dim: int = Field(gt=0)
+    relative_extent: int = Field(gt=0)
+    query_clip: float = Field(gt=0)
+    relative_clip: float = Field(gt=0)
+    log_scale_floor: int = Field(gt=0)
+    log_scale_alpha: float = Field(ge=0)
+    expert_formats: list[Literal["nvfp4", "mxfp8"]]
+    route_scale: float = Field(gt=0)
+    gate_softcap: float = Field(gt=0)
+    up_softcap: float = Field(gt=0)
+    logit_softcap: float = Field(gt=0)
+    output_vocab_size: int = Field(gt=0)
+    dspark: DSparkConfig | None = None
+
+
 class TransformerDecoderConfig(TransformerConfig, DecoderConfig):
     decoder_type: Literal["transformer"] = Field(default="transformer")
+    layer_loop: LoopedDecoderConfig | None = None
 
     aan_useffn: bool = Field(default=False, description="Turn on the FFN layer in the AAN decoder.")
     # some guided alignment specific opts were omitted here (put back for backcompat)
@@ -551,6 +592,9 @@ class VisionEncoderConfig(TransformerConfig, EncoderConfig):
 
     encoder_sam: bool = False  # True for DeepSeekOCR (Segment Anything Model as 1st step)
     use_class_embedding: bool = False
+    axial_class_token: bool = False
+    layer_scale: bool = False
+    projector_hidden_size: int | None = None
     pooling_kernel_size: int = 1  # avg-pool kernel for vision adapter (1=no pool, 3=Gemma4)
 
     # Qwen3.5 VL / Qwen3 VL style options

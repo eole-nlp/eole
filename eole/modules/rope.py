@@ -151,12 +151,14 @@ def apply_rotary_emb_multidim(query: Tensor, key: Tensor, cos_sin: Tensor, ndim:
     return torch.cat(q_parts, dim=-1), torch.cat(k_parts, dim=-1)
 
 
-def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bool) -> Tuple[Tensor, Tensor]:
+def apply_rotary_emb(
+    query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bool, *, fp32: bool = False
+) -> Tuple[Tensor, Tensor]:
 
     B, S, H, D = query.shape
     _, _, Hk, _ = key.shape  # GQA: key may have fewer heads than query
 
-    if _CPP_OPS_AVAILABLE and not torch.compiler.is_compiling():
+    if not fp32 and _CPP_OPS_AVAILABLE and query.is_cuda and not torch.compiler.is_compiling():
         num_tok = B * S
         query_ = query.view(num_tok, -1, D)
         key_ = key.view(num_tok, -1, D)
@@ -208,10 +210,10 @@ def apply_rotary_emb(query: Tensor, key: Tensor, cos_sin: Tensor, interleave: bo
             q_rotated = torch.cat((qr, qi), dim=-1)
             k_rotated = torch.cat((kr, ki), dim=-1)
 
-        return (
-            torch.cat((q_rotated, q_pass), dim=-1),
-            torch.cat((k_rotated, k_pass), dim=-1),
-        )
+        if fp32:
+            q_rotated = q_rotated.to(query.dtype)
+            k_rotated = k_rotated.to(key.dtype)
+        return torch.cat((q_rotated, q_pass), dim=-1), torch.cat((k_rotated, k_pass), dim=-1)
 
 
 class RotaryPosition(nn.Module):

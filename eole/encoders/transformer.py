@@ -60,6 +60,10 @@ class TransformerEncoderLayer(nn.Module):
                 encoder_config.hidden_size, eps=encoder_config.norm_eps
             )
         self.mlp = MLP(encoder_config, running_config=running_config)
+        self.attention_scale = self.mlp_scale = None
+        if getattr(encoder_config, "layer_scale", False):
+            self.attention_scale = nn.Parameter(torch.ones(encoder_config.hidden_size))
+            self.mlp_scale = nn.Parameter(torch.ones(encoder_config.hidden_size))
 
     def forward(
         self,
@@ -103,6 +107,8 @@ class TransformerEncoderLayer(nn.Module):
             ff_out = self.post_feedforward_layernorm(self.mlp(ff_pre))
             return out + ff_out
 
+        if self.attention_scale is not None:
+            self_attn = self_attn * self.attention_scale
         # apply residual
         self_attn.add_(layer_in)
 
@@ -110,7 +116,10 @@ class TransformerEncoderLayer(nn.Module):
         ff_in = self.post_attention_layernorm(self_attn) if not self.parallel_residual else attn_in
 
         # add residual after mlp
-        return self_attn + self.mlp(ff_in)
+        update = self.mlp(ff_in)
+        if self.mlp_scale is not None:
+            update = update * self.mlp_scale
+        return self_attn + update
 
     def update_dropout(self, dropout: float, attention_dropout: float) -> None:
         """Update dropout rates across all sub-modules."""

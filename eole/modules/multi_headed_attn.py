@@ -158,6 +158,7 @@ class MultiHeadedAttention(torch.nn.Module):
             else:
                 self.rotary_dim = model_config.rope_config.rotary_dim
             self.rotary_interleave = model_config.rope_config.rotary_interleave
+            self.rotary_fp32 = getattr(model_config, "axial_class_token", False)
             self.xdrope_section = model_config.rope_config.xdrope_section
             self.multidimensional_rope = model_config.rope_config.multidimensional_rope
         elif self.position_encoding_type == PositionEncodingType.Alibi:
@@ -308,7 +309,9 @@ class MultiHeadedAttention(torch.nn.Module):
             elif getattr(self, "multidimensional_rope", False):
                 query, key = apply_rotary_emb_multidim(query, key, position_embeddings)
             else:
-                query, key = apply_rotary_emb(query, key, position_embeddings, interleave=self.rotary_interleave)
+                query, key = apply_rotary_emb(
+                    query, key, position_embeddings, interleave=self.rotary_interleave, fp32=self.rotary_fp32
+                )
             if self.qk_norm_post_rope:
                 if hasattr(self, "q_norm"):
                     query = self.q_norm(query)

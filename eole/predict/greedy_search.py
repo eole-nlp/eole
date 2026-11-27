@@ -386,7 +386,28 @@ class GreedySearchLM(GreedySearch):
 
         return fn_tile, src
 
+    def enable_fast_greedy(self):
+        """Reserve request-local history for unconstrained single-sequence decoding."""
+        self._greedy_tokens = self.alive_seq.new_empty((1, self.alive_seq.size(1) + self.max_length))
+        self._greedy_tokens[:, : self.alive_seq.size(1)].copy_(self.alive_seq)
+        self._greedy_length = self.alive_seq.size(1)
+
+    def _advance_fast_greedy(self, log_probs):
+        ids = log_probs.argmax(-1, keepdim=True)
+        score = log_probs.gather(1, ids)
+        self.topk_scores = score / self.temperature if self.temperature > 0 else score
+        self.beams_scores.add_(score)
+        self._greedy_tokens[:, self._greedy_length : self._greedy_length + 1].copy_(ids)
+        self._greedy_length += 1
+        self.alive_seq = self._greedy_tokens[:, : self._greedy_length]
+        self.is_finished_list = torch.isin(ids, self.eos_t).tolist()
+        self.src_len += 1
+        self.ensure_max_length()
+
     def advance(self, log_probs, attn):
+        if getattr(self, "_greedy_tokens", None) is not None:
+            self._advance_fast_greedy(log_probs)
+            return
         super(GreedySearchLM, self).advance(log_probs, attn)
 
         # in LM task src_len is associated with currently generated src

@@ -22,6 +22,30 @@ def is_hf_model_id(model_path):
     return "/" in s and not os.path.exists(s)
 
 
+def is_hf_model_directory(model_path, config=None):
+    """Recognize a local Transformers snapshot by its config and weight files."""
+    if config is None:
+        try:
+            with open(os.path.join(model_path, "config.json"), encoding="utf-8") as file:
+                config = json.load(file)
+        except (OSError, ValueError):
+            return False
+    return (
+        isinstance(config, dict)
+        and bool(config.get("architectures"))
+        and "model" not in config
+        and any(
+            os.path.isfile(os.path.join(model_path, filename))
+            for filename in (
+                "model.safetensors.index.json",
+                "model.safetensors",
+                "pytorch_model.bin.index.json",
+                "pytorch_model.bin",
+            )
+        )
+    )
+
+
 def hf_cache_dir(model_id):
     slug = model_id.replace("/", "--").replace("\\", "--")
     return os.path.join(os.path.expanduser("~"), ".cache", "eole", "hf", slug)

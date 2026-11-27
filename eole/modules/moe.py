@@ -21,8 +21,23 @@ class MoE(nn.Module):
         self,
         model_config,
         running_config,
+        *,
+        expert_format=None,
     ):
         super().__init__()
+        self.block_float = expert_format is not None
+        if self.block_float:
+            from eole.modules.block_float_experts import BlockFloatExperts
+
+            self.gate = nn.Linear(model_config.hidden_size, model_config.num_experts, bias=False)
+            self.gate.preserve_checkpoint_dtype = True
+            self.register_buffer("score_correction", torch.empty(model_config.num_experts))
+            self.preserve_checkpoint_dtype = True
+            self.experts = BlockFloatExperts(model_config, expert_format)
+            self.num_experts_per_tok = model_config.num_experts_per_tok
+            self.route_scale = model_config.layer_loop.route_scale
+            self.shared_experts = None
+            return
         self.experts = nn.ModuleList(
             [
                 MLP(
@@ -76,7 +91,13 @@ class MoE(nn.Module):
     def _maybe_init_quant_weights(self, device, dtype):
         self._executor._maybe_init_quant_weights(device, dtype)
 
-    def forward(self, x):
+    def forward(self, x, *, fast_decode=False):
+        if self.block_float:
+            flat = x.reshape(-1, x.size(-1))
+            if fast_decode and flat.size(0) == 1 and getattr(self, "blackwell_experts", None) is not None:
+                return self.blackwell_experts(self, flat).view_as(x)
+            weights, indices = self.route(flat)
+            return self.experts(flat, weights, indices, fast_decode=fast_decode).view_as(x)
 
         if self.training:
             self._maybe_fuse_gates()
@@ -95,6 +116,11 @@ class MoE(nn.Module):
     def route(self, x_flat):
         """GPU routing shared by resident and hybrid execution."""
         K = self.num_experts_per_tok
+        if self.block_float:
+            scores = torch.nn.functional.linear(x_flat.float(), self.gate.weight.float()).sigmoid()
+            indices = (scores + self.score_correction).topk(K, sorted=False).indices
+            weights = scores.gather(-1, indices)
+            return weights * (self.route_scale / (weights.sum(dim=-1, keepdim=True) + 1e-20)), indices
         # ── Gate ──────────────────────────────────────────────────────────────
         scores = self.gate(x_flat)  # (BT, num_experts)
 

@@ -13,6 +13,7 @@ The public entry point for the inference pipeline is :func:`load_hf_model`.
 """
 
 import os
+import shutil
 from types import SimpleNamespace
 
 import safetensors
@@ -88,7 +89,7 @@ def build_train_config(hf, output_dir, tokenizer_pref="hf", dtype=None, use_env_
         tokenizer_pref: ``"hf"`` to use the HuggingFace tokenizer transform;
             ``"onmt"`` to use the ONMT tokenizer transform.
         dtype: Optional compute-dtype string (e.g. ``"fp16"``). Falls back to
-            the model's ``torch_dtype`` field and then to ``"fp16"``.
+            the model's ``torch_dtype`` or ``dtype`` field and then to ``"fp16"``.
         use_env_path: When ``True``, the ONMT tokenizer model path in the
             produced transforms config uses the ``${MODEL_PATH}`` environment
             variable prefix — suitable for on-disk ``config.json`` files that
@@ -113,7 +114,7 @@ def build_train_config(hf, output_dir, tokenizer_pref="hf", dtype=None, use_env_
     """
     model_config, training_config, params = build_config_dict(hf)
 
-    compute_dtype = dtype or hf.config.get("torch_dtype") or "fp16"
+    compute_dtype = dtype or hf.config.get("torch_dtype") or hf.config.get("dtype") or "fp16"
     gpt2_pretok = False
 
     (add_bos_token, chat_template, optional_eos, mapped_tokens) = check_tokenizer_config(hf)
@@ -146,9 +147,13 @@ def build_train_config(hf, output_dir, tokenizer_pref="hf", dtype=None, use_env_
     match TOK_TABLE[hf.arch], tokenizer_pref:
         case "huggingface_tokenize", "hf":
             transforms = ["huggingface_tokenize"]
-            transforms_configs = {
-                TOK_TABLE[hf.arch]: {"path": hf.tokenizer_json},
-            }
+            tokenizer_path = hf.tokenizer_json
+            if use_env_path and tokenizer_path is not None:
+                destination = os.path.join(output_dir, "tokenizer.json")
+                if os.path.realpath(tokenizer_path) != os.path.realpath(destination):
+                    shutil.copy2(tokenizer_path, destination)
+                tokenizer_path = "${MODEL_PATH}/tokenizer.json"
+            transforms_configs = {"huggingface_tokenize": {"path": tokenizer_path}}
         case _:
             transforms = ["onmt_tokenize", "filtertoolong"]
             transforms_configs = {

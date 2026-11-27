@@ -391,6 +391,31 @@ class DeepSeekOCRProjector(BaseVisionAdapter):
         return self.w_in(x)
 
 
+class SpatialMergeProjector(BaseVisionAdapter):
+    """Drop each class token, merge spatial neighbors, then project to the text width."""
+
+    def __init__(self, model_config, running_config=None):
+        super().__init__()
+        encoder = model_config.encoder
+        self.patch_size = encoder.patch_size
+        self.merge = model_config.spatial_merge_size
+        self.linear_1 = nn.Linear(encoder.hidden_size * self.merge**2, encoder.projector_hidden_size, bias=False)
+        self.linear_2 = nn.Linear(encoder.projector_hidden_size, model_config.decoder.hidden_size, bias=False)
+
+    def forward(self, x, image_sizes):
+        grids = compute_patch_grid(image_sizes, self.patch_size)
+        patches = x.squeeze(0).split([h * w + 1 for h, w in grids])
+        merge = self.merge
+        merged = [
+            tokens[1:]
+            .reshape(h // merge, merge, w // merge, merge, -1)
+            .permute(0, 2, 1, 3, 4)
+            .reshape(h * w // merge**2, -1)
+            for tokens, (h, w) in zip(patches, grids)
+        ]
+        return self.linear_2(torch.nn.functional.gelu(self.linear_1(torch.cat(merged)))).unsqueeze(0)
+
+
 class Qwen3_5VisionMerger(BaseVisionAdapter):
     """
     Vision-to-language adapter for Qwen3.5 VL (and Qwen3 VL) models.

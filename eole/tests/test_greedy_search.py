@@ -1,5 +1,5 @@
 import unittest
-from eole.predict.greedy_search import GreedySearch
+from eole.predict.greedy_search import GreedySearch, GreedySearchLM
 
 import torch
 
@@ -27,6 +27,48 @@ class TestGreedySearch(unittest.TestCase):
     DEAD_SCORE = -1e20
 
     BLOCKED_SCORE = -10e20
+
+    def test_preallocated_lm_matches_ordinary_eos_and_scores(self):
+        for temperature in (0.0, 0.7, 1.0):
+            strategies = [
+                GreedySearchLM(
+                    0,
+                    1,
+                    [2, 3],
+                    4,
+                    1,
+                    1,
+                    1,
+                    GlobalScorerStub(),
+                    0,
+                    0,
+                    set(),
+                    False,
+                    4,
+                    temperature,
+                    1,
+                    0,
+                    1,
+                    False,
+                )
+                for _ in range(2)
+            ]
+            for strategy in strategies:
+                strategy.initialize(torch.tensor([[5, 6]]), torch.tensor([2]))
+            strategies[1].enable_fast_greedy()
+            for token in (5, 7, 3):
+                scores = torch.full((1, 10), -5.0)
+                scores[0, token] = -0.5
+                for strategy in strategies:
+                    strategy.advance(scores.clone(), None)
+                torch.testing.assert_close(strategies[0].alive_seq, strategies[1].alive_seq)
+                torch.testing.assert_close(strategies[0].beams_scores, strategies[1].beams_scores)
+                torch.testing.assert_close(strategies[0].topk_scores, strategies[1].topk_scores)
+                self.assertEqual(strategies[0].is_finished_list, strategies[1].is_finished_list)
+            for strategy in strategies:
+                strategy.update_finished()
+            self.assertTrue(strategies[1].done)
+            torch.testing.assert_close(strategies[0].predictions[0][0], strategies[1].predictions[0][0])
 
     def test_doesnt_predict_eos_if_shorter_than_min_len(self):
         # batch 0 will always predict EOS. The other batches will predict
