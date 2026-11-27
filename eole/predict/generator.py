@@ -398,6 +398,24 @@ class GeneratorLM(Inference):
                 "and a model with loaded MTP heads; using normal decoding"
             )
 
+        if (
+            isinstance(decode_strategy, GreedySearchLM)
+            and not use_spec_decoding
+            and batch_size == 1
+            and parallel_paths == 1
+            and getattr(self, "parallel_gpu", 1) == 1
+            and self.n_best == 1
+            and (self.top_k == 1 or self.temperature == 0)
+            and not getattr(decode_strategy, "presence_penalty", True)
+            and not getattr(decode_strategy, "frequency_penalty", True)
+            and not getattr(decode_strategy, "min_length", True)
+            and not getattr(decode_strategy, "ban_unk_token", True)
+            and not getattr(decode_strategy, "block_ngram_repeat", True)
+            and not decode_strategy.return_attention
+            and decode_strategy.target_prefix is None
+        ):
+            decode_strategy.enable_fast_greedy()
+
         full_chunk_only = getattr(self.model.decoder, "_full_chunk_verifier", False) is True
         if use_spec_decoding:
             qwen_recurrent_mtp = (

@@ -86,3 +86,24 @@ expert kernels and CUDA graph replay on those GPUs. The graph warms on the
 first two decode steps and captures on the third. New Triton kernel shapes
 can add first-use latency. Different reduction orders across execution
 paths can change greedy output.
+
+
+On Blackwell, add `--fused-relative-attention` to try the fused KV update
+and split relative attention during single-token graph decode. The backend
+uses FP32 accumulation across splits and can change greedy output. Fixed
+caches above 8,192 positions and multi-token verification use the existing
+attention path.
+
+
+For the optional native Blackwell kernels, install a vLLM build that supports
+`vllm.models.inkling2` in a compatible environment, then pass
+`--kernel-backend vllm --fused-relative-attention`. This adapter uses vLLM's
+NVFP4/MXFP8 expert activation quantization and dense projection kernels inside
+Eole's existing decoder. The default backend is `eole`. Numerical differences
+can change greedy continuations. The vLLM adapter serves single-token decode,
+with the existing Eole kernels handling prefill and speculative blocks.
+
+The Orwell prompt with BF16 vocabulary weights measured 149.4 tok/s on the first
+request and 152.0 tok/s on the warmed request on an RTX 5090, with PyTorch 2.15,
+Triton 3.9 and vLLM `0.34.1rc1.dev285+g6beda2a3a`. Use the same model and
+2,048-token output budget to reproduce the comparison.

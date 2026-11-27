@@ -570,11 +570,34 @@ class TransformerDecoder(DecoderBase):
             and torch.version.cuda is not None
             and torch.cuda.get_device_capability(first.device) >= (8, 9)
         )
+        kernels = None
+        if config.inkling_kernel_backend == "vllm":
+            if not self._loop_graph_supported or torch.cuda.get_device_capability(first.device)[0] != 12:
+                raise ValueError("The vllm Inkling kernel backend requires Blackwell BF16 graph decoding")
+            from eole.modules.inkling_kernels import BlackwellKernels
+
+            kernels = BlackwellKernels()
         with torch.no_grad():
             self.layer_schedule.prepare()
             self.layer_norm.float()
+            fused_attention = (
+                self._loop_graph_supported
+                and config.relative_attention_backend == "fused"
+                and torch.cuda.get_device_capability(first.device)[0] == 12
+            )
             for layer in self.transformer_layers:
                 layer.block_residual.prepare(self._loop_graph_supported)
+                layer.block_residual.attention.fused_attention_decode = fused_attention
+                if kernels is not None:
+                    from eole.modules.inkling_kernels import RoutedBlackwellExperts
+
+                    block = layer.block_residual
+                    block.attention.kernels = kernels
+                    block.moe.blackwell_experts = RoutedBlackwellExperts(block.moe, kernels)
+                    if block.controllers is not None:
+                        block.controllers.kernels = kernels
+                        block.controllers.down = block.controllers.down.to(torch.bfloat16)
+                        block.controllers.up = block.controllers.up.to(torch.bfloat16)
         if not self.prefill_chunk_size and self.grouped_expert_prefill:
             self.prefill_chunk_size = 512
 

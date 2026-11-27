@@ -94,6 +94,8 @@ class MoE(nn.Module):
     def forward(self, x, *, fast_decode=False):
         if self.block_float:
             flat = x.reshape(-1, x.size(-1))
+            if fast_decode and flat.size(0) == 1 and getattr(self, "blackwell_experts", None) is not None:
+                return self.blackwell_experts(self, flat).view_as(x)
             weights, indices = self.route(flat)
             return self.experts(flat, weights, indices, fast_decode=fast_decode).view_as(x)
 

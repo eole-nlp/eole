@@ -308,6 +308,37 @@ class TestLoopedDecoderCUDA(unittest.TestCase):
                         self.assertLess(relative_error.item(), 0.002)
 
     @torch.inference_mode()
+    def test_relative_decode_with_sink_and_gate(self):
+        from eole.triton.relative_attention import relative_attention_decode
+
+        rng = torch.Generator(device="cuda").manual_seed(17)
+        for window, position in ((None, 80), (73, 12), (73, 206)):
+            with self.subTest(window=window, position=position):
+
+                def random(shape):
+                    return torch.randn(shape, device="cuda", dtype=torch.bfloat16, generator=rng)
+
+                q = random((1, 1, 4, 32))
+                k, v = random((1, 2, 97, 32)), random((1, 2, 97, 32))
+                bias, sink, gate = random((1, 4, 1, 51)), random((1, 1, 4)), random((1, 1, 128))
+                positions = torch.tensor([position], device="cuda")
+                distance = positions[:, None] - torch.arange(97, device="cuda")
+                if window:
+                    distance = distance.remainder(97)
+                valid = (distance >= 0) & (distance <= position)
+                if window:
+                    valid = valid & (distance < window)
+                rel = bias.gather(-1, distance.clamp(0, 50).expand(1, 4, 1, -1))
+                rel = rel.masked_fill((distance < 0) | (distance > 50), 0)
+                logits = (q.transpose(1, 2) @ k.repeat_interleave(2, dim=1).transpose(-1, -2)) * 32**-0.5
+                scores = (logits + rel).masked_fill(~valid, -torch.inf)
+                probs = torch.cat((scores, sink.transpose(1, 2).unsqueeze(-1)), dim=-1).float().softmax(-1)
+                out = probs[..., :-1].to(q.dtype) @ v.repeat_interleave(2, dim=1)
+                expected = (out.transpose(1, 2).flatten(-2).float() * gate.float().sigmoid()).to(q.dtype)
+                actual = relative_attention_decode(q, k, v, bias, sink, gate, positions, window)
+                torch.testing.assert_close(actual, expected, atol=0.008, rtol=0.02)
+
+    @torch.inference_mode()
     def test_fused_attention_probabilities(self):
         for window, position in ((None, 6), (7, 3), (7, 11)):
             with self.subTest(window=window, position=position):

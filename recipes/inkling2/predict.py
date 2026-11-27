@@ -23,8 +23,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default="thinkingmachines/Inkling-2-Mini")
     parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument("--kernel-backend", choices=("eole", "vllm"), default="eole")
     parser.add_argument("--image", action="append", default=[], help="Image path. Repeat to attach multiple images.")
     parser.add_argument("--dspark", action="store_true", help="Use the bundled DSpark drafter.")
+    parser.add_argument(
+        "--fused-relative-attention", action="store_true", help="Enable the fused Blackwell relative-attention decoder."
+    )
     parser.add_argument("--draft-tokens", type=int, help="Maximum DSpark proposals per verification.")
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--context-length", type=int, default=0)
@@ -49,6 +53,8 @@ def main():
         compute_dtype="bf16",
         report_time=True,
         dspark=args.dspark,
+        inkling_kernel_backend=args.kernel_backend,
+        relative_attention_backend="fused" if args.fused_relative_attention else "default",
         data_type="image" if args.image else "text",
         **({"self_speculative_num_tokens": args.draft_tokens} if args.draft_tokens is not None else {}),
     )

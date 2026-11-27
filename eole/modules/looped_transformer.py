@@ -152,6 +152,7 @@ class RelativeBiasAttention(nn.Module):
         self.relative_clip = loop.relative_clip
         self.log_floor = loop.log_scale_floor
         self.log_alpha = loop.log_scale_alpha
+        self.fused_attention_decode = False
         self.eps = cfg.norm_eps
         hidden = cfg.hidden_size
         query_size = self.heads * self.head_dim
@@ -184,12 +185,13 @@ class RelativeBiasAttention(nn.Module):
         q = _clip(q.unflatten(-1, (self.heads, self.head_dim)), self.qk_clip, self.query_scale, fast_decode=fast_decode)
         k = self.k_conv(k, cache, "k", keys, fast_decode=fast_decode).unflatten(-1, (self.kv_heads, self.head_dim))
         v = self.v_conv(v, cache, "v", values, fast_decode=fast_decode).unflatten(-1, (self.kv_heads, self.head_dim))
-        k = _clip(k, self.qk_clip, fast_decode=fast_decode).transpose(1, 2)
-        v = _rms(v, self.eps).to(v.dtype).transpose(1, 2)
-        # Keep the one-head softmax tile bounded for long global caches.
-        fused_probs = fast_decode and cache.slots.numel() <= 16384
-        k, v, distances = self._cache_with_current(k, v, positions, cache, fused_probs=fused_probs)
-
+        fused_decode = (
+            fast_decode
+            and self.fused_attention_decode
+            and positions.numel() == 1
+            and not cache.verifying
+            and cache.slots.numel() <= 8192
+        )
         relative = _clip(
             relative.unflatten(-1, (self.heads, -1)), self.relative_clip, self.relative_scale, fast_decode=fast_decode
         )
@@ -199,6 +201,21 @@ class RelativeBiasAttention(nn.Module):
             relative = (relative.float() * log_scale[:, None, None]).to(relative.dtype)
 
         profiles = (relative @ self.relative_profiles).transpose(1, 2)
+        if fused_decode:
+            from eole.triton.relative_attention import relative_attention_decode, write_normalized_kv
+
+            write_normalized_kv(k, v, cache.key, cache.value, positions, self.window, self.qk_clip, self.eps)
+            output = relative_attention_decode(q, cache.key, cache.value, profiles, sink, gate, positions, self.window)
+            if getattr(self, "kernels", None) is not None:
+                return self.kernels.linear(output, self.output.weight)
+            return self.output(output)
+
+        k = _clip(k, self.qk_clip, fast_decode=fast_decode).transpose(1, 2)
+        v = _rms(v, self.eps).to(v.dtype).transpose(1, 2)
+        # Keep the one-head softmax tile bounded for long global caches.
+        fused_probs = fast_decode and cache.slots.numel() <= 16384
+        k, v, distances = self._cache_with_current(k, v, positions, cache, fused_probs=fused_probs)
+
         repeats = self.heads // self.kv_heads
         width = positions.numel()
         if fast_decode:
@@ -232,6 +249,8 @@ class RelativeBiasAttention(nn.Module):
         return self.output((output.float() * gate.float().sigmoid()).to(output.dtype))
 
     def _project_inputs(self, queries, keys, values, fast_decode):
+        if fast_decode and queries.size(1) == 1 and getattr(self, "kernels", None) is not None:
+            return self.kernels.projections(self, queries, keys, values)
         if fast_decode and queries is keys and queries is values:
             return F.linear(queries, self.input_weight).split(self.projection_sizes, dim=-1)
         if fast_decode:
@@ -310,7 +329,16 @@ class CrossPassGates(nn.Module):
         x = x.reshape(-1, x.size(-1)).contiguous()
         messages = messages.reshape_as(x).contiguous()
         features = gate_features(x, messages, self.down.dtype, self.eps)
-        if moe:
+        if getattr(self, "kernels", None) is not None:
+            dense = self.kernels.dense.sm12x_bf16_ll_gemm
+            if moe:
+                latent = dense(features, self.down[3])
+                gates = dense(latent, self.up[3], out_dtype=torch.float32)
+            else:
+                features = features.view(3, -1, features.size(-1))
+                latent = dense(features, self.down[:3])
+                gates = dense(latent, self.up[:3], out_dtype=torch.float32).flatten(0, 1)
+        elif moe:
             latent = F.linear(features, self.down[3]).float()
             gates = F.linear(latent, self.up[3])
         else:
