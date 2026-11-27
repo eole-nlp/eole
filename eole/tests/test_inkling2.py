@@ -190,6 +190,47 @@ class TestLoopedDecoderCUDA(unittest.TestCase):
                     assert decoder._decode_graph.graph is not None
 
     @torch.inference_mode()
+    def test_verifier_graph_replays_across_partial_commits(self):
+        from eole.ops import _CPP_OPS_AVAILABLE
+
+        if not _CPP_OPS_AVAILABLE:
+            self.skipTest("requires Eole MoE routing extension")
+        prefix_length = 5
+        eager, _, _ = _tiny_decoder("cuda", torch.bfloat16)
+        packed, head, hidden = _tiny_decoder("cuda", torch.bfloat16, packed=True)
+        hidden = hidden.repeat(1, 3, 1)
+        prefix = hidden[:, :prefix_length].contiguous()
+        for decoder in (eager, packed):
+            decoder._loop_cache_capacity = hidden.size(1)
+            decoder._dspark_visits = (1, 3)
+            decoder._init_cache(prefix, torch.zeros((1, 1, prefix_length), device="cuda", dtype=torch.bool))
+            _decode(decoder, prefix)
+        packed._verify_graph_request_allowed = True
+        packed._verify_graph_sequence_length = 3
+        start = prefix_length
+        capture = None
+        for cycle, (width, committed) in enumerate(((3, 1), (3, 2), (3, 0), (2, 1), (3, 3), (3, 2))):
+            block = hidden[:, start : start + width].contiguous()
+            mask = torch.zeros((1, 1, width), device="cuda", dtype=torch.bool)
+            outputs = []
+            for decoder in (eager, packed):
+                decoder.begin_loop_verification()
+                decoder._speculative_forward = True
+                output, attn = decoder(block, step=start, tgt_pad_mask=mask)
+                decoder._speculative_forward = False
+                decoder.finish_loop_verification(committed)
+                self.assertEqual(decoder.cache_seqlens.item(), start + committed)
+                outputs.append(head(output)[..., :21])
+                self.assertEqual(attn["dspark_features"].shape, (1, width, 96))
+            torch.testing.assert_close(outputs[0], outputs[1], atol=0.04, rtol=0.04)
+            if cycle == 2:
+                capture = packed._verify_graph.graph
+                self.assertIsNotNone(capture)
+            elif cycle > 2:
+                self.assertIs(packed._verify_graph.graph, capture)
+            start += committed
+
+    @torch.inference_mode()
     def test_cuda_expert_gemv_matches_dequantized_reference(self):
         for nvfp4 in (True, False):
             with self.subTest(nvfp4=nvfp4):

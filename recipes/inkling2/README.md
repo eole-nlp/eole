@@ -46,8 +46,12 @@ Add `--dspark` to either example, or set `dspark=True` in `PredictConfig`.
 Eole loads the bundled `mtp.safetensors` and verifies up to seven proposals
 per block. Use `--draft-tokens 3` to cap the proposal count at three.
 DSpark supports unconstrained greedy decoding for a single sequence.
-Verification currently runs eagerly. Plain graph-backed decoding was faster
-on the RTX 4090 in both the image and code smoke tests.
+With compile mode `0` or `2` on NVIDIA SM89 or newer and the Eole CUDA
+extension, the target verifier captures full blocks. The first two
+blocks warm up the kernels and capture occurs on the third. Shortened
+blocks at the output limit execute eagerly. DSpark throughput depends
+on draft acceptance and the cost of running several tokens through the
+target's routed experts.
 
 ## Convert to an Eole checkpoint
 

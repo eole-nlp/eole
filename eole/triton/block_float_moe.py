@@ -125,7 +125,7 @@ def _grouped_gemm(
     tl.store(OUT + route[:, None] * N + n[None, :], accum, (route[:, None] < num_routes) & (n[None, :] < N))
 
 
-def grouped_experts(experts, inputs, weights, indices):
+def grouped_experts(experts, inputs, weights, indices, *, small_batch=False):
     """Run the two expert projections over GPU-grouped token routes."""
     from eole.modules.moe_quant_utils import _moe_align_block_size
 
@@ -138,7 +138,12 @@ def grouped_experts(experts, inputs, weights, indices):
     def project(layer, x, shared_input):
         n, k = layer.weight.size(1), x.size(1)
         out = x.new_empty((num_routes, n))
-        block_n, block_k = 64, 64
+        # Full prefill amortizes traffic across more token rows. On Ada the
+        # short verifier tiles benefit from a longer inner reduction.
+        if small_batch:
+            block_n, block_k, stages = (32, 128, 2) if layer.nvfp4 else (64, 128, 3)
+        else:
+            block_n, block_k, stages = 64, 64, 3
         _grouped_gemm[(expert_ids.numel(), triton.cdiv(n, block_n))](
             x.contiguous(),
             layer.weight.view(torch.uint8),
@@ -157,6 +162,7 @@ def grouped_experts(experts, inputs, weights, indices):
             block_m,
             block_n,
             block_k,
+            num_stages=stages,
         )
         return out
 

@@ -585,6 +585,10 @@ class TransformerDecoder(DecoderBase):
         layer = self.transformer_layers[0].block_residual
         return layer.attention.output.weight.dtype == torch.bfloat16 and layer.moe.experts._grouped_prefill
 
+    @property
+    def loop_verifier_graph_supported(self):
+        return self.uses_layer_loop and self._loop_graph_supported and self.grouped_expert_prefill
+
     def _compile_decoder(
         self, emb=None, enc_out=None, src_pad_mask=None, tgt_pad_mask=None, fn_tile=None, return_attn=False
     ):
@@ -1129,6 +1133,10 @@ class TransformerDecoder(DecoderBase):
         return DecoderGraph(function, fallback)
 
     def _replay_verifier(self, emb, kwargs, *, capture=True):
+        if getattr(self, "uses_layer_loop", False) is True:
+            if self._verify_graph is None:
+                self._verify_graph = self._make_decoder_graph(self._forward_verify_graph, self._forward_verify_graph)
+            return self._verify_graph(emb, tgt_pad_mask=kwargs["tgt_pad_mask"])
 
         # begin_speculation replaces these buffers when verification length
         # changes. A graph must never retain bindings to the old allocation.
@@ -1180,24 +1188,25 @@ class TransformerDecoder(DecoderBase):
         # from the legacy graph-tree backend's Dynamo cache entries.
         return self._forward_eager(emb, tgt_pad_mask=tgt_pad_mask)
 
+    def _fix_loop_caches(self, verify_width=0):
+        from eole.modules.looped_transformer import FixedVisitCache
+
+        length = int(self.cache_seqlens[0])
+        capacity = self._loop_cache_capacity
+        caches = []
+        for index, state in zip(self.layer_schedule.layer_ids, self._visit_caches):
+            window = self.transformer_layers[index].block_residual.attention.window
+            # A block writes all its keys before attention. The extra ring slots
+            # protect the earliest query's live window, even after a rejection.
+            size = min(window + max(0, verify_width - 1), capacity) if window else capacity
+            caches.append(FixedVisitCache.from_prefill(state, size, length, verify_width))
+        self._visit_caches = caches
+        self._fixed_visits = True
+
     def _replay_decoder(self, emb, kwargs, *, capture=True):
         looped = getattr(self, "layer_schedule", None) is not None
         if looped and not self._fixed_visits:
-            from eole.modules.looped_transformer import FixedVisitCache
-
-            length = int(self.cache_seqlens[0])
-            self._visit_caches = [
-                FixedVisitCache.from_prefill(
-                    layer_cache,
-                    min(
-                        self.transformer_layers[index].block_residual.attention.window or self._loop_cache_capacity,
-                        self._loop_cache_capacity,
-                    ),
-                    length,
-                )
-                for index, layer_cache in zip(self.layer_schedule.layer_ids, self._visit_caches)
-            ]
-            self._fixed_visits = True
+            self._fix_loop_caches()
         if self._decode_graph is None:
             if looped:
                 function = fallback = self._forward_decode_graph
@@ -1226,6 +1235,8 @@ class TransformerDecoder(DecoderBase):
         src_ids = kwargs.pop("src_ids", None)
 
         if getattr(self, "layer_schedule", None) is not None:
+            if self._fixed_visits and self._speculative_forward and S == self._verify_graph_sequence_length:
+                return self._replay_verifier(emb, kwargs)
             if (
                 self._loop_graph_supported
                 and not torch.is_grad_enabled()
@@ -1699,14 +1710,28 @@ class TransformerDecoder(DecoderBase):
     def begin_loop_verification(self):
         from eole.modules.looped_transformer import LayerVisitCache
 
+        if not self._fixed_visits and (
+            self.loop_verifier_graph_supported and getattr(self, "_verify_graph_request_allowed", False)
+        ):
+            self._fix_loop_caches(self._verify_graph_sequence_length)
         self._saved_visits = self._visit_caches, self.cache_seqlens.clone()
+        if self._fixed_visits:
+            for state in self._visit_caches:
+                state.verifying = True
+            return
+
         self._visit_caches = [
             LayerVisitCache(state.key, state.value, state.conv.copy(), verifying=True) for state in self._visit_caches
         ]
 
     def finish_loop_verification(self, committed):
         saved_visits, position = self._saved_visits
-        if not committed:
+        if self._fixed_visits:
+            # Speculative writes cannot overwrite the live prefix. Rewinding
+            # the cursor hides rejected K/V and only convolution state needs copying.
+            for state in self._visit_caches:
+                state.commit_convolutions(committed)
+        elif not committed:
             self._visit_caches = saved_visits
         else:
             for visit, state in enumerate(self._visit_caches):

@@ -22,9 +22,10 @@ class LayerVisitCache:
 @dataclass
 class FixedVisitCache(LayerVisitCache):
     slots: torch.Tensor | None = None
+    conv_chunks: dict[str, torch.Tensor] = field(default_factory=dict)
 
     @classmethod
-    def from_prefill(cls, layer, capacity, length):
+    def from_prefill(cls, layer, capacity, length, verify_width=0):
         slots = torch.arange(capacity, dtype=torch.long, device=layer.key.device)
         indices = (slots[: layer.key.size(-2)] + length - layer.key.size(-2)).remainder(capacity)
 
@@ -32,9 +33,24 @@ class FixedVisitCache(LayerVisitCache):
             buffer = source.new_zeros((*source.shape[:-2], capacity, source.size(-1)))
             return buffer.index_copy_(2, indices, source)
 
+        chunks = {
+            name: state.new_empty((*state.shape[:-1], state.size(-1) + verify_width))
+            for name, state in layer.conv.items()
+            if verify_width
+        }
         return cls(
-            allocate(layer.key), allocate(layer.value), {name: x.clone() for name, x in layer.conv.items()}, slots
+            allocate(layer.key),
+            allocate(layer.value),
+            {name: x.clone() for name, x in layer.conv.items()},
+            slots,
+            chunks,
         )
+
+    def commit_convolutions(self, committed):
+        if committed:
+            for name, history in self.conv.items():
+                history.copy_(self.conv_chunks[name][..., committed : committed + history.size(-1)])
+        self.verifying = False
 
 
 def _linear(in_features, out_features):
@@ -83,9 +99,11 @@ class ShortConvolution(nn.Module):
     def forward(self, x, cache, name, inputs=None, *, fast_decode=False):
         taps = self.taps if self.project_taps is None else self.dynamic_taps
         if fast_decode and isinstance(cache, FixedVisitCache):
-            from eole.triton.looped_decoder import conv_step
+            from eole.triton.looped_decoder import conv_chunk, conv_step
 
             dynamic = self.project_taps(inputs) if self.project_taps is not None else None
+            if cache.verifying:
+                return conv_chunk(x, cache.conv[name], cache.conv_chunks[name], taps, dynamic, self.heads, self.scale)
             return conv_step(x, cache.conv[name], taps, dynamic, self.heads, self.scale)
         channels = x.float().transpose(1, 2).contiguous()
         history = cache.conv.get(name)
@@ -182,9 +200,10 @@ class RelativeBiasAttention(nn.Module):
 
         profiles = (relative @ self.relative_profiles).transpose(1, 2)
         repeats = self.heads // self.kv_heads
+        width = positions.numel()
         if fast_decode:
-            q = q.reshape(1, self.kv_heads, repeats, self.head_dim)
-            dots = (q @ k.transpose(-1, -2)).reshape(1, self.heads, 1, k.size(-2))
+            q = q.transpose(1, 2).reshape(1, self.kv_heads, repeats * width, self.head_dim)
+            dots = (q @ k.transpose(-1, -2)).reshape(1, self.heads, width, k.size(-2))
         else:
             k = k.repeat_interleave(repeats, dim=1)
             v = v.repeat_interleave(repeats, dim=1)
@@ -206,7 +225,8 @@ class RelativeBiasAttention(nn.Module):
             sink = sink.transpose(1, 2).unsqueeze(-1)
             probabilities = torch.cat((logits, sink), dim=-1).float().softmax(dim=-1)[..., :-1].to(q.dtype)
         if fast_decode:
-            output = (probabilities.reshape(1, self.kv_heads, repeats, -1) @ v).reshape(1, 1, -1)
+            output = probabilities.reshape(1, self.kv_heads, repeats * width, -1) @ v
+            output = output.reshape(1, self.heads, width, self.head_dim).transpose(1, 2).flatten(-2)
         else:
             output = (probabilities @ v).transpose(1, 2).flatten(-2)
         return self.output((output.float() * gate.float().sigmoid()).to(output.dtype))
@@ -294,8 +314,9 @@ class CrossPassGates(nn.Module):
             latent = F.linear(features, self.down[3]).float()
             gates = F.linear(latent, self.up[3])
         else:
-            latent = torch.bmm(self.down[:3], features.unsqueeze(-1)).float()
-            gates = torch.bmm(self.up[:3], latent).squeeze(-1)
+            features = features.view(3, -1, features.size(-1)).transpose(1, 2)
+            latent = torch.bmm(self.down[:3], features).float()
+            gates = torch.bmm(self.up[:3], latent).transpose(1, 2).contiguous().flatten(0, 1)
         return gate_output(x, messages, gates, norm, dtype, self.eps)
 
 
@@ -345,10 +366,11 @@ class BlockResidualLayer(nn.Module):
                 blocks, residual, self.attention_query.view(-1, residual.size(-1)), fast_decode=fast_decode
             ).unbind(-2)
         norms = self._attention_norms
+        width = residual.size(1)
         if fast_decode and messages is not None:
-            stacked = qkv[0].view(1, -1).expand(3, -1) if len(qkv) == 1 else torch.cat(qkv, dim=1)
-            inputs = self.controllers.decode(stacked, messages[..., :3, :], norms, dtype)
-            inputs = inputs.view(3, 1, 1, -1).unbind(0)
+            stacked = torch.cat(qkv if len(qkv) == 3 else qkv * 3, dim=1)
+            inputs = self.controllers.decode(stacked, messages[..., :3, :].transpose(1, 2), norms, dtype)
+            inputs = inputs.view(3, 1, width, -1).unbind(0)
         elif fast_decode:
             from eole.triton.looped_decoder import normalize
 
@@ -356,7 +378,7 @@ class BlockResidualLayer(nn.Module):
                 inputs = (normalize(qkv[0], norms[0], dtype, self.eps),) * 3
             else:
                 stacked = torch.cat(qkv if len(qkv) == 3 else qkv * 3, dim=1)
-                inputs = normalize(stacked, norms, dtype, self.eps).view(3, 1, 1, -1).unbind(0)
+                inputs = normalize(stacked, norms, dtype, self.eps).view(3, 1, width, -1).unbind(0)
         else:
             if len(qkv) == 1:
                 qkv = qkv * 3

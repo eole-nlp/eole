@@ -609,6 +609,9 @@ class GeneratorLM(Inference):
                     if drafted
                 ]
                 self._log(f"{method} acceptance by draft position: " + ", ".join(position_rates))
+                if dspark is not None and self.model.decoder.loop_verifier_graph_supported:
+                    graph = self.model.decoder._verify_graph
+                    self._log(f"DSpark verifier CUDA graph captured={graph is not None and graph.graph is not None}")
                 if self._mtp_profile_enabled:
                     torch.cuda.synchronize()
                     phase_ms = {

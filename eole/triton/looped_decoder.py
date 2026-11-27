@@ -28,6 +28,7 @@ def _gate_output(
     OUT,
     H: tl.constexpr,
     NORM_STRIDE: tl.constexpr,
+    TOKENS: tl.constexpr,
     EPS: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
@@ -38,7 +39,7 @@ def _gate_output(
     forget = tl.extra.cuda.libdevice.tanh(tl.load(GATES + row * 2 * H + i, i < H, 0))
     gain = tl.extra.cuda.libdevice.tanh(tl.load(GATES + row * 2 * H + H + i, i < H, 0))
     mixed = (1 - forget) * x + gain * message
-    norm = tl.load(NORM + row * NORM_STRIDE + i, i < H, 0)
+    norm = tl.load(NORM + row // TOKENS * NORM_STRIDE + i, i < H, 0)
     tl.store(OUT + row * H + i, _rms(mixed, H, EPS) * norm, i < H)
 
 
@@ -60,6 +61,7 @@ def gate_output(x, message, gates, norm, dtype, eps):
         output,
         width,
         norm.stride(0),
+        rows // norm.size(0),
         eps,
         triton.next_power_of_2(width),
         num_warps=4,
@@ -124,11 +126,75 @@ def conv_step(x, history, taps, dynamic, heads, scale):
 
 
 @triton.jit
-def _normalize(X, WEIGHT, OUT, H: tl.constexpr, STRIDE: tl.constexpr, EPS: tl.constexpr, BLOCK: tl.constexpr):
+def _conv_chunk(
+    X,
+    HISTORY,
+    CHUNK,
+    TAPS,
+    DYNAMIC,
+    OUT,
+    C: tl.constexpr,
+    K: tl.constexpr,
+    CHUNK_STRIDE: tl.constexpr,
+    CHANNELS_PER_HEAD: tl.constexpr,
+    SCALE: tl.constexpr,
+    BLOCK: tl.constexpr,
+):
+    token = tl.program_id(1)
+    channel = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    valid = channel < C
+    x = tl.load(X + token * C + channel, valid, 0).to(tl.float32)
+    result = tl.full((BLOCK,), 0, tl.float32)
+    for tap in tl.static_range(K):
+        source = token + tap - (K - 1)
+        left = tl.load(HISTORY + channel * (K - 1) + token + tap, valid & (source < 0), 0)
+        right = tl.load(X + source * C + channel, valid & (source >= 0), 0).to(tl.float32)
+        weight = tl.load(TAPS + channel * K + tap, valid, 0)
+        if CHANNELS_PER_HEAD:
+            head = channel // CHANNELS_PER_HEAD
+            weight += tl.load(DYNAMIC + (token * (C // CHANNELS_PER_HEAD) + head) * K + K - 1 - tap, valid, 0)
+            result += (left + right) * weight
+        else:
+            result = tl.fma(left + right, weight, result)
+        if tap < K - 1:
+            # Keep the previous history beside the candidate inputs so the
+            # accepted prefix's new history is one contiguous slice per channel.
+            tl.store(CHUNK + channel * CHUNK_STRIDE + tap, left, valid & (token == 0))
+    tl.store(CHUNK + channel * CHUNK_STRIDE + K - 1 + token, x, valid)
+    tl.store(OUT + token * C + channel, (result + x) * SCALE, valid)
+
+
+def conv_chunk(x, history, chunk, taps, dynamic, heads, scale):
+    channels, width = taps.shape
+    output = x.new_empty(x.shape)
+    block = 128
+    _conv_chunk[(triton.cdiv(channels, block), x.size(1))](
+        x.contiguous(),
+        history,
+        chunk,
+        taps,
+        taps if dynamic is None else dynamic,
+        output,
+        channels,
+        width,
+        chunk.size(-1),
+        channels // heads if heads else 0,
+        1 / scale,
+        block,
+        num_warps=4,
+        enable_fp_fusion=False,
+    )
+    return output
+
+
+@triton.jit
+def _normalize(
+    X, WEIGHT, OUT, H: tl.constexpr, STRIDE: tl.constexpr, TOKENS: tl.constexpr, EPS: tl.constexpr, BLOCK: tl.constexpr
+):
     row = tl.program_id(0)
     i = tl.arange(0, BLOCK)
     x = tl.load(X + row * H + i, i < H, 0).to(tl.float32)
-    gain = tl.load(WEIGHT + row * STRIDE + i, i < H, 0)
+    gain = tl.load(WEIGHT + row // TOKENS * STRIDE + i, i < H, 0)
     tl.store(OUT + row * H + i, _rms(x, H, EPS) * gain, i < H)
 
 
@@ -137,17 +203,20 @@ def normalize(x, weight, dtype, eps):
     rows = x.numel() // width
     output = x.new_empty(x.shape, dtype=dtype)
     stride = weight.stride(0) if weight.ndim == 2 else 0
-    _normalize[(rows,)](x.contiguous(), weight, output, width, stride, eps, triton.next_power_of_2(width), num_warps=4)
+    tokens = rows // weight.size(0) if weight.ndim == 2 else 1
+    _normalize[(rows,)](
+        x.contiguous(), weight, output, width, stride, tokens, eps, triton.next_power_of_2(width), num_warps=4
+    )
     return output
 
 
 @triton.jit
-def _clip_head(X, SCALE, OUT, H: tl.constexpr, LIMIT: tl.constexpr, LEARNED: tl.constexpr, BLOCK: tl.constexpr):
+def _clip_head(X, SCALE, OUT, H: tl.constexpr, LIMIT: tl.constexpr, LEARNED_HEADS: tl.constexpr, BLOCK: tl.constexpr):
     head = tl.program_id(0)
     i = tl.arange(0, BLOCK)
     x = tl.load(X + head * H + i, i < H, 0).to(tl.float32)
-    if LEARNED:
-        x *= tl.load(SCALE + head * H + i, i < H, 0)
+    if LEARNED_HEADS:
+        x *= tl.load(SCALE + (head % LEARNED_HEADS) * H + i, i < H, 0)
     l2 = tl.sqrt(tl.sum(x * x, axis=0))
     factor = tl.minimum(1, LIMIT / (l2 + 1e-6))
     tl.store(OUT + head * H + i, x * factor, i < H)
@@ -157,12 +226,12 @@ def clip_heads(x, limit, weight):
     width = x.size(-1)
     output = x.new_empty(x.shape)
     _clip_head[(x.numel() // width,)](
-        x,
+        x.contiguous() if x.size(1) > 1 else x,
         x if weight is None else weight,
         output,
         width,
         limit,
-        weight is not None,
+        0 if weight is None else weight.size(0),
         triton.next_power_of_2(width),
         num_warps=1,
     )
@@ -176,32 +245,36 @@ def _mix_states(
     OUT,
     H: tl.constexpr,
     COUNT: tl.constexpr,
+    QUERIES: tl.constexpr,
     BLOCK_H: tl.constexpr,
     BLOCK_S: tl.constexpr,
 ):
     query = tl.program_id(0)
+    token = tl.program_id(1)
     i = tl.arange(0, BLOCK_H)
     j = tl.arange(0, BLOCK_S)
-    x = tl.load(STATES + j[:, None] * H + i[None, :], (j[:, None] < COUNT) & (i[None, :] < H), 0).to(tl.float32)
+    offsets = (token * COUNT + j[:, None]) * H + i[None, :]
+    x = tl.load(STATES + offsets, (j[:, None] < COUNT) & (i[None, :] < H), 0).to(tl.float32)
     x *= tl.rsqrt(tl.sum(x * x, axis=1) / H + 1e-6)[:, None]
     q = tl.load(QUERY + query * H + i, i < H, 0)
     dot = tl.sum(x * q[None, :], axis=1) * (H**-0.5)
     logits = tl.where(j < COUNT, dot, -float("inf"))
     p = tl.exp(logits - tl.max(logits, axis=0))
     p /= tl.sum(p, axis=0)
-    tl.store(OUT + query * H + i, tl.sum(x * p[:, None], axis=0), i < H)
+    tl.store(OUT + (token * QUERIES + query) * H + i, tl.sum(x * p[:, None], axis=0), i < H)
 
 
 def mix_states(states, queries):
     width = states.size(-1)
     count = states.size(-2)
     output = queries.new_empty((*states.shape[:-2], *queries.shape))
-    _mix_states[(queries.size(0),)](
+    _mix_states[(queries.size(0), states.numel() // (width * count))](
         states,
         queries,
         output,
         width,
         count,
+        queries.size(0),
         triton.next_power_of_2(width),
         triton.next_power_of_2(count),
         num_warps=8,
@@ -218,14 +291,18 @@ def _attention_probabilities(
     POSITION,
     OUT,
     C,
+    TOKENS: tl.constexpr,
+    HEADS: tl.constexpr,
+    SINK_STRIDE: tl.constexpr,
     EXTENT: tl.constexpr,
     WINDOW: tl.constexpr,
     SCALE: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
     head = tl.program_id(0)
+    token = tl.program_id(1)
     slot = tl.arange(0, BLOCK)
-    position = tl.load(POSITION)
+    position = tl.load(POSITION + token)
     if WINDOW:
         dist = position % C - slot
         dist = tl.where(dist < 0, dist + C, dist)
@@ -233,28 +310,35 @@ def _attention_probabilities(
     else:
         dist = position - slot
         valid = dist >= 0
-    bias = tl.load(PROFILES + head * EXTENT + dist, (dist >= 0) & (dist < EXTENT) & (slot < C), 0)
-    dot = tl.load(DOTS + head * C + slot, slot < C, 0)
+    bias_offset = (token * HEADS + head) * EXTENT
+    dot_offset = (head * TOKENS + token) * C + slot
+    bias = tl.load(PROFILES + bias_offset + dist, (dist >= 0) & (dist < EXTENT) & (slot < C), 0)
+    dot = tl.load(DOTS + dot_offset, slot < C, 0)
     scaled = (dot.to(tl.float32) * SCALE).to(tl.bfloat16)
     score = (scaled.to(tl.float32) + bias.to(tl.float32)).to(tl.bfloat16).to(tl.float32)
     score = tl.where(valid & (slot < C), score, -float("inf"))
-    sink = tl.load(SINK + head).to(tl.float32)
+    sink = tl.load(SINK + token * SINK_STRIDE + head).to(tl.float32)
     maximum = tl.maximum(tl.max(score, axis=0), sink)
     mass = tl.exp(score - maximum)
     denominator = tl.sum(mass, axis=0) + tl.exp(sink - maximum)
-    tl.store(OUT + head * C + slot, mass / denominator, slot < C)
+    tl.store(OUT + dot_offset, mass / denominator, slot < C)
 
 
 def attention_probabilities(dots, profiles, sink, position, window, scale):
-    _, heads, _, capacity = dots.shape
+    _, heads, tokens, capacity = dots.shape
+    if tokens > 1:
+        profiles = profiles.transpose(1, 2).contiguous().transpose(1, 2)
     output = dots.new_empty(dots.shape)
-    _attention_probabilities[(heads,)](
+    _attention_probabilities[(heads, tokens)](
         dots,
         profiles,
         sink,
         position,
         output,
         capacity,
+        tokens,
+        heads,
+        sink.stride(1),
         profiles.size(-1),
         window or 0,
         scale,
