@@ -119,6 +119,38 @@ class TestLoopedDecoder(unittest.TestCase):
         assert len({state.conv["k"].data_ptr() for state in decoder._visit_caches}) == 8
         assert torch.isneginf(actual[..., 21:]).all()
 
+    @torch.inference_mode()
+    def test_verify_commit_matches_direct_decode_across_window(self):
+        decoder, _, hidden = _tiny_decoder()
+        prefix, proposals = hidden[:, :6].contiguous(), hidden[:, 6:9].contiguous()
+        for accepted in (0, 1, 2, 3):
+            with self.subTest(committed_inputs=accepted):
+                decoder._init_cache(prefix, torch.zeros((1, 1, 6), dtype=torch.bool))
+                _decode(decoder, prefix)
+                decoder.begin_loop_verification()
+                _decode(decoder, proposals, step=6)
+                decoder.finish_loop_verification(accepted)
+                actual = _decode(decoder, hidden[:, 9:], step=6 + accepted)
+                decoder._init_cache(prefix, torch.zeros((1, 1, 6), dtype=torch.bool))
+                _decode(decoder, prefix)
+                for i in range(accepted):
+                    _decode(decoder, proposals[:, i : i + 1], step=6 + i)
+                expected = _decode(decoder, hidden[:, 9:], step=6 + accepted)
+                torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-4)
+
+    def test_vision_preprocessing_pads_rectangular_images(self):
+        from PIL import Image
+
+        from eole.inputters.image_utils import process_image
+
+        image = Image.new("RGB", (41, 21), (255, 0, 0))
+        result = process_image(image, adapter="inkling2", image_patch_size=40)
+        self.assertEqual(result["tokens"], "<|unused_200054|>" * 2)
+        pixels = torch.from_numpy(result["image"])
+        self.assertEqual(tuple(pixels.shape), (3, 40, 80))
+        torch.testing.assert_close(pixels[:, 20, 40], torch.tensor([1.0, -1.0, -1.0]))
+        torch.testing.assert_close(pixels[:, 21, 40], torch.full((3,), -1.0 - 1 / 127.5))
+
 
 @unittest.skipUnless(
     torch.version.cuda is not None and torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9),

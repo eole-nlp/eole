@@ -1493,11 +1493,56 @@ def _inkling_loop_config(top, text, vision):
         or not isinstance(top.get("quantization_config"), dict)
         or top["quantization_config"].get("quant_algo") != "NVFP4"
         or text["num_hidden_layers"] != 24
+        or not vision
+        or vision.get("native_patch_size") != 20
+        or vision.get("projector_bias", False)
     ):
-        raise ValueError("Expected the released fixed-loop Inkling 2 Mini text checkpoint")
+        raise ValueError("Expected the released fixed-loop Inkling 2 Mini checkpoint")
+    mtp = top.get("mtp_config")
+    dspark = None
+    if mtp is not None:
+        if mtp.get("markov_head_type") != "rnn_hidden" or mtp["q_bias"] or mtp["o_bias"]:
+            raise ValueError("Unsupported Inkling DSpark drafter configuration")
+        dspark = dict(
+            hidden_size=mtp["hidden_size"],
+            layers=mtp["num_hidden_layers"],
+            heads=mtp["num_attention_heads"],
+            kv_heads=mtp["num_key_value_heads"],
+            head_dim=mtp["head_dim"],
+            intermediate_size=mtp["intermediate_size"],
+            norm_eps=mtp["rms_norm_eps"],
+            rope_theta=mtp["rope_theta"],
+            local_layers=mtp["local_layer_ids"],
+            sliding_window=mtp["sliding_window_size"],
+            block_size=mtp["block_size"],
+            markov_rank=mtp["markov_rank"],
+            target_visits=mtp["target_layer_ids"],
+        )
     local_layers = set(text["local_layer_ids"])
+    patch = vision["native_patch_size"]
+    merge = vision["adapter_merge_size"]
     return {
-        "encoder": None,
+        "adapter": "inkling2",
+        "spatial_merge_size": merge,
+        "encoder": {
+            "patch_size": patch,
+            "image_size": patch * vision["posemb_grid_size"],
+            "image_token_id": top.get("image_token_id", 200054),
+            "transformer_ff": int(vision["hidden_size"] * vision["mlp_ratio"]),
+            "layer_norm": "standard",
+            "norm_eps": vision["layer_norm_eps"],
+            "mlp_activation_fn": "gelu",
+            "add_ffnbias": True,
+            "add_final_linear_bias": True,
+            "add_qkvbias": True,
+            "position_encoding_type": PositionEncodingType.Rotary,
+            "rope_config": {"rotary_interleave": True, "rotary_theta": 10000},
+            "use_class_embedding": True,
+            "axial_class_token": True,
+            "layer_scale": True,
+            "num_position_embeddings": vision["posemb_grid_size"] ** 2,
+            "projector_hidden_size": vision["projection_hidden_dim"],
+        },
         "embeddings": {"position_encoding_type": None},
         "sliding_window": text["sliding_window_size"],
         "heads_kv": text["swa_num_key_value_heads"],
@@ -1529,6 +1574,7 @@ def _inkling_loop_config(top, text, vision):
                 "up_softcap": text["mlp_up_softcap"],
                 "logit_softcap": text["final_logit_softcapping"],
                 "output_vocab_size": text["unpadded_vocab_size"],
+                "dspark": dspark,
             },
         },
     }
@@ -1575,6 +1621,30 @@ for target, source in (("gate_up", "w13"), ("down", "w2")):
         _INKLING_LAYER_KEYS[f"moe.experts.{target}.{attr}"] = f".mlp.experts.{source}_weight{suffix}"
 
 MODEL_OVERRIDES["Inkling2LoopForConditionalGeneration"] = {
+    "encoder_layer_prefix": "model.visual.backbone.layers.",
+    "encoder.patch_conv.weight": (
+        "model.visual.backbone.embeddings.patch_embedding.weight",
+        ".reshape(w.size(0), 20, 20, 3).permute(0, 3, 1, 2)",
+    ),
+    "encoder.class_embedding.weight": "model.visual.backbone.embeddings.class_embedding",
+    "encoder.class_position": "model.visual.backbone.embeddings.cls_position_embedding",
+    "encoder.pos_embed.weight": "model.visual.backbone.embeddings.position_embedding",
+    "encoder.ln_pre.weight": "model.visual.backbone.ln_pre.weight",
+    "encoder.ln_pre.bias": "model.visual.backbone.ln_pre.bias",
+    "adapter.linear_1.weight": "model.visual.proj_in.weight",
+    "adapter.linear_2.weight": "model.visual.proj_out.weight",
+    "encoder": {
+        ".input_layernorm.": ".ln_1.",
+        ".post_attention_layernorm.": ".ln_2.",
+        ".attention_scale": ".ls_1.gamma",
+        ".mlp_scale": ".ls_2.gamma",
+        ".self_attn.linear_query.": ".self_attn.q_proj.",
+        ".self_attn.linear_keys.": ".self_attn.k_proj.",
+        ".self_attn.linear_values.": ".self_attn.v_proj.",
+        ".self_attn.final_linear.": ".self_attn.out_proj.",
+        ".mlp.gate_up_proj.": ".mlp.c_fc.",
+        ".mlp.down_proj.": ".mlp.c_proj.",
+    },
     "decoder_layer_prefix": "model.llm.layers.",
     "tgt_emb.embeddings.weight": "model.llm.embed.weight",
     "decoder.layer_norm.weight": "model.llm.norm.weight",
@@ -1670,6 +1740,7 @@ ARCH_TABLE = defaultdict(
     lambda: TransformerLMModelConfig,
     {
         "XLMRobertaXLForMaskedLM": TransformerEncoderModelConfig,
+        "Inkling2LoopForConditionalGeneration": VisionTransformerLMModelConfig,
         "LlavaForConditionalGeneration": VisionTransformerLMModelConfig,
         "Mistral3ForConditionalGeneration": VisionTransformerLMModelConfig,
         "Gemma3ForConditionalGeneration": VisionTransformerLMModelConfig,

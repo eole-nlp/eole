@@ -79,18 +79,20 @@ class HuggingfaceFiles:
     extra_model_paths: list[str] = field(default_factory=list)
     special_tokens_json: Optional[str] = None
     chat_template_jinja_path: Optional[str] = None
+    dspark_path: Optional[str] = None
 
     # Unified dictionary to cache loaded files
     _loaded_files: dict = field(default_factory=dict, init=False)
 
     @classmethod
-    def fetch(cls, args, mode="local"):
+    def fetch(cls, args, mode="local", *, include_dspark=False):
         """
         Factory method to fetch files either locally or from the HuggingFace Hub.
 
         Args:
             args: Namespace containing model_dir, token, output, etc.
             mode: Either 'local' or 'hub', determines the source of the files.
+            include_dspark: Fetch the separate Inkling drafter for weight conversion.
 
         Returns:
             HuggingfaceFiles instance with all paths populated.
@@ -149,6 +151,12 @@ class HuggingfaceFiles:
             "special_tokens_json": get_file_fn("special_tokens_map.json", required=False),
             "chat_template_jinja_path": get_file_fn("chat_template.jinja", required=False),
         }
+
+        if include_dspark:
+            with open(paths["config_path"], encoding="utf-8") as stream:
+                config = json.load(stream)
+            if config.get("model_type") == "inkling2_loop" and config.get("mtp_config"):
+                paths["dspark_path"] = get_file_fn("mtp.safetensors", required=False)
 
         return cls(**paths, model_dir=args.model_dir, token=args.token)
 
@@ -1602,7 +1610,7 @@ class LlamaHFConverter(BaseBin):
     def run(cls, args):
         from eole.models.hf_loader import build_train_config
 
-        hf = HuggingfaceFiles.fetch(args)
+        hf = HuggingfaceFiles.fetch(args, include_dspark=not args.config_only)
 
         # Build eole config and vocab using the shared helper
         train_config, vocabs, params, model_config, inference_dict = build_train_config(
@@ -1657,6 +1665,11 @@ class LlamaHFConverter(BaseBin):
 
         with open(os.path.join(args.output, "config.json"), "w", encoding="utf-8") as f:
             json.dump(config_dict, f, indent=2, ensure_ascii=False)
+
+        if hf.dspark_path is not None:
+            destination = os.path.join(args.output, "mtp.safetensors")
+            if os.path.realpath(hf.dspark_path) != os.path.realpath(destination):
+                shutil.copy2(hf.dspark_path, destination)
 
         # Copy chat_template.jinja to the output directory so the converted
         # model is self-contained (needed when the source is a local directory,

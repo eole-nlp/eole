@@ -100,7 +100,8 @@ def inference_backend_summary(model, compile_enabled, compile_mode, speculative=
         getattr(decoder, "_loop_graph_supported", False) if looped else compiled and compile_mode in ("0", "2")
     )
     scope = "decoder" if compile_mode in ("0", "1") else "layers"
-    verifier = "compiled" if compiled and compile_mode in ("0", "1") else "eager"
+    dspark = looped and speculative and bool(getattr(decoder, "_dspark_visits", ()))
+    verifier = "compiled" if not looped and compiled and compile_mode in ("0", "1") else "eager"
     lines = [
         f"Inference runtime: torch={torch.__version__}, CUDA build={torch.version.cuda}, "
         f"device={device}, dtype={dtype}",
@@ -164,7 +165,9 @@ def inference_backend_summary(model, compile_enabled, compile_mode, speculative=
     if gdn_layers and speculative:
         stencil = "compiled PyTorch stencil + SiLU" if verifier == "compiled" else "PyTorch grouped conv1d + SiLU"
         lines.append(f"Inference conv verify: {stencil}")
-    if speculative:
+    if dspark:
+        lines.append("Inference DSpark: eager drafter and target verification")
+    elif speculative:
         mtp_recurrent = "compiled layers" if compiled and compile_mode in ("2", "3") else "eager"
         lines.append(
             f"Inference MTP: context refresh=eager, recurrent head={mtp_recurrent}, vocabulary projection=eager"

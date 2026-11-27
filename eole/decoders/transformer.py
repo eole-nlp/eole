@@ -510,6 +510,7 @@ class TransformerDecoder(DecoderBase):
         self._graph_capture_coordinator = None
         self._decode_graph_enabled = EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE in ("0", "2")
         self._speculative_forward = False
+        self._saved_visits = None
 
         # Chunked prefill configuration.
         # When sliding_window > 0 the window size is the natural chunk boundary;
@@ -906,6 +907,7 @@ class TransformerDecoder(DecoderBase):
         if dflash2_window:
             # Prefix-cache entries contain final hidden states, not feature taps.
             use_cache = False
+        dspark_features = []
         all_emb_chunks = []
         all_std_attns = []
         all_align_attns = []
@@ -988,6 +990,8 @@ class TransformerDecoder(DecoderBase):
 
             emb_chunk_out, chunk_attns = self._forward_eager(emb_chunk, **chunk_kwargs)
             all_emb_chunks.append(emb_chunk_out)
+            if "dspark_features" in chunk_attns:
+                dspark_features.append(chunk_attns["dspark_features"])
             if dflash2_window:
                 dflash2_features.append(chunk_attns["dflash2_features"])
                 dflash2_features = [torch.cat(dflash2_features, dim=1)[:, -dflash2_window:].clone()]
@@ -1037,6 +1041,8 @@ class TransformerDecoder(DecoderBase):
 
         if dflash2_features:
             attns["dflash2_features"] = dflash2_features[0]
+        if dspark_features:
+            attns["dspark_features"] = torch.cat(dspark_features, dim=1)
         return torch.cat(all_emb_chunks, dim=1), attns
 
     def _reset_decode_graph(self):
@@ -1264,7 +1270,12 @@ class TransformerDecoder(DecoderBase):
         # Sliding window takes precedence (it is a correctness requirement);
         # prefill_chunk_size is an optional performance knob for non-sliding models.
         effective_chunk = _prefill_chunk_length(self)
-        if effective_chunk > 0 and S > effective_chunk and self.cache_seqlens is not None:
+        if (
+            effective_chunk > 0
+            and S > effective_chunk
+            and self.cache_seqlens is not None
+            and getattr(self, "_saved_visits", None) is None
+        ):
             return self._forward_chunked_prefill(emb, src_ids=src_ids, **kwargs)
         return self._forward_eager(emb, **kwargs)
 
@@ -1401,7 +1412,12 @@ class TransformerDecoder(DecoderBase):
                 raise ValueError("Looped decoder does not expose attention weights")
             loop_state = BlockResidualState()
             visit_caches = self._visit_caches if self._visit_caches is not None else self.layer_schedule.new_cache()
-            emb = _rms(emb, self.layer_schedule.eps, self.layer_schedule.embedding_norm).to(loop_dtype)
+            normalized = self.layer_schedule.normalize_embedding(emb)
+            image_locations = kwargs.get("image_locations")
+            if image_locations is not None:
+                # Vision features enter the decoder after the text embedding norm.
+                normalized = torch.where(image_locations[:, pos_ids_1d, None], emb, normalized)
+            emb = normalized
             attn_mask = attn_mask_full = lin_attn_mask = cache_slice = None
         elif not self.flash:
             cache_slice = pos_ids_1d  # tensor of position indices to update
@@ -1514,6 +1530,8 @@ class TransformerDecoder(DecoderBase):
 
         dflash2_layer_ids = getattr(self, "_dflash2_layer_ids", ())
         dflash2_features = []
+        dspark_visits = getattr(self, "_dspark_visits", ()) if loop_state is not None else ()
+        dspark_features = []
         if loop_state is None:
             visits = enumerate(zip(range(len(self.transformer_layers)), self.transformer_layers, pos_emb_list))
         else:
@@ -1534,6 +1552,8 @@ class TransformerDecoder(DecoderBase):
                 emb, messages = self.layer_schedule.before_visit(
                     visit, layer_index, emb, loop_state, self._fixed_visits
                 )
+                if visit in dspark_visits:
+                    dspark_features.append(emb)
                 visit_kwargs = {
                     "visit_state": (loop_state, pos_ids_1d, visit_caches[visit], messages, self._fixed_visits)
                 }
@@ -1583,6 +1603,8 @@ class TransformerDecoder(DecoderBase):
         attns = {"std": top_attn}
         if dflash2_layer_ids:
             attns["dflash2_features"] = torch.cat(dflash2_features, dim=-1)
+        if dspark_features:
+            attns["dspark_features"] = torch.cat((*dspark_features, emb), dim=-1)
         if with_align and self.alignment_layer < len(attn_aligns):
             attns["align"] = attn_aligns[self.alignment_layer]  # `(B, Q, K)`
         if all_cross_attns is not None:
@@ -1674,6 +1696,36 @@ class TransformerDecoder(DecoderBase):
                 if layer.context_attn:
                     layer.context_attn._prefill_cache(enc_out)
 
+    def begin_loop_verification(self):
+        from eole.modules.looped_transformer import LayerVisitCache
+
+        self._saved_visits = self._visit_caches, self.cache_seqlens.clone()
+        self._visit_caches = [
+            LayerVisitCache(state.key, state.value, state.conv.copy(), verifying=True) for state in self._visit_caches
+        ]
+
+    def finish_loop_verification(self, committed):
+        saved_visits, position = self._saved_visits
+        if not committed:
+            self._visit_caches = saved_visits
+        else:
+            for visit, state in enumerate(self._visit_caches):
+                layer = self.transformer_layers[self.layer_schedule.layer_ids[visit]].block_residual
+                limit = layer.attention.window
+                for name in ("key", "value"):
+                    tensor = getattr(state, name)
+                    previous = getattr(saved_visits[visit], name)
+                    stop = previous.size(2) + committed
+                    start = 0 if limit is None else max(0, stop - limit + 1)
+                    setattr(state, name, tensor[:, :, start:stop].contiguous())
+                state.conv = {
+                    name: history[..., committed - 1 : committed - 1 + layer.attn_conv.width - 1].clone()
+                    for name, history in state.conv.items()
+                }
+                state.verifying = False
+        self.cache_seqlens.copy_(position + committed)
+        self._saved_visits = None
+
     def _extend_cache(self, threshold=1, addzeros=32):
         if getattr(self, "layer_schedule", None) is not None:
             return  # The visit state owns its cache geometry.
@@ -1700,6 +1752,7 @@ class TransformerDecoder(DecoderBase):
         self.flash = False
         if getattr(self, "layer_schedule", None) is not None:
             self._visit_caches = None
+            self._saved_visits = None
             self._fixed_visits = False
             return
         for layer in self.transformer_layers:

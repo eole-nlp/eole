@@ -303,6 +303,14 @@ def process_image(
 
     PILimage = _convert_to_rgb(PILimage)
 
+    if adapter == "inkling2":
+        # Pad in pixel space using the reference fill value on its 0–255 scale.
+        width, height = PILimage.size
+        w = math.ceil(width / image_patch_size)
+        h = math.ceil(height / image_patch_size)
+        pixels = np.full((h * image_patch_size, w * image_patch_size, 3), -1, dtype=np.float32)
+        pixels[:height, :width] = np.asarray(PILimage)
+        return {"image": (pixels / 127.5 - 1).transpose(2, 0, 1), "tokens": "<|unused_200054|>" * (w * h)}
     if adapter in ["deepseekocr", "gemma3"]:
         # padding
         PILimage = ImageOps.pad(PILimage, (image_size, image_size), color=(127, 127, 127))

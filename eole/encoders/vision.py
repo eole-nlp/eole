@@ -200,7 +200,7 @@ class VisionEncoder(EncoderBase):
                 encoder_config.hidden_size,
             )
             self.register_buffer("position_ids", torch.arange(n_positions).expand((1, -1)))
-        else:
+        elif not encoder_config.axial_class_token:
             self.rope = build_rope(encoder_config, mode="2d")
 
         # Qwen3.5 VL / Qwen3 VL: optional absolute position embedding table
@@ -253,6 +253,9 @@ class VisionEncoder(EncoderBase):
             self.class_embedding = torch.nn.Embedding(1, encoder_config.hidden_size)
         else:
             self.class_embedding = None
+
+        if encoder_config.axial_class_token:
+            self.class_position = nn.Parameter(torch.zeros(encoder_config.hidden_size))
 
         if encoder_config.layernorm_pre:
             self.ln_pre = LayerNorm[encoder_config.layer_norm](encoder_config.hidden_size, eps=1e-5)
@@ -355,6 +358,8 @@ class VisionEncoder(EncoderBase):
             patch_embeds_list = self._apply_conv3d(images)
         else:
             patch_embeds_list = [self.patch_conv(img.to(self.dtype)) for img in images]
+        if self.encoder_config.axial_class_token:
+            return self._process_with_axial_class_token(patch_embeds_list)
         positions = position_ids_in_meshgrid(
             patch_embeds_list,
             max_width=self.encoder_config.image_size // self.encoder_config.patch_size,
@@ -363,6 +368,36 @@ class VisionEncoder(EncoderBase):
             return self._process_with_learned_positions(patch_embeds_list, positions)
         else:
             return self._process_with_rope(patch_embeds_list, positions)
+
+    def _process_with_axial_class_token(self, patches):
+        """Bilinear absolute positions and pairwise axial RoPE with a leading CLS per image."""
+        grid_size = int(self.pos_embed.num_embeddings**0.5)
+        table = self.pos_embed.weight.T.reshape(1, self.pos_embed.embedding_dim, grid_size, grid_size).float()
+        spatial_dim = self.encoder_config.dim_per_head // 2
+        inv_freq = self.encoder_config.rope_config.rotary_theta ** (
+            -torch.arange(0, spatial_dim, 2, device=self.device, dtype=torch.float32) / spatial_dim
+        )
+        embeddings, angles, sizes = [], [], []
+        cls = self.class_embedding.weight + self.class_position
+        for patch in patches:
+            _, height, width = patch.shape
+            absolute = F.interpolate(table, (height, width), mode="bilinear", align_corners=False)[0].to(patch.dtype)
+            embeddings.append(torch.cat((cls, (patch + absolute).flatten(1).T)))
+            row, col = torch.meshgrid(
+                torch.arange(1, height + 1, device=self.device),
+                torch.arange(1, width + 1, device=self.device),
+                indexing="ij",
+            )
+            phases = torch.stack((col.flatten(), row.flatten()), dim=-1).unsqueeze(-1) * inv_freq
+            angles.append(F.pad(phases.flatten(1), (0, 0, 1, 0)))
+            sizes.append(height * width + 1)
+        embeddings = self.ln_pre(torch.cat(embeddings).unsqueeze(0))
+        phases = torch.cat(angles)
+        return (
+            embeddings,
+            create_block_diagonal_mask(sizes, device=self.device),
+            torch.cat((phases.cos(), phases.sin()), dim=-1),
+        )
 
     def _process_with_learned_positions(
         self, patch_embeds_list: List[torch.Tensor], positions

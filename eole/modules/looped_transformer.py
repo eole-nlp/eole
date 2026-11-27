@@ -16,6 +16,7 @@ class LayerVisitCache:
     key: torch.Tensor | None = None
     value: torch.Tensor | None = None
     conv: dict[str, torch.Tensor] = field(default_factory=dict)
+    verifying: bool = field(default=False, kw_only=True)
 
 
 @dataclass
@@ -95,7 +96,7 @@ class ShortConvolution(nn.Module):
         if isinstance(cache, FixedVisitCache):
             history.copy_(tail)
         else:
-            cache.conv[name] = tail.clone()
+            cache.conv[name] = context[..., 1:] if cache.verifying else tail.clone()
         if self.project_taps is None:
             output = F.conv1d(context, taps.unsqueeze(1), groups=channels.size(1)).transpose(1, 2)
         else:
@@ -237,7 +238,7 @@ class RelativeBiasAttention(nn.Module):
         if cache.key is not None:
             k = torch.cat((cache.key, k), dim=-2)
             v = torch.cat((cache.value, v), dim=-2)
-        if self.window is not None and k.size(-2) >= self.window:
+        if not cache.verifying and self.window is not None and k.size(-2) >= self.window:
             # Keep window - 1 earlier tokens for the next query.
             start = k.size(-2) - self.window + 1
             cache.key, cache.value = k[..., start:, :].contiguous(), v[..., start:, :].contiguous()
@@ -439,6 +440,9 @@ class LoopedLayerSchedule(nn.Module):
         self.register_buffer("output_query", torch.empty(cfg.hidden_size))
         self.register_buffer("cross_pass_queries", torch.empty(2 * (end - start), cfg.hidden_size))
         self.register_buffer("cross_pass_kv_queries", torch.empty(2 * (end - start), cfg.hidden_size))
+
+    def normalize_embedding(self, emb):
+        return _rms(emb, self.eps, self.embedding_norm).to(emb.dtype)
 
     def new_cache(self):
         return [LayerVisitCache() for _ in self.layer_ids]
