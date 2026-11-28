@@ -37,6 +37,12 @@ def config():
 
 
 class TestDFlash2(unittest.TestCase):
+    def tearDown(self):
+        # Compiled decoder graphs are cached per code object and the decoder's
+        # guard filter keeps only TENSOR_MATCH guards, so module-attribute state
+        # (e.g. _dflash2_layer_ids) traced in one test must not leak into the next.
+        torch._dynamo.reset()
+
     def test_split_half_rope(self):
         x = torch.tensor([[[[1.0, 2.0, 3.0, 4.0]]]])
         # At position zero RoPE must be the identity.
@@ -463,7 +469,9 @@ class TestDFlash2(unittest.TestCase):
 
     def _check_external_drafter(self, gated_delta):
         target, vocab = _build_model(123, gated_delta=gated_delta)
-        plain_target = copy.deepcopy(target)
+        # Rebuild instead of deepcopy (see test_speculative_decoding._compare):
+        # a copied decoder's torch.compile wrapper binds to the original buffers.
+        plain_target, _ = _build_model(123, gated_delta=gated_delta)
         target.decoder._dflash2_layer_ids = (0, 1)
         gen = _generator(target, vocab, True)
         contexts = []
@@ -492,6 +500,7 @@ class TestDFlash2(unittest.TestCase):
         batch = {"srclen": torch.tensor([4]), "src": prompt, "left_pad": True}
         with torch.no_grad():
             plain = _generator(plain_target, vocab, False).predict_batch(batch, False)
+            torch._dynamo.reset()  # plain_target has no dflash2 taps; do not reuse its graph
             actual = gen.predict_batch(batch, False)
         torch.testing.assert_close(actual["predictions"][0][0], plain["predictions"][0][0])
         self.assertGreater(gen._speculative_drafted_tokens, 0)
