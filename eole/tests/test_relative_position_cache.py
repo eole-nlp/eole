@@ -84,6 +84,13 @@ class TestRelativePositionMatrix(unittest.TestCase):
 
 
 class TestRelativePositionCache(unittest.TestCase):
+    def tearDown(self):
+        # Compiled decode graphs are cached per code object; reset so graphs
+        # traced under patched module globals (TENSOR_MATCH-only guard filter
+        # drops those guards) or accumulated recompiles never leak into the
+        # next test in this process.
+        torch._dynamo.reset()
+
     def _decoder(self, dynamic_shapes, buckets):
         config = TransformerDecoderConfig(
             layers=2,
