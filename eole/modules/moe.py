@@ -7,13 +7,10 @@ from torch.distributed import all_reduce
 
 from eole.modules.expert_execution import ResidentExpertExecutor
 
-# Retain the historical helper imports for external callers.
-from eole.modules.expert_execution import GroupedExperts as GroupedExperts
-from eole.modules.expert_execution import naive_moe as naive_moe
-from eole.modules.expert_execution import vectorized_moe as vectorized_moe
+# Expert execution backends (ResidentExpertExecutor, naive_moe, vectorized_moe,
+# GroupedExperts and the EXPERT_EXECUTORS registry) live in eole.modules.expert_execution.
 
-
-__all__ = ["MoE", "GroupedExperts", "naive_moe", "vectorized_moe"]
+__all__ = ["MoE"]
 
 
 class MoE(nn.Module):
