@@ -5,7 +5,7 @@ Implementation of "Convolutional Sequence to Sequence Learning"
 import torch
 import torch.nn as nn
 
-from eole.modules.weight_norm import WeightNormConv1d
+from eole.modules.legacy.weight_norm import WeightNormConv1d
 
 SCALE_WEIGHT = 0.5**0.5
 

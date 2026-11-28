@@ -31,7 +31,7 @@ class Inference(object):
     """
 
     def _prepare_inference_projections(self, config):
-        from eole.modules.hybrid_experts import prepare_hybrid_experts
+        from eole.modules.moe.hybrid_experts import prepare_hybrid_experts
 
         if isinstance(self.model, torch.nn.Module):
             for module in self.model.modules():
@@ -46,11 +46,11 @@ class Inference(object):
 
             if not _DYNAMIC_QUANT_OPS_AVAILABLE:
                 raise ValueError("W8A8 decoder quantization requires rebuilt Eole CUDA kernels")
-        from eole.modules.autoround_linear import finalize_deferred_autoround_linear
+        from eole.modules.quant.autoround_linear import finalize_deferred_autoround_linear
 
         vocabulary_quantization = getattr(config, "vocabulary_quantization", "none")
         if vocabulary_quantization != "none":
-            from eole.modules.vocabulary_quantization import quantize_vocabulary_head
+            from eole.modules.quant.vocabulary_quantization import quantize_vocabulary_head
 
             if getattr(config, "parallel_gpu", 1) > 1:
                 raise ValueError("Runtime vocabulary quantization currently requires single-GPU inference")
@@ -65,7 +65,7 @@ class Inference(object):
             if hasattr(self.model.decoder, "transformer_layers"):
                 for layer in self.model.decoder.transformer_layers:
                     if dense_quantization != "none":
-                        from eole.modules.dense_quantization import quantize_decoder_layer
+                        from eole.modules.quant.dense_quantization import quantize_decoder_layer
 
                         dense_count += quantize_decoder_layer(layer)
                     linear_attn = getattr(layer, "linear_attn", None)
@@ -250,7 +250,7 @@ class Inference(object):
         self.self_attn_backend = config.self_attn_backend
         self.dflash2 = None
         if getattr(config, "dflash2_model", None):
-            from eole.modules.dflash2 import DFlash2Adapter
+            from eole.modules.speculation.dflash2 import DFlash2Adapter
 
             if config.beam_size != 1 or config.batch_size != 1 or len(config.gpu_ranks) != 1:
                 raise ValueError("DFlash2 requires one GPU, batch_size=1 and beam_size=1")
@@ -260,7 +260,7 @@ class Inference(object):
 
             adapter = DFlash2Adapter
             if EOLE_TORCH_COMPILE and EOLE_COMPILE_MODE == "0":
-                from eole.modules.dflash2_graph import DFlash2GraphAdapter
+                from eole.modules.speculation.dflash2_graph import DFlash2GraphAdapter
 
                 adapter = DFlash2GraphAdapter
             self.dflash2 = adapter.load(config.dflash2_model, self.model)
@@ -289,7 +289,7 @@ class Inference(object):
         self.fp8_target_kv = getattr(config, "kv_cache_dtype", "native") == "fp8_e4m3"
         scales = getattr(config, "kv_cache_scales", None)
         if self.fp8_target_kv:
-            from eole.modules.fp8_kv import configure_fp8_cache
+            from eole.modules.attention.fp8_kv import configure_fp8_cache
 
             if self.parallel_gpu != 1 or config.batch_size != 1 or config.beam_size != 1:
                 raise ValueError("FP8 KV requires a single GPU, batch_size=1, and beam_size=1")

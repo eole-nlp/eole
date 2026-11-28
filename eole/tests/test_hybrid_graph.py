@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import torch
 
-from eole.modules.hybrid_graph import GraphPool, GPUStage, HybridCacheStorage, HybridLayerGraph
+from eole.modules.moe.hybrid_graph import GraphPool, GPUStage, HybridCacheStorage, HybridLayerGraph
 
 
 class TestHybridStorage(unittest.TestCase):

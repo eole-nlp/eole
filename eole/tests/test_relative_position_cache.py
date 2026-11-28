@@ -10,8 +10,8 @@ from eole.config.inference import InferenceConfig
 from eole.config.models import TransformerDecoderConfig
 from eole.constants import PositionEncodingType
 from eole.decoders.transformer import TransformerDecoder
-from eole.modules import multi_headed_attn
-from eole.modules.relative_position_bias import compute_bias, gen_relative_positions
+from eole.modules.attention import multi_headed_attn
+from eole.modules.attention.relative_position_bias import compute_bias, gen_relative_positions
 
 # Shorter than the static cache (context_length=32) and the clip window (n_positions=8),
 # so a query at the end of the buffer is a different distance from any real position.

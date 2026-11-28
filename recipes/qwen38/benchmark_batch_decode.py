@@ -33,7 +33,7 @@ def main():
     if args.repeats < 1:
         parser.error("--repeats must be positive")
     if args.fp8_torch_reference:
-        from eole.modules.compressed_float_linear import CompressedFloatLinear
+        from eole.modules.quant.compressed_float_linear import CompressedFloatLinear
 
         post_init = CompressedFloatLinear.post_init
 

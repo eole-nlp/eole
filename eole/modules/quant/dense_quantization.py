@@ -3,7 +3,7 @@
 import torch
 from torch import nn
 
-from eole.modules.vocabulary_quantization import quantize_linear
+from eole.modules.quant.vocabulary_quantization import quantize_linear
 from eole.utils.logging import logger
 
 

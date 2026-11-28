@@ -7,8 +7,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import eole
-from eole.modules.sparse_losses import SparsemaxLoss
-from eole.modules.sparse_activations import LogSparsemax
+from eole.modules.legacy.sparse_losses import SparsemaxLoss
+from eole.modules.legacy.sparse_activations import LogSparsemax
 from eole.constants import DefaultTokens
 from eole.models.model import DecoderModel
 from eole.utils.misc import get_device

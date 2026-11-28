@@ -7,13 +7,13 @@ import torch.nn.functional as F
 try:
     from eole.triton.fused_moe import fused_experts_impl
     from eole.triton.fused_moe_int4 import fused_experts_int4_impl
-    from eole.modules.fused_moe_marlin import fused_experts_marlin_impl
+    from eole.modules.moe.fused_moe_marlin import fused_experts_marlin_impl
 
     _triton_moe = True
 except ImportError:
     _triton_moe = False
 
-from eole.modules.moe_quant_utils import (
+from eole.modules.moe.moe_quant_utils import (
     detect_expert_quant_type,
     stack_gptq_moe_weights,
     stack_awq_moe_weights,
@@ -497,13 +497,13 @@ class GroupedExperts:
 
 
 def _build_cached_executor(module, runtime, config):
-    from eole.modules.cached_experts import CachedExpertExecutor
+    from eole.modules.moe.cached_experts import CachedExpertExecutor
 
     return CachedExpertExecutor(module.experts, runtime, config, module.gate.weight.device)
 
 
 def _build_hybrid_int8_executor(module, runtime, config):
-    from eole.modules.hybrid_experts import HybridExpertExecutor
+    from eole.modules.moe.hybrid_experts import HybridExpertExecutor
 
     return HybridExpertExecutor(module.experts, config.moe_gpu_experts, runtime)
 

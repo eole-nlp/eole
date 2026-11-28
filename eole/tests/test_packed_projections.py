@@ -11,9 +11,9 @@ from torch import nn
 
 from eole.config.models import TransformerDecoderConfig
 from eole.models.model import BaseModel
-from eole.modules.gated_delta_net import GatedDeltaNet
-from eole.modules.marlin_linear import MarlinQuantLinear
-from eole.modules.transformer_mlp import MLP
+from eole.modules.gdn.gated_delta_net import GatedDeltaNet
+from eole.modules.quant.marlin_linear import MarlinQuantLinear
+from eole.modules.mlp.transformer_mlp import MLP
 from eole.predict.inference import Inference
 from eole.ops import _CPP_OPS_AVAILABLE
 
@@ -72,7 +72,7 @@ def model(layer):
 
 class TestPackedProjectionSetup(unittest.TestCase):
     def test_dense_kvq_metadata_includes_query_gate_rows(self):
-        from eole.modules.multi_headed_attn import SelfMHA
+        from eole.modules.attention.multi_headed_attn import SelfMHA
 
         for gated in (False, True):
             for parallel in (1, 2):
@@ -174,7 +174,7 @@ class TestPackedProjectionSetup(unittest.TestCase):
             self.assertTrue(hasattr(layer.mlp, "up_proj"))
 
     def test_moe_expert_stacking_sees_initialized_weights(self):
-        from eole.modules.autoround_linear import post_init_autoround_linear
+        from eole.modules.quant.autoround_linear import post_init_autoround_linear
 
         class Experts(nn.Module):
             def __init__(self):
@@ -202,7 +202,7 @@ class TestPackedProjectionSetup(unittest.TestCase):
         original_import = builtins.__import__
 
         def import_without_marlin(name, *args, **kwargs):
-            if name == "eole.modules.marlin_linear":
+            if name == "eole.modules.quant.marlin_linear":
                 raise ImportError("not installed")
             return original_import(name, *args, **kwargs)
 

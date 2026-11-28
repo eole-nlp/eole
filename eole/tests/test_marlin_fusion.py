@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from eole.modules.marlin_linear import MarlinQuantLinear
+from eole.modules.quant.marlin_linear import MarlinQuantLinear
 
 
 class TestMarlinFusion(unittest.TestCase):
@@ -26,7 +26,7 @@ class TestMarlinFusion(unittest.TestCase):
         self.assertIsNone(fused.workspace)
 
     def test_attention_fusion_is_idempotent(self):
-        from eole.modules.multi_headed_attn import MultiHeadedAttention
+        from eole.modules.attention.multi_headed_attn import MultiHeadedAttention
 
         attention = MultiHeadedAttention.__new__(MultiHeadedAttention)
         torch.nn.Module.__init__(attention)
@@ -75,7 +75,7 @@ class TestMarlinFusionWiring(unittest.TestCase):
         from types import SimpleNamespace
         from unittest.mock import patch
         from eole.models.model import BaseModel
-        from eole.modules.multi_headed_attn import SelfMHA, ContextMHA
+        from eole.modules.attention.multi_headed_attn import SelfMHA, ContextMHA
 
         from eole.predict.inference import Inference
 
@@ -108,18 +108,18 @@ class TestMarlinFusionWiring(unittest.TestCase):
         from types import SimpleNamespace
         from unittest.mock import patch
         from eole.models.model import BaseModel
-        from eole.modules.multi_headed_attn import SelfMHA
+        from eole.modules.attention.multi_headed_attn import SelfMHA
 
         model = torch.nn.Module()
         model.self_attn = self.attention(SelfMHA)
-        with patch("eole.modules.autoround_linear.post_init_autoround_linear"):
+        with patch("eole.modules.quant.autoround_linear.post_init_autoround_linear"):
             BaseModel._prepare_for_inference(
                 model, SimpleNamespace(compute_dtype=torch.float16, quant_type="autoround")
             )
         self.assertFalse(model.self_attn.fused_kvq)
 
     def test_incompatible_projections_preserved_and_retry_skipped(self):
-        from eole.modules.multi_headed_attn import SelfMHA
+        from eole.modules.attention.multi_headed_attn import SelfMHA
         from unittest.mock import patch
 
         for mismatch in ("keys", "values", "query", "group", "bits", "desc_act"):
@@ -143,7 +143,7 @@ class TestMarlinFusionWiring(unittest.TestCase):
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA required for Marlin kernels")
     def test_cuda_projection_and_query_gate_equivalence(self):
-        from eole.modules.multi_headed_attn import SelfMHA
+        from eole.modules.attention.multi_headed_attn import SelfMHA
 
         torch.manual_seed(451)
         for gated in (False, True):
@@ -184,12 +184,12 @@ class TestMarlinFusionWiring(unittest.TestCase):
     def test_optional_marlin_import_not_needed_for_other_backends(self):
         import builtins
         from unittest.mock import patch
-        from eole.modules.autoround_linear import fuse_autoround_projections
+        from eole.modules.quant.autoround_linear import fuse_autoround_projections
 
         original_import = builtins.__import__
 
         def without_marlin(name, *args, **kwargs):
-            if name == "eole.modules.marlin_linear":
+            if name == "eole.modules.quant.marlin_linear":
                 raise ImportError("Marlin not installed")
             return original_import(name, *args, **kwargs)
 
@@ -201,7 +201,7 @@ class TestMarlinFusionWiring(unittest.TestCase):
         from types import SimpleNamespace
         from eole.models.model import BaseModel
         from eole.predict.inference import Inference
-        from eole.modules.multi_headed_attn import SelfMHA
+        from eole.modules.attention.multi_headed_attn import SelfMHA
 
         for incompatible in (False, True):
             model = torch.nn.Module()
@@ -263,7 +263,9 @@ class TestMarlinFusionWiring(unittest.TestCase):
                 stack.transformer_layers.append(layer)
             setattr(model, side, stack)
         config = SimpleNamespace(fuse_kvq=True, fuse_gate=False)
-        with patch("eole.modules.autoround_linear.finalize_deferred_autoround_linear", return_value=False) as finalize:
+        with patch(
+            "eole.modules.quant.autoround_linear.finalize_deferred_autoround_linear", return_value=False
+        ) as finalize:
             Inference._prepare_inference_projections(SimpleNamespace(model=model), config)
             self.assertEqual(
                 [args.args[0] for args in finalize.call_args_list],
@@ -279,6 +281,8 @@ class TestMarlinFusionWiring(unittest.TestCase):
 
         predictor = SimpleNamespace(model=SimpleNamespace())
         config = SimpleNamespace(fuse_kvq=False, fuse_gate=False)
-        with patch("eole.modules.autoround_linear.finalize_deferred_autoround_linear", return_value=False) as finalize:
+        with patch(
+            "eole.modules.quant.autoround_linear.finalize_deferred_autoround_linear", return_value=False
+        ) as finalize:
             Inference._prepare_inference_projections(predictor, config)
             finalize.assert_not_called()

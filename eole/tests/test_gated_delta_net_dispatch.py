@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 
 from eole.config.models import TransformerDecoderConfig
-from eole.modules import gated_delta_net as gdn
+from eole.modules.gdn import gated_delta_net as gdn
 
 
 FAST_KERNELS = (

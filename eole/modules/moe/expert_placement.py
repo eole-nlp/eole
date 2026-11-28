@@ -41,7 +41,7 @@ class ExpertWeightPlacement:
         validate_expert_placement(config)
         if device.type != "cuda":
             raise ValueError("Hybrid MoE requires a CUDA execution device")
-        from eole.modules.moe import MoE
+        from eole.modules.moe.moe import MoE
 
         host_experts = set()
         cached = config.moe_expert_backend in ("adaptive", "hybrid_gptq")

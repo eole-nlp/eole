@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 
 from eole.decoders.decoder import DecoderBase
-from eole.modules.conv_multi_step_attention import ConvMultiStepAttention
+from eole.modules.attention.conv_multi_step_attention import ConvMultiStepAttention
 from eole.utils.cnn_factory import GatedConv
 
 SCALE_WEIGHT = 0.5**0.5

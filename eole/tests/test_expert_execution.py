@@ -6,10 +6,10 @@ import unittest
 from unittest.mock import patch
 import torch
 from torch import nn
-from eole.modules.moe import MoE
-from eole.modules.expert_execution import vectorized_moe
-from eole.modules.expert_placement import ExpertWeightPlacement, validate_expert_placement
-from eole.modules.hybrid_experts import (
+from eole.modules.moe.moe import MoE
+from eole.modules.moe.expert_execution import vectorized_moe
+from eole.modules.moe.expert_placement import ExpertWeightPlacement, validate_expert_placement
+from eole.modules.moe.hybrid_experts import (
     CPUInt8Linear,
     HybridExpertExecutor,
     HybridExpertRuntime,
@@ -54,7 +54,7 @@ class TestExpertExecution(unittest.TestCase):
     def test_resident_routing_matches_reference(self):
         model = tiny_moe()
         x = torch.randn(1, 5, 32)
-        with torch.no_grad(), patch("eole.modules.expert_execution._triton_moe", False):
+        with torch.no_grad(), patch("eole.modules.moe.expert_execution._triton_moe", False):
             scores = model.gate(x.view(-1, 32)).softmax(-1)
             weights, ids = scores.topk(2, sorted=False)
             weights = weights / weights.sum(-1, keepdim=True)

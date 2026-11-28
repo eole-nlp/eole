@@ -175,11 +175,11 @@ class LazyLayerNormDict:
 
         # Lazy import only when first accessed
         if key == "rms" and self._registry[key] is None:
-            from eole.modules.rmsnorm import RMSNorm
+            from eole.modules.attention.rmsnorm import RMSNorm
 
             self._registry[key] = RMSNorm
         elif key == "gemma-rms" and self._registry[key] is None:
-            from eole.modules.rmsnorm import GemmaRMSNorm
+            from eole.modules.attention.rmsnorm import GemmaRMSNorm
 
             self._registry[key] = GemmaRMSNorm
 

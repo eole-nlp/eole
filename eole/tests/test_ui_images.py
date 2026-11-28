@@ -182,7 +182,7 @@ class TestVisionTextInputs(unittest.TestCase):
     def test_xdrope_chunked_output_matches_unchunked(self):
         import torch
         from eole.decoders.transformer import TransformerDecoder
-        from eole.modules.rope import apply_rotary_pos_emb_xdrope
+        from eole.modules.attention.rope import apply_rotary_pos_emb_xdrope
 
         class Layer:
             self_attn = SimpleNamespace(xdrope_section=[1, 1, 1])

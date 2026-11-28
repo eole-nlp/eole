@@ -9,9 +9,9 @@ from threading import Lock
 
 import torch
 
-from eole.modules.expert_cache import FrequencyExpertCache
-from eole.modules.expert_execution import ExpertExecutor
-from eole.modules.host_experts import MarlinExpertStore
+from eole.modules.moe.expert_cache import FrequencyExpertCache
+from eole.modules.moe.expert_execution import ExpertExecutor
+from eole.modules.moe.host_experts import MarlinExpertStore
 
 
 class ExpertGPUPhase:
@@ -22,7 +22,7 @@ class ExpertGPUPhase:
     """
 
     def __init__(self, tensors, hidden, intermediate, experts, scalar_type_id, stream=None):
-        from eole.modules.marlin_utils import marlin_make_workspace
+        from eole.modules.quant.marlin_utils import marlin_make_workspace
 
         self.tensors = tensors
         self.scalar_type_id = scalar_type_id
@@ -43,7 +43,7 @@ class ExpertGPUPhase:
         )
 
     def _run(self, x, ids, scratch):
-        from eole.modules.fused_moe_marlin import fused_experts_marlin_impl
+        from eole.modules.moe.fused_moe_marlin import fused_experts_marlin_impl
 
         slots = self.lookup[ids]
         # Misses run through a valid dummy slot and are masked before combining

@@ -1,4 +1,4 @@
-from eole.modules.quantization_selection import is_selected, is_excluded
+from eole.modules.quant.quantization_selection import is_selected, is_excluded
 
 # Code taken from bitsandbytes but modified with arg device to accept skipt_init
 # from torch.nn.utils => makes model building way faster.

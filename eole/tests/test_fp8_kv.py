@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import torch
 
-from eole.modules.fp8_kv import configure_fp8_cache, fp8_kv_attention
+from eole.modules.attention.fp8_kv import configure_fp8_cache, fp8_kv_attention
 
 
 @unittest.skipUnless(
@@ -106,7 +106,7 @@ class TestContinuousFP8KV(unittest.TestCase):
 
     @torch.inference_mode()
     def test_chunked_prefill_reads_scaled_prefix(self):
-        from eole.modules.fp8_kv import prefill
+        from eole.modules.attention.fp8_kv import prefill
 
         torch.manual_seed(912)
         q = torch.randn(1, 23, 4, 128, device="cuda", dtype=torch.bfloat16)

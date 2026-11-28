@@ -120,7 +120,7 @@ class MultiHeadedAttention(torch.nn.Module):
         if model_config.key_norm:
             self.k_norm = LayerNorm[model_config.layer_norm](model_config.head_dim, eps=model_config.norm_eps)
         if model_config.value_norm:
-            from eole.modules.rmsnorm import RMSNormNoScale
+            from eole.modules.attention.rmsnorm import RMSNormNoScale
 
             self.v_norm = RMSNormNoScale(model_config.head_dim, eps=model_config.norm_eps)
         self.qk_norm_post_rope = model_config.qk_norm_post_rope
@@ -177,7 +177,7 @@ class MultiHeadedAttention(torch.nn.Module):
     def _fuse_KVQ(self) -> None:
         if self.fused_kvq or getattr(self, "_marlin_fusion_skipped", False):
             return
-        from eole.modules.autoround_linear import fuse_autoround_projections
+        from eole.modules.quant.autoround_linear import fuse_autoround_projections
 
         projections = [self.linear_keys, self.linear_values, self.linear_query]
         handled, fused = fuse_autoround_projections(projections)
@@ -531,7 +531,7 @@ class SelfMHA(MultiHeadedAttention):
                 # Fast path with flash_attn_with_kvcache
                 fp8_scales = getattr(self, "_fp8_kv_scales", None)
                 if fp8_scales is not None:
-                    from eole.modules.fp8_kv import fp8_kv_attention, prefill
+                    from eole.modules.attention.fp8_kv import fp8_kv_attention, prefill
 
                     attention = fp8_kv_attention if query.size(1) <= 16 else prefill
                     context = attention(

@@ -1,5 +1,5 @@
 import unittest
-from eole.modules.embeddings import Embeddings, RobertaEmbeddings
+from eole.modules.mlp.embeddings import Embeddings, RobertaEmbeddings
 from eole.constants import PositionEncodingType
 
 import itertools

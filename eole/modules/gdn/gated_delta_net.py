@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils import skip_init
 
-from eole.modules.gdn_ab import gdn_ab_projections
+from eole.modules.gdn.gdn_ab import gdn_ab_projections
 
 
 # ---------------------------------------------------------------------------
@@ -804,7 +804,7 @@ class GatedDeltaNet(nn.Module):
         """Pack compatible Marlin QKV and output-gate weights before repacking."""
         if self.fused_qkvz or getattr(self, "_qkvz_fusion_skipped", False):
             return
-        from eole.modules.autoround_linear import fuse_autoround_projections
+        from eole.modules.quant.autoround_linear import fuse_autoround_projections
 
         handled, fused = fuse_autoround_projections([self.in_proj_qkv, self.in_proj_z], name="GDN QKV/Z")
         if handled:

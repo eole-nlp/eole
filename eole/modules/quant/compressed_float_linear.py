@@ -9,7 +9,7 @@ from torch import nn
 
 from eole.ops import fp8_mm, fp8_mma_supported, _DYNAMIC_QUANT_OPS_AVAILABLE
 
-from eole.modules.quantization_selection import is_selected, is_excluded
+from eole.modules.quant.quantization_selection import is_selected, is_excluded
 
 
 @torch.library.custom_op("eole::nvfp4_linear", mutates_args=())
@@ -112,7 +112,7 @@ class CompressedFloatLinear(nn.Module):
         if self.is_fp4 or self.marlin_qweight is not None:
             return
         from eole import _ops
-        from eole.modules.marlin_utils import marlin_permute_scales, marlin_make_workspace
+        from eole.modules.quant.marlin_utils import marlin_permute_scales, marlin_make_workspace
 
         if not getattr(_ops, "fp8_marlin_supported", False) or not hasattr(_ops, "fp8_compiled_arch"):
             raise ValueError("Marlin FP8 requires rebuilt Eole CUDA kernels")
@@ -178,8 +178,8 @@ class CompressedFloatLinear(nn.Module):
         shape = x.shape
         x = x.reshape(-1, self.in_features).contiguous()
         if self.marlin_qweight is not None:
-            from eole.modules.marlin_utils import apply_gptq_marlin_linear
-            from eole.modules.marlin_scalar_type import scalar_types
+            from eole.modules.quant.marlin_utils import apply_gptq_marlin_linear
+            from eole.modules.quant.marlin_scalar_type import scalar_types
 
             scales = self.marlin_scales_bf16 if x.dtype == torch.bfloat16 else self.marlin_scales_fp16
             out = apply_gptq_marlin_linear(

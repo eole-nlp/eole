@@ -5,9 +5,9 @@ import torch
 import torch.nn as nn
 
 from eole.encoders.encoder import EncoderBase
-from eole.modules.multi_headed_attn import SelfMHA
-from eole.modules.transformer_mlp import MLP
-from eole.modules.rope import build_rope
+from eole.modules.attention.multi_headed_attn import SelfMHA
+from eole.modules.mlp.transformer_mlp import MLP
+from eole.modules.attention.rope import build_rope
 from eole.constants import LayerNorm
 
 

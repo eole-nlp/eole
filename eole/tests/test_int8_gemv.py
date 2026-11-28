@@ -8,8 +8,8 @@ from unittest.mock import patch
 import torch
 from torch import nn
 
-from eole.modules.int8_gemv import W8A8Linear, int8_projection
-from eole.modules.vocabulary_quantization import quantize_linear
+from eole.modules.quant.int8_gemv import W8A8Linear, int8_projection
+from eole.modules.quant.vocabulary_quantization import quantize_linear
 
 
 def reference(x, module):
@@ -21,8 +21,8 @@ def reference(x, module):
     qw = ((module.packed[..., None].long() >> shifts) & 255).reshape(n, k // 32, 32)
     qw = torch.where(qw >= 128, qw - 256, qw)
     if x.numel() // k >= 64:
-        from eole.modules.marlin_linear import MarlinQuantLinear
-        from eole.modules.int8_gemv import round_int8_inputs
+        from eole.modules.quant.marlin_linear import MarlinQuantLinear
+        from eole.modules.quant.int8_gemv import round_int8_inputs
 
         restored_x = (qx * scales[..., None]).reshape_as(x).to(x.dtype)
         torch.testing.assert_close(round_int8_inputs(x.contiguous()), restored_x, rtol=0, atol=0)
@@ -44,7 +44,7 @@ class TestW8A8Policy(unittest.TestCase):
         from eole.predict.inference import Inference
 
         with patch("eole.ops._DYNAMIC_QUANT_OPS_AVAILABLE", False):
-            with patch("eole.modules.hybrid_experts.prepare_hybrid_experts") as prepare:
+            with patch("eole.modules.moe.hybrid_experts.prepare_hybrid_experts") as prepare:
                 with self.assertRaisesRegex(ValueError, "rebuilt Eole CUDA"):
                     Inference._prepare_inference_projections(
                         SimpleNamespace(model=nn.Module()), SimpleNamespace(dense_quantization="w8a8")
@@ -117,7 +117,7 @@ class TestW8A8CUDA(unittest.TestCase):
         torch._dynamo.reset()
 
     def test_round_inputs_beyond_cuda_grid_y_limit(self):
-        from eole.modules.int8_gemv import round_int8_inputs
+        from eole.modules.quant.int8_gemv import round_int8_inputs
 
         x = torch.randn(65_537, 128, device="cuda", dtype=torch.bfloat16)
         # The small calls use one grid slice. Compare every row across the split.
@@ -127,7 +127,7 @@ class TestW8A8CUDA(unittest.TestCase):
     def test_inference_packing_without_requantizing_checkpoint_projections(self):
         from eole.predict.inference import Inference
         from eole.tests.test_packed_projections import block, model, config
-        from eole.modules.marlin_linear import MarlinQuantLinear
+        from eole.modules.quant.marlin_linear import MarlinQuantLinear
 
         layer = block().cuda().bfloat16().eval()
         for name, n in (("in_proj_qkv", 192), ("in_proj_z", 64)):

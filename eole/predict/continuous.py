@@ -118,7 +118,7 @@ class ContinuousGreedy:
         emb = torch.zeros(slots, 1, self.decoder.hidden_size, device=parameter.device, dtype=parameter.dtype)
         self.fp8_kv = kv_cache_dtype == "fp8_e4m3"
         if self.fp8_kv:
-            from eole.modules.fp8_kv import configure_fp8_cache
+            from eole.modules.attention.fp8_kv import configure_fp8_cache
 
             if self.speculation and predictor.self_speculative_num_tokens > 15:
                 raise ValueError("FP8 KV supports verification blocks of at most 16 tokens")

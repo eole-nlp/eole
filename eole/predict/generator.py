@@ -8,7 +8,7 @@ from eole.predict.greedy_search import GreedySearchLM
 from eole.predict.beam_search import BeamSearchLM
 from eole.utils.misc import tile
 from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
-from eole.modules.gated_delta_net import GatedDeltaNet
+from eole.modules.gdn.gated_delta_net import GatedDeltaNet
 from eole.utils.tensor_parallel import broadcast_from_rank_zero
 from time import time, perf_counter
 

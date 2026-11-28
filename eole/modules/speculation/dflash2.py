@@ -275,7 +275,7 @@ class DFlash2Adapter(nn.Module):
         The shared output head, norms, convolution controls and selector remain
         untouched. Reuse the runtime linear quantizer's groupwise RTN packing.
         """
-        from eole.modules.vocabulary_quantization import quantize_vocabulary_head as quantize_projection
+        from eole.modules.quant.vocabulary_quantization import quantize_vocabulary_head as quantize_projection
 
         if hasattr(self, "_graph"):
             raise ValueError("Quantize DFlash2 projections before preparing CUDA graphs")

@@ -7,8 +7,8 @@ import torch
 from torch import nn
 
 from eole.models.model import BaseModel, MTPDraftingMixin
-from eole.modules.marlin_linear import MarlinQuantLinear
-from eole.modules.quantization_loading import slice_gptq_checkpoint
+from eole.modules.quant.marlin_linear import MarlinQuantLinear
+from eole.modules.quant.quantization_loading import slice_gptq_checkpoint
 from eole.ops import _CPP_OPS_AVAILABLE
 
 

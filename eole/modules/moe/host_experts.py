@@ -72,7 +72,7 @@ class HostInt8Linear:
         return torch.ops.aten._weight_int8pack_mm(x.to(torch.bfloat16).contiguous(), self.weight, self.scales)
 
     def marlin_projection(self, device):
-        from eole.modules.marlin_linear import MarlinQuantLinear
+        from eole.modules.quant.marlin_linear import MarlinQuantLinear
 
         n, k = self.weight.shape
         unsigned = self.weight.t().long() + 128
@@ -109,7 +109,7 @@ class MarlinExpertStore:
     """
 
     def __init__(self, experts, device, directory=None, source_format="auto"):
-        from eole.modules.moe_quant_utils import MARLIN_UINT4B8_TYPE_ID, MARLIN_UINT8B128_TYPE_ID
+        from eole.modules.moe.moe_quant_utils import MARLIN_UINT4B8_TYPE_ID, MARLIN_UINT8B128_TYPE_ID
 
         if source_format not in ("auto", "gptq"):
             raise ValueError("Unknown adaptive expert source format")

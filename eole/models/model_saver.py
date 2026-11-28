@@ -5,7 +5,7 @@ import shutil
 from collections import deque
 from eole.utils.logging import logger
 from eole.inputters.inputter import vocabs_to_dict
-from eole.modules.lora import lora_state_dict
+from eole.modules.mlp.lora import lora_state_dict
 from eole.config import recursive_model_fields_set
 from eole.config.run import TrainConfig
 from eole.constants import DefaultTokens

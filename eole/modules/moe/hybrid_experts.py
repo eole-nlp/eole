@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import torch
 import torch.nn.functional as F
 
-from eole.modules.expert_execution import ExpertExecutor
+from eole.modules.moe.expert_execution import ExpertExecutor
 
 
 class CPUInt8Linear:
@@ -141,9 +141,9 @@ class HybridExpertExecutor(ExpertExecutor):
 def prepare_hybrid_experts(model, config):
     if getattr(config, "moe_expert_backend", "resident") == "resident":
         return
-    from eole.modules.moe import MoE
-    from eole.modules.expert_execution import build_expert_executor
-    from eole.modules.expert_placement import validate_expert_placement
+    from eole.modules.moe.moe import MoE
+    from eole.modules.moe.expert_execution import build_expert_executor
+    from eole.modules.moe.expert_placement import validate_expert_placement
 
     validate_expert_placement(config)
     if getattr(model, "_expert_runtime", None) is not None:
@@ -169,7 +169,7 @@ def prepare_hybrid_experts(model, config):
         if formats:
             logger.info("Adaptive expert storage on CPU and GPU: %s", ", ".join(sorted(formats)))
         if getattr(config, "moe_expert_cuda_graph", True):
-            from eole.modules.hybrid_graph import GraphPool, HybridCacheStorage, HybridLayerGraph
+            from eole.modules.moe.hybrid_graph import GraphPool, HybridCacheStorage, HybridLayerGraph
 
             decoder = getattr(model, "decoder", None)
             # Wrappers such as EnsembleDecoder do not expose static-cache graph support.

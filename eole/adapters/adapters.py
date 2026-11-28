@@ -256,7 +256,7 @@ class Gemma4MultiModalProjector(BaseVisionAdapter):
 
     def __init__(self, model_config, running_config=None):
         super().__init__()
-        from eole.modules.rmsnorm import RMSNormNoScale
+        from eole.modules.attention.rmsnorm import RMSNormNoScale
 
         in_dim = model_config.encoder.hidden_size
         out_dim = model_config.decoder.hidden_size

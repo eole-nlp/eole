@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from eole.predict.continuous import ContinuousGreedy, GreedyRequest
-from eole.modules.gated_delta_net import GatedDeltaNet
+from eole.modules.gdn.gated_delta_net import GatedDeltaNet
 from eole.utils.decoder_graph import DecoderGraph
 from eole.utils.logging import logger
 from eole.utils.request_cache import RequestCache

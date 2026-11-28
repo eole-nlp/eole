@@ -4,13 +4,13 @@ Modules
 Embeddings
 ------------
 
-.. autoclass:: eole.modules.embeddings.Embeddings
+.. autoclass:: eole.modules.mlp.embeddings.Embeddings
     :members:
 
-.. autoclass:: eole.modules.embeddings.PositionalEncoding
+.. autoclass:: eole.modules.mlp.embeddings.PositionalEncoding
     :members:
 
-.. autoclass:: eole.modules.transformer_mlp.MLP
+.. autoclass:: eole.modules.mlp.transformer_mlp.MLP
     :members:
 
 Encoders
@@ -63,11 +63,11 @@ Decoders
 Attention
 ----------
 
-.. autoclass:: eole.modules.global_attention.GlobalAttention
+.. autoclass:: eole.modules.attention.global_attention.GlobalAttention
     :members:
 
-.. autoclass:: eole.modules.multi_headed_attn.MultiHeadedAttention
+.. autoclass:: eole.modules.attention.multi_headed_attn.MultiHeadedAttention
     :members:
 
-.. autoclass:: eole.modules.conv_multi_step_attention.ConvMultiStepAttention
+.. autoclass:: eole.modules.attention.conv_multi_step_attention.ConvMultiStepAttention
     :members:

@@ -8,12 +8,12 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from eole.decoders.decoder import DecoderBase
-from eole.modules.multi_headed_attn import SelfMHA, ContextMHA
-from eole.modules.transformer_mlp import MLP
-from eole.modules.moe import MoE
-from eole.modules.gated_delta_net import GatedDeltaNet
-from eole.modules.rope import build_rope
-from eole.modules.prefill_cache import PrefillCache
+from eole.modules.attention.multi_headed_attn import SelfMHA, ContextMHA
+from eole.modules.mlp.transformer_mlp import MLP
+from eole.modules.moe.moe import MoE
+from eole.modules.gdn.gated_delta_net import GatedDeltaNet
+from eole.modules.attention.rope import build_rope
+from eole.modules.attention.prefill_cache import PrefillCache
 from eole.constants import LayerNorm, PositionEncodingType
 from eole import EOLE_TORCH_COMPILE, EOLE_COMPILE_MODE
 from eole.ops import _FLASH_ATTN_AVAILABLE
@@ -754,7 +754,7 @@ class TransformerDecoder(DecoderBase):
         chunk so that every token attends only to the positions inside its
         causal window.
 
-        When a :class:`~eole.modules.prefill_cache.PrefillCache` is attached to
+        When a :class:`~eole.modules.attention.prefill_cache.PrefillCache` is attached to
         this decoder (``self._prefill_cache is not None``), the output embeddings
         and per-layer state tensors for each chunk are cached on CPU.  On
         subsequent calls whose token prefix produces the same rolling hash, the

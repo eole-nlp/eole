@@ -72,7 +72,7 @@ class W8A8Linear(nn.Module):
             or source.qweight.device.type != "cuda"
         ):
             raise ValueError("W8A8 conversion requires unrepacked symmetric INT8/group-32 projections")
-        from eole.modules.marlin_utils import marlin_make_workspace
+        from eole.modules.quant.marlin_utils import marlin_make_workspace
 
         self.register_buffer("workspace", marlin_make_workspace(source.qweight.device))
         self.register_buffer("empty_index", torch.empty(0, device=source.qweight.device, dtype=torch.int32))
@@ -90,7 +90,7 @@ class W8A8Linear(nn.Module):
         # Larger batches amortize a temporary repack; never retain another
         # model-sized layout merely to accelerate prefill.
         if inputs.numel() // self.in_features >= 64:
-            from eole.modules.autoround_linear import w8a8_prefill
+            from eole.modules.quant.autoround_linear import w8a8_prefill
 
             return w8a8_prefill(round_int8_inputs(inputs), self.packed, self.scales, self.workspace, self.empty_index)
         return int8_projection(inputs, self.packed, self.scales)

@@ -11,13 +11,13 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from eole.modules.expert_cache import FrequencyExpertCache
-from eole.modules.host_experts import HostGPTQLinear, HostInt8Linear
-from eole.modules.hybrid_experts import HybridExpertRuntime
+from eole.modules.moe.expert_cache import FrequencyExpertCache
+from eole.modules.moe.host_experts import HostGPTQLinear, HostInt8Linear
+from eole.modules.moe.hybrid_experts import HybridExpertRuntime
 
 
 def projection(k=256, n=128):
-    from eole.modules.marlin_linear import MarlinQuantLinear
+    from eole.modules.quant.marlin_linear import MarlinQuantLinear
 
     linear = MarlinQuantLinear(4, 128, False, True, k, n).bfloat16()
     linear.qweight.data.random_(torch.iinfo(torch.int32).min, torch.iinfo(torch.int32).max)
@@ -112,7 +112,7 @@ class TestExpertCache(unittest.TestCase):
         self.assertEqual(HostInt8Linear(source)(x).count_nonzero().item(), 0)
 
     def test_adaptive_float_placement_keeps_all_experts_on_host(self):
-        from eole.modules.expert_placement import ExpertWeightPlacement
+        from eole.modules.moe.expert_placement import ExpertWeightPlacement
         from eole.tests.test_expert_execution import tiny_moe
 
         model = nn.Module()
@@ -138,7 +138,7 @@ class TestExpertCache(unittest.TestCase):
                 self.assertLess(error.item(), 0.004)
 
     def test_quantized_placement_keeps_all_source_experts_on_host(self):
-        from eole.modules.expert_placement import ExpertWeightPlacement
+        from eole.modules.moe.expert_placement import ExpertWeightPlacement
         from eole.tests.test_expert_execution import tiny_moe
 
         model = nn.Module()
@@ -152,7 +152,7 @@ class TestExpertCache(unittest.TestCase):
         self.assertTrue(model.mlp._defer_expert_post_init)
 
     def test_loader_defers_only_routed_experts(self):
-        from eole.modules.autoround_linear import post_init_autoround_linear
+        from eole.modules.quant.autoround_linear import post_init_autoround_linear
 
         class Projection(nn.Module):
             def __init__(self):
@@ -173,7 +173,7 @@ class TestExpertCache(unittest.TestCase):
         self.assertTrue(root.moe.shared_experts.initialized)
 
     def test_lookup_publication_preserves_sparse_ids_and_slots(self):
-        from eole.modules.cached_experts import CachedExpertExecutor
+        from eole.modules.moe.cached_experts import CachedExpertExecutor
 
         for mapping in ({}, {5: 0, 1: 7, 0: 2}, dict(enumerate(range(8)))):
             with self.subTest(mapping=mapping):
@@ -189,7 +189,7 @@ class TestExpertCache(unittest.TestCase):
                 self.assertEqual(executor.resident_ids, frozenset(mapping))
 
     def test_fully_resident_executor_does_not_read_ids_back_to_cpu(self):
-        from eole.modules.cached_experts import CachedExpertExecutor
+        from eole.modules.moe.cached_experts import CachedExpertExecutor
 
         executor = CachedExpertExecutor.__new__(CachedExpertExecutor)
         executor.closed, executor.fully_resident, executor.capture = False, True, True
@@ -204,7 +204,7 @@ class TestExpertCache(unittest.TestCase):
         self.assertEqual(executor.lookup_hits, 2)
 
     def test_failed_admission_never_publishes_partial_upload(self):
-        from eole.modules.cached_experts import CachedExpertExecutor
+        from eole.modules.moe.cached_experts import CachedExpertExecutor
 
         executor = CachedExpertExecutor.__new__(CachedExpertExecutor)
         executor.adaptive = True
@@ -221,10 +221,10 @@ class TestExpertCache(unittest.TestCase):
 
     @unittest.skipUnless(torch.cuda.is_available(), "Marlin packing requires CUDA")
     def test_failed_disk_preallocation_cleans_temporary_store(self):
-        from eole.modules.host_experts import MarlinExpertStore
+        from eole.modules.moe.host_experts import MarlinExpertStore
 
         with tempfile.TemporaryDirectory() as directory:
-            with patch("eole.modules.host_experts.os.posix_fallocate", side_effect=OSError("No disk space")):
+            with patch("eole.modules.moe.host_experts.os.posix_fallocate", side_effect=OSError("No disk space")):
                 with self.assertRaisesRegex(OSError, "No disk space"):
                     MarlinExpertStore(experts(), torch.device("cuda"), directory)
             self.assertEqual(list(Path(directory).iterdir()), [])
@@ -236,7 +236,7 @@ class TestExpertCache(unittest.TestCase):
                 self.check_decode_replay_prefill_and_cache_replacement(floating)
 
     def check_decode_replay_prefill_and_cache_replacement(self, floating):
-        from eole.modules.cached_experts import CachedExpertExecutor
+        from eole.modules.moe.cached_experts import CachedExpertExecutor
 
         runtime = HybridExpertRuntime()
         with tempfile.TemporaryDirectory() as directory:

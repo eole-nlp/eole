@@ -3,7 +3,7 @@
 import torch
 import torch.nn.functional as F
 
-from eole.modules.moe_quant_utils import _moe_align_block_size
+from eole.modules.moe.moe_quant_utils import _moe_align_block_size
 from eole.ops import gelu_and_mul
 from eole.ops import moe_wna16_marlin_gemm
 from eole.ops import silu_and_mul
