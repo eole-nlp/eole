@@ -6,6 +6,7 @@ from unittest.mock import patch
 import torch
 
 from eole.modules.gdn import gated_delta_net as gdn
+from eole.modules.gdn import kernels as gdn_kernels
 from eole.ops import fla as fla_ops
 
 
@@ -33,7 +34,7 @@ class TestFLACompile(unittest.TestCase):
         eager_cache = initial.clone()
         compiled_cache = initial.clone()
         with (
-            patch.object(gdn, "_fla_causal_conv1d_update", fake_fla),
+            patch.object(gdn_kernels, "_fla_causal_conv1d_update", fake_fla),
             patch.object(fla_ops, "_fla_causal_conv1d_update", fake_fla),
         ):
             eager = gdn.causal_conv1d_update(x, eager_cache, weight, bias, "silu")

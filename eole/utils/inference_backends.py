@@ -20,7 +20,7 @@ def _version(distributions, module):
 def _kernel_name(fn):
     if fn is None:
         return "PyTorch conv1d"
-    from eole.modules.gdn import gated_delta_net as gdn
+    from eole.modules.gdn import kernels as gdn  # canonical namespace: dispatchers read kernel globals from here
 
     name = getattr(fn, "__name__", type(fn).__name__)
     module = getattr(fn, "__module__", "")
@@ -37,7 +37,7 @@ def _kernel_name(fn):
 
 def _selected_gdn_kernel(layer, attr):
     """Resolve built-in dispatchers for the layer's current device; preserve overrides."""
-    from eole.modules.gdn import gated_delta_net as gdn
+    from eole.modules.gdn import kernels as gdn  # canonical namespace: dispatchers read kernel globals from here
 
     fn = getattr(layer, attr)
     dispatchers = {

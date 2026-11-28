@@ -22,7 +22,7 @@ class TestABPacking(unittest.TestCase):
         layer._ab_pair_weight = torch.cat((layer.in_proj_b.weight, layer.in_proj_a.weight)).detach()
         with patch.object(layer, "_should_pair_ab_projections", side_effect=lambda x: x.is_contiguous()):
             with patch(
-                "eole.modules.gdn.gated_delta_net.gdn_ab_projections",
+                "eole.modules.gdn.layer.gdn_ab_projections",
                 side_effect=torch.nn.functional.linear,
             ) as pair:
                 b, a = layer._project_ab(x)
@@ -30,7 +30,7 @@ class TestABPacking(unittest.TestCase):
                 torch.testing.assert_close(b, layer.in_proj_b(x))
                 torch.testing.assert_close(a, layer.in_proj_a(x))
             x = torch.randn(1, 4, 32)[:, :, ::2]
-            with patch("eole.modules.gdn.gated_delta_net.gdn_ab_projections") as pair:
+            with patch("eole.modules.gdn.layer.gdn_ab_projections") as pair:
                 b, a = layer._project_ab(x)
                 pair.assert_not_called()
                 torch.testing.assert_close(b, layer.in_proj_b(x))

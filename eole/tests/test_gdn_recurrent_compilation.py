@@ -8,6 +8,7 @@ from unittest.mock import patch
 import torch
 
 from eole.modules.gdn import gated_delta_net as gdn
+from eole.modules.gdn import kernels as gdn_kernels
 from eole.ops import fla as fla_ops
 
 
@@ -18,8 +19,8 @@ class TestRecurrentBoundary(unittest.TestCase):
         g = torch.randn(1, 4, 2)
         state = torch.randn(1, 2, 8, 8)
         with patch.object(torch.compiler, "is_compiling", return_value=True):
-            with patch.object(gdn, "_compiled_fla_recurrent_gated_delta_rule") as opaque:
-                with patch.object(gdn, "_fla_fused_recurrent_gated_delta_rule") as native:
+            with patch.object(gdn_kernels, "_compiled_fla_recurrent_gated_delta_rule") as opaque:
+                with patch.object(gdn_kernels, "_fla_fused_recurrent_gated_delta_rule") as native:
                     with torch.no_grad():
                         gdn.fused_recurrent_gated_delta_rule(q, q, q, g, g, state, True, True)
                         opaque.assert_called_once()
