@@ -1,4 +1,5 @@
-"""Resident expert execution and quantized-kernel caches, independent of routing."""
+"""Single home for MoE expert execution: the executor interface, the resident
+backend, the named backend registry, and educational reference helpers."""
 
 import torch
 import torch.nn.functional as F
@@ -20,9 +21,27 @@ from eole.modules.moe_quant_utils import (
 )
 
 
+class ExpertExecutor:
+    """Interface shared by all MoE expert-execution backends.
+
+    ``MoE`` owns routing (``route``) and output combining (``combine``); an
+    executor only maps routed tokens to expert outputs. Backends are selected
+    by ``InferenceConfig.moe_expert_backend`` through :data:`EXPERT_EXECUTORS`.
+    """
+
+    def execute(self, x_flat, expert_weights, expert_indices, *, training=False):
+        """Run routed experts: x_flat (BT, C) with weights/indices (BT, K) -> (BT, C)."""
+        raise NotImplementedError
+
+    def _maybe_init_quant_weights(self, device, dtype):
+        """One-time lazy quantized-weight preparation (no-op when not quantized)."""
+        raise NotImplementedError
+
+
 def vectorized_moe(x, topk_weights, topk_ids, K, experts):
     """
-    Vectorized version x1.6 faster
+    Educational reference implementation (not the production path; see
+    :class:`ResidentExpertExecutor`). Vectorized version x1.6 faster.
     x: (N = BT*K, hidden)  tokens in flat ordering: token0:k0, token0:k1, token1:k0, ...
     topk_weights: (BT, K)
     topk_ids: (BT, K)
@@ -52,7 +71,7 @@ def vectorized_moe(x, topk_weights, topk_ids, K, experts):
     return y
 
 
-class ResidentExpertExecutor:
+class ResidentExpertExecutor(ExpertExecutor):
     """Same resident kernels as MoE, with no registered checkpoint parameters."""
 
     def __init__(self, experts, activation_function):
@@ -325,7 +344,8 @@ class ResidentExpertExecutor:
 
 def naive_moe(x, topk_weights, topk_ids, K, experts):
     """
-    Original EOLE Code
+    Educational reference implementation (original EOLE code, not the
+    production path; see :class:`ResidentExpertExecutor`).
     x: (N = BT*K, hidden)  tokens in flat ordering: token0:k0, token0:k1, token1:k0, ...
     topk_weights: (BT, K)
     topk_ids: (BT, K)
@@ -467,3 +487,44 @@ class GroupedExperts:
         y = y_flat.view(BTK // K, K, self.hidden)
         y = (y * topk_weights.unsqueeze(-1)).sum(dim=1)
         return y
+
+
+# ── Named expert-executor backends ────────────────────────────────────────────
+# Keyed by InferenceConfig.moe_expert_backend. "resident" is the MoE default and
+# needs no runtime; the factories below receive (moe_layer, runtime, config) and
+# import their backend lazily so this module stays free of CUDA-graph and
+# host-packing dependencies.
+
+
+def _build_cached_executor(module, runtime, config):
+    from eole.modules.cached_experts import CachedExpertExecutor
+
+    return CachedExpertExecutor(module.experts, runtime, config, module.gate.weight.device)
+
+
+def _build_hybrid_int8_executor(module, runtime, config):
+    from eole.modules.hybrid_experts import HybridExpertExecutor
+
+    return HybridExpertExecutor(module.experts, config.moe_gpu_experts, runtime)
+
+
+EXPERT_EXECUTORS = {
+    "adaptive": _build_cached_executor,
+    "hybrid_gptq": _build_cached_executor,
+    "hybrid_int8": _build_hybrid_int8_executor,
+}
+
+
+def register_expert_executor(name, factory):
+    """Register a backend factory for the ``moe_expert_backend`` value ``name``."""
+    EXPERT_EXECUTORS[name] = factory
+
+
+def build_expert_executor(name, module, runtime, config):
+    """Instantiate the executor registered for ``name`` on one MoE layer."""
+    try:
+        factory = EXPERT_EXECUTORS[name]
+    except KeyError:
+        valid = ["resident"] + sorted(EXPERT_EXECUTORS)
+        raise ValueError(f"Unknown moe_expert_backend {name!r}; expected one of {valid}") from None
+    return factory(module, runtime, config)

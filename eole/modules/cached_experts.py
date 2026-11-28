@@ -10,6 +10,7 @@ from threading import Lock
 import torch
 
 from eole.modules.expert_cache import FrequencyExpertCache
+from eole.modules.expert_execution import ExpertExecutor
 from eole.modules.host_experts import MarlinExpertStore
 
 
@@ -128,7 +129,7 @@ class ExpertGPUPhase:
         self.lookup = self.workspace = self.empty = self.stream = None
 
 
-class CachedExpertExecutor:
+class CachedExpertExecutor(ExpertExecutor):
     def __init__(self, experts, runtime, config, device):
         self.runtime = runtime
         self.lock = Lock()

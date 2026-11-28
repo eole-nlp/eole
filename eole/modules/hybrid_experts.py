@@ -9,6 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 import torch
 import torch.nn.functional as F
 
+from eole.modules.expert_execution import ExpertExecutor
+
 
 class CPUInt8Linear:
     """Per-channel INT8 weights and BF16 activations using PyTorch's CPU kernel.
@@ -72,7 +74,7 @@ class HybridExpertRuntime:
             self.stage_pool = None
 
 
-class HybridExpertExecutor:
+class HybridExpertExecutor(ExpertExecutor):
     def __init__(self, experts, resident, runtime):
         self.experts = experts
         self.resident = resident
@@ -140,6 +142,7 @@ def prepare_hybrid_experts(model, config):
     if getattr(config, "moe_expert_backend", "resident") == "resident":
         return
     from eole.modules.moe import MoE
+    from eole.modules.expert_execution import build_expert_executor
     from eole.modules.expert_placement import validate_expert_placement
 
     validate_expert_placement(config)
@@ -155,15 +158,14 @@ def prepare_hybrid_experts(model, config):
         formats = set()
         for module in model.modules():
             if isinstance(module, MoE):
-                if config.moe_expert_backend in ("adaptive", "hybrid_gptq"):
-                    from eole.modules.cached_experts import CachedExpertExecutor
-
-                    executor = CachedExpertExecutor(module.experts, runtime, config, module.gate.weight.device)
+                executor = build_expert_executor(config.moe_expert_backend, module, runtime, config)
+                # Only closable resources (adaptive caches, graphs) join the runtime;
+                # plain hybrid_int8 executors hold no streams or pools of their own.
+                if hasattr(executor, "close"):
                     runtime.executors.append(executor)
+                if hasattr(executor, "store"):
                     formats.add("INT8 (runtime RTN)" if executor.store.bits == 8 else "INT4 (checkpoint codes)")
-                    module._executor = executor
-                else:
-                    module._executor = HybridExpertExecutor(module.experts, config.moe_gpu_experts, runtime)
+                module._executor = executor
         if formats:
             logger.info("Adaptive expert storage on CPU and GPU: %s", ", ".join(sorted(formats)))
         if getattr(config, "moe_expert_cuda_graph", True):
