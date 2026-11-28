@@ -1,6 +1,6 @@
 import unittest
 
-from eole.modules.quantization_selection import is_selected
+from eole.modules.quant.quantization_selection import is_selected
 
 
 class TestQuantizationSelection(unittest.TestCase):

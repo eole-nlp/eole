@@ -16,7 +16,7 @@ from eole.config.inference import InferenceConfig
 from eole.config.models import TransformerDecoderConfig
 from eole.constants import PositionEncodingType
 from eole.decoders.transformer import TransformerDecoder
-from eole.modules.embeddings import Embeddings
+from eole.modules.mlp.embeddings import Embeddings
 from eole.predict.continuous import ContinuousGreedy
 from eole.utils.request_cache import RequestCache
 
@@ -67,7 +67,7 @@ class ContinuousDecoderGpuTests(unittest.TestCase):
         model.tgt_emb = Embeddings(128, 32, 0, position_encoding_type=PositionEncodingType.Rotary)
         model.generator = nn.Linear(128, 32, bias=False)
         if mtp:
-            from eole.modules.mtp import MTPHead
+            from eole.modules.speculation.mtp import MTPHead
 
             model.mtp_heads = nn.ModuleList(
                 [

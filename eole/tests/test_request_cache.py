@@ -8,7 +8,7 @@ import torch
 from eole.config.inference import InferenceConfig
 from eole.config.models import TransformerDecoderConfig
 from eole.decoders.transformer import TransformerDecoder
-from eole.modules.rope import apply_rotary_emb
+from eole.modules.attention.rope import apply_rotary_emb
 from eole.utils.request_cache import RequestCache
 
 
@@ -98,7 +98,7 @@ class RequestCacheTests(unittest.TestCase):
             theta = torch.randn(16, 4)
             table = torch.cat((theta.cos(), theta.sin()), -1)
             selected = table[torch.tensor([[2], [7], [11]])]
-            with patch("eole.modules.rope._CPP_OPS_AVAILABLE", False):
+            with patch("eole.modules.attention.rope._CPP_OPS_AVAILABLE", False):
                 actual = apply_rotary_emb(q.clone(), k.clone(), selected, interleave)
                 separate = [
                     apply_rotary_emb(q[i : i + 1].clone(), k[i : i + 1].clone(), selected[i], interleave)
@@ -114,7 +114,7 @@ class RequestCacheTests(unittest.TestCase):
             theta = torch.randn(4, 4)
             table = torch.cat((theta.cos(), theta.sin()), -1)
             rows = table[None].expand(3, -1, -1).contiguous()
-            with patch("eole.modules.rope._CPP_OPS_AVAILABLE", False):
+            with patch("eole.modules.attention.rope._CPP_OPS_AVAILABLE", False):
                 old = apply_rotary_emb(q.clone(), k.clone(), table, interleave)
                 new = apply_rotary_emb(q.clone(), k.clone(), rows, interleave)
                 function = torch.compile(
@@ -129,7 +129,7 @@ class RequestCacheTests(unittest.TestCase):
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
 class RequestRotaryCudaTests(unittest.TestCase):
     def test_cuda_mixed_rows_match_independent_positions(self):
-        from eole.modules.rope import _CPP_OPS_AVAILABLE
+        from eole.modules.attention.rope import _CPP_OPS_AVAILABLE
 
         if not _CPP_OPS_AVAILABLE:
             self.skipTest("Eole extension unavailable")
@@ -150,7 +150,7 @@ class RequestRotaryCudaTests(unittest.TestCase):
                     torch.testing.assert_close(actual[index], torch.cat([r[index] for r in separate]), rtol=0, atol=0)
 
     def test_uniform_cuda_tables_match_legacy_for_multiple_rows_and_tokens(self):
-        from eole.modules.rope import _CPP_OPS_AVAILABLE
+        from eole.modules.attention.rope import _CPP_OPS_AVAILABLE
 
         if not _CPP_OPS_AVAILABLE:
             self.skipTest("Eole extension unavailable")

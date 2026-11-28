@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 import torch
 
-from eole.modules.dflash2 import (
+from eole.modules.speculation.dflash2 import (
     Attention,
     DFlash2Adapter,
     Norm,
@@ -115,7 +115,7 @@ class TestDFlash2(unittest.TestCase):
         target = SimpleNamespace(
             tgt_emb=lambda ids, step: embedding(ids), generator=torch.nn.Linear(16, 12, bias=False)
         )
-        with torch.no_grad(), patch("eole.modules.dflash2.rotary_tables", wraps=rotary_tables) as tables:
+        with torch.no_grad(), patch("eole.modules.speculation.dflash2.rotary_tables", wraps=rotary_tables) as tables:
             model.set_context(torch.randn(1, 5, 32), 0)
             self.assertEqual(len(model.draft(target, torch.tensor([[4]]), 5, 7)), 7)
             self.assertEqual(tables.call_count, 1)
@@ -158,7 +158,7 @@ class TestDFlash2(unittest.TestCase):
         import gc
         import weakref
 
-        from eole.modules.dflash2_graph import DFlash2GraphAdapter
+        from eole.modules.speculation.dflash2_graph import DFlash2GraphAdapter
 
         reference = self._tiny_drafter()
         model = DFlash2GraphAdapter(reference.cfg).to(device="cuda", dtype=torch.bfloat16).eval()
@@ -184,7 +184,7 @@ class TestDFlash2(unittest.TestCase):
     def test_draft_graph_wraparound_partial_append_and_request_reset(self):
         import weakref
 
-        from eole.modules.dflash2_graph import DFlash2GraphAdapter
+        from eole.modules.speculation.dflash2_graph import DFlash2GraphAdapter
 
         torch.manual_seed(8)
         reference = self._tiny_drafter().to(device="cuda", dtype=torch.bfloat16)
@@ -234,7 +234,7 @@ class TestDFlash2(unittest.TestCase):
 
     @unittest.skipUnless(torch.cuda.is_available(), "Batched drafter RoPE requires CUDA")
     def test_batched_rope_matches_independent_rows(self):
-        from eole.modules.dflash2 import Norm, normalize_rotary, rotary_tables
+        from eole.modules.speculation.dflash2 import Norm, normalize_rotary, rotary_tables
 
         positions = torch.tensor([[0, 1, 2, 3], [12, 13, 14, 15]], device="cuda")
         x = torch.randn(2, 3, 2, 128, device="cuda", dtype=torch.bfloat16)
@@ -286,7 +286,7 @@ class TestDFlash2(unittest.TestCase):
     def test_arbitrary_block_graph_capture_and_replay(self):
         import weakref
 
-        from eole.modules.dflash2_graph import DFlash2GraphAdapter
+        from eole.modules.speculation.dflash2_graph import DFlash2GraphAdapter
 
         for block in (7, 8, 9, 10, 11):
             with self.subTest(block=block), torch.no_grad():

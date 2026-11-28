@@ -23,7 +23,7 @@ def quantize_linear(head, bits, group_size=128, *, defer_post_init=False):
         raise ValueError("Runtime quantization supports 4 or 8 bits")
     if head.in_features % group_size:
         raise ValueError("Projection input size must be divisible by the quantization group size")
-    from eole.modules.autoround_linear import make_runtime_marlin_linear
+    from eole.modules.quant.autoround_linear import make_runtime_marlin_linear
 
     result = make_runtime_marlin_linear(head, bits, group_size)
     # Quantize output rows in bounded CPU chunks, avoiding a full FP32 GPU copy.

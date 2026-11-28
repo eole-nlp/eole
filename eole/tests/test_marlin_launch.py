@@ -5,7 +5,7 @@ import unittest
 import torch
 
 from eole.ops import _CPP_OPS_AVAILABLE
-from eole.modules.marlin_linear import MarlinQuantLinear
+from eole.modules.quant.marlin_linear import MarlinQuantLinear
 
 
 @unittest.skipUnless(torch.cuda.is_available() and _CPP_OPS_AVAILABLE, "Eole CUDA extension required")
@@ -94,8 +94,8 @@ class TestMarlinLaunch(unittest.TestCase):
                 torch.testing.assert_close(layer(x), expected, atol=0.04, rtol=0.02)
 
     def test_shared_moe_kernel(self):
-        from eole.modules.fused_moe_marlin import _marlin_gemm
-        from eole.modules.moe_quant_utils import _moe_align_block_size
+        from eole.modules.moe.fused_moe_marlin import _marlin_gemm
+        from eole.modules.moe.moe_quant_utils import _moe_align_block_size
 
         for dtype in (torch.float16, torch.bfloat16):
             layers, weights = zip(*(self.projection(4, 128, dtype, 256, seed=476 + expert) for expert in range(2)))

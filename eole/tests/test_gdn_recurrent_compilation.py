@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import torch
 
-from eole.modules import gated_delta_net as gdn
+from eole.modules.gdn import gated_delta_net as gdn
 from eole.ops import fla as fla_ops
 
 

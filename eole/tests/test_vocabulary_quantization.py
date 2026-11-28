@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import torch
 
-from eole.modules.vocabulary_quantization import quantize_rows, quantize_vocabulary_head
+from eole.modules.quant.vocabulary_quantization import quantize_rows, quantize_vocabulary_head
 
 
 def dequantize(packed, scales, bits, group_size):
@@ -25,7 +25,7 @@ class TestVocabularyQuantization(unittest.TestCase):
         model.generator = torch.nn.Linear(128, 64, bias=False)
         original = model.generator
         inference = SimpleNamespace(model=model)
-        with patch("eole.modules.vocabulary_quantization.quantize_vocabulary_head") as quantize:
+        with patch("eole.modules.quant.vocabulary_quantization.quantize_vocabulary_head") as quantize:
             Inference._prepare_inference_projections(inference, InferenceConfig())
             quantize.assert_not_called()
             self.assertIs(model.generator, original)

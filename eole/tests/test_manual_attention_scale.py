@@ -8,8 +8,8 @@ import torch.nn.functional as F
 
 from eole.config.models import TransformerDecoderConfig
 from eole.constants import PositionEncodingType
-from eole.modules.multi_headed_attn import SelfMHA
-from eole.modules.relative_position_bias import gen_relative_positions, relative_matmul
+from eole.modules.attention.multi_headed_attn import SelfMHA
+from eole.modules.attention.relative_position_bias import gen_relative_positions, relative_matmul
 
 
 def _attention(attn_scaling, relative):

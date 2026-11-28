@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, Tuple
 
-from eole.modules.sparse_activations import sparsemax
+from eole.modules.legacy.sparse_activations import sparsemax
 
 
 class GlobalAttention(nn.Module):

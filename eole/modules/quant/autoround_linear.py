@@ -1,5 +1,5 @@
 import torch
-from eole.modules.quantization_selection import is_selected, is_excluded
+from eole.modules.quant.quantization_selection import is_selected, is_excluded
 import torch.nn as nn
 from torch.cuda import is_available as cuda_is_available
 from eole.ops import _CPP_OPS_AVAILABLE
@@ -127,15 +127,15 @@ def post_init_autoround_linear(model, defer_kvq=False, defer_gate=False):
     """
     deferred_names = set()
     if defer_kvq:
-        from eole.modules.gated_delta_net import GatedDeltaNet
-        from eole.modules.multi_headed_attn import SelfMHA
+        from eole.modules.gdn.gated_delta_net import GatedDeltaNet
+        from eole.modules.attention.multi_headed_attn import SelfMHA
 
         if isinstance(model, SelfMHA):
             deferred_names = {"linear_keys", "linear_values", "linear_query"}
         elif isinstance(model, GatedDeltaNet):
             deferred_names = {"in_proj_qkv", "in_proj_z"}
     if defer_gate:
-        from eole.modules.transformer_mlp import MLP
+        from eole.modules.mlp.transformer_mlp import MLP
 
         if isinstance(model, MLP):
             deferred_names.update(("gate_up_proj", "up_proj"))
@@ -213,7 +213,7 @@ def _get_autoround_quant_linear_cls(use_gptq_zp: bool, sym: bool = True, force_p
     """
     if not force_pytorch and cuda_is_available():
         if sym and _CPP_OPS_AVAILABLE:
-            from eole.modules.marlin_linear import MarlinQuantLinear
+            from eole.modules.quant.marlin_linear import MarlinQuantLinear
 
             return MarlinQuantLinear, True
         try:
@@ -260,7 +260,7 @@ def finalize_deferred_autoround_linear(model, *, w8a8=False):
     """Initialize deferred projections; return whether any layouts were replaced."""
     initialized = False
     if w8a8:
-        from eole.modules.int8_gemv import W8A8Linear
+        from eole.modules.quant.int8_gemv import W8A8Linear
 
         # Only projections freshly quantized by inference setup are eligible.
         # Existing checkpoint weights retain their own layout and precision.
@@ -283,7 +283,7 @@ def make_runtime_marlin_linear(head, bits, group_size):
     """Construct a runtime projection, with optional imports isolated here."""
     if not _CPP_OPS_AVAILABLE:
         raise ValueError("Runtime quantization requires the Eole CUDA extension")
-    from eole.modules.marlin_linear import MarlinQuantLinear
+    from eole.modules.quant.marlin_linear import MarlinQuantLinear
 
     result = MarlinQuantLinear(
         bits=bits,
@@ -302,8 +302,8 @@ def make_runtime_marlin_linear(head, bits, group_size):
 def w8a8_prefill(inputs, packed, scales, workspace, empty_index):
     """Use a temporary Marlin layout for larger batches, never a retained weight copy."""
     from eole.ops import gptq_marlin_repack
-    from eole.modules.marlin_scalar_type import scalar_types
-    from eole.modules.marlin_utils import apply_gptq_marlin_linear
+    from eole.modules.quant.marlin_scalar_type import scalar_types
+    from eole.modules.quant.marlin_utils import apply_gptq_marlin_linear
 
     n, k = packed.shape[0], inputs.shape[-1]
     gptq = (packed ^ -2139062144).t().contiguous()

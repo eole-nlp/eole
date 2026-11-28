@@ -9,7 +9,7 @@ from torch import nn
 
 from eole.config.models import TransformerDecoderConfig
 from eole.decoders.transformer import TransformerDecoderLayer
-from eole.modules.hybrid_graph import HybridLayerGraph
+from eole.modules.moe.hybrid_graph import HybridLayerGraph
 
 
 def layer_config(layer_type="full_attention", **changes):
@@ -57,7 +57,7 @@ class TestHybridLayerSplit(unittest.TestCase):
                         return layer.input_layernorm(inputs), inputs.tanh() * 0.5, None
 
                     with torch.inference_mode(), patch.object(layer, "_self_attention", side_effect=attention), patch(
-                        "eole.modules.expert_execution._triton_moe", False
+                        "eole.modules.moe.expert_execution._triton_moe", False
                     ):
                         expected, _ = layer._forward_eager(x)
                         residual, ff, weights, ids = layer._hybrid_prefix(x)

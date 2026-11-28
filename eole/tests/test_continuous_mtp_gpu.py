@@ -5,7 +5,7 @@ from types import MethodType
 
 import torch
 
-from eole.modules.gated_delta_net import GatedDeltaNet
+from eole.modules.gdn.gated_delta_net import GatedDeltaNet
 from eole.models.model import MTPDraftingMixin
 from eole.tests import test_continuous_gpu as gpu_helpers
 

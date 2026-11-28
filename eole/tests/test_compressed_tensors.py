@@ -18,7 +18,7 @@ from eole.bin.convert.convert_HF import (
     build_shards,
     check_conversion_equality,
 )
-from eole.modules.autoround_linear import replace_autoround_linear
+from eole.modules.quant.autoround_linear import replace_autoround_linear
 from eole.models.hf_loader import HFLoader, _InMemoryTensorStore
 from eole.models.model import BaseModel
 from eole.config.run import PredictConfig
@@ -136,7 +136,9 @@ class TestCompressedTensors(unittest.TestCase):
             def __init__(self, **kwargs):
                 super().__init__()
 
-        with patch("eole.modules.autoround_linear._get_autoround_quant_linear_cls", return_value=(QuantLinear, False)):
+        with patch(
+            "eole.modules.quant.autoround_linear._get_autoround_quant_linear_cls", return_value=(QuantLinear, False)
+        ):
             replace_autoround_linear(model, ["decoder.layers.0.in_proj_qkv"])
         self.assertIsInstance(model.decoder.layers[0].in_proj_qkv, QuantLinear)
         self.assertIsInstance(model.decoder.layers[0].in_proj_a, nn.Linear)
@@ -166,7 +168,9 @@ class TestCompressedTensors(unittest.TestCase):
         )
         with (
             patch("eole.models.model.VisionEncoder", Vision),
-            patch("eole.modules.autoround_linear._get_autoround_quant_linear_cls", return_value=(QuantLinear, False)),
+            patch(
+                "eole.modules.quant.autoround_linear._get_autoround_quant_linear_cls", return_value=(QuantLinear, False)
+            ),
         ):
             with self.assertLogs("eole", level="INFO") as captured:
                 BaseModel.maybe_quantize(model, running)
@@ -270,7 +274,9 @@ class TestCompressedTensors(unittest.TestCase):
             def __init__(self, **kwargs):
                 super().__init__()
 
-        with patch("eole.modules.autoround_linear._get_autoround_quant_linear_cls", return_value=(QuantLinear, False)):
+        with patch(
+            "eole.modules.quant.autoround_linear._get_autoround_quant_linear_cls", return_value=(QuantLinear, False)
+        ):
             replace_autoround_linear(model, ["0"])
         self.assertIsInstance(model[0], QuantLinear)
         self.assertIsInstance(model[1], nn.Linear)

@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import math
 from eole.encoders.encoder import EncoderBase
 from eole.encoders.transformer import TransformerEncoderLayer
-from eole.modules.rope import build_rope
+from eole.modules.attention.rope import build_rope
 from eole.constants import PositionEncodingType, LayerNorm
 
 

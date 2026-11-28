@@ -4,7 +4,7 @@ import weakref
 
 import torch
 
-from eole.modules.dflash2 import DFlash2Adapter, normalize_rotary, rotary_tables
+from eole.modules.speculation.dflash2 import DFlash2Adapter, normalize_rotary, rotary_tables
 from eole.triton.dflash2 import put_kv, put_positions
 from eole.utils.decoder_graph import DecoderGraph
 

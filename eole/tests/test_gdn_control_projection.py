@@ -5,7 +5,7 @@ import torch
 from torch import nn
 
 from eole.config.models import TransformerDecoderConfig
-from eole.modules.gated_delta_net import GatedDeltaNet
+from eole.modules.gdn.gated_delta_net import GatedDeltaNet
 
 
 class TestGDNControlProjection(unittest.TestCase):

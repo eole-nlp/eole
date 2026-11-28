@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.autograd import Function
 from torch.amp import custom_fwd, custom_bwd
 from eole.utils.misc import get_device_type
-from eole.modules.sparse_activations import _threshold_and_support
+from eole.modules.legacy.sparse_activations import _threshold_and_support
 
 
 class SparsemaxLossFunction(Function):

@@ -21,7 +21,7 @@ from eole.utils.misc import set_random_seed, configure_cuda_backends
 from eole.trainer import build_trainer
 from eole.models.model_saver import build_model_saver
 from eole.models.model import get_model_class
-from eole.modules.embeddings import prepare_pretrained_embeddings
+from eole.modules.mlp.embeddings import prepare_pretrained_embeddings
 from eole.config import (
     recursive_model_fields_set,
     recursive_update_dict,

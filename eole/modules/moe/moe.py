@@ -2,13 +2,13 @@
 
 import torch
 import torch.nn as nn
-from eole.modules.transformer_mlp import MLP
+from eole.modules.mlp.transformer_mlp import MLP
 from torch.distributed import all_reduce
 
-from eole.modules.expert_execution import ResidentExpertExecutor
+from eole.modules.moe.expert_execution import ResidentExpertExecutor
 
 # Expert execution backends (ResidentExpertExecutor, naive_moe, vectorized_moe,
-# GroupedExperts and the EXPERT_EXECUTORS registry) live in eole.modules.expert_execution.
+# GroupedExperts and the EXPERT_EXECUTORS registry) live in eole.modules.moe.expert_execution.
 
 __all__ = ["MoE"]
 

@@ -11,7 +11,7 @@ from safetensors.torch import load_file, save_file
 
 from eole.bin.convert.compressed_tensors import ModelOptCheckpoint, validate_modelopt_config
 from eole.bin.convert.convert_HF import HuggingfaceFiles, build_config_dict, build_shards, check_conversion_equality
-from eole.modules.compressed_float_linear import CompressedFloatLinear
+from eole.modules.quant.compressed_float_linear import CompressedFloatLinear
 
 
 def quant_config():

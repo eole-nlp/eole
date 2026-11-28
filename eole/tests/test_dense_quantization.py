@@ -8,8 +8,8 @@ import torch
 from torch import nn
 
 from eole.config.inference import InferenceConfig
-from eole.modules.dense_quantization import quantize_decoder_layer
-from eole.modules.vocabulary_quantization import quantize_linear, quantize_rows
+from eole.modules.quant.dense_quantization import quantize_decoder_layer
+from eole.modules.quant.vocabulary_quantization import quantize_linear, quantize_rows
 from eole.predict.inference import Inference
 from eole.tests.test_vocabulary_quantization import dequantize
 
@@ -41,10 +41,10 @@ class TestDenseQuantization(unittest.TestCase):
             self.assertEqual(order, ["dense", "finalize", "finalize"])
             order.append("experts")
 
-        with patch("eole.modules.vocabulary_quantization.quantize_vocabulary_head", return_value=head), patch(
-            "eole.modules.dense_quantization.quantize_decoder_layer", side_effect=dense
-        ), patch("eole.modules.autoround_linear.finalize_deferred_autoround_linear", side_effect=finalize), patch(
-            "eole.modules.hybrid_experts.prepare_hybrid_experts", side_effect=prepare
+        with patch("eole.modules.quant.vocabulary_quantization.quantize_vocabulary_head", return_value=head), patch(
+            "eole.modules.quant.dense_quantization.quantize_decoder_layer", side_effect=dense
+        ), patch("eole.modules.quant.autoround_linear.finalize_deferred_autoround_linear", side_effect=finalize), patch(
+            "eole.modules.moe.hybrid_experts.prepare_hybrid_experts", side_effect=prepare
         ):
             Inference._prepare_inference_projections(
                 SimpleNamespace(model=root),
@@ -65,7 +65,7 @@ class TestDenseQuantization(unittest.TestCase):
         layer.mlp.shared_experts.up_proj = nn.Linear(128, 64, bias=False)
         layer.mlp.down_proj = nn.Identity()  # Already quantized/non-Linear stays untouched.
         original = dict(layer.named_modules())
-        with patch("eole.modules.dense_quantization.quantize_linear") as quantize:
+        with patch("eole.modules.quant.dense_quantization.quantize_linear") as quantize:
             self.assertEqual(quantize_decoder_layer(layer), 0)  # CPU is retained.
             quantize.assert_not_called()
         for name, module in original.items():
@@ -74,7 +74,7 @@ class TestDenseQuantization(unittest.TestCase):
     def test_disabled_is_default_and_tensor_parallel_rejected_before_mutation(self):
         self.assertEqual(InferenceConfig().dense_quantization, "none")
         root = nn.Module()
-        with patch("eole.modules.hybrid_experts.prepare_hybrid_experts") as prepare:
+        with patch("eole.modules.moe.hybrid_experts.prepare_hybrid_experts") as prepare:
             with self.assertRaisesRegex(ValueError, "single-GPU"):
                 Inference._prepare_inference_projections(
                     SimpleNamespace(model=root),
@@ -84,8 +84,8 @@ class TestDenseQuantization(unittest.TestCase):
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
     def test_cuda_selection_fusion_replay_and_prefill(self):
-        from eole.modules.autoround_linear import finalize_deferred_autoround_linear
-        from eole.modules.marlin_linear import MarlinQuantLinear
+        from eole.modules.quant.autoround_linear import finalize_deferred_autoround_linear
+        from eole.modules.quant.marlin_linear import MarlinQuantLinear
         from eole.tests.test_packed_projections import block, model, config
 
         torch.manual_seed(123)
@@ -148,7 +148,7 @@ class TestDenseQuantization(unittest.TestCase):
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
     def test_deferred_matches_immediate(self):
-        from eole.modules.autoround_linear import finalize_deferred_autoround_linear
+        from eole.modules.quant.autoround_linear import finalize_deferred_autoround_linear
 
         source = nn.Linear(256, 128, bias=False, device="cuda", dtype=torch.bfloat16)
         immediate = quantize_linear(source, 8, 32)

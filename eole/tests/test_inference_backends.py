@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 
 from eole.config.models import TransformerDecoderConfig
-from eole.modules import gated_delta_net as gdn
+from eole.modules.gdn import gated_delta_net as gdn
 from eole.utils.inference_backends import inference_backend_summary
 
 

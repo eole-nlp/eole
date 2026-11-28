@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import torch
 
 from eole import EOLE_TORCH_COMPILE
-from eole.modules.dflash2 import DFlash2Adapter
+from eole.modules.speculation.dflash2 import DFlash2Adapter
 from eole.predict.continuous_dflash2 import ContinuousDFlash2
 from eole.tests import test_continuous_gpu as gpu_helpers
 
@@ -82,7 +82,7 @@ class ContinuousDFlash2GpuTests(unittest.TestCase):
         cfg = tiny_drafter()
         adapter_cls = DFlash2Adapter
         if EOLE_TORCH_COMPILE:
-            from eole.modules.dflash2_graph import DFlash2GraphAdapter
+            from eole.modules.speculation.dflash2_graph import DFlash2GraphAdapter
 
             adapter_cls = DFlash2GraphAdapter
         drafter = adapter_cls(cfg).to(device="cuda", dtype=torch.bfloat16).eval()

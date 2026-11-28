@@ -9,7 +9,7 @@ from safetensors.torch import save_file, load_file
 import torch
 
 from eole.bin.convert.compressed_tensors import FloatCheckpoint
-from eole.modules.compressed_float_linear import CompressedFloatLinear
+from eole.modules.quant.compressed_float_linear import CompressedFloatLinear
 
 
 class TestCompressedFloat(unittest.TestCase):
@@ -37,7 +37,7 @@ class TestCompressedFloat(unittest.TestCase):
         from eole.utils.logging import logger
 
         target = SimpleNamespace(model=torch.nn.Module())
-        with patch("eole.modules.hybrid_experts.prepare_hybrid_experts"):
+        with patch("eole.modules.moe.hybrid_experts.prepare_hybrid_experts"):
             with self.assertLogs(logger, level="WARNING") as logged:
                 Inference._prepare_inference_projections(target, SimpleNamespace(fp8_backend="marlin"))
         self.assertIn("no FP8 projections", logged.output[0])
@@ -312,7 +312,7 @@ class TestSmallRowFP8(unittest.TestCase):
         layer = CompressedFloatLinear(512, 128).cuda()
         layer.qweight = torch.randn(128, 512, device="cuda").to(torch.float8_e4m3fn)
         layer.scales = torch.ones(128, 1, device="cuda")
-        with patch("eole.modules.compressed_float_linear.fp8_mma_supported", return_value=False):
+        with patch("eole.modules.quant.compressed_float_linear.fp8_mma_supported", return_value=False):
             layer.post_init()
         self.assertFalse(layer.use_cuda_fp8)
         x = torch.randn(3, 512, device="cuda", dtype=torch.bfloat16)
@@ -381,7 +381,7 @@ class TestMarlinFP8(unittest.TestCase):
             torch.testing.assert_close(layer(x).float(), reference, rtol=0.01, atol=1e-5)
 
     def test_fp16_small_channel_scales(self):
-        from eole.modules.marlin_utils import marlin_permute_scales
+        from eole.modules.quant.marlin_utils import marlin_permute_scales
 
         layer = CompressedFloatLinear(128, 128).cuda()
         layer.qweight = torch.ones(128, 128, device="cuda").to(torch.float8_e4m3fn)

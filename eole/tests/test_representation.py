@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from eole.modules.representation import RepresentationExtractor
+from eole.modules.mlp.representation import RepresentationExtractor
 
 
 class TestRepresentationExtractor(unittest.TestCase):

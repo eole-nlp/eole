@@ -67,7 +67,7 @@ class MLP(nn.Module):
     def _fuse_gate(self) -> None:
         if getattr(self, "up_proj", None) is None or getattr(self, "_gate_fusion_skipped", False):
             return
-        from eole.modules.autoround_linear import fuse_autoround_projections
+        from eole.modules.quant.autoround_linear import fuse_autoround_projections
 
         handled, new_gate = fuse_autoround_projections([self.gate_up_proj, self.up_proj], name="gate/up")
         if handled:

@@ -75,7 +75,7 @@ class TestMode2DecoderGraph(unittest.TestCase):
 
 class TestMode2TensorParallelMTP(unittest.TestCase):
     def test_head_uses_non_graph_compilation_and_restores_flags(self):
-        from eole.modules.mtp import MTPHead
+        from eole.modules.speculation.mtp import MTPHead
 
         for failure in (False, True):
             with self.subTest(failure=failure):
@@ -95,8 +95,8 @@ class TestMode2TensorParallelMTP(unittest.TestCase):
                 self_test = self
                 layer = Layer()
                 head = SimpleNamespace(layer=layer, training=False)
-                with torch.no_grad(), patch("eole.modules.mtp.EOLE_TORCH_COMPILE", True), patch(
-                    "eole.modules.mtp.EOLE_COMPILE_MODE", "2"
+                with torch.no_grad(), patch("eole.modules.speculation.mtp.EOLE_TORCH_COMPILE", True), patch(
+                    "eole.modules.speculation.mtp.EOLE_COMPILE_MODE", "2"
                 ):
                     if failure:
                         with self.assertRaisesRegex(RuntimeError, "head failure"):

@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from eole.modules.gguf_linear import _load_gguf_operation
+from eole.modules.quant.gguf_linear import _load_gguf_operation
 
 
 class TestGGUFBackend(unittest.TestCase):

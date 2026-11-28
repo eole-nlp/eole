@@ -128,7 +128,7 @@ class TestGGUFMTP(unittest.TestCase):
         self.assertTrue(torch.equal(written["mtp_heads.0.emb_norm.weight"], torch.zeros(2, 2, dtype=torch.bfloat16)))
 
     def test_packed_mtp_projection_and_float_controls_selection(self):
-        from eole.modules.gguf_linear import GGUFLinear, replace_gguf_linear
+        from eole.modules.quant.gguf_linear import GGUFLinear, replace_gguf_linear
         from torch import nn
 
         model = nn.Module()

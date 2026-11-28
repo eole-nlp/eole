@@ -20,7 +20,7 @@ def _version(distributions, module):
 def _kernel_name(fn):
     if fn is None:
         return "PyTorch conv1d"
-    from eole.modules import gated_delta_net as gdn
+    from eole.modules.gdn import gated_delta_net as gdn
 
     name = getattr(fn, "__name__", type(fn).__name__)
     module = getattr(fn, "__module__", "")
@@ -37,7 +37,7 @@ def _kernel_name(fn):
 
 def _selected_gdn_kernel(layer, attr):
     """Resolve built-in dispatchers for the layer's current device; preserve overrides."""
-    from eole.modules import gated_delta_net as gdn
+    from eole.modules.gdn import gated_delta_net as gdn
 
     fn = getattr(layer, attr)
     dispatchers = {
@@ -82,7 +82,7 @@ def _gdn_norm_name(layer):
 
 def inference_backend_summary(model, compile_enabled, compile_mode, speculative=False, num_drafts=0):
     """Return selected paths; graph capture and SDPA dispatch are runtime decisions."""
-    from eole.modules.gated_delta_net import GatedDeltaNet
+    from eole.modules.gdn.gated_delta_net import GatedDeltaNet
 
     decoder = getattr(model, "decoder", None)
     if decoder is None:

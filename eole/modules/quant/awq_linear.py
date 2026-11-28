@@ -1,4 +1,4 @@
-from eole.modules.quantization_selection import is_selected, is_excluded
+from eole.modules.quant.quantization_selection import is_selected, is_excluded
 import torch.nn as nn
 
 

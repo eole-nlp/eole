@@ -5,7 +5,7 @@ GGUF (llama.cpp) models often store weights in quantized formats (Q4_K, Q5_K,
 Q8_0, …).  This converter follows the same philosophy as the AutoRound/GPTQ
 backend: quantized weights are kept in their compact binary representation and
 stored as ``uint8`` tensors in the output safetensors shard.  At inference time
-:class:`~eole.modules.gguf_linear.GGUFLinear` dequantizes them on-the-fly,
+:class:`~eole.modules.quant.gguf_linear.GGUFLinear` dequantizes them on-the-fly,
 achieving the same on-disk storage savings without requiring a separate
 dequantization step during conversion.
 
@@ -336,7 +336,7 @@ def _detect_linear_attention_blocks(tensors) -> frozenset:
 
 
 def _infer_linear_attn_config(meta, linear_blocks: frozenset) -> dict:
-    """Infer :class:`~eole.modules.gated_delta_net.GatedDeltaNet` hyper-parameters.
+    """Infer :class:`~eole.modules.gdn.gated_delta_net.GatedDeltaNet` hyper-parameters.
 
     Parameters are read from GGUF metadata when available (preferred), and
     fall back to inference from tensor shapes.  The returned dict contains
@@ -577,7 +577,7 @@ class GGUFMetadata:
         Qwen3.5-9B GGUF stores ``[11, 11, 10, 0]`` instead of
         ``[11, 11, 10]``).  Trailing zeros are stripped so that
         ``xdrope_section`` matches the three-element T/H/W layout expected
-        by :func:`~eole.modules.rope.apply_rotary_pos_emb_xdrope`.
+        by :func:`~eole.modules.attention.rope.apply_rotary_pos_emb_xdrope`.
 
         **Implementation note**: for GGUF ARRAY fields, gguf-python stores one
         index per element in ``field.data``, each pointing to a separate 1-element
@@ -1066,7 +1066,7 @@ def _tensor_to_torch(tensor, target_dtype: torch.dtype) -> torch.Tensor:
     For quantised types (Q4_K, Q8_0, …) the raw ``uint8`` block data is
     stored as-is.  The companion ``gguf_qtype`` tensor carries the
     :class:`gguf.GGMLQuantizationType` integer value so that
-    :class:`~eole.modules.gguf_linear.GGUFLinear` can dequantize correctly
+    :class:`~eole.modules.quant.gguf_linear.GGUFLinear` can dequantize correctly
     at inference time.
 
     For float types (F16, BF16, F32) the tensor is cast to *target_dtype*.
@@ -1142,13 +1142,13 @@ def build_safetensors(
             can be loaded by the plain ``nn.Linear`` generator.
             When False (plain text model), ``replace_gguf_linear`` is applied
             to the whole model (``quant_target = self``) and *will* replace
-            ``self.generator`` with a :class:`~eole.modules.gguf_linear.GGUFLinear`,
+            ``self.generator`` with a :class:`~eole.modules.quant.gguf_linear.GGUFLinear`,
             so ``generator.weight`` can safely remain as quantised ``uint8``.
 
     Returns ``(written_tensor_dict, quant_layers)`` where *quant_layers* is the
     list of EOLE leaf-module names (e.g. ``"linear_query"``) that carry
     quantised weights and therefore need to be replaced with
-    :class:`~eole.modules.gguf_linear.GGUFLinear`.
+    :class:`~eole.modules.quant.gguf_linear.GGUFLinear`.
     """
     if safetensors_save_file is None:
         raise ImportError("Install safetensors: pip install safetensors")
@@ -1800,7 +1800,7 @@ class GGUFConverter(BaseBin):
 
     Quantised weights are kept in their native compact binary form and stored as
     ``uint8`` tensors in the output safetensors shard – no loss of quantisation
-    precision.  At inference time :class:`~eole.modules.gguf_linear.GGUFLinear`
+    precision.  At inference time :class:`~eole.modules.quant.gguf_linear.GGUFLinear`
     dequantizes them on-the-fly exactly as the GPTQ/Marlin backend does for
     its packed int4 weights.
     """

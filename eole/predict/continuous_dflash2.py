@@ -13,8 +13,8 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn.functional as F
 
-from eole.modules.dflash2_graph import DFlash2GraphAdapter
-from eole.modules.gated_delta_net import GatedDeltaNet
+from eole.modules.speculation.dflash2_graph import DFlash2GraphAdapter
+from eole.modules.gdn.gated_delta_net import GatedDeltaNet
 from eole.predict.continuous import ContinuousGreedy, GreedyRequest
 from eole.predict.continuous_mtp import verified_prefix
 from eole.utils.decoder_graph import DecoderGraph

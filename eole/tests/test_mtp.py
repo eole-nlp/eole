@@ -15,7 +15,7 @@ from collections import Counter
 import pyonmttok
 
 from eole.constants import DefaultTokens
-from eole.modules.mtp import MTPHead
+from eole.modules.speculation.mtp import MTPHead
 from eole.config.inference import InferenceConfig
 from eole.config.models import TransformerDecoderConfig, TransformerLMModelConfig
 from eole.config.training import TrainingConfig

@@ -4,7 +4,7 @@ from unittest.mock import patch
 import torch
 
 from eole.config.models import TransformerDecoderConfig
-from eole.modules.gated_delta_net import GatedDeltaNet, _torch_speculative_conv1d
+from eole.modules.gdn.gated_delta_net import GatedDeltaNet, _torch_speculative_conv1d
 
 
 class TestGatedDeltaNetSpeculation(unittest.TestCase):

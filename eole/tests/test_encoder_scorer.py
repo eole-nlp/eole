@@ -10,7 +10,7 @@ from eole.inference_engine import InferenceEngine
 from eole.config.inference import InferenceConfig
 from eole.models.model import EncoderDecoderScoringModel, EncoderScoringModel
 from eole.config.models import TransformerEncoderScorerModelConfig
-from eole.modules.estimator import FeedForward
+from eole.modules.mlp.estimator import FeedForward
 from eole.utils.scorer import build_segment_rows
 
 

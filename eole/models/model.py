@@ -11,7 +11,7 @@ from safetensors.torch import load_file
 from eole.utils.logging import logger
 
 # might not be useful after full refactor
-from eole.modules.lora import (
+from eole.modules.mlp.lora import (
     replace_lora_linear,
     replace_lora_embedding,
     mark_only_lora_as_trainable,
@@ -27,12 +27,12 @@ from eole.encoders import str2enc
 from eole.decoders import str2dec
 from eole.adapters import str2adapter
 from eole.constants import DefaultTokens, LayerNormFP32, TORCH_DTYPES
-from eole.modules.embeddings import Embeddings, RobertaEmbeddings
+from eole.modules.mlp.embeddings import Embeddings, RobertaEmbeddings
 from eole.models.model_saver import get_metadata, TP_COL_PARALLEL_LAYERS, TP_ROW_PARALLEL_LAYERS
-from eole.modules.estimator import FeedForward
-from eole.modules.representation import LayerwiseAttention, RepresentationExtractor
+from eole.modules.mlp.estimator import FeedForward
+from eole.modules.mlp.representation import LayerwiseAttention, RepresentationExtractor
 
-from eole.modules.mtp import MTPHead
+from eole.modules.speculation.mtp import MTPHead
 
 from eole.encoders.vision import VisionEncoder
 from eole.encoders.audio import AudioEncoder
@@ -247,7 +247,7 @@ class BaseModel(nn.Module):
             torch.quantization.quantize_dynamic(self, dtype=torch.qint8, inplace=True)
 
         if getattr(running_config, "quant_type", "") == "autoround":
-            from eole.modules.autoround_linear import post_init_autoround_linear
+            from eole.modules.quant.autoround_linear import post_init_autoround_linear
 
             post_init_autoround_linear(
                 self,
@@ -372,7 +372,7 @@ class BaseModel(nn.Module):
         if "autoround_sym" not in running_config.model_fields_set:
             update_dict["autoround_sym"] = metadata["config"].training.autoround_sym
         running_config.update(**update_dict)
-        from eole.modules.expert_placement import validate_expert_placement
+        from eole.modules.moe.expert_placement import validate_expert_placement
 
         validate_expert_placement(running_config)
 
@@ -433,7 +433,7 @@ class BaseModel(nn.Module):
 
             if running_config.quant_type in ["bnb_8bit", "bnb_FP4", "bnb_NF4"]:
                 try:
-                    from eole.modules.bnb_linear import replace_bnb_linear
+                    from eole.modules.quant.bnb_linear import replace_bnb_linear
                 except ImportError:
                     raise ImportError("Install bitsandbytes to use 4/8bit compression")
                 # try to do this inplace, not sure it'll work
@@ -447,7 +447,7 @@ class BaseModel(nn.Module):
                     )
             elif running_config.quant_type in ["awq_gemm", "awq_gemv"]:
                 try:
-                    from eole.modules.awq_linear import replace_awq_linear
+                    from eole.modules.quant.awq_linear import replace_awq_linear
                 except ImportError:
                     raise ImportError("Install AutoAWQ to use awq quantized model")
                 # try to do this inplace, not sure it'll work
@@ -463,7 +463,7 @@ class BaseModel(nn.Module):
                     )
             elif running_config.quant_type == "autoround":
                 try:
-                    from eole.modules.autoround_linear import replace_autoround_linear
+                    from eole.modules.quant.autoround_linear import replace_autoround_linear
                 except ImportError:
                     raise ImportError("Install auto-round to use autoround quantized model")
                 for quant_target in quant_targets:
@@ -478,8 +478,11 @@ class BaseModel(nn.Module):
                         prefix=target_prefix(quant_target),
                     )
             elif running_config.quant_type == "nvfp4":
-                from eole.modules.compressed_float_linear import replace_compressed_float_linear, CompressedFloatLinear
-                from eole.modules.quantization_selection import is_selected
+                from eole.modules.quant.compressed_float_linear import (
+                    replace_compressed_float_linear,
+                    CompressedFloatLinear,
+                )
+                from eole.modules.quant.quantization_selection import is_selected
 
                 # Vision checkpoints keep a native head unless conversion explicitly mapped it as packed.
                 if "generator" in nonlora_to_quant and is_selected(
@@ -503,7 +506,7 @@ class BaseModel(nn.Module):
                     )
             elif running_config.quant_type == "gguf":
                 try:
-                    from eole.modules.gguf_linear import replace_gguf_linear
+                    from eole.modules.quant.gguf_linear import replace_gguf_linear
                 except ImportError:
                     raise ImportError("Install gguf to use GGUF quantized models: pip install gguf")
                 for quant_target in quant_targets:
@@ -771,7 +774,7 @@ class BaseModel(nn.Module):
             return
 
         if getattr(module, "checkpoint_weight_layout", None) == "gptq":
-            from eole.modules.quantization_loading import slice_gptq_checkpoint
+            from eole.modules.quant.quantization_loading import slice_gptq_checkpoint
 
             sliced = slice_gptq_checkpoint(
                 module,
@@ -885,7 +888,7 @@ class BaseModel(nn.Module):
         self, f, keys_shard, updated_params, buf_list, device, dtype, tp_offset, strict, running_config
     ):
         """Load parameters module by module, moving to device as we go"""
-        from eole.modules.expert_placement import ExpertWeightPlacement
+        from eole.modules.moe.expert_placement import ExpertWeightPlacement
 
         placement = ExpertWeightPlacement(self, running_config, device)
         keyfound = {}
