@@ -7,6 +7,7 @@ import torch.nn as nn
 
 from eole.config.models import TransformerDecoderConfig
 from eole.modules.gdn import gated_delta_net as gdn
+from eole.modules.gdn import kernels as gdn_kernels
 from eole.utils.inference_backends import inference_backend_summary
 
 
@@ -43,7 +44,7 @@ class TestInferenceBackends(unittest.TestCase):
                 "chunk_gated_delta_rule",
                 "fused_recurrent_gated_delta_rule",
             ):
-                stack.enter_context(patch.object(gdn, name, side_effect=AssertionError("must not execute")))
+                stack.enter_context(patch.object(gdn_kernels, name, side_effect=AssertionError("must not execute")))
             output = "\n".join(inference_backend_summary(model, False, "0"))
         self._assert_pytorch_dispatch(output)
         if gdn._fla_rmsnorm_gated:
@@ -74,7 +75,7 @@ class TestInferenceBackends(unittest.TestCase):
                 ("chunk_gated_delta_rule", delta),
                 ("fused_recurrent_gated_delta_rule", recurrent),
             ):
-                stack.enter_context(patch.object(gdn, name, fn))
+                stack.enter_context(patch.object(gdn_kernels, name, fn))
             for device in ("cpu", "cuda", "cpu"):
                 with self.subTest(device=device):
                     model.to(device)
@@ -97,7 +98,7 @@ class TestInferenceBackends(unittest.TestCase):
                     "chunk_gated_delta_rule",
                     "fused_recurrent_gated_delta_rule",
                 ):
-                    missing.enter_context(patch.object(gdn, name, None))
+                    missing.enter_context(patch.object(gdn_kernels, name, None))
                 self._assert_pytorch_dispatch("\n".join(inference_backend_summary(model, False, "0")))
 
     def test_explicit_kernel_overrides_are_preserved(self):

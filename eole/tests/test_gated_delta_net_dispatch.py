@@ -10,6 +10,7 @@ import torch.nn.functional as F
 
 from eole.config.models import TransformerDecoderConfig
 from eole.modules.gdn import gated_delta_net as gdn
+from eole.modules.gdn import kernels as gdn_kernels
 
 
 FAST_KERNELS = (
@@ -34,7 +35,13 @@ def new_layer():
         linear_num_value_heads=2,
     )
     layer = gdn.GatedDeltaNet(config, layer_idx=0)
-    for module in (layer.in_proj_qkv, layer.in_proj_z, layer.in_proj_b, layer.in_proj_a, layer.out_proj):
+    for module in (
+        layer.in_proj_qkv,
+        layer.in_proj_z,
+        layer.in_proj_b,
+        layer.in_proj_a,
+        layer.out_proj,
+    ):
         module.reset_parameters()
     return layer
 
@@ -57,7 +64,7 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
         bias = torch.randn(16, device="cuda")
         for activation in (None, "silu", "swish"):
             with self.subTest(activation=activation):
-                with patch.object(gdn, "causal_conv1d_fn", side_effect=standalone_conv) as kernel:
+                with patch.object(gdn_kernels, "causal_conv1d_fn", side_effect=standalone_conv) as kernel:
                     actual = gdn._causal_conv1d_dispatch(x, weight, bias, activation)
                 normalized = "silu" if activation == "swish" else activation
                 kernel.assert_called_once_with(x, weight, bias, activation=normalized)
@@ -66,7 +73,10 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
     def test_convolution_activation_normalization(self):
         self.assertIsNone(gdn._causal_conv1d_activation(None))
         self.assertEqual(gdn._causal_conv1d_activation("silu"), "silu")
-        self.assertEqual(gdn._causal_conv1d_activation("swish"), gdn._causal_conv1d_activation("silu"))
+        self.assertEqual(
+            gdn._causal_conv1d_activation("swish"),
+            gdn._causal_conv1d_activation("silu"),
+        )
         with self.assertRaisesRegex(ValueError, "Unsupported causal convolution activation"):
             gdn._causal_conv1d_activation("gelu")
 
@@ -78,7 +88,7 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
                     weight = torch.randn(16, 3, device=device)
                     bias = torch.randn(16, device=device)
                     # Force the fallback on GPU too, independently of installed packages.
-                    with patch.object(gdn, "causal_conv1d_fn", None):
+                    with patch.object(gdn_kernels, "causal_conv1d_fn", None):
                         actual = gdn._causal_conv1d_dispatch(x, weight, bias, activation)
                     expected = F.conv1d(x, weight[:, None], bias, padding=2, groups=16)[..., :7]
                     if activation is not None:
@@ -87,18 +97,22 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
                     initial = torch.randn(1, 16, 3, device=device)
                     unchanged_state = initial.clone()
                     expected_state, actual_state = initial.clone(), initial.clone()
-                    with patch.object(gdn, "causal_conv1d_update", None):
+                    with patch.object(gdn_kernels, "causal_conv1d_update", None):
                         updated = gdn._causal_conv1d_update_dispatch(x[..., :1], actual_state, weight, bias, activation)
                     reference = gdn._torch_causal_conv1d_update(
-                        x[..., :1], expected_state, weight, bias, "silu" if activation else None
+                        x[..., :1],
+                        expected_state,
+                        weight,
+                        bias,
+                        "silu" if activation else None,
                     )
                     torch.testing.assert_close(updated, reference)
                     torch.testing.assert_close(actual_state, expected_state)
                     # Unsupported activations must fail before launching either backend
                     # or mutating the decode cache.
                     with (
-                        patch.object(gdn, "causal_conv1d_fn") as prefill,
-                        patch.object(gdn, "causal_conv1d_update") as decode,
+                        patch.object(gdn_kernels, "causal_conv1d_fn") as prefill,
+                        patch.object(gdn_kernels, "causal_conv1d_update") as decode,
                     ):
                         with self.assertRaisesRegex(ValueError, "Unsupported causal convolution activation"):
                             gdn._causal_conv1d_dispatch(x, weight, bias, "gelu")
@@ -112,13 +126,23 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
         for device in non_cuda_devices():
             with self.subTest(device=device), ExitStack() as stack:
                 kernels = [
-                    stack.enter_context(patch.object(gdn, name, side_effect=AssertionError("GPU kernel on CPU/MPS")))
+                    stack.enter_context(
+                        patch.object(
+                            gdn_kernels,
+                            name,
+                            side_effect=AssertionError("GPU kernel on CPU/MPS"),
+                        )
+                    )
                     for name in FAST_KERNELS
                 ]
                 if gdn._fla_rmsnorm_gated:
                     kernels.append(
                         stack.enter_context(
-                            patch.object(gdn._FLARMSNormGated, "forward", side_effect=AssertionError("GPU norm"))
+                            patch.object(
+                                gdn._FLARMSNormGated,
+                                "forward",
+                                side_effect=AssertionError("GPU norm"),
+                            )
                         )
                     )
                 # Construct with accelerators available, then move to the requested device.
@@ -139,7 +163,13 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
         torch.manual_seed(77)
         with ExitStack() as stack:
             for name in FAST_KERNELS:
-                stack.enter_context(patch.object(gdn, name, side_effect=AssertionError("GPU kernel on CPU")))
+                stack.enter_context(
+                    patch.object(
+                        gdn_kernels,
+                        name,
+                        side_effect=AssertionError("GPU kernel on CPU"),
+                    )
+                )
             full = new_layer().eval()
             cached = copy.deepcopy(full)
             cached.conv_state = torch.zeros(1, cached.conv_dim, cached.conv_kernel_size)
@@ -157,7 +187,11 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
         norm = gdn.RMSNormGated(16)
         x = torch.randn(2, 3, 16, requires_grad=True)
         gate = torch.randn_like(x, requires_grad=True)
-        with patch.object(gdn, "_compiled_fla_rms_norm_gated", side_effect=AssertionError("GPU adapter")) as kernel:
+        with patch.object(
+            gdn_kernels,
+            "_compiled_fla_rms_norm_gated",
+            side_effect=AssertionError("GPU adapter"),
+        ) as kernel:
             compiled = torch.compile(norm, backend="aot_eager", fullgraph=True)
             actual = compiled(x, gate)
             expected = norm(x, gate)
@@ -171,8 +205,17 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
             self.skipTest("FLA norm unavailable")
         for dtype in (torch.float32, torch.bfloat16):
             for activation in ("silu", "swish", "sigmoid"):
-                for has_residual, residual_in_fp32 in ((False, False), (False, True), (True, False)):
-                    with self.subTest(dtype=dtype, activation=activation, residual=has_residual, fp32=residual_in_fp32):
+                for has_residual, residual_in_fp32 in (
+                    (False, False),
+                    (False, True),
+                    (True, False),
+                ):
+                    with self.subTest(
+                        dtype=dtype,
+                        activation=activation,
+                        residual=has_residual,
+                        fp32=residual_in_fp32,
+                    ):
                         norm = gdn.RMSNormGated(16, activation=activation).to(dtype)
                         x = torch.randn(2, 3, 16, dtype=dtype, requires_grad=True)
                         gate = torch.randn_like(x, requires_grad=True)
@@ -182,7 +225,11 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
                         expected = expected * norm.weight.float()
                         expected *= torch.sigmoid(gate.float()) if activation == "sigmoid" else F.silu(gate.float())
                         actual, residual_out = norm(
-                            x, gate, residual=residual, prenorm=True, residual_in_fp32=residual_in_fp32
+                            x,
+                            gate,
+                            residual=residual,
+                            prenorm=True,
+                            residual_in_fp32=residual_in_fp32,
                         )
                         torch.testing.assert_close(actual, expected.to(dtype))
                         expected_dtype = torch.float32 if has_residual or residual_in_fp32 else dtype
@@ -198,12 +245,18 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
             # Wrap reference implementations so the test verifies GPU selection independently
             # of which optional packages are installed, including cache mutation.
             kernels = [
-                stack.enter_context(patch.object(gdn, name, wraps=reference))
+                stack.enter_context(patch.object(gdn_kernels, name, wraps=reference))
                 for name, reference in zip(
                     FAST_KERNELS,
                     (
                         lambda x, w, b, *, activation=None: F.silu(
-                            F.conv1d(x, w[:, None], b, padding=w.shape[-1] - 1, groups=x.shape[1])[..., : x.shape[-1]]
+                            F.conv1d(
+                                x,
+                                w[:, None],
+                                b,
+                                padding=w.shape[-1] - 1,
+                                groups=x.shape[1],
+                            )[..., : x.shape[-1]]
                         ),
                         gdn._torch_causal_conv1d_update,
                         gdn._torch_chunk_gated_delta_rule,
@@ -219,7 +272,11 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
                 layer.to(device)
                 layer.conv_state = torch.zeros(1, layer.conv_dim, layer.conv_kernel_size, device=device)
                 layer.recurrent_state = torch.zeros(
-                    1, layer.num_v_heads, layer.head_k_dim, layer.head_v_dim, device=device
+                    1,
+                    layer.num_v_heads,
+                    layer.head_k_dim,
+                    layer.head_v_dim,
+                    device=device,
                 )
                 with torch.no_grad():
                     layer(torch.randn(1, 4, 32, device=device))
@@ -239,7 +296,10 @@ class TestGatedDeltaNetDispatch(unittest.TestCase):
         conv, state = layer.conv_state.clone(), layer.recurrent_state.clone()
         with torch.no_grad():
             expected = layer(x)
-            expected_conv, expected_state = layer.conv_state.clone(), layer.recurrent_state.clone()
+            expected_conv, expected_state = (
+                layer.conv_state.clone(),
+                layer.recurrent_state.clone(),
+            )
             layer.conv_state.copy_(conv)
             layer.recurrent_state.copy_(state)
             compiled = torch.compile(layer, backend="aot_eager", fullgraph=True)

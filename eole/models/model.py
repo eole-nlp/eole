@@ -428,95 +428,11 @@ class BaseModel(nn.Module):
             logger.info("%s compression of layers %s", running_config.quant_type, quant_names)
             logger.debug("Quantization selection: %s", nonlora_to_quant)
 
-            def target_prefix(target):
-                return next(name for name, module in self.named_modules() if module is target)
+            from eole.modules.quant import apply_quant_backend
 
-            if running_config.quant_type in ["bnb_8bit", "bnb_FP4", "bnb_NF4"]:
-                try:
-                    from eole.modules.quant.bnb_linear import replace_bnb_linear
-                except ImportError:
-                    raise ImportError("Install bitsandbytes to use 4/8bit compression")
-                # try to do this inplace, not sure it'll work
-                for quant_target in quant_targets:
-                    replace_bnb_linear(
-                        quant_target,
-                        module_to_convert=nonlora_to_quant,
-                        q_type=running_config.quant_type,
-                        module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
-                        prefix=target_prefix(quant_target),
-                    )
-            elif running_config.quant_type in ["awq_gemm", "awq_gemv"]:
-                try:
-                    from eole.modules.quant.awq_linear import replace_awq_linear
-                except ImportError:
-                    raise ImportError("Install AutoAWQ to use awq quantized model")
-                # try to do this inplace, not sure it'll work
-                for quant_target in quant_targets:
-                    replace_awq_linear(
-                        quant_target,
-                        module_to_convert=nonlora_to_quant,
-                        w_bit=running_config.w_bit,
-                        group_size=running_config.group_size,
-                        q_type=running_config.quant_type,
-                        module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
-                        prefix=target_prefix(quant_target),
-                    )
-            elif running_config.quant_type == "autoround":
-                try:
-                    from eole.modules.quant.autoround_linear import replace_autoround_linear
-                except ImportError:
-                    raise ImportError("Install auto-round to use autoround quantized model")
-                for quant_target in quant_targets:
-                    replace_autoround_linear(
-                        quant_target,
-                        module_to_convert=nonlora_to_quant,
-                        w_bit=running_config.w_bit,
-                        group_size=running_config.group_size,
-                        packing_format=getattr(running_config, "autoround_packing_format", "auto_round:auto_gptq"),
-                        sym=getattr(running_config, "autoround_sym", True),
-                        module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
-                        prefix=target_prefix(quant_target),
-                    )
-            elif running_config.quant_type == "nvfp4":
-                from eole.modules.quant.compressed_float_linear import (
-                    replace_compressed_float_linear,
-                    CompressedFloatLinear,
-                )
-                from eole.modules.quant.quantization_selection import is_selected
-
-                # Vision checkpoints keep a native head unless conversion explicitly mapped it as packed.
-                if "generator" in nonlora_to_quant and is_selected(
-                    "generator", nonlora_to_quant, getattr(running_config, "quant_exclude_modules", [])
-                ):
-                    if self.share_decoder_embeddings:
-                        raise ValueError("Compressed vocabulary heads cannot share decoder embeddings")
-                    self.generator = CompressedFloatLinear(
-                        self.generator.in_features, self.generator.out_features, self.generator.bias is not None
-                    )
-                if getattr(running_config, "parallel_gpu", 1) != 1:
-                    raise ValueError("NVFP4 inference currently requires a single GPU")
-                if running_config.compute_dtype not in (torch.float16, torch.bfloat16):
-                    raise ValueError("NVFP4 inference requires compute_dtype=fp16 or bf16")
-                for quant_target in quant_targets:
-                    replace_compressed_float_linear(
-                        quant_target,
-                        nonlora_to_quant,
-                        getattr(running_config, "quant_exclude_modules", []),
-                        target_prefix(quant_target),
-                    )
-            elif running_config.quant_type == "gguf":
-                try:
-                    from eole.modules.quant.gguf_linear import replace_gguf_linear
-                except ImportError:
-                    raise ImportError("Install gguf to use GGUF quantized models: pip install gguf")
-                for quant_target in quant_targets:
-                    replace_gguf_linear(
-                        quant_target,
-                        module_to_convert=nonlora_to_quant,
-                        module_to_not_convert=getattr(running_config, "quant_exclude_modules", []),
-                        prefix=target_prefix(quant_target),
-                    )
-            else:
+            if not apply_quant_backend(
+                running_config.quant_type, self, running_config, quant_targets, nonlora_to_quant
+            ):
                 logger.info("compression type %s not supported." % running_config.quant_type)
 
     def maybe_lora(self, running_config):
