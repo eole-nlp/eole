@@ -122,6 +122,9 @@ def _generator(model, vocab, speculative):
     gen.estim_only = False
     gen.dynamic_shapes = False
     gen.report_time = False
+    gen.warmup_time = []
+    gen.step0_time = []
+    gen.decode_timings = []
     gen.report_align = False
     gen.tgt_file_prefix = False
     gen.context_length = 64
