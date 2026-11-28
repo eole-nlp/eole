@@ -212,6 +212,7 @@ class Inference(object):
         self.verbose = config.verbose
         self.report_time = config.report_time
         self.step0_time = 0.0
+        self.warmup_time = []
         self.decode_timings = []
 
         self.global_scorer = global_scorer
