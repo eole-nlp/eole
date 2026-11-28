@@ -63,7 +63,7 @@ class SimplifiedDecoderLayer(nn.Module):
         self.layer_idx = layer_idx
         self.layer_norm = nn.LayerNorm(model_config.hidden_size, eps=model_config.norm_eps)
 
-        from eole.modules.multi_headed_attn import SelfMHA
+        from eole.modules.attention.multi_headed_attn import SelfMHA
 
         self.self_attn = SelfMHA(model_config, running_config, is_decoder=True)
 

@@ -1,7 +1,7 @@
 # flake8: noqa
 import torch
-import eole.modules.rope as rope_module
-from eole.modules.rope import apply_rotary_emb
+import eole.modules.attention.rope as rope_module
+from eole.modules.attention.rope import apply_rotary_emb
 
 """
 Expected results
