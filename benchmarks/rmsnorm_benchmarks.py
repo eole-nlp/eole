@@ -1,7 +1,7 @@
 # flake8: noqa
 import torch
-import eole.modules.rmsnorm as rmsnorm_module
-from eole.modules.rmsnorm import RMSNorm, GemmaRMSNorm
+import eole.modules.attention.rmsnorm as rmsnorm_module
+from eole.modules.attention.rmsnorm import RMSNorm, GemmaRMSNorm
 
 
 """
