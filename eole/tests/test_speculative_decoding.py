@@ -1,4 +1,3 @@
-import copy
 import unittest
 from unittest.mock import patch
 from collections import Counter
@@ -135,9 +134,18 @@ def _generator(model, vocab, speculative):
 
 
 class TestSpeculativeDecoding(unittest.TestCase):
+    def tearDown(self):
+        # Compiled decoder graphs are cached per code object and the decoder's
+        # guard filter keeps only TENSOR_MATCH guards, so module-attribute state
+        # traced in one test must not leak into the next.
+        torch._dynamo.reset()
+
     def _compare(self, gated_delta, dynamic_cache=False, qwen_mtp=False):
         model_plain, vocab = _build_model(123, gated_delta=gated_delta, qwen_mtp=qwen_mtp)
-        model_spec = copy.deepcopy(model_plain)
+        # Rebuild instead of deepcopy: a copied decoder keeps the original's
+        # torch.compile wrapper, whose TENSOR_MATCH-only guards then bind the
+        # copy to the original's buffers and corrupt compiled decode.
+        model_spec, _ = _build_model(123, gated_delta=gated_delta, qwen_mtp=qwen_mtp)
         if dynamic_cache:
             # Start with a KV cache sized to the prompt, as eager decoding
             # does, so the first speculative chunk must reserve its full span.
